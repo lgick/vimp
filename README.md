@@ -1,4 +1,4 @@
-# VIMP engine
+# VIMP
 
 A multiplayer 2D real-time online game: team-based tank battles played in rounds.
 
@@ -12,8 +12,8 @@ A multiplayer 2D real-time online game: team-based tank battles played in rounds
 ## Quick start
 
 ```bash
-git clone https://github.com/lgick/vimp-engine.git
-cd vimp-engine
+git clone https://github.com/lgick/vimp.git
+cd vimp
 npm install
 npm link @vimp/tanks   # or another game plugin — see its own setup docs
 npm run dev

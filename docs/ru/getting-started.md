@@ -9,8 +9,8 @@
 ## Установка
 
 ```bash
-git clone https://github.com/lgick/vimp-engine.git
-cd vimp-engine
+git clone https://github.com/lgick/vimp.git
+cd vimp
 npm install
 ```
 

@@ -1,4 +1,4 @@
-# VIMP engine Documentation
+# VIMP Documentation
 
 A multiplayer 2D real-time online game on a P2P architecture: a browser host
 (Web Worker + Rust core in WASM) runs the authoritative simulation, PixiJS

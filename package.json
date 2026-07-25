@@ -5,13 +5,13 @@
   "license": "MIT",
   "private": false,
   "description": "game",
-  "homepage": "https://github.com/lgick/vimp-engine#readme",
+  "homepage": "https://github.com/lgick/vimp#readme",
   "bugs": {
-    "url": "https://github.com/lgick/vimp-engine/issues"
+    "url": "https://github.com/lgick/vimp/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/lgick/vimp-engine.git"
+    "url": "git+ssh://git@github.com/lgick/vimp.git"
   },
   "type": "module",
   "workspaces": [

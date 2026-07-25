@@ -8,7 +8,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # --- Глобальные переменные (инициализация для set -u) ---
-TEMPLATE="/etc/nginx/vimp-engine.template"
+TEMPLATE="/etc/nginx/vimp.template"
 DEFAULT_EMAIL="admin@example.com"
 PROJECTS_ROOT="$HOME/vimp_projects"
 DOMAIN=""

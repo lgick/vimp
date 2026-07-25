@@ -1,7 +1,7 @@
 {
   "name": "@vimp/engine",
   "version": "0.1.0",
-  "description": "VIMP Engine — движок-приложение (мастер, P2P-транспорт, Worker-хост, мета, MVC-каркас клиента)",
+  "description": "VIMP — движок-приложение (мастер, P2P-транспорт, Worker-хост, мета, MVC-каркас клиента)",
   "type": "module",
   "exports": {
     "./lib/*": "./src/lib/*",

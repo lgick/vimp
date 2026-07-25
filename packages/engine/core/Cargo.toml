@@ -2,9 +2,9 @@
 name = "vimp-engine-core"
 version = "0.1.0"
 edition = "2024"
-description = "VIMP Engine — движковый каркас симуляции (физика, карта, снапшот-фрейминг, интерполяция/предикт/raycast-примитивы, нав-утилиты). Без wasm-bindgen — обёртки для WASM-ABI собирает game-crate."
+description = "VIMP — движковый каркас симуляции (физика, карта, снапшот-фрейминг, интерполяция/предикт/raycast-примитивы, нав-утилиты). Без wasm-bindgen — обёртки для WASM-ABI собирает game-crate."
 license = "MIT"
-repository = "https://github.com/lgick/vimp-engine"
+repository = "https://github.com/lgick/vimp"
 
 [lib]
 crate-type = ["rlib"]

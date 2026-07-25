@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-VIMP engine — the P2P multiplayer engine: authoritative matches run in a Web
+VIMP — the P2P multiplayer engine: authoritative matches run in a Web
 Worker in the room creator's browser tab, clients render via PixiJS and
 connect over WebRTC, a lightweight Node.js master server provides the lobby,
 WebRTC signaling and game/map catalog. Game rules themselves (e.g. the tanks
