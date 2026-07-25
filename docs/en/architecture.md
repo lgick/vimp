@@ -1,11 +1,11 @@
 # Architecture
 
-VIMP Tank Battle is a real-time multiplayer 2D game built on a **P2P
-architecture**. **The host is authoritative**: all physics (Rapier 2D in the
-Rust core, WASM), damage, and rules are computed in the Web Worker of the room
-creator's tab; clients render the world (PixiJS) and mask network latency
-with interpolation and prediction. The master server (Node.js) carries no
-game logic: lobby, WebRTC signaling, map catalog, social moderation.
+VIMP is a **P2P** engine for real-time multiplayer 2D games. **The host is
+authoritative**: all physics (Rapier 2D in the Rust core, WASM) and game
+rules are computed in the Web Worker of the room creator's tab; clients
+render the world (PixiJS) and mask network latency with interpolation and
+prediction. The master server (Node.js) carries no game logic: lobby, WebRTC
+signaling, map catalog, social moderation.
 
 ```
 ┌──────────────────┐  signaling WS (SDP/ICE, ping, /ban)   ┌──────────────────┐
@@ -104,7 +104,7 @@ Host tab
 │   ├─ LoopbackTransport         — host-player transport over postMessage
 │   └─ HostConnectionManager     — WebRTC answerer for remote clients + backpressure
 └─ Web Worker (host.worker.js)   — authoritative simulation ~120 Hz
-    ├─ GameCore (WASM, from the game plugin, e.g. @vimp/tanks/core) — physics, weapons, bots
+    ├─ GameCore (WASM, from the game plugin, e.g. @vimp/tanks/core) — physics, game entities, bots
     ├─ GameCoreAdapter           — physics/bots/packing surface over the core
     └─ HostGame facade + meta     — RoundManager, ParticipantManager, Chat, Vote,
                                     Stat, Panel, TimerManager… (packages/engine/src/host/meta/)
@@ -119,17 +119,18 @@ HostGame (facade/wiring + core-driven tick)
  ├─ RoundManager         — rounds, team wipe, map changes, spectator↔active
  ├─ CommandProcessor     — chat commands (/name, /bot, /nr, /timeleft, /mapname)
  ├─ VoteCoordinator      — vote creation/cooldown/reset
- ├─ GameCoreAdapter      — the core: physics, game entities/weapons, bots, packBody/packFrame
+ ├─ GameCoreAdapter      — the core: physics, game entities, bots, packBody/packFrame
  ├─ Cold path: Panel, Stat, Chat, Vote (JSON, on change)
  ├─ TimerManager         — all timers  /  RTTManager — pings and kicks
- └─ the game's scripted module (e.g. TanksBotManager, from the plugin; AI lives in the core)
+ └─ the game's scripted module (e.g. a bot manager, from the plugin; AI lives in the core)
 ```
 
-**The core's boundary is simulation, not meta**: physics, tanks, both weapon
-types, bots, and binary frame packing live in the core; health/ammo live
-there too, and the panel is a projection of its events (`take_events()`'s
-standard dictionary: panelSet/panelActive/death/shake/custom). Meta (chat, votes, stats, rounds, the
-participant registry, auth) is JS running in the Worker.
+**The core's boundary is simulation, not meta**: physics, game entities,
+bots, and binary frame packing live in the core; game-specific state (e.g.
+health/ammo) lives there too, and the panel is a projection of its events
+(`take_events()`'s standard dictionary: panelSet/panelActive/death/shake/custom).
+Meta (chat, votes, stats, rounds, the participant registry, auth) is JS
+running in the Worker.
 
 ### Game loop
 

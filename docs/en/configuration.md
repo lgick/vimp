@@ -172,16 +172,17 @@ Adaptive scaling guarantees the same field of view on any monitor
 ahead of motion), `zoomOutFactor`/`maxZoomOut` (zooming out with speed),
 `smoothnessPosition`/`smoothnessZoom`/`smoothnessVelocity` (smoothing).
 
-Current canvases: `vimp` (16:9, 5:1 zoom, dynamic camera, shake) and
-`radar` (150×150px, 1:8 scale).
+Canvas names, sizes, and zoom are game-owned; e.g. `vimp-tanks` defines
+`vimp` (16:9, 5:1 zoom, dynamic camera, shake) and `radar` (150×150px,
+1:8 scale).
 
 ### `modules.controls` — controls
 
-- **`keySetList`** (game) — an array of two `keyCode: 'command'` sets:
-  `[0]` — spectator (`n`/`p` — switch the watched player), `[1]` — player
-  (`w/s/a/d` — movement, `k/l/u` — turret, `j` — fire, `n/p` — weapon
-  switch). Which set is active is dictated by the host over port `17`
-  (KEYSET_DATA).
+- **`keySetList`** (game) — an array of `keyCode: 'command'` sets, entirely
+  game-defined (e.g. `vimp-tanks` uses two: `[0]` — spectator (`n`/`p` —
+  switch the watched player), `[1]` — player (`w/s/a/d` — movement,
+  `k/l/u` — turret, `j` — fire, `n/p` — weapon switch)). Which set is
+  active is dictated by the host over port `17` (KEYSET_DATA).
 - **`modes`** (engine) — UI modes: `c` — chat, `m` — vote, `tab` — stats.
 - **`cmds`** (engine) — service keys (`escape`, `enter`), with top
   priority, used within modes.
@@ -193,9 +194,11 @@ game-owned:
 
 - **`chat`** — DOM element ids, output limits (`listLimit: 5` lines,
   `lineTime: 15000` ms), and a cache — engine; **system message
-  templates** (`messages`, game): groups `s` (status/commands), `v`
-  (votes), `m` (maps), `c` (teams), `n` (names), `b` (bots). The host
-  only sends `'group:number:params'`, the client assembles the text.
+  templates** (`messages`, game): a code registry of groups, engine-owned
+  groups `s` (status/commands), `v` (votes), `m` (maps), `c` (teams), `n`
+  (names) plus any groups the game plugin registers (e.g. `vimp-tanks`
+  adds `b` for bots). The host only sends `'group:number:params'`, the
+  client assembles the text.
 - **`panel`** — the `containerId` container (engine); the mapping from
   server keys (`t`, `h`, `wa`, `w1`, `w2`) to fields (`keys`) and the
   typed field schema `fields` (game): an ordered list of

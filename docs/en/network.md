@@ -142,8 +142,8 @@ Details:
   `4005` an idle kick, `4006` a full room. Closing a data channel carries
   no code/reason — the reason is delivered as a separate
   `TECH_INFORM_DATA` over `meta` before closing.
-- After `FIRST_SHOT_READY` the user gets a team-selection vote
-  (`teamChange`) and starts receiving frames.
+- After `FIRST_SHOT_READY` the user gets the game's initial vote (e.g. a
+  team-selection vote in `vimp-tanks`) and starts receiving frames.
 
 ## Channel split: the hot snapshot vs. meta
 
@@ -152,10 +152,11 @@ sends a binary frame on port `5` to **every user ready to play**. Meta data
 travels **its own JSON channels, only on change** (see
 `HostGame._onShotTick` in [packages/engine/src/host/HostGame.js](../../packages/engine/src/host/HostGame.js)):
 
-- **panel (13)** — per-user; an array of `'key:value'` strings (`t` —
-  round time, `h` — health, `w1`/`w2` — ammo, `wa` — the active weapon).
-  A full panel is sent on joining the game, an empty one (keys only) to a
-  spectator.
+- **panel (13)** — per-user; an array of `'key:value'` strings, keys from
+  the game's panel schema (`t` — round time is the only engine-defined
+  key; e.g. `vimp-tanks` adds `h` — health, `w1`/`w2` — ammo, `wa` — the
+  active weapon). A full panel is sent on joining the game, an empty one
+  (keys only) to a spectator.
 - **stat (14)** — broadcast, a delta of changes (format below).
 - **chat (15)** — a broadcast or personal message (`shiftByUser`).
 - **vote (16)** — a broadcast or personal vote.
@@ -193,11 +194,17 @@ a copy of the body.
 | body blocks | to the end of the buffer | `Uint8 keyId` + content per `kind` |
 
 **Player block** (the foundation of client-side prediction): `gameId`
-(Uint8), `lastInputSeq` (Uint32), the tank's exact state as Float32×8 —
-`x, y, angle, vx, vy, angvel, gunRotation, throttle` (**not rounded** —
+(Uint8), `lastInputSeq` (Uint32), the player actor's exact state as
+Float32×8 — the fields are game-defined (e.g. `vimp-tanks`'s
+`x, y, angle, vx, vy, angvel, gunRotation, throttle`) (**not rounded** —
 precision is needed by the predictor), a turret-centering flag (Uint8).
 
 ### Entity blocks (`kind` from the game's snapshot schema)
+
+Entity keys, `kind` values, and their data shapes are entirely game-defined
+in the plugin's own snapshot schema — the engine only enforces the block
+layout (id + typed fields). Example from the reference plugin
+(`vimp-tanks`):
 
 | Key | id | kind | Data format |
 | :--: | :--: | --- | --- |
@@ -209,9 +216,9 @@ precision is needed by the predictor), a turret-centering flag (Uint8).
 
 Every float is originally rounded by the host to 2 decimals; the decoder
 restores values by rounding the Float32 again (the player block isn't
-rounded). Weapon events carry the author's id (`shooterId`/`ownerId`,
-added in v3) — the shooter uses it to suppress authoritative duplicates of
-locally spawned shots (the client core, the game plugin's
+rounded). Game entity events can carry an author id (`vimp-tanks` uses
+`shooterId`/`ownerId`, added in v3) so the client can suppress authoritative
+duplicates of locally spawned entities (the client core, the game plugin's
 `core/src/client/shot.rs`, e.g. `vimp-tanks`'s).
 
 Each schema entry is more than `{id, kind}`: `class` (`'hot'` —

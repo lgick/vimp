@@ -1,13 +1,16 @@
 # VIMP
 
-A multiplayer 2D real-time online game: team-based tank battles played in rounds.
+A P2P multiplayer 2D real-time engine: games run authoritatively in a Web
+Worker in the room creator's browser tab, clients connect over WebRTC. Game
+rules themselves are not part of this repo — they live in separately
+published, dynamically loaded game plugins.
 
 ![game video](./.github/assets/video/game.gif?raw=true)
 
 - **P2P**: the authoritative host is a Web Worker in the room creator's browser tab (a Rust simulation core compiled to WASM: Rapier 2D physics at ~120 Hz, bots, binary snapshots at 30 packets/sec); clients connect over WebRTC.
 - **Master server**: Node.js + Express + `ws` — lobby, WebRTC signaling, map catalog.
 - **Client**: PixiJS, snapshot interpolation, client-side prediction, procedural textures, spatial audio (Howler).
-- **Gameplay**: game rules (teams, weapons, bots, votes, chat, statistics) live in a separately published, dynamically loaded game plugin — see [vimp-tanks](https://github.com/lgick/vimp-tanks) for the reference tank-battle game.
+- **Gameplay**: game rules (teams, weapons, bots, votes, chat, statistics, etc.) live in a separately published, dynamically loaded game plugin — see [vimp-tanks](https://github.com/lgick/vimp-tanks) for the reference tank-battle game.
 
 ## Quick start
 

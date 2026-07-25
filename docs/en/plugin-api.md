@@ -110,7 +110,7 @@ export default {
   // there are no static vote definitions: game votes are created dynamically
   // via ctx.voteCoordinator.createVote(...) from chat-command handlers
 
-  createModules(ctx) { return { scripted: new TanksBotManager(ctx) }; },
+  createModules(ctx) { return { scripted: new MyBotManager(ctx) }; },
   // ctx = { participants, coreAdapter, panel, stat, chat, socketManager,
   //         scripted /* gameConfig.scripted parameters */ }
   // chat-command handlers get a different, meta-level ctx from

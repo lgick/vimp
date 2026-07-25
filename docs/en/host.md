@@ -253,25 +253,25 @@ Implements the physics/bots/packing surface consumed by
   full player snapshot without draining accumulators — for
   `FIRST_SHOT_DATA`).
 
-`TanksBotManager` (the game plugin's `src/host/TanksBotManager.js`, e.g.
-`vimp-tanks`'s) is the game's
-scripted module: a thin bot manager registering participants and linking
-them to `Stat`/`Panel` (AI, navigation, and the spatial grid live in the
-core). It's built by the `createModules(ctx)` factory
-(the game plugin's `src/host/createModules.js` returns `{ scripted }`); the
-engine calls the scripted-module contract: `createMap`,
+The game's scripted module (the game plugin's `src/host/`, e.g.
+`vimp-tanks`'s `TanksBotManager.js`) is a thin bot manager registering
+participants and linking them to `Stat`/`Panel` (AI, navigation, and the
+spatial grid live in the core). It's built by the `createModules(ctx)`
+factory (the game plugin's `src/host/createModules.js` returns
+`{ scripted }`); the engine calls the scripted-module contract: `createMap`,
 `createScripted(count, team?)`, `removeScripted(team?)`,
 `removeOneForHuman(team)`, `getCount`, `getCountsPerTeam`. Parameters come
 from the game config's `scripted` (`namePrefix`, `defaultModel`).
 
-**The tanks HostPlugin** (the game plugin's `src/host/index.js`, e.g.
+**The game's HostPlugin** (the game plugin's `src/host/index.js`, e.g.
 `vimp-tanks`'s; the default export
 of the game's host-entry bundle) — the whole game half of the host as a
 single object: `id`, `engineApi`, `createCore(coreConfigJson, { wasmUrl })`,
-`gameConfig`, `authSchema`, `chatCommands` (`/bot`), `systemMessages` (the
-`b:*` group), `createModules` (returns the scripted module),
-`buildClientGameConfig()` (the game half of CONFIG_DATA); optionally
-`onCoreEvent` for game-specific `custom` core events (tanks doesn't set it).
+`gameConfig`, `authSchema`, `chatCommands` (e.g. a bot-spawn command),
+`systemMessages` (a plugin-defined group), `createModules` (returns the
+scripted module), `buildClientGameConfig()` (the game half of CONFIG_DATA);
+optionally `onCoreEvent` for game-specific `custom` core events (`vimp-tanks`
+doesn't set it).
 `host.worker.js` loads it with a dynamic `import(room.game.hostEntryUrl)` on
 `init` (Stage 6.4) — `room.game` (`{ id, version, hostEntryUrl, wasmUrl }`)
 comes from `GameManifest.entries` via `connectAsHost`, so the engine never
@@ -337,19 +337,11 @@ code paths — fully unifying the two into one abstraction is a future task.
 The engine core: `/name <nick>`, `/timeleft`, `/mapname`, `/nr` (new round,
 **dev mode only**); game commands are registered via
 `registerCommand(name, handler)` and receive the meta context —
-`handler(ctx, gameId, args)`. Tanks registers `/bot`
-(the game plugin's `src/host/botCommand.js`, e.g. `vimp-tanks`'s):
-
-```
-/bot 5 team1   # spawn 5 bots into team1
-/bot 10        # spawn 10 bots, spread evenly
-/bot 0 team2   # remove team2's bots
-/bot 0         # remove all bots
-```
-
-`/bot` is only available to active players; if more than one human is
-active, a vote runs instead of immediate execution (category
-`botManagement`). An unknown command produces a "Command not found" system
+`handler(ctx, gameId, args)`. A game plugin can register its own commands
+this way (e.g. `vimp-tanks` registers a bot-spawn command — see that
+plugin's own docs for its syntax); if more than one human is active, a
+vote runs instead of immediate execution (category `botManagement` for the
+tanks example). An unknown command produces a "Command not found" system
 message. (`/ban` never reaches the host — the client intercepts it and sends
 the report straight to the master, see [master.md](master.md).)
 
@@ -361,14 +353,15 @@ callback + participant list), `reset`. Topic cooldown — `timeBlockedVote`
 ### `meta/modules/` modules
 
 - **`Panel`** — per-user HUD: the schema from `game:panel` (`fields` —
-  health/w1/w2, `activeKey` — the active weapon's key),
+  game-defined keys, e.g. `vimp-tanks`'s health/ammo; `activeKey` — the
+  active-item key, e.g. the active weapon in `vimp-tanks`),
   `updateUser(gameId, param, value, op)` accumulating `pendingChanges`,
   `processUpdates()` emits only changes once per snapshot tick (strings
   `'key:value'`, round time `t` — on every second change),
   `getFullPanel`/`getEmptyPanel`, `setActiveWeapon` (writes the schema's
-  `activeKey`, `wa` for tanks), `hasResources`/`getCurrentValue`. Authoritative health/ammo live in the
-  core — the panel is filled by a projection of its events
-  (`GameCoreAdapter`).
+  `activeKey`), `hasResources`/`getCurrentValue`. Authoritative game state
+  (e.g. health/ammo) lives in the core — the panel is filled by a
+  projection of its events (`GameCoreAdapter`).
 - **`Stat`** — the scoreboard: row (body) and team totals (head) per the
   `game:stat` config; `addUser`/`removeUser`/`moveUser`/`updateUser`/
   `updateHead`; `getLast()` — the delta for this tick, `getFull()` — full
@@ -646,14 +639,16 @@ Open `https://localhost:3002`, "Create server" → the host tab. Remote
 clients are other tabs/machines: lobby → the room shows up in the list →
 joining.
 
-Checklist:
+Checklist (gameplay-specific steps below use `vimp-tanks` as the reference
+plugin — swap in the active plugin's own equivalents):
 
-- [ ] your own tank's movement (prediction/reconciliation without jitter);
-- [ ] `w1`/`w2` shooting, damage, death and respawn, team change (`/bot`, menu);
+- [ ] your own actor's movement (prediction/reconciliation without jitter);
+- [ ] game actions (e.g. shooting), damage, death and respawn, team change
+      (chat command or menu);
 - [ ] bots: spawn, patrol, combat (AI in the core);
 - [ ] chat, votes (map/team change), stats, panel — all update;
 - [ ] a round: start/timer/team victory/new round;
-- [ ] a full 8-player + bots match end-to-end;
+- [ ] a full multi-player + bots match end-to-end;
 - [ ] a drop: the host leaving kills the room → remote clients redirect
       to the lobby (`handleDisconnect`); there's no host migration.
 

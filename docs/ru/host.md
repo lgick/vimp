@@ -238,24 +238,25 @@ prediction) собирает `packages/engine/src/lib/buildClientConfig.js`.
 - **первый кадр**: `getPlayersData` → `players_data()` ядра (полный снапшот
   игроков без дренажа накопителей — для `FIRST_SHOT_DATA`).
 
-`TanksBotManager` (`src/host/TanksBotManager.js` игры-плагина, например в
-`vimp-tanks`) — игровой
-scripted-модуль: тонкий менеджер ботов, регистрация участников и связка со
-`Stat`/`Panel` (ИИ, навигация и пространственная сетка — в ядре). Создаётся
-фабрикой `createModules(ctx)` (`src/host/createModules.js` игры-плагина
-возвращает `{ scripted }`); движок дергает контракт scripted-модуля:
-`createMap`, `createScripted(count, team?)`, `removeScripted(team?)`,
-`removeOneForHuman(team)`, `getCount`, `getCountsPerTeam`. Параметры —
-`scripted` из конфига игры (`namePrefix`, `defaultModel`).
+Scripted-модуль игры (`src/host/` игры-плагина, например `vimp-tanks`'а
+`TanksBotManager.js`) — тонкий менеджер ботов: регистрация участников и
+связка со `Stat`/`Panel` (ИИ, навигация и пространственная сетка — в
+ядре). Создаётся фабрикой `createModules(ctx)` (`src/host/createModules.js`
+игры-плагина возвращает `{ scripted }`); движок дергает контракт
+scripted-модуля: `createMap`, `createScripted(count, team?)`,
+`removeScripted(team?)`, `removeOneForHuman(team)`, `getCount`,
+`getCountsPerTeam`. Параметры — `scripted` из конфига игры (`namePrefix`,
+`defaultModel`).
 
-**HostPlugin танков** (`src/host/index.js` игры-плагина, например в
+**HostPlugin игры** (`src/host/index.js` игры-плагина, например в
 `vimp-tanks`; default export
 host-entry сборки игры) — вся игровая половина хоста одним объектом: `id`,
 `engineApi`, `createCore(coreConfigJson, { wasmUrl })`, `gameConfig`,
-`authSchema`, `chatCommands` (`/bot`), `systemMessages` (группа `b:*`),
-`createModules` (возвращает scripted-модуль), `buildClientGameConfig()` (игровая
-половина CONFIG_DATA); опционально `onCoreEvent` для игровых
-`custom`-событий ядра (танки его не задают). `host.worker.js` грузит его
+`authSchema`, `chatCommands` (напр. команда спавна ботов), `systemMessages`
+(группа, заданная плагином), `createModules` (возвращает scripted-модуль),
+`buildClientGameConfig()` (игровая половина CONFIG_DATA); опционально
+`onCoreEvent` для игровых `custom`-событий ядра (`vimp-tanks` его не
+задаёт). `host.worker.js` грузит его
 динамическим `import(room.game.hostEntryUrl)` на `init` (Этап 6.4) —
 `room.game` (`{ id, version, hostEntryUrl, wasmUrl }`) приходит из
 `entries` `GameManifest` через `connectAsHost`, поэтому движок не
@@ -319,21 +320,13 @@ Worker-safe (только изоморфные API — `Date`/`Math`/`performanc
 Движковое ядро: `/name <ник>`, `/timeleft`, `/mapname`, `/nr` (новый раунд,
 **только в dev-режиме**); игровые команды регистрируются через
 `registerCommand(name, handler)` и получают контекст меты —
-`handler(ctx, gameId, args)`. У танков зарегистрирована `/bot`
-(`src/host/botCommand.js` игры-плагина, например в `vimp-tanks`):
-
-```
-/bot 5 team1   # создать 5 ботов в team1
-/bot 10        # создать 10 ботов с равномерным распределением
-/bot 0 team2   # удалить ботов team2
-/bot 0         # удалить всех ботов
-```
-
-`/bot` доступен только активным игрокам; если активных людей больше одного —
+`handler(ctx, gameId, args)`. Игра-плагин может регистрировать свои команды
+через этот механизм (напр. `vimp-tanks` регистрирует команду спавна ботов —
+синтаксис см. в доках этого плагина); если активных людей больше одного,
 вместо немедленного исполнения запускается голосование (категория
-`botManagement`). Неизвестная команда — системное сообщение «Command not
-found». (`/ban` до хоста не доходит — клиент перехватывает её и шлёт жалобу
-напрямую мастеру, см. [master.md](master.md).)
+`botManagement` в примере с танками). Неизвестная команда — системное
+сообщение «Command not found». (`/ban` до хоста не доходит — клиент
+перехватывает её и шлёт жалобу напрямую мастеру, см. [master.md](master.md).)
 
 **VoteCoordinator** — создание голосований поверх модуля `Vote`:
 `canCreateVote` (проверка кулдауна темы), `createVote` (payload + колбэк
@@ -342,14 +335,16 @@ found». (`/ban` до хоста не доходит — клиент перех
 
 ### Модули `meta/modules/`
 
-- **`Panel`** — HUD per-user: схема из `game:panel` (`fields` —
-  health/w1/w2, `activeKey` — ключ активного оружия),
+- **`Panel`** — HUD per-user: схема из `game:panel` (`fields` — ключи,
+  заданные игрой, напр. `vimp-tanks`'ы health/ammo; `activeKey` — ключ
+  активного элемента, напр. активного оружия в `vimp-tanks`),
   `updateUser(gameId, param, value, op)` с накоплением `pendingChanges`,
   `processUpdates()` раз в тик снапшота отдаёт только изменения (строки
   `'ключ:значение'`, время раунда `t` — при смене секунды),
   `getFullPanel`/`getEmptyPanel`, `setActiveWeapon` (пишет `activeKey`
-  схемы, у танков `wa`), `hasResources`/`getCurrentValue`. Авторитетные значения health/ammo живут в
-  ядре — панель наполняется проекцией его событий (`GameCoreAdapter`).
+  схемы), `hasResources`/`getCurrentValue`. Авторитетное игровое состояние
+  (напр. health/ammo) живёт в ядре — панель наполняется проекцией его
+  событий (`GameCoreAdapter`).
 - **`Stat`** — scoreboard: строки (body) и итоги команд (head) по конфигу
   `game:stat`; `addUser`/`removeUser`/`moveUser`/`updateUser`/`updateHead`;
   `getLast()` — дельта за тик, `getFull()` — полное состояние (при входе).
@@ -609,14 +604,16 @@ npm run dev            # мастер: лобби + сигналинг, https://
 Открыть `https://localhost:3002`, «Создать сервер» → хост-вкладка. Удалённые
 клиенты — другие вкладки/машины: лобби → комната появляется в списке → вход.
 
-Чек-лист:
+Чек-лист (игровые шаги ниже — на примере `vimp-tanks` как референсного
+плагина; для другого плагина подставьте его собственные эквиваленты):
 
-- [ ] движение своего танка (prediction/reconciliation без рывков);
-- [ ] стрельба `w1`/`w2`, урон, смерть и респаун, смена команды (`/bot`, меню);
+- [ ] движение своего актора (prediction/reconciliation без рывков);
+- [ ] игровые действия (напр. стрельба), урон, смерть и респаун, смена
+      команды (чат-команда или меню);
 - [ ] боты: спавн, патруль, бой (ИИ в ядре);
 - [ ] чат, голосования (смена карты/команды), статистика, панель — обновляются;
 - [ ] раунд: старт/таймер/победа команды/новый раунд;
-- [ ] полный матч на 8 игроков + боты end-to-end;
+- [ ] полный матч с несколькими игроками + боты end-to-end;
 - [ ] разрыв: выход хоста = смерть комнаты → удалённые клиенты редиректятся
       в лобби (`handleDisconnect`); host-migration нет.
 

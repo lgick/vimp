@@ -278,7 +278,7 @@ Data flow:
   (~40 lines in `main.js`) assembles the previous shape
   `{ m1: { id: [...] }, c1: {...} }` from it and feeds the existing
   `applyGameData` — GameCtrl/parts were never touched; the predicted record
-  overrides the local tank through the same pipeline.
+  overrides the local actor through the same pipeline.
 - **Event frames** (the `hasFrames` flag): `take_frames()` returns a JSON
   array `[{ game, camera }, …]` — every crossed `renderTime` frame emitted
   exactly once (events `w1`/`w2e`, creations/removals, camera reset/shake),
@@ -292,29 +292,29 @@ Data flow:
   `nextWeapon`/`prevWeapon` — `cycle_weapon`). Sending `"seq:action:name"`
   to the host is unchanged.
 
-**The tanks ClientPlugin** (the game plugin's `src/client/index.js`, e.g.
+**The game's ClientPlugin** (the game plugin's `src/client/index.js`, e.g.
 `vimp-tanks`'s; loaded dynamically by the engine from the master's
 `GameManifest`, stage 6.3 —
 `packages/engine/src/lib/gamePlugin.js`) supplies `parts` (entity renderers),
 `bakers` (procedural textures), the game CSS and the hooks. The core's game
 methods are called only from its hooks — `onAuth` (`set_model` on auth), `onPanel` (`sync_panel`
-per panel frame), `onLocalAction` (`try_fire`/`cycle_weapon`); `main.js`
-doesn't know the core's game methods. The game's CSS (panel cells,
-canvases, team colors) is the game plugin's `src/client/tanks.css` (e.g.
-`vimp-tanks`'s); the engine UI skeleton is
-`packages/engine/src/client/style.css`.
+per panel frame), `onLocalAction` (e.g. `try_fire`/`cycle_weapon` in
+`vimp-tanks`); `main.js` doesn't know the core's game methods. The game's
+CSS (panel cells, canvases, team colors) is the game plugin's own
+`src/client/*.css` (e.g. `vimp-tanks`'s `tanks.css`); the engine UI skeleton
+is `packages/engine/src/client/style.css`.
 
 Internally the core implements the following algorithms:
 
 - **interpolation** (`client/interpolator.rs`): an EMA offset of server
   time, `renderTime = serverNow − delay` (config `interpolation.delay: 100`
-  ms), lerp for tanks/dynamics/camera (angles by shortest path), discrete
+  ms), lerp for actors/dynamics/camera (angles by shortest path), discrete
   fields taken from the reference frame, hold with no extrapolation,
   seq-based insertion + immediate emission of late-frame events;
 - **prediction** (`client/predictor.rs`): a replica of the authoritative
   motion without Rapier collisions, at a fixed `timeStep`; tick formulas
-  are **shared** with `Tank::update` (the game plugin's `core/src/motion.rs`,
-  e.g. `vimp-tanks`'s) — the replica
+  are **shared** with the game plugin's own actor-update code (e.g.
+  `vimp-tanks`'s `core/src/motion.rs`) — the replica
   can't diverge from the authoritative path on formulas, integration
   parity (manual vs. Rapier) is locked in by the `client_parity` cargo
   tests; input history, replay from the frame's `serverTime`,
@@ -322,23 +322,24 @@ Internally the core implements the following algorithms:
   0`, resets on a camera forceReset/map change/keySet;
 - **shot spawning** (`client/shot.rs` + `client/raycast.rs`): a replica of
   the authoritative gate and muzzle formulas, DDA raycasting over wall
-  tiles + an OBB test against dynamics and tanks, a single pending-bomb
-  gate, RTT-compensated bomb position, suppressing authoritative
-  duplicates by author id (`tracers[7]`, `bombs[5]`, a FIFO queue with a
-  2 s timeout, local keys `L<n>`). Tracer spread uses a client-side PRNG,
-  not synced with the host — a purely visual effect, the authoritative
-  tracer arrives in a frame.
+  tiles + an OBB test against dynamics and actors, a single
+  pending-projectile gate, RTT-compensated projectile position,
+  suppressing authoritative duplicates by author id (a FIFO queue with a
+  timeout, local keys `L<n>`) — field names and exact gating are
+  game-defined (e.g. `vimp-tanks`'s `tracers`/`bombs` entity blocks, see
+  [network.md](network.md)). Any client-side-only visual randomness (e.g.
+  tracer spread) is a purely visual effect — the authoritative entity
+  arrives in a frame.
 
 ## Rendering
 
 ### parts/ — entities
 
-[the game plugin's `src/client/parts/`](https://github.com/lgick/vimp-tanks/tree/main/src/client/parts) (e.g. `vimp-tanks`'s) — classes rendered on the
-PixiJS canvases: `Tank` (one class for both your own tank and others'),
-`TankRadar`, `Map`, `MapRadar`, `Bomb`, `Smoke`, `Tracks` (+`TrackMark`),
-`ParticlePool`. Effects live in `parts/effects/` (`BaseEffect`,
-`explosion/` — explosion/crater/smoke, `shot/` — tracer/impact), animated
-on `Ticker.shared`.
+The game plugin's own `src/client/parts/` (e.g. [`vimp-tanks`'s](https://github.com/lgick/vimp-tanks/tree/main/src/client/parts)) —
+classes rendered on the PixiJS canvases, one per game entity type (e.g.
+`vimp-tanks`'s `Tank`, `TankRadar`, `Map`, `MapRadar`, `Bomb`, `Smoke`,
+`Tracks`). Effects follow the same plugin-owned convention (e.g.
+`vimp-tanks`'s `parts/effects/`), animated on `Ticker.shared`.
 
 Mapping snapshot keys to classes, and their canvas assignment, is
 `gameSets`/`entitiesOnCanvas` in `client.js`. There's no fixed contract for

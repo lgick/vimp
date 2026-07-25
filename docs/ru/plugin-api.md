@@ -109,7 +109,7 @@ export default {
   // статических определений голосований нет: игровые голосования создаются
   // динамически через ctx.voteCoordinator.createVote(...) из чат-команд
 
-  createModules(ctx) { return { scripted: new TanksBotManager(ctx) }; },
+  createModules(ctx) { return { scripted: new MyBotManager(ctx) }; },
   // ctx = { participants, coreAdapter, panel, stat, chat, socketManager,
   //         scripted /* параметры gameConfig.scripted */ }
   // обработчики чат-команд получают другой, мета-уровневый ctx от
