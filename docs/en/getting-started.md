@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- **Node.js 22** (CI uses Node 22), npm;
+- **Node.js 24** (CI uses Node 24), npm;
 - **mkcert** — local HTTPS certificates are required for development (the signaling WebSocket runs over `wss://`, and WebRTC requires a secure context);
 - **Rust toolchain** (`rustup`) — only if you're changing `packages/engine/core/` itself (the engine crate has no WASM target of its own; see [core.md](core.md)). Playing a match does **not** need it here — the WASM binary comes from the game plugin's own build (its own repo).
 

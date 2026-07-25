@@ -2,7 +2,7 @@
 # 1. BUILDER — сборка движка
 # ============================================================
 
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
@@ -47,7 +47,7 @@ RUN mkdir -p /app/game-dists && \
 # 2. RUNNER — Production Image
 # ============================================================
 
-FROM node:20-slim AS runner
+FROM node:24-slim AS runner
 
 WORKDIR /app
 
