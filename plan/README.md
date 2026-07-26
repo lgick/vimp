@@ -82,7 +82,8 @@ P2P-архитектуры; полноценный анти-чит вне рам
   `0.1.1`, 2026-07-26) с полями `license: MIT`/`repository`/`homepage` в
   `packages/engine/package.json` (патч `0.1.0` → `0.1.1` закрыл пробел с
   "Proprietary").
-- Опубликовать `vimp-engine-core` в публичный crates.io.
+- ✅ `vimp-engine-core` опубликован в публичный crates.io (`0.1.0`,
+  2026-07-26), добавлен `readme = "README.md"` в `Cargo.toml`.
 - После публикации прогнать то, что от неё зависит:
   - реальный CI-билд `vimp-tanks` против опубликованного `vimp-engine`
     (не path/symlink-зависимость);
