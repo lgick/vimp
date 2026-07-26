@@ -14,7 +14,7 @@
     "src/host"
   ],
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "scripts": {
     "dev": "NODE_ENV=development nodemon src/master/main.js -w src/master -w src/lib -w src/config",
