@@ -1,7 +1,13 @@
 {
   "name": "vimp-engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "VIMP — движок-приложение (мастер, P2P-транспорт, Worker-хост, мета, MVC-каркас клиента)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/lgick/vimp.git"
+  },
+  "homepage": "https://github.com/lgick/vimp#readme",
   "type": "module",
   "exports": {
     "./lib/*": "./src/lib/*",

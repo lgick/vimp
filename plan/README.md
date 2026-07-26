@@ -78,9 +78,10 @@ P2P-архитектуры; полноценный анти-чит вне рам
 Код и конфигурация (`publishConfig`, `files`, `Cargo.toml`) готовы, сама
 публикация — сознательно отложенное, ещё не выполненное действие:
 
-- Опубликовать `vimp-engine` в публичный npm registry (unscoped-имя —
-  `packages/engine/package.json`; `publishConfig.access` больше не нужен, он
-  требуется только для scoped-пакетов).
+- ✅ `vimp-engine` опубликован в публичный npm registry (unscoped-имя,
+  `0.1.1`, 2026-07-26) с полями `license: MIT`/`repository`/`homepage` в
+  `packages/engine/package.json` (патч `0.1.0` → `0.1.1` закрыл пробел с
+  "Proprietary").
 - Опубликовать `vimp-engine-core` в публичный crates.io.
 - После публикации прогнать то, что от неё зависит:
   - реальный CI-билд `vimp-tanks` против опубликованного `vimp-engine`

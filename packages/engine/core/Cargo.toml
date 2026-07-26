@@ -5,6 +5,7 @@ edition = "2024"
 description = "VIMP — движковый каркас симуляции (физика, карта, снапшот-фрейминг, интерполяция/предикт/raycast-примитивы, нав-утилиты). Без wasm-bindgen — обёртки для WASM-ABI собирает game-crate."
 license = "MIT"
 repository = "https://github.com/lgick/vimp"
+readme = "README.md"
 
 [lib]
 crate-type = ["rlib"]
