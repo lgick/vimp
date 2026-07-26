@@ -181,8 +181,8 @@ canvases (`vimp`, `radar`); procedural textures are baked at startup.
 **Status: accepted, migration complete.** The engine and the reference game
 (tanks) now live in separate repositories, connected only through the
 runtime plugin contract described in [plugin-api.md](plugin-api.md). A full
-record of the migration stages lives in `plan/done/` (this repository) and
-`plan/split_*.md`.
+record of the migration stages lives in `plan/done/` (this repository),
+including `plan/done/repo-split/`.
 
 **Decision.** The project is split into an **engine** — an application
 deployed once (master, P2P transport, Worker infrastructure and handoff,

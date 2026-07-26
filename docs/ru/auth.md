@@ -13,7 +13,7 @@ JWT identity-токены (RS256, проверяются браузерным х
 > auth-сервисом, мастером и хостом), B5 (чат-команда `/rank`) и B6 (образ в
 > CI, деплой, доки по конфигурации — см.
 > [deployment.md](deployment.md#central-auth-сервис-packagesauth)). По итогам
-> кодревью (`plan/auth_fixes.md`) прод-путь доработан — ниже фиксы CORS,
+> кодревью (`plan/done/central-auth/auth_fixes.md`) прод-путь доработан — ниже фиксы CORS,
 > open-redirect, callback-URL, запрета переименования и TTL.
 
 ## Зачем отдельный сервис
@@ -119,7 +119,7 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 
 ## Вход в лобби (клиент)
 
-`plan/auth_b2.md`. Тройка MVC движка **LobbyAuth**
+`plan/done/central-auth/auth_b2.md`. Тройка MVC движка **LobbyAuth**
 (`packages/engine/src/client/components/{model,view,controller}/LobbyAuth.js`,
 описана в [client.md](client.md#mvc-компоненты-packagesenginesrcclientcomponents))
 закрывает лобби экраном входа — `#lobby` скрыт, пока клиент не авторизован.
@@ -163,7 +163,7 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 
 ## Вход в комнату (проверка хостом)
 
-`plan/auth_b3.md`. Комнатная тройка MVC **Auth**
+`plan/done/central-auth/auth_b3.md`. Комнатная тройка MVC **Auth**
 (`packages/engine/src/client/components/{model,view,controller}/Auth.js`)
 по-прежнему ведёт игровую форму авторизации, но в форме больше нет поля
 `name` — `authSchema.params` игры-плагина (например,
@@ -199,7 +199,7 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 
 ## Загрузка и синхронизация rank и state (хост)
 
-`plan/auth_b4.md`. После проверки identity-токена участника (см. выше) хост
+`plan/done/central-auth/auth_b4.md`. После проверки identity-токена участника (см. выше) хост
 автоматически загружает его rank/state и держит их синхронизированными с
 auth-сервисом всё время сессии — механику на стороне хоста см. в
 [host.md](host.md#синхронизация-rank-и-state-игрока-этап-b4)

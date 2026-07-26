@@ -13,7 +13,7 @@ independent of `@vimp/engine`.
 > auth service, master and host), B5 (`/rank` chat command) and B6 (CI image,
 > deployment, config docs — see
 > [deployment.md](deployment.md#central-auth-service-packagesauth)). A
-> follow-up code-review pass (`plan/auth_fixes.md`) hardened the production
+> follow-up code-review pass (`plan/done/central-auth/auth_fixes.md`) hardened the production
 > path — CORS/open-redirect/callback-URL/token-renaming/TTL fixes below.
 
 ## Why a separate service
@@ -120,7 +120,7 @@ the opposite case (an identity token, i.e. `pending` missing).
 
 ## Lobby login (client)
 
-`plan/auth_b2.md`. The engine's **LobbyAuth** MVC triplet
+`plan/done/central-auth/auth_b2.md`. The engine's **LobbyAuth** MVC triplet
 (`packages/engine/src/client/components/{model,view,controller}/LobbyAuth.js`,
 documented in [client.md](client.md#mvc-components-packagesenginesrcclientcomponents))
 gates the lobby behind a sign-in screen — `#lobby` stays hidden until it's
@@ -164,7 +164,7 @@ top-level navigation and aren't subject to CSP `connect-src` either way.
 
 ## Joining a room (host verification)
 
-`plan/auth_b3.md`. The room-local **Auth** MVC triplet
+`plan/done/central-auth/auth_b3.md`. The room-local **Auth** MVC triplet
 (`packages/engine/src/client/components/{model,view,controller}/Auth.js`)
 still runs the per-game auth form, but the form no longer has a `name`
 field — the game plugin's `authSchema.params` (e.g. `vimp-tanks`'s
@@ -199,7 +199,7 @@ auth service's attack surface.
 
 ## Rank and state loading and sync (host)
 
-`plan/auth_b4.md`. Once a participant's identity token is verified (see
+`plan/done/central-auth/auth_b4.md`. Once a participant's identity token is verified (see
 above), the host auto-loads its rank/state and keeps them in sync with the
 auth service for the rest of the session — see
 [host.md](host.md#player-rank-and-state-sync-stage-b4) for the host-side

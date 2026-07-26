@@ -120,7 +120,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
 
 `meta/modules/PlayerDataSync.js` — пер-участниковая карта в памяти вида
 `{ token, rank, state, rankLoaded, stateLoaded }`. `rankLoaded`/`stateLoaded`
-(добавлены по итогам кодревью после B4, `plan/auth_fixes.md`) отмечают,
+(добавлены по итогам кодревью после B4, `plan/done/central-auth/auth_fixes.md`) отмечают,
 подтверждено ли текущее значение auth-сервисом, или это всё ещё дефолт со
 входа:
 

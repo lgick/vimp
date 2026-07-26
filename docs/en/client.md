@@ -128,7 +128,7 @@ Ten `model/` + `view/` + `controller/` triplets: **LobbyAuth**, **Auth**,
 **Lobby**, **CanvasManager**, **Controls**, **Game**, **Chat**, **Panel**,
 **Stat**, **Vote**.
 
-**LobbyAuth** — the login gate shown before the lobby (`plan/auth_b2.md`):
+**LobbyAuth** — the login gate shown before the lobby (`plan/done/central-auth/auth_b2.md`):
 
 - **model** — talks to the central auth service (`packages/auth`, see
   [auth.md](auth.md)) directly, not through the master. `boot(search)` reads
@@ -141,7 +141,8 @@ Ten `model/` + `view/` + `controller/` triplets: **LobbyAuth**, **Auth**,
   `authenticated`/`login-error`/`nick-error`. The identity JWT's payload is
   decoded client-side only for display (`packages/engine/src/lib/jwt.js`,
   `decodeJwtPayload`, no signature check) — a host authoritatively verifies
-  it against `/jwks` (`plan/auth_b3.md`, not yet implemented).
+  it against `/jwks` (`plan/done/central-auth/auth_b3.md`; see
+  [auth.md](auth.md#joining-a-room-host-verification)).
 - **view** — toggles `#lobby-auth-login`/`#lobby-auth-nick`
   (`views/includes/lobbyAuth.pug`) and, on `authenticated`, hides
   `#lobby-auth` and reveals `#lobby` plus the `#lobby-user` nick/sign-out

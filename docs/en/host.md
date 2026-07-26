@@ -127,7 +127,7 @@ the auth service can reuse it without re-verifying.
 
 `meta/modules/PlayerDataSync.js` is a per-participant in-memory map of
 `{ token, rank, state, rankLoaded, stateLoaded }`. `rankLoaded`/`stateLoaded`
-(added in a post-B4 code-review pass, `plan/auth_fixes.md`) track whether the
+(added in a post-B4 code-review pass, `plan/done/central-auth/auth_fixes.md`) track whether the
 value currently held was actually confirmed by the auth service, as opposed
 to still being the join-time default:
 

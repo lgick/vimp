@@ -9,6 +9,7 @@ published, dynamically loaded game plugins.
 
 - **P2P**: the authoritative host is a Web Worker in the room creator's browser tab (a Rust simulation core compiled to WASM: Rapier 2D physics at ~120 Hz, bots, binary snapshots at 30 packets/sec); clients connect over WebRTC.
 - **Master server**: Node.js + Express + `ws` — lobby, WebRTC signaling, map catalog.
+- **Accounts**: OAuth login and a global nick via a central auth service, JWT identity verified by the host, per-game rank/state synced across any master domain.
 - **Client**: PixiJS, snapshot interpolation, client-side prediction, procedural textures, spatial audio (Howler).
 - **Gameplay**: game rules (teams, weapons, bots, votes, chat, statistics, etc.) live in a separately published, dynamically loaded game plugin — see [vimp-tanks](https://github.com/lgick/vimp-tanks) for the reference tank-battle game.
 
@@ -35,7 +36,7 @@ Full documentation lives in [docs/en/](docs/en/README.md):
 
 - [Local setup](docs/en/getting-started.md)
 - [Architecture](docs/en/architecture.md)
-- [Master server](docs/en/master.md) · [Browser host](docs/en/host.md) · [Rust core](docs/en/core.md)
+- [Master server](docs/en/master.md) · [Central auth service](docs/en/auth.md) · [Browser host](docs/en/host.md) · [Rust core](docs/en/core.md)
 - [Client modules](docs/en/client.md)
 - [Network protocol](docs/en/network.md)
 - [Configuration](docs/en/configuration.md)
