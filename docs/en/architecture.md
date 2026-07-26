@@ -35,7 +35,7 @@ under `node_modules/`; the engine never imports it statically (ESLint
 [vimp-tanks/docs/en/architecture.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/architecture.md) for its own layout.
 
 ```
-packages/engine/ — @vimp/engine: the engine application (npm workspace)
+packages/engine/ — vimp-engine: the engine application (npm workspace)
   index.html / vite.config.js — the engine's Vite root
   public/        — static assets (sounds, favicon)
   src/
@@ -189,7 +189,7 @@ deployed once (master, P2P transport, Worker infrastructure and handoff,
 meta *mechanisms*, client MVC framework, render/sound infrastructure, the
 Rust framework crate) — and a **game** — a dynamic plugin (client/host JS
 bundles, a WASM binary, assets) loaded by a manifest from the master.
-Composition: this repository publishes `@vimp/engine` (npm) and
+Composition: this repository publishes `vimp-engine` (npm) and
 `vimp-engine-core` (Rust rlib crate); the game repository (e.g.
 `vimp-tanks`) publishes `@vimp/tanks`, installed here as a regular
 `node_modules` dependency, and its own `vimp-tanks-core` crate (cdylib +

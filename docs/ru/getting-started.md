@@ -14,10 +14,10 @@ cd vimp
 npm install
 ```
 
-Репозиторий — npm workspaces: `packages/engine` (`@vimp/engine`,
+Репозиторий — npm workspaces: `packages/engine` (`vimp-engine`,
 движок-приложение) и `packages/auth` (`@vimp/auth`, центральный
 auth-сервис). Корневые скрипты (`npm run dev`, `npm run build`)
-проксируют в `@vimp/engine`.
+проксируют в `vimp-engine`.
 
 **Для реальной игры нужен пакет игры-плагина** — этот репозиторий его
 больше не собирает. Установите/подключите игру (например, `@vimp/tanks`,

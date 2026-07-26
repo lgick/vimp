@@ -14,10 +14,10 @@ cd vimp
 npm install
 ```
 
-The repository uses npm workspaces: `packages/engine` (`@vimp/engine`, the
+The repository uses npm workspaces: `packages/engine` (`vimp-engine`, the
 engine application) and `packages/auth` (`@vimp/auth`, the central auth
 service). Root scripts (`npm run dev`, `npm run build`) proxy into
-`@vimp/engine`.
+`vimp-engine`.
 
 **A game plugin package is required to actually play a match** — this repo
 no longer builds one. Install/link a game (e.g. `@vimp/tanks`, built and

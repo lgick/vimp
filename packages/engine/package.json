@@ -1,5 +1,5 @@
 {
-  "name": "@vimp/engine",
+  "name": "vimp-engine",
   "version": "0.1.0",
   "description": "VIMP — движок-приложение (мастер, P2P-транспорт, Worker-хост, мета, MVC-каркас клиента)",
   "type": "module",
@@ -13,9 +13,6 @@
     "src/config",
     "src/host"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "dev": "NODE_ENV=development nodemon src/master/main.js -w src/master -w src/lib -w src/config",
     "start": "NODE_ENV=production node --env-file ../../.env src/master/main.js",

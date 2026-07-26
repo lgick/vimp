@@ -35,7 +35,7 @@ VIMP — **P2P**-движок для многопользовательских 
 самой игры см. в [vimp-tanks/docs/ru/architecture.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/architecture.md).
 
 ```
-packages/engine/ — @vimp/engine: движок-приложение (npm workspace)
+packages/engine/ — vimp-engine: движок-приложение (npm workspace)
   index.html / vite.config.js — Vite-root движка
   public/        — статика (звуки, favicon)
   src/
@@ -181,7 +181,7 @@ JS-оболочка читает результат рендер-тика пло
 мета-*механизмы*, MVC-каркас клиента, рендер/звук-инфраструктура,
 Rust-каркас), — и **игру** — динамический плагин (JS-бандлы client/host,
 WASM-бинарь, ассеты), загружаемый по манифесту с мастера. Композиция: этот
-репозиторий публикует `@vimp/engine` (npm) и `vimp-engine-core` (Rust rlib
+репозиторий публикует `vimp-engine` (npm) и `vimp-engine-core` (Rust rlib
 crate); репозиторий игры (например, `vimp-tanks`) публикует `@vimp/tanks`,
 устанавливаемый здесь как обычная `node_modules`-зависимость, и свой crate
 `vimp-tanks-core` (cdylib + wasm-bindgen-обёртки), зависящий от

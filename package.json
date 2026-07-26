@@ -19,8 +19,8 @@
     "packages/auth"
   ],
   "scripts": {
-    "dev": "npm -w @vimp/engine run dev",
-    "start": "npm -w @vimp/engine run start",
+    "dev": "npm -w vimp-engine run dev",
+    "start": "npm -w vimp-engine run start",
     "dev:auth": "npm -w @vimp/auth run dev",
     "start:auth": "npm -w @vimp/auth run start",
     "auth:db:migrate": "npm -w @vimp/auth run db:migrate",
@@ -28,7 +28,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "build": "npm run build:app",
-    "build:app": "npm -w @vimp/engine run build",
+    "build:app": "npm -w vimp-engine run build",
     "core:test": "cargo test --workspace"
   },
   "devDependencies": {

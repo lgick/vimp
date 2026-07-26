@@ -5,7 +5,7 @@ separate npm workspace, its own deploy/domain, its own PostgreSQL database
 (the project's first database dependency). It provides OAuth login, a
 globally-unique nick, JWT identity tokens (RS256, verified by a browser host
 via JWKS) and per-game rank/state storage. It carries no game logic and is
-independent of `@vimp/engine`.
+independent of `vimp-engine`.
 
 > Status: Stages B1–B6 of `plan/README.md` are implemented — B1 (service +
 > schema + REST), B2 (lobby login UI), B3 (JWT handoff into the game +
