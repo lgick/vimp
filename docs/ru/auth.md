@@ -215,7 +215,10 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 его через `build-args` из той же переменной репозитория `AUTH_SERVICE_URL`,
 что используется для серверного `VIMP_AUTH_SERVICE_URL` (см.
 [deployment.md](deployment.md#central-auth-сервис-packagesauth)) — вручную
-ничего править перед сборкой больше не нужно. CSP `connect-src` мастера
+ничего править перед сборкой больше не нужно. `authClient.js` также
+импортируется `master/main.js` под чистым Node (ради `.issuer`), где
+`import.meta.env` не определён — `typeof`-guard откатывается на dev-дефолт
+вместо падения. CSP `connect-src` мастера
 (`packages/engine/src/config/master.js`, `security.csp`, применяется только
 в проде) шаблонизируется тем же доменом (`security.authServiceUrl`,
 переопределяется `VIMP_AUTH_SERVICE_URL`), иначе fetch `POST /nick`

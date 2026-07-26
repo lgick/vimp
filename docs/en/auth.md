@@ -214,7 +214,10 @@ declares `ARG VITE_AUTH_SERVICE_URL` and `deploy.yml`'s `build_and_push` job
 passes it as a `build-args` from the same `AUTH_SERVICE_URL` repository
 variable used for the server-side `VIMP_AUTH_SERVICE_URL` (see
 [deployment.md](deployment.md#central-auth-service-packagesauth)), so no
-manual edit before building is needed. The master's CSP `connect-src`
+manual edit before building is needed. `authClient.js` is also imported by
+`master/main.js` under plain Node (for `.issuer`), where
+`import.meta.env` is `undefined` — a `typeof` guard falls back to the dev
+default there instead of throwing. The master's CSP `connect-src`
 (`packages/engine/src/config/master.js`, `security.csp`, applied only in
 production) is templated with the same origin
 (`security.authServiceUrl`, overridable via `VIMP_AUTH_SERVICE_URL`) so the
