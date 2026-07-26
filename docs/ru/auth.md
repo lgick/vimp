@@ -209,8 +209,13 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 
 Домен auth-сервиса бандлится на клиенте в
 [packages/engine/src/config/authClient.js](../../packages/engine/src/config/authClient.js)
-(`serviceUrl`, dev-дефолт `http://localhost:3010`) — перед продакшн-сборкой
-подставить реальный домен. CSP `connect-src` мастера
+(`serviceUrl`, dev-дефолт `http://localhost:3010`) — Vite подставляет его при
+сборке из `import.meta.env.VITE_AUTH_SERVICE_URL`: Dockerfile объявляет
+`ARG VITE_AUTH_SERVICE_URL`, а job `build_and_push` в `deploy.yml` передаёт
+его через `build-args` из той же переменной репозитория `AUTH_SERVICE_URL`,
+что используется для серверного `VIMP_AUTH_SERVICE_URL` (см.
+[deployment.md](deployment.md#central-auth-сервис-packagesauth)) — вручную
+ничего править перед сборкой больше не нужно. CSP `connect-src` мастера
 (`packages/engine/src/config/master.js`, `security.csp`, применяется только
 в проде) шаблонизируется тем же доменом (`security.authServiceUrl`,
 переопределяется `VIMP_AUTH_SERVICE_URL`), иначе fetch `POST /nick`

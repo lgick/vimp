@@ -4,8 +4,11 @@
 // (см. docs/en/auth.md).
 export default {
   // базовый URL центрального auth-сервиса (packages/auth). Дефолт — dev-порт
-  // из packages/auth/src/config/auth.js
-  serviceUrl: 'http://localhost:3010',
+  // из packages/auth/src/config/auth.js; в проде подставляется Vite'ом из
+  // VITE_AUTH_SERVICE_URL (см. Dockerfile — тот же VIMP_AUTH_SERVICE_URL,
+  // что и серверный master/main.js), никакой ручной правки перед сборкой
+  // больше не требуется
+  serviceUrl: import.meta.env.VITE_AUTH_SERVICE_URL || 'http://localhost:3010',
 
   // включённые провайдеры (должны совпадать с packages/auth config.oauth)
   providers: ['github'],

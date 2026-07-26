@@ -188,7 +188,15 @@ shared instance that every master domain points at.
   master's `.env.prod` as `VIMP_AUTH_SERVICE_URL` (read by
   [packages/engine/src/master/main.js](../../packages/engine/src/master/main.js),
   see [configuration.md](configuration.md#environment-variables-env)) — one
-  variable, applied to every server in `SERVERS_MATRIX`.
+  variable, applied to every server in `SERVERS_MATRIX`. The same variable is
+  also passed as the `VITE_AUTH_SERVICE_URL` build-arg in the
+  `build_and_push` job (the client bundle needs it baked in before Nginx
+  serves the static assets — the `Dockerfile`'s single shared image build,
+  not the per-server `deploy` job), so it must be set before the first
+  deploy or the client falls back to the dev default (`http://localhost:3010`)
+  and the "Sign in" button breaks in production — see
+  [configuration.md](configuration.md#environment-variables-env) and
+  [auth.md](auth.md#lobby-login-client).
 
 ## 🔒 Security headers and CSP
 

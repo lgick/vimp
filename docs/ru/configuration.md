@@ -28,6 +28,14 @@
 
 Игровые параметры (карта, лимит игроков, таймеры, friendly fire) переменными окружения не задаются: их выбирает создатель комнаты в лобби, а дефолты живут в `packages/engine/src/config/hostDefaults.js` (движковые) и в собственном конфиге активной игры-плагина (игровые).
 
+У `VIMP_AUTH_SERVICE_URL` есть аналог для сборки: `VITE_AUTH_SERVICE_URL` —
+это Docker build `ARG` (не runtime-переменная `.env`), которую Vite
+подставляет в клиентский бандл (`authClient.js:serviceUrl`) при сборке
+образа (`npm run build:app`) — см. [auth.md](auth.md#вход-в-лобби-клиент) и
+[deployment.md](deployment.md#central-auth-сервис-packagesauth). Обе
+задаются из одной и той же переменной репозитория GitHub
+`AUTH_SERVICE_URL` в `deploy.yml`.
+
 ### Auth-сервис (`packages/auth`)
 
 Читаются в [packages/auth/src/main.js](../../packages/auth/src/main.js) при

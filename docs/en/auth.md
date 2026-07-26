@@ -208,8 +208,13 @@ authenticated. Flow:
 
 The auth-service origin is bundled client-side in
 [packages/engine/src/config/authClient.js](../../packages/engine/src/config/authClient.js)
-(`serviceUrl`, dev default `http://localhost:3010`) — set it to the real
-domain before building for production. The master's CSP `connect-src`
+(`serviceUrl`, dev default `http://localhost:3010`) — Vite substitutes it at
+build time from `import.meta.env.VITE_AUTH_SERVICE_URL`; the Dockerfile
+declares `ARG VITE_AUTH_SERVICE_URL` and `deploy.yml`'s `build_and_push` job
+passes it as a `build-args` from the same `AUTH_SERVICE_URL` repository
+variable used for the server-side `VIMP_AUTH_SERVICE_URL` (see
+[deployment.md](deployment.md#central-auth-service-packagesauth)), so no
+manual edit before building is needed. The master's CSP `connect-src`
 (`packages/engine/src/config/master.js`, `security.csp`, applied only in
 production) is templated with the same origin
 (`security.authServiceUrl`, overridable via `VIMP_AUTH_SERVICE_URL`) so the

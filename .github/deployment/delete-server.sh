@@ -41,12 +41,21 @@ select DOMAIN in $VIMP_SITES "Отмена"; do
     exit 0
 
   elif [[ -n "$DOMAIN" ]]; then
+    # Порт мастера для этого домена — берём из proxy_pass в конфиге Nginx
+    # (см. __PORT__ в install-system.sh:write_nginx_template), чтобы потом
+    # закрыть его в ufw, если он был открыт вручную
+    NGINX_CONF="/etc/nginx/sites-available/$DOMAIN"
+    PORT=$(sudo grep -oP 'proxy_pass\s+http://127\.0\.0\.1:\K[0-9]+' "$NGINX_CONF" 2>/dev/null | head -n1)
+
     echo ""
     echo "🚨 ВНИМАНИЕ! Вы собираетесь удалить сервер VIMP: $DOMAIN"
     echo "   Будет выполнено удаление:"
     echo "   - Конфига Nginx  (/etc/nginx/sites-enabled/$DOMAIN)"
     echo "   - SSL-сертификатов (через Certbot)"
-    echo "   - Docker-контейнера (vimp-$DOMAIN)"
+    echo "   - Docker-контейнера и сети (vimp-$DOMAIN)"
+    if [[ -n "$PORT" ]]; then
+      echo "   - Правил ufw для порта $PORT (tcp/udp)"
+    fi
     echo "   - Папки проекта ($PROJECTS_ROOT/$DOMAIN)"
     echo ""
     read -p "Для подтверждения введите 'yes': " CONFIRM
@@ -69,36 +78,58 @@ echo "🔥 Удаление сервера: $DOMAIN..."
 # ----------------------------------------------------
 # 1. Docker
 # ----------------------------------------------------
+TARGET_DIR="$PROJECTS_ROOT/$DOMAIN"
 CONTAINER_NAME="vimp-$DOMAIN"
+
+if [ -f "$TARGET_DIR/docker-compose.yml" ]; then
+  echo "🐳 Остановка Docker Compose проекта ($TARGET_DIR)..."
+  (cd "$TARGET_DIR" && docker compose down --remove-orphans --volumes 2>/dev/null) || true
+fi
+
+# На случай, если compose-файла нет или compose не удалил контейнер
 echo "🐳 Остановка Docker-контейнера: $CONTAINER_NAME..."
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
 docker rm "$CONTAINER_NAME" 2>/dev/null || true
 
 # ----------------------------------------------------
-# 2. Папка проекта
+# 2. Порт в ufw
 # ----------------------------------------------------
-TARGET_DIR="$PROJECTS_ROOT/$DOMAIN"
+# Docker-порт мастера ($PORT) публикуется только на 127.0.0.1, поэтому
+# install-system.sh его не сканирует (prompt_open_public_ports смотрит
+# только 0.0.0.0/[::]) и обычно в ufw не открыт — но если админ открыл его
+# вручную, закрываем на всякий случай
+if [[ -n "$PORT" ]]; then
+  echo "🔒 Закрытие порта $PORT в ufw (если был открыт)..."
+  sudo ufw delete allow "$PORT/tcp" 2>/dev/null || true
+  sudo ufw delete allow "$PORT/udp" 2>/dev/null || true
+else
+  echo "⚠️  Не удалось определить порт из конфига Nginx — пропуск очистки ufw."
+fi
+
+# ----------------------------------------------------
+# 3. Папка проекта
+# ----------------------------------------------------
 if [ -d "$TARGET_DIR" ]; then
   echo "📂 Удаление папки проекта: $TARGET_DIR..."
   rm -rf "$TARGET_DIR"
 fi
 
 # ----------------------------------------------------
-# 3. Конфиги Nginx
+# 4. Конфиги Nginx
 # ----------------------------------------------------
 echo "🌐 Удаление конфигураций Nginx..."
 sudo rm -f /etc/nginx/sites-enabled/$DOMAIN
 sudo rm -f /etc/nginx/sites-available/$DOMAIN
 
 # ----------------------------------------------------
-# 4. SSL сертификаты
+# 5. SSL сертификаты
 # ----------------------------------------------------
 echo "🔐 Удаление SSL-сертификатов..."
 sudo certbot delete --cert-name "$DOMAIN" --non-interactive 2>/dev/null \
   || echo "   ⚠️  Certbot: сертификат не найден или уже удалён."
 
 # ----------------------------------------------------
-# 5. Перезагрузка Nginx
+# 6. Перезагрузка Nginx
 # ----------------------------------------------------
 echo "🔄 Перезагрузка Nginx..."
 if sudo nginx -t; then

@@ -41,6 +41,11 @@ jobs:
           context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:latest
+          # тот же central auth-сервис, что и VIMP_AUTH_SERVICE_URL ниже в
+          # job'е deploy — здесь подставляется в клиентский бандл на этапе
+          # сборки (Vite), см. Dockerfile
+          build-args: |
+            VITE_AUTH_SERVICE_URL=${{ vars.AUTH_SERVICE_URL }}
           # Кэширование (ускоряет сборку)
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -24,6 +24,14 @@ COPY . .
 # переменная окружения для Vite
 ENV NODE_ENV=production
 
+# домен central auth-сервиса, подставляемый Vite'ом в клиентский бандл
+# (packages/engine/src/config/authClient.js:serviceUrl) — тот же central
+# auth-сервис для всех мастеров, поэтому один build-arg на общий образ;
+# сервер использует свою копию через VIMP_AUTH_SERVICE_URL (main.js),
+# заданную отдельно в .env.prod каждого мастера при деплое
+ARG VITE_AUTH_SERVICE_URL
+ENV VITE_AUTH_SERVICE_URL=${VITE_AUTH_SERVICE_URL}
+
 # сборка движка (vite build → packages/engine/dist/)
 RUN npm run build:app
 

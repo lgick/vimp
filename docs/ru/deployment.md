@@ -160,7 +160,14 @@
   `VIMP_AUTH_SERVICE_URL` (читается в
   [packages/engine/src/master/main.js](../../packages/engine/src/master/main.js),
   см. [configuration.md](configuration.md#переменные-окружения-env)) —
-  одна переменная применяется ко всем серверам из `SERVERS_MATRIX`.
+  одна переменная применяется ко всем серверам из `SERVERS_MATRIX`. Та же
+  переменная передаётся и как build-arg `VITE_AUTH_SERVICE_URL` в джобе
+  `build_and_push` (клиентский бандл получает её ещё на этапе сборки общего
+  образа в `Dockerfile`, не в джобе `deploy` для конкретного сервера), так
+  что задать её нужно до первого деплоя — иначе клиент откатывается на
+  dev-дефолт (`http://localhost:3010`) и кнопка «Sign in» ломается в
+  проде — см. [configuration.md](configuration.md#переменные-окружения-env)
+  и [auth.md](auth.md#вход-в-лобби-клиент).
 
 ## 🔒 Security-заголовки и CSP
 

@@ -42,6 +42,14 @@ through environment variables: the room's creator picks them in the lobby,
 and defaults live in `packages/engine/src/config/hostDefaults.js` (engine)
 and the active game plugin's own config (game).
 
+`VIMP_AUTH_SERVICE_URL` has a build-time counterpart: `VITE_AUTH_SERVICE_URL`
+is a Docker build `ARG` (not a runtime `.env` value) that Vite substitutes
+into the client bundle's `authClient.js:serviceUrl` when the image is built
+(`npm run build:app`) — see [auth.md](auth.md#lobby-login-client) and
+[deployment.md](deployment.md#central-auth-service-packagesauth). Both are
+set from the same `AUTH_SERVICE_URL` GitHub repository variable in
+`deploy.yml`.
+
 ### Auth service (`packages/auth`)
 
 Read in [packages/auth/src/main.js](../../packages/auth/src/main.js) when
