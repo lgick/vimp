@@ -29,6 +29,10 @@ export default class SignalingServer {
 
     this._sessions = new Map(); // id соединения -> { id, ws, ip, region, hostId }
     this._hostSessions = new Map(); // hostId -> id соединения
+    // хендлеры диспетчерятся fire-and-forget (ws-сообщение не ждёт ответа) —
+    // register_host/like_host/unlike_host асинхронны (JWKS, hostRatingProxy);
+    // idle() даёт тестам детерминированно дождаться завершения без таймеров
+    this._pending = new Set();
 
     // обработчики входящих сигнальных сообщений
     this._handlers = {
@@ -43,6 +47,15 @@ export default class SignalingServer {
       'like_host': this._onLikeHost,
       'unlike_host': this._onUnlikeHost,
     };
+  }
+
+  // ждёт завершения всех в моменте диспетчеризованных асинхронных хендлеров
+  // (register_host/like_host/unlike_host); используется тестами вместо
+  // таймера-эвристики — детерминированно, без произвольных задержек
+  async idle() {
+    while (this._pending.size > 0) {
+      await Promise.all(this._pending);
+    }
   }
 
   handleConnection(ws, req) {
@@ -85,9 +98,12 @@ export default class SignalingServer {
         if (msg && this._handlers[msg.type]) {
           // register_host/like_host/unlike_host — async (проверка identity-
           // токена по JWKS, запрос рейтинга к auth); остальные — синхронные
-          Promise.resolve(this._handlers[msg.type].call(this, session, msg)).catch(err => {
+          const pending = Promise.resolve(this._handlers[msg.type].call(this, session, msg)).catch(err => {
             console.error(`[signaling] handler "${msg.type}" failed:`, err);
           });
+
+          this._pending.add(pending);
+          pending.finally(() => this._pending.delete(pending));
         }
       });
 

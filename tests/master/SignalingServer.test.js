@@ -47,13 +47,13 @@ class FakeWs {
 const nextTick = () => new Promise(resolve => process.nextTick(resolve));
 
 // register_host/like_host/unlike_host — асинхронные обработчики (проверка
-// identity-токена по JWKS, запрос к hostRatingProxy); одного nextTick мало,
-// crypto.subtle резолвится через реальный event loop
-const flushAsync = async () => {
-  for (let i = 0; i < 8; i += 1) {
-    await new Promise(resolve => setImmediate(resolve));
-  }
-};
+// identity-токена по JWKS, запрос к hostRatingProxy). Раньше ждали фиксированным
+// циклом setImmediate — на full run изредка не хватало тиков (тредпул под
+// нагрузкой много RSA-верификаций подряд). signaling.idle() ждёт реальный
+// промис хендлера, а не гадает по числу тиков — детерминированно, без таймеров.
+// ВНИМАНИЕ: целится в инстанс signaling из beforeEach; для другого инстанса
+// (withCatalog, blocking, bare) вызывай <instance>.idle() напрямую
+const flushAsync = () => signaling.idle();
 
 const allowAllOrigins = (requestOrigin, cb) => process.nextTick(() => cb(null));
 
@@ -135,7 +135,17 @@ const connectHost = async (options = {}) => {
   });
   await flushAsync();
 
-  conn.hostId = conn.ws.lastSent().hostId;
+  // fail-fast: без этого сбой регистрации даёт каскад "Cannot read 'hostId' of
+  // undefined" в далёких ассертах вместо внятной причины
+  const reply = conn.ws.lastSent();
+
+  if (reply?.type !== 'host_registered') {
+    throw new Error(
+      `register_host failed: ${reply?.type}${reply?.code ? ` (${reply.code})` : ''}`,
+    );
+  }
+
+  conn.hostId = reply.hostId;
   conn.hosterUserId = hosterUserId;
 
   return conn;
@@ -351,7 +361,7 @@ describe('register_host', () => {
     await nextTick();
 
     ws.message({ type: 'register_host', name: 'Room', gameId: 'tanks', token: signToken(1) });
-    await flushAsync();
+    await withCatalog.idle();
 
     const reply = ws.lastSent();
 
