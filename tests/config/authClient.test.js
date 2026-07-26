@@ -11,11 +11,18 @@ test('authClient.js импортируется под чистым Node (без 
     import.meta.url,
   ).href;
 
-  expect(() =>
+  let error;
+  try {
+    // process.execPath — тот же бинарник Node, что и Vitest, без опоры на PATH
     execFileSync(
-      'node',
+      process.execPath,
       ['--input-type=module', '-e', `await import(${JSON.stringify(url)})`],
       { stdio: 'pipe' },
-    ),
-  ).not.toThrow();
+    );
+  } catch (e) {
+    error = e;
+  }
+
+  // при падении показываем stderr дочернего процесса (сам TypeError)
+  expect(error, error && String(error.stderr)).toBeUndefined();
 });
