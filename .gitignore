@@ -3,18 +3,13 @@ _*
 node_modules/
 coverage/
 .TRASH
-public/sounds/
 dist
 logs
 *.log
 .env
 npm-debug.log*
 .certs/
+.keys/
 
-# Rust-ядро (core/): артефакты сборки
-core/target/
-core/pkg-node/
-core/pkg-web/
-
-# сгенерированные JSON-карты (npm run maps:export)
-src/data/maps/json/
+# Rust-ядро: артефакты сборки (workspace target/)
+target/

@@ -1,0 +1,21 @@
+{
+  "name": "@vimp/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VIMP central auth service — OAuth login, global nick, rank/state storage, JWT/JWKS",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "NODE_ENV=development nodemon src/main.js -w src",
+    "start": "NODE_ENV=production node --env-file ../../.env src/main.js",
+    "db:migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

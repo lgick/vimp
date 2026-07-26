@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import HostRegistry from '../../src/master/HostRegistry.js';
+import HostRegistry from '../../packages/engine/src/master/HostRegistry.js';
 
 // порог отключения регионального фильтра занижен для компактных тестов
 const OPTIONS = {
@@ -8,9 +8,6 @@ const OPTIONS = {
   maxLimit: 4,
   maxNameLength: 10,
   maxPlayersLimit: 8,
-  banThreshold: 3,
-  reportWindowMs: 1000,
-  maxReasons: 2,
 };
 
 let registry;
@@ -57,9 +54,20 @@ describe('HostRegistry.add', () => {
       region: 'EU',
       ip: '1.2.3.4',
       status: 'online',
-      reportCount: 0,
     });
     expect(registry.get(host.hostId)).toBe(host);
+  });
+
+  it('сохраняет hosterUserId (server-rating этап 2, атрибуция голосов)', () => {
+    const host = registry.add({ name: 'a', ip: '1.2.3.4', hosterUserId: 42 });
+
+    expect(host.hosterUserId).toBe(42);
+  });
+
+  it('без hosterUserId — null', () => {
+    const host = registry.add({ name: 'a', ip: '1.2.3.4' });
+
+    expect(host.hosterUserId).toBeNull();
   });
 
   it('не даёт создать вторую комнату с того же IP', () => {
@@ -129,129 +137,6 @@ describe('HostRegistry.update', () => {
   });
 });
 
-describe('HostRegistry.report', () => {
-  it('считает жалобы только от уникальных репортёров', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    expect(registry.report(host.hostId, 'reporter1', 'cheat')).toEqual({
-      counted: true,
-      banned: false,
-    });
-    expect(registry.report(host.hostId, 'reporter1', 'cheat')).toEqual({
-      counted: false,
-      banned: false,
-    });
-    expect(registry.report(host.hostId, 'reporter2', 'cheat')).toEqual({
-      counted: true,
-      banned: false,
-    });
-    expect(host.reportCount).toBe(2);
-  });
-
-  it('не учитывает жалобу без причины (причина обязательна)', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    expect(registry.report(host.hostId, 'r1')).toEqual({
-      counted: false,
-      banned: false,
-    });
-    expect(registry.report(host.hostId, 'r1', '   ')).toEqual({
-      counted: false,
-      banned: false,
-    });
-    expect(host.reportCount).toBe(0);
-  });
-
-  it('банит комнату при достижении порога уникальных жалоб', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    registry.report(host.hostId, 'r1', 'cheat');
-    registry.report(host.hostId, 'r2', 'cheat');
-
-    // banThreshold = 3
-    expect(registry.report(host.hostId, 'r3', 'cheat')).toEqual({
-      counted: true,
-      banned: true,
-    });
-    expect(host.status).toBe('banned');
-    expect(registry.isBanned(host.ip)).toBe(true);
-  });
-
-  it('забаненная комната выпадает из getList', () => {
-    addHosts(4, 'EU'); // > regionThreshold, чтобы был общий список
-    const host = registry.add({ name: 'target', ip: '9.9.9.9' });
-
-    registry.report(host.hostId, 'r1', 'cheat');
-    registry.report(host.hostId, 'r2', 'cheat');
-    registry.report(host.hostId, 'r3', 'cheat');
-
-    const found = registry.getList({}).servers.find(
-      s => s.hostId === host.hostId,
-    );
-
-    expect(found).toBeUndefined();
-  });
-
-  it('не учитывает жалобы старше окна давности', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    registry.report(host.hostId, 'r1', 'reason', 0);
-    registry.report(host.hostId, 'r2', 'reason', 800);
-
-    // reportWindowMs = 1000: к моменту 1500 первая жалоба протухла (1500 мс),
-    // поэтому третья не добивает до порога 3
-    expect(registry.report(host.hostId, 'r3', 'reason', 1500)).toEqual({
-      counted: true,
-      banned: false,
-    });
-    expect(host.reportCount).toBe(2); // r2 (700 мс) + r3, r1 удалена
-    expect(host.status).toBe('online');
-  });
-
-  it('копит причины жалоб (аудит) с ограничением maxReasons', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    registry.report(host.hostId, 'r1', 'aim');
-    registry.report(host.hostId, 'r2', 'wall');
-    registry.report(host.hostId, 'r3', 'speed');
-
-    // maxReasons = 2: держим только последние
-    expect(host.reportReasons).toEqual(['wall', 'speed']);
-  });
-
-  it('возвращает { counted:false, banned:false } для неизвестной комнаты', () => {
-    expect(registry.report('nope', 'reporter1')).toEqual({
-      counted: false,
-      banned: false,
-    });
-  });
-});
-
-describe('HostRegistry.isBanned', () => {
-  it('снимает бан по истечении окна', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    registry.report(host.hostId, 'r1', 'cheat', 0);
-    registry.report(host.hostId, 'r2', 'cheat', 0);
-    registry.report(host.hostId, 'r3', 'cheat', 0);
-
-    // reportWindowMs = 1000 → бан до 1000
-    expect(registry.isBanned('1.1.1.1', 500)).toBe(true);
-    expect(registry.isBanned('1.1.1.1', 1000)).toBe(false);
-  });
-
-  it('забаненный IP не может зарегистрировать новую комнату', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
-
-    registry.report(host.hostId, 'r1', 'cheat');
-    registry.report(host.hostId, 'r2', 'cheat');
-    registry.report(host.hostId, 'r3', 'cheat');
-    registry.remove(host.hostId); // комната ушла (WS хоста закрыт)
-
-    expect(registry.isBanned('1.1.1.1')).toBe(true);
-  });
-});
-
 describe('HostRegistry.sweepStale', () => {
   it('удаляет комнаты без heartbeat дольше таймаута', () => {
     const stale = registry.add({ name: 'stale', ip: '1.1.1.1' }, 0);
@@ -262,19 +147,6 @@ describe('HostRegistry.sweepStale', () => {
     expect(removed).toEqual([stale.hostId]);
     expect(registry.get(stale.hostId)).toBeUndefined();
     expect(registry.get(fresh.hostId)).toBe(fresh);
-  });
-
-  it('чистит протухшие записи бана', () => {
-    const host = registry.add({ name: 'a', ip: '1.1.1.1' }, 0);
-
-    registry.report(host.hostId, 'r1', '', 0);
-    registry.report(host.hostId, 'r2', '', 0);
-    registry.report(host.hostId, 'r3', '', 0);
-
-    // бан до 1000 (reportWindowMs); свип на 2000 снимает его
-    registry.sweepStale(10000, 2000);
-
-    expect(registry.isBanned('1.1.1.1', 2000)).toBe(false);
   });
 });
 
@@ -354,11 +226,135 @@ describe('HostRegistry.getList', () => {
 
     expect(Object.keys(server).sort()).toEqual([
       'currentPlayers',
+      'gameId',
       'hostId',
       'mapName',
       'maxPlayers',
       'name',
+      'rating',
       'region',
     ]);
+  });
+});
+
+describe('HostRegistry: рейтинг хостера (server-rating этап 3)', () => {
+  it('новая комната стартует с рейтингом 0', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
+
+    expect(host.rating).toBe(0);
+
+    const [server] = registry.getList({}).servers;
+
+    expect(server.rating).toBe(0);
+  });
+
+  it('setRating обновляет рейтинг конкретной комнаты', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
+
+    registry.setRating(host.hostId, 7);
+
+    expect(host.rating).toBe(7);
+  });
+
+  it('setRating на неизвестный hostId — no-op', () => {
+    expect(() => registry.setRating('nope', 7)).not.toThrow();
+  });
+
+  it('setRatingForHoster обновляет рейтинг во всех комнатах этого хостера', () => {
+    const a = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+    const b = registry.add({ name: 'b', ip: '2.2.2.2', hosterUserId: 42 });
+    const other = registry.add({ name: 'c', ip: '3.3.3.3', hosterUserId: 99 });
+
+    registry.setRatingForHoster(42, -3);
+
+    expect(a.rating).toBe(-3);
+    expect(b.rating).toBe(-3);
+    expect(other.rating).toBe(0);
+  });
+
+  it('getHosterUserIds возвращает уникальные id хостеров активных комнат', () => {
+    registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+    registry.add({ name: 'b', ip: '2.2.2.2', hosterUserId: 42 });
+    registry.add({ name: 'c', ip: '3.3.3.3' });
+
+    expect(registry.getHosterUserIds()).toEqual(new Set([42]));
+  });
+
+  // кодревью №2 (plan/server-rating/review.md): эвакуация всех комнат
+  // заблокированного хостера — обычно одна, но технически может быть больше
+  it('getHostIdsForHoster возвращает все hostId данного хостера', () => {
+    const a = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+    const b = registry.add({ name: 'b', ip: '2.2.2.2', hosterUserId: 42 });
+    registry.add({ name: 'c', ip: '3.3.3.3', hosterUserId: 99 });
+
+    expect(registry.getHostIdsForHoster(42).sort()).toEqual([a.hostId, b.hostId].sort());
+    expect(registry.getHostIdsForHoster(99)).toEqual([expect.any(String)]);
+    expect(registry.getHostIdsForHoster(7)).toEqual([]);
+  });
+});
+
+// кодревью №1 (доработка): атрибуция rank/state к комнате допустима, только
+// если запрос несёт per-room секрет этой комнаты — иначе хост мог бы подставить
+// чужой публичный hostId (обойти void / подставить хостера-жертву)
+describe('HostRegistry.verifiedAttribution (server-rating кодревью №1)', () => {
+  it('add выдаёт per-room секрет, не раскрываемый в публичном списке', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+
+    expect(host.secret).toBeTypeOf('string');
+    expect(host.secret).not.toBe(host.hostId);
+    expect(registry.getList({}).servers[0]).not.toHaveProperty('secret');
+  });
+
+  it('верный секрет → { hosterUserId, sessionId: hostId }', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+
+    expect(registry.verifiedAttribution(host.hostId, host.secret)).toEqual({
+      hosterUserId: 42,
+      sessionId: host.hostId,
+    });
+  });
+
+  it('неверный/отсутствующий секрет → {} (чужой hostId не подставить)', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+
+    expect(registry.verifiedAttribution(host.hostId, 'wrong')).toEqual({});
+    expect(registry.verifiedAttribution(host.hostId, undefined)).toEqual({});
+    expect(registry.verifiedAttribution(host.hostId, null)).toEqual({});
+  });
+
+  it('неизвестный hostId → {}', () => {
+    expect(registry.verifiedAttribution('nope', 'x')).toEqual({});
+    expect(registry.verifiedAttribution(null, null)).toEqual({});
+  });
+
+  it('комната без hosterUserId → {} даже с верным секретом', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
+
+    expect(registry.verifiedAttribution(host.hostId, host.secret)).toEqual({});
+  });
+});
+
+describe('HostRegistry.add — gameId/gameVersion', () => {
+  it('сохраняет gameId/gameVersion и выставляет gameId в публичный список', () => {
+    const host = registry.add({
+      name: 'a',
+      ip: '1.1.1.1',
+      gameId: 'tanks',
+      gameVersion: 'abc123',
+    });
+
+    expect(host.gameId).toBe('tanks');
+    expect(host.gameVersion).toBe('abc123');
+
+    const [server] = registry.getList({}).servers;
+
+    expect(server.gameId).toBe('tanks');
+  });
+
+  it('без gameId/gameVersion — null (хосты до Этапа 6.4)', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
+
+    expect(host.gameId).toBeNull();
+    expect(host.gameVersion).toBeNull();
   });
 });

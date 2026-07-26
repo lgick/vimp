@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import config from '../../src/lib/config.js';
+import config from '../../packages/engine/src/lib/config.js';
 
 describe('config', () => {
   beforeEach(() => {

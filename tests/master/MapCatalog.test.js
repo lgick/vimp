@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import MapCatalog from '../../src/master/MapCatalog.js';
+import MapCatalog from '../../packages/engine/src/master/MapCatalog.js';
 
 // Каталог карт мастера (Этап 5.1): JSON карт в памяти + версия-хеш
 // содержимого для сверки хостами (host_registered → mapsVersion).

@@ -11,7 +11,7 @@ const makeModel = () => ({
 beforeEach(async () => {
   vi.resetModules();
   CanvasManagerCtrl = (
-    await import('../../src/client/components/controller/CanvasManager.js')
+    await import('../../packages/engine/src/client/components/controller/CanvasManager.js')
   ).default;
 });
 

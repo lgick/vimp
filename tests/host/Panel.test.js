@@ -3,11 +3,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // Panel — синглтон, перезагружаем модуль для изоляции
 let Panel;
 
-// конфиг панели (аналог config/game.js -> panel)
+// схема панели (аналог games/tanks config game.js -> panel)
 const panelConfig = {
-  health: { key: 'h', value: 100 },
-  w1: { key: 'w1', value: 200 },
-  w2: { key: 'w2', value: 100 },
+  fields: {
+    health: { key: 'h', value: 100 },
+    w1: { key: 'w1', value: 200 },
+    w2: { key: 'w2', value: 100 },
+  },
+  activeKey: 'wa',
 };
 
 // мок TimerManager с управляемым оставшимся временем раунда
@@ -20,7 +23,7 @@ const makeTimerManager = (time = 120) => ({
 
 beforeEach(async () => {
   vi.resetModules();
-  Panel = (await import('../../src/host/meta/modules/Panel.js')).default;
+  Panel = (await import('../../packages/engine/src/host/meta/modules/Panel.js')).default;
 });
 
 describe('Panel.updateUser', () => {
@@ -95,7 +98,7 @@ describe('Panel.processUpdates', () => {
     expect(updates.g1).toBeUndefined();
   });
 
-  it('setActiveWeapon попадает в pendingChanges как wa', () => {
+  it('setActiveWeapon пишет activeKey схемы (wa)', () => {
     const panel = new Panel(panelConfig);
     const tm = makeTimerManager(100);
     panel.injectTimerManager(tm);
@@ -104,6 +107,21 @@ describe('Panel.processUpdates', () => {
     panel.setActiveWeapon('g1', 'w2');
     const updates = panel.processUpdates();
     expect(updates.g1).toContain('wa:w2');
+  });
+
+  it('activeKey берётся из схемы, а не хардкода', async () => {
+    vi.resetModules();
+    const FreshPanel = (await import('../../packages/engine/src/host/meta/modules/Panel.js'))
+      .default;
+    const panel = new FreshPanel({
+      fields: { health: { key: 'h', value: 100 } },
+      activeKey: 'aw',
+    });
+    panel.injectTimerManager(makeTimerManager(100));
+    panel.addUser('g1');
+
+    panel.setActiveWeapon('g1', 'w1');
+    expect(panel.processUpdates().g1).toContain('aw:w1');
   });
 
   it('invalidate сбрасывает pendingChanges', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeMessage } from '../../src/lib/sanitizers.js';
+import { sanitizeMessage } from '../../packages/engine/src/lib/sanitizers.js';
 
 describe('sanitizeMessage', () => {
   it('удаляет управляющие символы (ломают однострочный чат)', () => {

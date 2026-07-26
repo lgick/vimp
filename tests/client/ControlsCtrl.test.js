@@ -16,7 +16,7 @@ const makeView = () => ({ resetCursorHideTimer: vi.fn() });
 beforeEach(async () => {
   vi.resetModules();
   ControlsCtrl = (
-    await import('../../src/client/components/controller/Controls.js')
+    await import('../../packages/engine/src/client/components/controller/Controls.js')
   ).default;
 });
 

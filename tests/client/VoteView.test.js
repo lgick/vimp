@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // VoteView — синглтон, перезагружаем модуль для изоляции
 let VoteView;
@@ -27,7 +27,7 @@ beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
   document.body.innerHTML = '';
-  VoteView = (await import('../../src/client/components/view/Vote.js')).default;
+  VoteView = (await import('../../packages/engine/src/client/components/view/Vote.js')).default;
 });
 
 afterEach(() => {

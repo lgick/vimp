@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // PanelCtrl — синглтон, перезагружаем модуль для изоляции
 let PanelCtrl;
 
 beforeEach(async () => {
   vi.resetModules();
-  PanelCtrl = (await import('../../src/client/components/controller/Panel.js'))
+  PanelCtrl = (await import('../../packages/engine/src/client/components/controller/Panel.js'))
     .default;
 });
 

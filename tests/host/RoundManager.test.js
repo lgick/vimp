@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import RoundManager from '../../src/host/meta/core/RoundManager.js';
+import RoundManager from '../../packages/engine/src/host/meta/core/RoundManager.js';
 
 // RoundManager — обычный класс с DI. Подставляем фейковые сервисы.
 
@@ -9,7 +9,7 @@ const fakeParticipants = (usersMap = {}, activeList = []) => {
   return {
     get: id => map.get(id),
     getAll: () => [...map.values()],
-    getHumans: () => [...map.values()].filter(p => !p.isBot),
+    getHumans: () => [...map.values()].filter(p => !p.isScripted),
     getActiveList: () => activeList,
     replaceWatched: vi.fn(),
   };
@@ -24,9 +24,10 @@ const makeRm = (overrides = {}) =>
     chat: overrides.chat || {},
     socketManager: overrides.socketManager || {},
     timerManager: overrides.timerManager || {},
-    bots: overrides.bots || {},
+    scripted: overrides.scripted || {},
     voteCoordinator: overrides.voteCoordinator || {},
     snapshotManager: overrides.snapshotManager || {},
+    playerDataSync: overrides.playerDataSync,
     teams: overrides.teams || { red: 1, blue: 2, spec: 3 },
     spectatorTeam: 'spec',
     spectatorId: 3,
@@ -64,8 +65,7 @@ describe('RoundManager.reportKill', () => {
       panel: { invalidate: vi.fn() },
       socketManager: {
         sendSpectatorDefaultShot: vi.fn(),
-        sendGameOverSound: vi.fn(),
-        sendFragSound: vi.fn(),
+        sendSoundCue: vi.fn(),
       },
       chat: { pushSystem: vi.fn() },
     });
@@ -99,7 +99,7 @@ describe('RoundManager.reportKill', () => {
     rm.reportKill('v', 'k');
 
     expect(rm._stat.updateUser).toHaveBeenCalledWith('k', 2, { score: 1 });
-    expect(rm._socketManager.sendFragSound).toHaveBeenCalledWith('sk');
+    expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith('sk', 'frag');
     expect(rm._participants.replaceWatched).toHaveBeenCalledWith('v', 'k');
     expect(rm._checkTeamWipe).toHaveBeenCalledWith(1, 2);
   });
@@ -121,6 +121,24 @@ describe('RoundManager.reportKill', () => {
     expect(scoreCall).toBeUndefined();
   });
 
+  it('начисляет ранг убийце-врагу через playerDataSync (Этап B4)', () => {
+    const rm = makeCtx();
+    rm._playerDataSync = { addRank: vi.fn() };
+
+    rm.reportKill('v', 'k');
+
+    expect(rm._playerDataSync.addRank).toHaveBeenCalledWith('k', 1);
+  });
+
+  it('снимает ранг за огонь по своим через playerDataSync (Этап B4)', () => {
+    const rm = makeCtx();
+    rm._playerDataSync = { addRank: vi.fn() };
+
+    rm.reportKill('v', 'ally');
+
+    expect(rm._playerDataSync.addRank).toHaveBeenCalledWith('ally', -1);
+  });
+
   it('без убийцы только фиксирует смерть', () => {
     const rm = makeCtx();
     rm.reportKill('v');
@@ -135,7 +153,10 @@ describe('RoundManager.reportKill', () => {
 
     expect(rm._participants.get('v').status).toBe('dead');
     expect(rm._chat.pushSystem).not.toHaveBeenCalled();
-    expect(rm._socketManager.sendFragSound).not.toHaveBeenCalled();
+    expect(rm._socketManager.sendSoundCue).not.toHaveBeenCalledWith(
+      'sk',
+      'frag',
+    );
     expect(rm._checkTeamWipe).toHaveBeenCalledWith(1, null);
   });
 });
@@ -153,8 +174,7 @@ describe('RoundManager._checkTeamWipe', () => {
       stat: { updateHead: vi.fn() },
       teams: { red: 1, blue: 2 },
       socketManager: {
-        sendDefeat: vi.fn(),
-        sendVictory: vi.fn(),
+        sendSoundCue: vi.fn(),
         sendRoundEnd: vi.fn(),
       },
       timerManager: {
@@ -171,8 +191,11 @@ describe('RoundManager._checkTeamWipe', () => {
     expect(rm._isRoundEnding).toBe(true);
     expect(rm._stat.updateHead).toHaveBeenCalledWith(1, 'deaths', 1);
     expect(rm._stat.updateHead).toHaveBeenCalledWith(2, 'score', 1);
-    expect(rm._socketManager.sendDefeat).toHaveBeenCalledWith('sa');
-    expect(rm._socketManager.sendVictory).toHaveBeenCalledWith('sb');
+    expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith('sa', 'defeat');
+    expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith(
+      'sb',
+      'victory',
+    );
     expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sa', 'blue');
     expect(rm._timerManager.startRoundRestartDelay).toHaveBeenCalled();
   });
@@ -195,6 +218,15 @@ describe('RoundManager._checkTeamWipe', () => {
     rm._checkTeamWipe(1, 2);
     expect(rm._isRoundEnding).toBe(false);
     expect(rm._stat.updateHead).not.toHaveBeenCalled();
+  });
+
+  it('синхронизирует rank/state участников по итогам раунда (Этап B4)', () => {
+    const rm = makeCtx();
+    rm._playerDataSync = { flushAll: vi.fn() };
+
+    rm._checkTeamWipe(1, 2);
+
+    expect(rm._playerDataSync.flushAll).toHaveBeenCalled();
   });
 });
 

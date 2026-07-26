@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import AbstractTimer from '../../src/lib/AbstractTimer.js';
+import AbstractTimer from '../../packages/engine/src/lib/AbstractTimer.js';
 
 // подкласс для доступа к protected-методам
 class TestTimer extends AbstractTimer {

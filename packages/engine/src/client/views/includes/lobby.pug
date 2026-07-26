@@ -1,0 +1,23 @@
+//- скрыт по умолчанию: открывается из main.js только после успешного логина
+//- в #lobby-auth (Этап B2, LobbyAuthCtrl 'authenticated')
+div#lobby(style='display:none')
+  div#lobby-panel
+    h2= 'VIMP'
+    //- бейдж входа (Этап B2): управляется LobbyAuthView, показывается
+    //- вместе с #lobby после успешной авторизации
+    div#lobby-user
+      span= 'Signed in as '
+      b#lobby-user-nick
+      button#lobby-user-logout(type='button')= 'Sign out'
+    div#lobby-create
+      input#lobby-name(type='text', placeholder='Server name…', maxlength='30')
+      //- скрыт, пока каталог мастера содержит одну игру (Этап 6.3, PLAN.md §6)
+      select#lobby-game(style='display:none')
+      //- поля настроек комнаты генерируются по ключам roomDefaults
+      //- манифеста активной игры (Д7) — движок не знает игровых полей
+      div#lobby-fields
+      button#lobby-host(type='button')= 'Create server'
+    input#lobby-search(type='text', placeholder='Search servers…')
+    ul#lobby-list
+    p#lobby-empty= 'No servers available'
+    button#lobby-more(type='button')= 'Load more'

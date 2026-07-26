@@ -4,12 +4,15 @@ let ParticipantManager;
 
 const TEAMS = { team1: 1, team2: 2, spectators: 3 };
 
+// scripted-параметры — из конфига игры (namePrefix/defaultModel)
+const SCRIPTED = { namePrefix: 'Bot', defaultModel: 'm1' };
+
 const make = (maxPlayers = 8) =>
-  new ParticipantManager(TEAMS, 'spectators', maxPlayers);
+  new ParticipantManager(TEAMS, 'spectators', maxPlayers, SCRIPTED);
 
 beforeEach(async () => {
   ParticipantManager = (
-    await import('../../src/host/meta/player/ParticipantManager.js')
+    await import('../../packages/engine/src/host/meta/player/ParticipantManager.js')
   ).default;
 });
 
@@ -25,8 +28,15 @@ describe('ParticipantManager: создание людей', () => {
     expect(p.team).toBe('spectators');
     expect(p.teamId).toBe(3);
     expect(p.isNetworked).toBe(true);
-    expect(p.isBot).toBe(false);
+    expect(p.isScripted).toBe(false);
     expect(pm.getTeamSize('spectators')).toBe(1);
+  });
+
+  it('createHuman пробрасывает identity-токен на участника (Этап B4)', () => {
+    const pm = make();
+    const gameId = pm.createHuman({ name: 'Alice', model: 'm1', token: 'jwt-1' }, 's1');
+
+    expect(pm.get(gameId).token).toBe('jwt-1');
   });
 
   it('getNetworkedReady возвращает только готовых людей', () => {
@@ -41,25 +51,32 @@ describe('ParticipantManager: создание людей', () => {
   });
 });
 
-describe('ParticipantManager: создание ботов', () => {
-  it('createBot даёт числовой id из общего пула и имя Bot<id>', () => {
+describe('ParticipantManager: создание scripted-участников', () => {
+  it('createScripted даёт числовой id из общего пула и имя <namePrefix><id>', () => {
     const pm = make();
-    const gameId = pm.createBot({ team: 'team1', model: 'm1' });
+    const gameId = pm.createScripted({ team: 'team1', model: 'm1' });
 
     const p = pm.get(gameId);
     expect(gameId).toBe('0');
     expect(p.name).toBe('Bot0');
     expect(p.team).toBe('team1');
     expect(p.teamId).toBe(1);
-    expect(p.isBot).toBe(true);
+    expect(p.isScripted).toBe(true);
     expect(p.isNetworked).toBe(false);
     expect(pm.getTeamSize('team1')).toBe(1);
+  });
+
+  it('без model берётся scripted.defaultModel', () => {
+    const pm = make();
+    const gameId = pm.createScripted({ team: 'team1' });
+
+    expect(pm.get(gameId).model).toBe('m1');
   });
 
   it('боты и люди делят единое числовое пространство id', () => {
     const pm = make();
     const h1 = pm.createHuman({ name: 'A', model: 'm1' }, 's1');
-    const b1 = pm.createBot({ team: 'team1', model: 'm1' });
+    const b1 = pm.createScripted({ team: 'team1', model: 'm1' });
     const h2 = pm.createHuman({ name: 'B', model: 'm1' }, 's2');
 
     expect([h1, b1, h2]).toEqual(['0', '1', '2']);
@@ -68,7 +85,7 @@ describe('ParticipantManager: создание ботов', () => {
   it('после удаления id переиспользуется (наименьший свободный)', () => {
     const pm = make();
     pm.createHuman({ name: 'A', model: 'm1' }, 's1'); // '0'
-    const b = pm.createBot({ team: 'team1', model: 'm1' }); // '1'
+    const b = pm.createScripted({ team: 'team1', model: 'm1' }); // '1'
     pm.remove(b);
 
     const next = pm.createHuman({ name: 'C', model: 'm1' }, 's3');
@@ -98,7 +115,7 @@ describe('ParticipantManager.checkName: уникализация по всему
 
   it('учитывает имена ботов, а не только людей', () => {
     const pm = make();
-    pm.createBot({ team: 'team1', model: 'm1' }); // 'Bot0'
+    pm.createScripted({ team: 'team1', model: 'm1' }); // 'Bot0'
     expect(pm.checkName('Bot0')).toBe('Bot0#1');
   });
 });
@@ -109,7 +126,7 @@ describe('ParticipantManager: лимит игроков', () => {
     pm.createHuman({ name: 'A', model: 'm1' }, 's1');
     expect(pm.isFull).toBe(false);
 
-    pm.createBot({ team: 'team1', model: 'm1' });
+    pm.createScripted({ team: 'team1', model: 'm1' });
     expect(pm.totalCount).toBe(2);
     expect(pm.isFull).toBe(true);
   });
@@ -221,7 +238,7 @@ describe('ParticipantManager.remove', () => {
 });
 
 // Эстафета Worker'ов (Этап 5.2): восстановление участников с исходными id
-describe('ParticipantManager: restoreHuman/restoreBot', () => {
+describe('ParticipantManager: restoreHuman/restoreScripted', () => {
   it('восстанавливает человека с исходным gameId и командой', () => {
     const pm = make();
     const p = pm.restoreHuman({
@@ -243,9 +260,9 @@ describe('ParticipantManager: restoreHuman/restoreBot', () => {
     expect(pm.getTeamSize('team1')).toBe(1);
   });
 
-  it('восстанавливает бота с исходным gameId', () => {
+  it('восстанавливает scripted-участника с исходным gameId', () => {
     const pm = make();
-    const bot = pm.restoreBot({
+    const bot = pm.restoreScripted({
       gameId: '3',
       name: 'Bot3',
       model: 'm1',
@@ -253,7 +270,7 @@ describe('ParticipantManager: restoreHuman/restoreBot', () => {
       teamId: 2,
     });
 
-    expect(bot.isBot).toBe(true);
+    expect(bot.isScripted).toBe(true);
     expect(pm.get('3')).toBe(bot);
     expect(pm.getTeamSize('team2')).toBe(1);
   });
@@ -274,7 +291,7 @@ describe('ParticipantManager: restoreHuman/restoreBot', () => {
     ).toBeNull();
 
     expect(
-      pm.restoreBot({
+      pm.restoreScripted({
         gameId: '9',
         name: 'B',
         model: 'm1',
@@ -296,7 +313,7 @@ describe('ParticipantManager: restoreHuman/restoreBot', () => {
       team: 'team1',
       teamId: 1,
     });
-    pm.restoreBot({
+    pm.restoreScripted({
       gameId: '1',
       name: 'B',
       model: 'm1',

@@ -1,0 +1,19 @@
+//- логин-гейт лобби (Этап B2): показывается до #lobby, пока клиент не
+//- авторизован через central auth-сервис (packages/auth). Кнопки провайдеров
+//- фильтруются JS по authClient.providers; неактивные скрыты
+div#lobby-auth
+
+  div#lobby-auth-login
+    h2= 'VIMP'
+    p= 'Sign in to play'
+    div#lobby-auth-login-buttons
+      button.lobby-auth-provider#lobby-auth-login-github(type='button', data-provider='github')= 'Sign in with GitHub'
+      button.lobby-auth-provider#lobby-auth-login-google(type='button', data-provider='google')= 'Sign in with Google'
+      button.lobby-auth-provider#lobby-auth-login-apple(type='button', data-provider='apple')= 'Sign in with Apple'
+    div#lobby-auth-login-error
+
+  div#lobby-auth-nick(style='display:none')
+    h2= 'Choose your nick'
+    input#lobby-auth-nick-input(type='text', maxlength='14', placeholder='YourNick')
+    div#lobby-auth-nick-error
+    button#lobby-auth-nick-submit(type='button')= 'Continue'

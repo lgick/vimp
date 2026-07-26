@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import SocketManager from '../../src/host/meta/SocketManager.js';
+import SocketManager from '../../packages/engine/src/host/meta/SocketManager.js';
 
 const ports = {
   CONFIG_DATA: 0,
@@ -31,8 +31,17 @@ const makeSocket = () => ({
 let sm;
 let socket;
 
+// игровая параметризация (в проде — из конфига игры)
+const soundCues = {
+  roundStart: 'roundStart',
+  victory: 'victory',
+  defeat: 'defeat',
+  frag: 'frag',
+  death: 'gameOver',
+};
+
 beforeEach(() => {
-  sm = new SocketManager(ports);
+  sm = new SocketManager(ports, { soundCues, initialVote: 'teamChange' });
   socket = makeSocket();
   sm.addUser('s1', socket);
 });
@@ -90,10 +99,14 @@ describe('SocketManager: технические сообщения', () => {
 });
 
 describe('SocketManager: игровые сообщения', () => {
-  it('sendRoundStart шлёт звук и информер', () => {
-    sm.sendRoundStart('s1');
-    expect(socket.send).toHaveBeenCalledWith(6, 'roundStart', true);
+  it('sendGameInform по ключу подставляет код', () => {
+    sm.sendGameInform('s1', 'roundStart');
     expect(socket.send).toHaveBeenCalledWith(7, [1], true);
+  });
+
+  it('sendGameInform с массивом параметров', () => {
+    sm.sendGameInform('s1', 'winnerTeam', ['team1']);
+    expect(socket.send).toHaveBeenCalledWith(7, [0, ['team1']], true);
   });
 
   it('sendRoundEnd с победителем включает команду', () => {
@@ -149,9 +162,17 @@ describe('SocketManager: простые отправители', () => {
     expect(socket.send).not.toHaveBeenCalled();
   });
 
-  it('sendFirstVote шлёт запрос выбора команды на VOTE_DATA', () => {
+  it('sendFirstVote шлёт initialVote из конфига на VOTE_DATA', () => {
     sm.sendFirstVote('s1');
     expect(socket.send).toHaveBeenCalledWith(16, { name: 'teamChange' }, true);
+  });
+
+  it('sendFirstVote без initialVote ничего не шлёт', () => {
+    const bare = new SocketManager(ports);
+
+    bare.addUser('s2', socket);
+    bare.sendFirstVote('s2');
+    expect(socket.send).not.toHaveBeenCalled();
   });
 
   it('канальные отправители уходят на свои порты', () => {
@@ -185,18 +206,24 @@ describe('SocketManager: простые отправители', () => {
     expect(socket.send).toHaveBeenCalledWith(17, 0, true); // keySet (наблюдатель)
   });
 
-  it('звуковые отправители уходят на порт SOUND_DATA', () => {
-    sm.sendVictory('s1');
+  it('sendSoundCue маппит движковое событие на звук игры (SOUND_DATA)', () => {
+    sm.sendSoundCue('s1', 'victory');
     expect(socket.send).toHaveBeenCalledWith(6, 'victory', true);
 
-    sm.sendDefeat('s1');
+    sm.sendSoundCue('s1', 'defeat');
     expect(socket.send).toHaveBeenCalledWith(6, 'defeat', true);
 
-    sm.sendFragSound('s1');
+    sm.sendSoundCue('s1', 'frag');
     expect(socket.send).toHaveBeenCalledWith(6, 'frag', true);
 
-    sm.sendGameOverSound('s1');
+    // движковое событие и имя звука игры различаются
+    sm.sendSoundCue('s1', 'death');
     expect(socket.send).toHaveBeenCalledWith(6, 'gameOver', true);
+  });
+
+  it('sendSoundCue игнорирует незамапленное событие', () => {
+    sm.sendSoundCue('s1', 'unknownCue');
+    expect(socket.send).not.toHaveBeenCalled();
   });
 });
 

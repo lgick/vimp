@@ -1,22 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // PanelView — синглтон, перезагружаем модуль для изоляции
 let PanelView;
 
-const elems = {
-  time: 'panel-time',
-  health: 'panel-health',
-  weapons: { w1: 'panel-w1', w2: 'panel-w2' },
+// схема панели: контейнер — движок, ячейки генерирует view по типам
+// схемы игры (Д2: семантику задаёт type, а не имя поля)
+const config = {
+  containerId: 'panel',
+  fields: [
+    { name: 'energy', elem: 'panel-energy', type: 'bar', max: 100, blocks: 30 },
+    { name: 'w1', elem: 'panel-w1', type: 'weapon' },
+    { name: 'w2', elem: 'panel-w2', type: 'weapon' },
+    { name: 'time', elem: 'panel-time', type: 'time' },
+  ],
 };
 
 const seedDom = () => {
-  document.body.innerHTML = `
-    <div id="panel-time"></div>
-    <div id="panel-health"></div>
-    <div id="panel-w1"></div>
-    <div id="panel-w2"></div>
-  `;
+  document.body.innerHTML = '<div id="panel"></div>';
 };
 
 const makeModel = () => ({ publisher: new Publisher() });
@@ -24,23 +25,46 @@ const makeModel = () => ({ publisher: new Publisher() });
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  PanelView = (await import('../../src/client/components/view/Panel.js'))
+  PanelView = (await import('../../packages/engine/src/client/components/view/Panel.js'))
     .default;
 });
 
-describe('PanelView.initHealthBar', () => {
-  it('создаёт 30 блоков здоровья внутри обёртки', () => {
-    new PanelView(makeModel(), elems);
+describe('PanelView: генерация DOM по схеме', () => {
+  it('строит ячейки в порядке fields схемы', () => {
+    new PanelView(makeModel(), config);
 
-    const wrapper = document.querySelector('.panel-health-wrapper');
+    const cells = document.querySelectorAll('#panel table td');
+    expect([...cells].map(c => c.id)).toEqual([
+      'panel-energy',
+      'panel-w1',
+      'panel-w2',
+      'panel-time',
+    ]);
+  });
+});
+
+describe('PanelView: bar-поле', () => {
+  it('создаёт заданное схемой число блоков внутри обёртки', () => {
+    new PanelView(makeModel(), config);
+
+    const wrapper = document.querySelector('.panel-bar-wrapper');
     expect(wrapper).not.toBeNull();
-    expect(wrapper.querySelectorAll('.panel-health-block').length).toBe(30);
+    expect(wrapper.querySelectorAll('.panel-bar-block').length).toBe(30);
+  });
+
+  it('уважает нестандартное число блоков', () => {
+    new PanelView(makeModel(), {
+      containerId: 'panel',
+      fields: [{ name: 'fuel', elem: 'panel-fuel', type: 'bar', blocks: 10 }],
+    });
+
+    expect(document.querySelectorAll('.panel-bar-block').length).toBe(10);
   });
 });
 
 describe('PanelView.update', () => {
   it('текстовая панель получает значение', () => {
-    const view = new PanelView(makeModel(), elems);
+    const view = new PanelView(makeModel(), config);
 
     view.update({ name: 'time', value: '02:30' });
 
@@ -48,41 +72,56 @@ describe('PanelView.update', () => {
     expect(document.getElementById('panel-time').textContent).toBe('02:30');
   });
 
-  it('полное здоровье подсвечивает все блоки', () => {
-    const view = new PanelView(makeModel(), elems);
+  it('полное значение bar-поля подсвечивает все блоки', () => {
+    const view = new PanelView(makeModel(), config);
 
-    view.update({ name: 'health', value: 100 });
+    view.update({ name: 'energy', value: 100 });
 
-    const blocks = document.querySelectorAll('#panel-health div div');
+    const blocks = document.querySelectorAll('#panel-energy div div');
     const filled = [...blocks].filter(
-      b => b.className === 'panel-health-block',
+      b => b.className === 'panel-bar-block',
     );
     expect(filled.length).toBe(30);
   });
 
-  it('половина здоровья заполняет половину блоков', () => {
-    const view = new PanelView(makeModel(), elems);
+  it('половина значения заполняет половину блоков', () => {
+    const view = new PanelView(makeModel(), config);
 
-    view.update({ name: 'health', value: 50 });
+    view.update({ name: 'energy', value: 50 });
 
-    const blocks = [...document.querySelectorAll('#panel-health div div')];
+    const blocks = [...document.querySelectorAll('#panel-energy div div')];
     const empty = blocks.filter(
-      b => b.className === 'panel-health-block-empty',
+      b => b.className === 'panel-bar-block-empty',
     );
     expect(empty.length).toBe(15);
+  });
+
+  it('bar масштабируется по max из схемы', () => {
+    const view = new PanelView(makeModel(), {
+      containerId: 'panel',
+      fields: [
+        { name: 'fuel', elem: 'panel-fuel', type: 'bar', max: 200, blocks: 10 },
+      ],
+    });
+
+    view.update({ name: 'fuel', value: 100 });
+
+    const blocks = [...document.querySelectorAll('#panel-fuel div div')];
+    const filled = blocks.filter(b => b.className === 'panel-bar-block');
+    expect(filled.length).toBe(5);
   });
 });
 
 describe('PanelView.hidePanel / setCurrentWeapon', () => {
   it('hidePanel скрывает указанную панель', () => {
-    const view = new PanelView(makeModel(), elems);
+    const view = new PanelView(makeModel(), config);
 
     view.hidePanel('time');
     expect(document.getElementById('panel-time').style.display).toBe('none');
   });
 
   it('setCurrentWeapon помечает активное оружие классом active', () => {
-    const view = new PanelView(makeModel(), elems);
+    const view = new PanelView(makeModel(), config);
 
     view.setCurrentWeapon('w2');
 
@@ -98,7 +137,7 @@ describe('PanelView.hidePanel / setCurrentWeapon', () => {
 describe('PanelView: события модели', () => {
   it('data → update, activeWeapon → setCurrentWeapon', () => {
     const model = makeModel();
-    new PanelView(model, elems);
+    new PanelView(model, config);
 
     model.publisher.emit('data', { name: 'time', value: '01:00' });
     model.publisher.emit('activeWeapon', 'w1');

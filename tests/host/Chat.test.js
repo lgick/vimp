@@ -1,12 +1,28 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { buildSystemMessage } from '../../src/host/meta/modules/chat/systemMessages.js';
+import {
+  buildSystemMessage,
+  registerCodes,
+} from '../../packages/engine/src/host/meta/modules/chat/systemMessages.js';
+// Стенд-ин игровых кодов (зеркалит форму реальных game-кодов, например
+// b:* танков — vimp-tanks/src/host/systemMessages.js): registerCodes не
+// завязан на конкретную игру, поэтому тест использует собственную фикстуру,
+// а не импорт из @vimp/tanks.
+const fixtureSystemMessages = {
+  BOT_PLAYERS_ONLY: 'b:0',
+  BOT_INVALID_COUNT: 'b:1',
+  BOT_INVALID_TEAM: 'b:2',
+  BOT_CREATED_FOR_TEAM: 'b:3',
+  BOT_REMOVED_FROM_TEAM: 'b:4',
+  BOT_CREATED: 'b:5',
+  BOT_REMOVED: 'b:6',
+};
 
 // Chat — синглтон, перезагружаем модуль для изоляции
 let Chat;
 
 beforeEach(async () => {
   vi.resetModules();
-  Chat = (await import('../../src/host/meta/modules/chat/Chat.js')).default;
+  Chat = (await import('../../packages/engine/src/host/meta/modules/chat/Chat.js')).default;
 });
 
 describe('buildSystemMessage', () => {
@@ -22,6 +38,29 @@ describe('buildSystemMessage', () => {
 
   it('неизвестный ключ даёт undefined (текущее поведение)', () => {
     expect(buildSystemMessage('NOPE')).toBeUndefined();
+  });
+});
+
+describe('registerCodes: игровые коды', () => {
+  it('незарегистрированный игровой код неизвестен движку', () => {
+    expect(buildSystemMessage('BOT_CREATED')).toBeUndefined();
+  });
+
+  it('merge кодов игры в реестр движка (группа b:* танков)', () => {
+    registerCodes(fixtureSystemMessages);
+
+    expect(buildSystemMessage('BOT_PLAYERS_ONLY')).toBe('b:0');
+    expect(buildSystemMessage('BOT_CREATED', [3])).toBe('b:5:3');
+
+    // движковые коды не задеты
+    expect(buildSystemMessage('USER_JOINED')).toBe('s:5');
+  });
+
+  it('повторная регистрация идемпотентна', () => {
+    registerCodes(fixtureSystemMessages);
+    registerCodes(fixtureSystemMessages);
+
+    expect(buildSystemMessage('BOT_REMOVED')).toBe('b:6');
   });
 });
 

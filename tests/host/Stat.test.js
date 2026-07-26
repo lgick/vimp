@@ -26,7 +26,7 @@ const teams = { team1: 1, team2: 2 };
 
 beforeEach(async () => {
   vi.resetModules();
-  Stat = (await import('../../src/host/meta/modules/Stat.js')).default;
+  Stat = (await import('../../packages/engine/src/host/meta/modules/Stat.js')).default;
 });
 
 describe('Stat: добавление и обновление', () => {
@@ -63,6 +63,32 @@ describe('Stat: добавление и обновление', () => {
 
     const head = stat.getFull()[1].find(h => h[0] === 1);
     expect(head[1][0]).toBe(2); // 2 игрока в team1
+  });
+
+  // Д7: колонки объявляет схема игры — движковые записи (status/latency…)
+  // в необъявленные колонки игнорируются, а не роняют Worker
+  it('updateUser игнорирует не объявленные схемой колонки', () => {
+    const stat = new Stat(statConfig, teams);
+    stat.addUser('g1', 1, { name: 'A' });
+
+    expect(() =>
+      stat.updateUser('g1', 1, { latency: 42, score: 2 }),
+    ).not.toThrow();
+
+    const row = stat.getFull()[0].find(r => r[0] === 'g1');
+    expect(row[2][1]).toBe(2); // объявленная колонка применилась
+    expect(row[2]).toHaveLength(3); // лишних ячеек не появилось
+  });
+
+  it('updateHead игнорирует не объявленную схемой колонку', () => {
+    const stat = new Stat(statConfig, teams);
+    stat.addUser('g1', 1, { name: 'A' });
+    stat.reset();
+
+    expect(() => stat.updateHead(1, 'latency', 42)).not.toThrow();
+
+    const head = stat.getFull()[1].find(h => h[0] === 1);
+    expect(head[1]).toHaveLength(3); // name/score/deaths, без latency
   });
 
   it('updateHead с методом + накапливает в head', () => {
@@ -147,7 +173,7 @@ describe('Stat: serialize/restore', () => {
   const freshStat = async () => {
     vi.resetModules();
 
-    const FreshStat = (await import('../../src/host/meta/modules/Stat.js'))
+    const FreshStat = (await import('../../packages/engine/src/host/meta/modules/Stat.js'))
       .default;
 
     return new FreshStat(statConfig, teams);

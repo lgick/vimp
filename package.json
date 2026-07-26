@@ -5,38 +5,31 @@
   "license": "MIT",
   "private": false,
   "description": "game",
-  "homepage": "https://github.com/lgick/VIMP-P2P#readme",
+  "homepage": "https://github.com/lgick/vimp#readme",
   "bugs": {
-    "url": "https://github.com/lgick/VIMP-P2P/issues"
+    "url": "https://github.com/lgick/vimp/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/lgick/VIMP-P2P.git"
+    "url": "git+ssh://git@github.com/lgick/vimp.git"
   },
   "type": "module",
-  "main": "src/master/main.js",
+  "workspaces": [
+    "packages/engine",
+    "packages/auth"
+  ],
   "scripts": {
-    "dev": "NODE_ENV=development nodemon src/master/main.js -w src/master -w src/lib -w src/config -w src/data",
-    "start": "NODE_ENV=production node --env-file .env src/master/main.js",
+    "dev": "npm -w vimp-engine run dev",
+    "start": "npm -w vimp-engine run start",
+    "dev:auth": "npm -w @vimp/auth run dev",
+    "start:auth": "npm -w @vimp/auth run start",
+    "auth:db:migrate": "npm -w @vimp/auth run db:migrate",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "build": "npm run core:build:web && npm run build:app",
-    "build:app": "npm run audio:process && vite build",
-    "audio:process": "node scripts/process-audio.js",
-    "core:build": "npm run core:build:web && npm run core:build:node",
-    "core:build:web": "wasm-pack build core --release --target web --out-dir pkg-web",
-    "core:build:node": "wasm-pack build core --release --target nodejs --out-dir pkg-node",
-    "core:test": "cargo test --manifest-path core/Cargo.toml",
-    "maps:export": "node scripts/export-maps.js"
-  },
-  "dependencies": {
-    "express": "^5.1.0",
-    "howler": "^2.2.4",
-    "pixi.js": "^8.14.0",
-    "uuid": "^13.0.0",
-    "vite-express": "^0.21.1",
-    "ws": "^8.18.3"
+    "build": "npm run build:app",
+    "build:app": "npm -w vimp-engine run build",
+    "core:test": "cargo test --workspace"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
@@ -46,9 +39,9 @@
     "eslint-plugin-no-consecutive-caps": "^1.2.0",
     "globals": "^16.2.0",
     "happy-dom": "^20.10.6",
-    "nodemon": "^3.1.10",
-    "vite": "^7.1.11",
-    "vite-plugin-pug": "^0.4.1",
     "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@vimp/tanks": "^0.1.0"
   }
 }

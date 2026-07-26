@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import Factory from '../../src/lib/factory.js';
+import Factory from '../../packages/engine/src/lib/factory.js';
 
 describe('Factory', () => {
   beforeEach(() => {

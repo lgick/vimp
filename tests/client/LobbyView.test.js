@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // LobbyView — синглтон, перезагружаем модуль для изоляции
 let LobbyView;
@@ -54,6 +54,7 @@ const server = (hostId, over = {}) => ({
   maxPlayers: over.maxPlayers ?? 8,
   region: over.region || 'EU',
   latency: over.latency ?? null,
+  rating: over.rating ?? 0,
 });
 
 let observer;
@@ -62,7 +63,7 @@ let observerFactory;
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  LobbyView = (await import('../../src/client/components/view/Lobby.js'))
+  LobbyView = (await import('../../packages/engine/src/client/components/view/Lobby.js'))
     .default;
   observer = null;
   observerFactory = cb => {
@@ -108,6 +109,22 @@ describe('LobbyView: рендер списка', () => {
     expect(cards[0].querySelector('.lobby-card-latency').textContent).toBe(
       '40 ms',
     );
+  });
+
+  it('рисует рейтинг хостера со знаком для положительных значений', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('list', {
+      servers: [server('a', { rating: 7 }), server('b', { rating: -3 }), server('c', { rating: 0 })],
+      hasMore: false,
+    });
+
+    const ratings = [...document.querySelectorAll('.lobby-card-rating')].map(
+      el => el.textContent,
+    );
+
+    expect(ratings).toEqual(['+7', '-3', '0']);
   });
 
   it('неизвестная latency показывается как …', () => {

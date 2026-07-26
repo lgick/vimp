@@ -1,213 +1,178 @@
-# Rust-ядро симуляции (core/)
+# Rust-ядро движка (packages/engine/core)
 
-Единое ядро симуляции: физика, танки, оружие, боты и упаковка бинарных
-снапшотов написаны на Rust и компилируются в WASM. Ядро работает у
-браузерного хоста (`GameCore`, [host.md](host.md)) **и у каждого клиента**
-(`ClientCore` — клиентская математика: интерполяция, предикт, визуальный
-спавн снарядов, распаковка кадров).
+`vimp-engine-core` — rlib-crate (`packages/engine/core/`, **без
+wasm-bindgen**), реализующий обобщённый каркас симуляции: физику, фикс-шаг
+тика, фрейминг снапшота, примитивы интерполяции/предикта/raycast и
+нав-утилиты. Игровой специфики в нём нет — ни «танка», ни «бомбы»: игровой
+crate (публикуется в собственном репозитории игры, например
+`vimp-tanks-core`) зависит от него, реализует трейты `GameDef`/`GameSim`/
+`GameClientDef` и выполняет собственно `#[wasm_bindgen]`-обвязку
+(wasm-bindgen не умеет экспортировать дженерики, поэтому конкретные классы
+`GameCore`/`ClientCore` существуют только в игровом crate). Движковый crate
+не может импортировать ничего игрового, поэтому вторая игра просто
+добавляет свой crate рядом со своим репозиторием, переиспользуя
+`vimp-engine-core` без изменений.
 
-**Граница ядра — симуляция, а не мета**: чат, голосования,
-статистика, панель, оркестрация раундов, реестр участников и auth остаются
-на JS. Мета управляет ядром командами и питается его событиями.
+Эта страница документирует **только движковый crate** — его трейты,
+обобщённые механизмы и команды сборки/тестов для данного репозитория.
+Конкретный WASM ABI, который обязан реализовать игровой crate, — контракт
+в [plugin-api.md](plugin-api.md#wasm-host-abi-v1); собственная реализация
+ядра игры документируется в её собственном репозитории (например,
+`docs/ru/core.md` в `vimp-tanks`).
+
+**Граница ядра — симуляция, а не мета**: чат, голосования, статистика,
+панель, оркестрация раундов, реестр участников и auth остаются на JS. Мета
+управляет ядром командами и питается его событиями.
 
 ## Структура
 
 ```
-core/
-├── Cargo.toml            # rapier2d (enhanced-determinism, serde), wasm-bindgen
+Cargo.toml                        # workspace: packages/engine/core (единственный member в этом репозитории)
+packages/engine/core/             # vimp-engine-core — rlib, без wasm-bindgen
+├── Cargo.toml                    # rapier2d (enhanced-determinism, serde) — без wasm-bindgen
 ├── src/
-│   ├── lib.rs            # публичный ABI (wasm-bindgen): GameCore + ClientCore
-│   ├── game.rs           # GameState — тик, урон, детонация, hitscan
-│   ├── tank.rs           # Tank — движение, башня,
-│   │                     #   здоровье/боезапас/кулдауны — в ядре, не в панели
-│   ├── motion.rs         # общие формулы движения (mass-free): один код для
-│   │                     #   авторитетного пути (импульсы Rapier) и реплики предикта
-│   ├── bomb.rs            # Bomb — тело снаряда (детонация в game.rs)
-│   ├── map.rs             # GameMap — масштабирование карт
-│   ├── snapshot.rs        # SnapshotPacker — упаковка бинарного кадра v3
-│   ├── events.rs          # CoreEvent — события для JS-меты
-│   ├── config.rs          # serde-структуры init-конфигов (CoreConfig + ClientConfig)
-│   ├── physics.rs         # BodyTag (user_data тел), округления, углы
-│   ├── rng.rs             # детерминированный PRNG (SplitMix64)
-│   ├── bots/              # ИИ ботов
-│   │   ├── controller.rs  # BotBrain — ИИ бота (ввод генерируется внутри ядра)
-│   │   ├── navigation.rs  # нав-сетка + граф (NavigationSystem)
-│   │   ├── pathfinder.rs  # A*
-│   │   └── spatial.rs     # пространственная сетка поиска целей
-│   └── client/            # клиентский режим ядра
-│       ├── mod.rs         # ClientState — конвейер sample(), hot-буфер
-│       ├── unpack.rs      # декодер кадра v3 + JSON-формы
-│       ├── interpolator.rs # буфер снапшотов, seq, лерп
-│       ├── predictor.rs   # реплика движения на motion.rs
-│       ├── shot.rs        # гейты, дубли, мир raycast
-│       └── raycast.rs     # DDA по тайлам + OBB slab-тест
-├── tests/
-│   └── sim.rs            # интеграционные сценарии симуляции (cargo test)
-├── pkg-web/              # сборка для браузера/Worker (генерируется, не в git)
-└── pkg-node/             # сборка для Node.js/Vitest (генерируется, не в git)
+│   ├── lib.rs                    # только объявления pub mod
+│   ├── sim.rs                    # GameDef/GameSim/SimCtx — граница трейтов движок↔игра
+│   ├── game.rs                   # EngineSim<G> — тик, контакты, очередь удаления, handoff
+│   ├── abi.rs                    # export_game_core_abi!/export_client_core_abi! — макросы
+│   │                              #   wasm-bindgen-обвязки (см. разделы ABI ниже);
+│   │                              #   раскрываются в игровом crate, который поставляет
+│   │                              #   #[wasm_bindgen]
+│   ├── map.rs                    # GameMap — статические/динамические тела, масштаб карты
+│   ├── snapshot.rs                # SnapshotPacker + Block — упаковка бинарного кадра v3;
+│   │                              #   Block обобщён по форме строки (Indexed8/Indexed32/
+│   │                              #   List16/IndexedNoNull8), не по игровой сущности —
+│   │                              #   движок не знает слов «танк»/«бомба», только форму строки
+│   ├── events.rs                  # CoreEvent — стандартный словарь событий для JS-меты
+│   ├── config.rs                  # EngineConfig/EngineClientConfig + типы схемы снапшота
+│   │                              #   (BlockKind — enum формы строки, не игровой сущности)
+│   ├── physics.rs                 # тег тела статики карты (encode_map_object/is_map_object),
+│   │                              #   округления, углы — игровые теги тел (например, игрок/выстрел)
+│   │                              #   живут в собственном модуле body-тегов игрового crate
+│   ├── rng.rs                     # детерминированный PRNG (SplitMix64)
+│   ├── nav/                       # обобщённые утилиты, смежные с ИИ (без слова «bot»)
+│   │   ├── navigation.rs         # нав-сетка + граф + видимость (NavigationSystem)
+│   │   ├── pathfinder.rs         # A*
+│   │   └── spatial.rs            # пространственная сетка поиска целей
+│   └── client/                    # обобщённые клиентские примитивы + оркестрация
+│       ├── game.rs                # трейт GameClientDef + generic ClientState<G> — конвейер
+│       │                          #   sample(), hot-буфер, очередь кадров; игра поставляет
+│       │                          #   предикт/спавн выстрела через трейт
+│       ├── unpack.rs              # декодер кадра v3 + JSON-формы
+│       ├── interpolator.rs        # буфер снапшотов, seq, лерп (schema-driven)
+│       └── raycast.rs             # DDA по тайлам + OBB slab-тест
 ```
 
 ## Сборка
 
-Требуется Rust-тулчейн (см. [getting-started.md](getting-started.md#rust-тулчейн-ядро-core)):
+У движкового crate нет собственного WASM-таргета — это обычный rlib,
+покрытый своими unit-тестами и используемый любым игровым crate, который
+от него зависит. Из этого репозитория:
 
 ```bash
-npm run core:build        # оба таргета (web + nodejs)
-npm run core:build:web    # браузер/Worker → core/pkg-web/
-npm run core:build:node   # Node.js (тесты) → core/pkg-node/
-npm run core:test         # Rust-тесты ядра (cargo test)
+npm run core:test         # cargo test --workspace (единственный member этого репозитория: packages/engine/core)
 ```
 
-`npm run build` включает `core:build:web`: WASM-бинарь нужен и Worker'у
-хоста, и клиенту (один ассет в сборке Vite).
+Настоящая сборка WASM (`wasm-pack build`, таргеты web + nodejs) происходит
+в собственном репозитории игры, поскольку именно там определены классы
+`#[wasm_bindgen]` — см. `core.md` того репозитория (например, `npm run
+core:build` в `vimp-tanks`).
 
-## ABI: команды, события, кадры
+## ABI: макросы
 
-Экспортируются два класса: **`GameCore`** (авторитетная симуляция хоста) и
-**`ClientCore`** (клиентский режим, см. ниже). Данные при инициализации
-передаются JSON-строками; конфиг `GameCore` собирает `src/lib/coreConfig.js`
-(`buildCoreConfig()`), карты экспортируются в JSON скриптом
-`npm run maps:export` (общий шаг с раздачей карт без пересборки клиента).
-
-```js
-import { buildCoreConfig } from '../src/lib/coreConfig.js';
-const { GameCore } = require('../core/pkg-node/vimp_core.js'); // nodejs-таргет
-
-const core = new GameCore(JSON.stringify(buildCoreConfig({ seed: 42 })));
-core.load_map(JSON.stringify(mapData)); // масштабирование внутри ядра
-```
-
-### Команды
-
-| Метод | Назначение |
-| --- | --- |
-| `new GameCore(config_json)` | мир Rapier, оружие, модели, клавиши, реестр снапшот-ключей |
-| `load_map(map_json)` | тела карты + нав-граф ботов; масштаб — `scale` карты или `mapScale` конфига |
-| `map_info()` | JSON: `setId`, `step`, размеры, масштабированные `respawns` |
-| `spawn_tank(id, model, teamId, x, y, angle°)` | танк; эмитит `activeWeapon` + `health` |
-| `remove_tank(id)` | удаление + null-маркер в следующем кадре |
-| `reset_tank(id, teamId, x, y, angle°)` | респаун/смена команды (клавиши/газ сброшены, здоровье — нет) |
-| `reset_all_vitals()` | здоровье/боезапас к дефолтам (новый раунд) |
-| `add_bot(id, model, teamId, x, y, angle°)` / `remove_bot(id)` | танк + ИИ-контроллер внутри ядра |
-| `apply_input(id, seq, action, name)` | ввод `'down'/'up'` + имя клавиши; `seq` подтверждается в player-блоке |
-| `step(dt)` | фикс-шаги физики + ИИ ботов + пространственная сетка |
-| `clear()` | полная очистка мира (смена карты) |
-| `remove_players_and_shots()` | JSON-массив имён для очистки полотна клиентов |
-| `players_data()` | JSON `{ model: { id: [x,y,angle,gun,vx,vy,engineLoad,condition,size,team] } }` для первого кадра (`FIRST_SHOT_DATA`); читает кеш, накопители не дренирует |
-| `body_has_events()` | содержал ли последний `pack_body()` событийные блоки (трассеры/бомбы/взрывы/удаления); Worker хоста классифицирует канал WebRTC (события → meta, позиции → state) без изменения сигнатуры `pack_body` |
-| `serialize_state()` / `deserialize_state(dump)` | дамп/восстановление симуляции для Worker Handoff; перед дампом дренировать `pack_body()` |
-
-### События (`take_events()`)
-
-JSON-массив; буфер очищается при чтении. Топливо для RoundManager
-(`kill`), Panel (`health`/`ammo`/`activeWeapon`), кадровой меты (`shake`):
-
-```json
-[
-  { "type": "kill", "victim": 2, "killer": 1 },
-  { "type": "health", "id": 2, "value": 60.0 },
-  { "type": "ammo", "id": 1, "weapon": "w1", "value": 199.0 },
-  { "type": "activeWeapon", "id": 1, "weapon": "w2" },
-  { "type": "shake", "id": 2, "intensity": 20, "duration": 200 }
-]
-```
-
-Здоровье и боезапас — **источник истины в ядре**: панель на JS — проекция
-этих событий.
-
-### Кадры (v3, байт-в-байт с распаковкой)
-
-- `pack_body()` — broadcast-тело один раз на отправляемый кадр; **дренирует**
-  накопители событий снапшота (выстрелы/взрывы/удаления копятся в ядре между
-  отправками — throttle частоты (`SnapshotThrottle`) остаётся на JS);
-- `pack_frame(serverTime, seq, hasCamera, camX, camY, forceReset, shake, playerId)`
-  — per-user кадр: заголовок + камера + player-блок (`playerId >= 0` и танк
-  существует) + копия тела; возвращает длину;
-- `frame_ptr()` — указатель для zero-copy чтения из браузера:
-  `new Uint8Array(wasm.memory.buffer, ptr, len)` (память отдаёт `init()`
-  web-таргета);
-- `frame_bytes()` — копия кадра (nodejs-таргет память наружу не отдаёт).
-
-Кадры распаковывает клиентское ядро (`core/src/client/unpack.rs`) — pack и
-unpack живут в одном crate, расхождение раскладок исключено по построению;
-формы закреплены round-trip-тестами (`#[cfg(test)]` в `unpack.rs` +
-`tests/core/core.test.js` и `tests/core/clientCore.test.js`).
-
-### Запросы состояния
-
-`is_alive(id)`, `position_of(id)` (скруглено до 2 знаков), `last_input_seq(id)`,
-`alive_players()` (плоский массив `[id, teamId, x, y, ...]`).
-
-## ClientCore — клиентский режим ядра
-
-Второй wasm-bindgen класс того же бинаря; живёт в главном потоке вкладки
-клиента (у хоста-игрока — второй инстанс WASM рядом с Worker'ом). Конфиг
-собирает [src/lib/clientCoreConfig.js](../../src/lib/clientCoreConfig.js) из
-секций `prediction`/`interpolation` CONFIG_DATA + бандлового реестра
-`opcodes.js`; поле `timeStepMs` фиксирует единицы (мс — в отличие от
-`CoreConfig.timeStep` в секундах).
-
-| Метод | Назначение |
-| --- | --- |
-| `new ClientCore(config_json)` | модели/оружие/клавиши + реестр снапшот-ключей + interpolation |
-| `push_frame(bytes, localNow)` | распаковка кадра, вставка в буфер по `seq` (+дедуп/опоздавшие), reconciliation предикта по player-блоку; `false` — кадр отброшен (порт/версия/повреждён) |
-| `my_game_id()` / `offset()` | свой id из player-блока (−1) / EMA-оценка `serverTime − localNow` (NaN) |
-| `sample(localNow)` | весь рендер-тик: выдача пересечённых кадров (фильтр дублей → JSON-очередь), интерполяция, шаг предикта; возвращает длину hot-буфера |
-| `hot_ptr()` / `hot_values()` | zero-copy указатель на hot-буфер (web) / копия (nodejs) |
-| `take_frames()` | событийные кадры JSON-строкой `[{game, camera}, …]` (форма `applyShot`); очередь очищается |
-| `apply_input(action, key, localNow)` | ввод в историю предикта |
-| `try_fire(localNow)` | локальный визуальный выстрел; гейты (кулдаун/патроны/pending-бомба/жив/активен) внутри; JSON спавна либо `undefined` |
-| `cycle_weapon(back)` | локальный цикл смены оружия (авторитетное подтверждение — панелью) |
-| `set_model(name)` / `set_active(bool)` / `set_map(json)` / `sync_panel(json)` / `reset()` | зеркала портов клиента: авторизация, KEYSET, MAP_DATA, PANEL_DATA, CLEAR |
-| `decode_frame(bytes)` | чистая распаковка v3 → JSON формы кадра (тесты/харнесс); `'null'` при чужой версии |
-
-**Раскладка hot-буфера** (Float32, плоский, переиспользуемый):
-`[0]` — флаги (`HOT_FLAGS` в `opcodes.js`: game/camera/predicted/frames),
-`[1..2]` — камера x/y (уже разрешённая ядром: предсказанная позиция либо
-интерполированная), `[3]` — N танков, далее N×12
-(`keyId, gameId, x, y, angle, gun, vx, vy, engineLoad, condition, size,
-teamId`), затем M динамики × 5 (`keyId, index, x, y, angle`); последней —
-predicted-запись своего танка (12, тем же форматом — перекрывает
-интерполированную). `keyId` — числовые id из `SNAPSHOT_KEYS`.
-
-**motion.rs** — общие mass-free формулы тика движения (башня, дроссель,
-боковое сцепление, тяга/торможение, нагрузка двигателя, поворот):
-авторитетный путь (`Tank::update`) домножает их на массу/инерцию для
-импульсов Rapier, реплика предикта интегрирует вручную (позиция скоростью
-ДО демпфирования → `v *= 1/(1+dt·d)` — эмпирический порядок Rapier).
-Реплика не может разойтись с авторитетным путём по формулам; паритет
-интеграции закрепляют cargo-тесты `client::predictor::parity` (6 сценариев).
-⚠️ **Любая правка движения в ядре или `models.js` — обязательный прогон
-`npm run core:test`.**
+Обвязка wasm-bindgen для двух экспортируемых классов игры (механические
+1:1-делегации в generic `EngineSim<G>`/`ClientState<G>`) генерируется
+двумя макросами в `packages/engine/core/src/abi.rs` —
+`export_game_core_abi!` и `export_client_core_abi!` — единственным
+источником истины обязательного набора методов, дрейф игрового crate от
+него исключён. Игровой crate зовёт каждый макрос рядом со своими
+дополнительными методами (например, действие огня/перезарядки/смены
+модели или сигнатура спавна, зависящая от конфига); `new` (парсинг
+конфига) и не-`#[wasm_bindgen]` тестовые аксессоры остаются рукописными в
+игровом crate. Точный обязательный набор методов документирован как
+контракт в [plugin-api.md](plugin-api.md#wasm-host-abi-v1).
 
 ## Детерминизм
 
 - `rapier2d` собирается с `enhanced-determinism` (бит-в-бит на всех
   платформах при одинаковом вводе);
-- вся случайность (разброс оружия, решения ботов) — через встроенный
-  SplitMix64 PRNG с сидом из конфига (`seed`), без `Math.random`;
-- handoff-дамп восстанавливает симуляцию бит-в-бит (закреплено тестами
-  `state_dump_restores_identical_simulation` в Rust и JS).
+- вся случайность (разброс оружия, решения ботов и т.п.), как ожидается,
+  проходит через встроенный SplitMix64 PRNG с сидом из конфига (`seed`),
+  без `Math.random` — обеспечивается соглашением в играх, построенных на
+  этом движке;
+- handoff-дамп должен восстанавливать симуляцию бит-в-бит; движок
+  предоставляет хуки serialize/deserialize в `GameSim`, игра закрепляет
+  это своими тестами `state_dump_restores_identical_simulation`.
+
+## Rust-трейты (`vimp-engine-core`)
+
+Движковый crate — чистый Rust без wasm-bindgen (ошибки — `Result<_,
+String>`; игровой crate маппит их в `JsError`). Статическая generic-
+диспетчеризация: `EngineSim<G>` / `EngineClient<G>` (для игрового `GameDef`
+`G`) мономорфизируются — нулевые накладные расходы на 120 Гц; `dyn` не
+нужен (один wasm-бандл = одна игра).
+
+- `trait GameDef { type Config; type Sim: GameSim<Self>; }`
+- `trait GameSim<G>`: `new`, `spawn_actor`, `spawn_scripted`, `remove_actor`,
+  `reset_actor`, `reset_all_vitals`, `apply_input`, `on_fixed_step(ctx, dt)`,
+  `on_contacts(ctx, pairs)`, `on_ai_tick(ctx, dt)`,
+  `build_blocks(ctx) -> (Vec<(String, RowBlock)>, has_events)`,
+  `prediction_state`, `players_json`, `alive`, `position`, `last_input_seq`,
+  `clear`, `remove_players_and_shots`, `serialize/deserialize` (handoff
+  посреди раунда — задел на будущее).
+- `SimCtx<'a, G>` — доступ игры к возможностям движка: `world` (Rapier),
+  `map` (респауны — `IndexMap<String, Vec<[f32;3]>>`, произвольные
+  команды), `nav`/`spatial` (A*/сетка — движковые утилиты в модуле `nav/`,
+  без слова «bot»), `rng`, `events`, `game_cfg`, очередь удаления.
+- Движок владеет: аккумулятором фикс-шага, сбором контактов, очередью
+  удаления, schema-driven `SnapshotPacker`, скелетом handoff,
+  `EngineEvent`.
+- Клиентская половина: `trait GameClientDef { type Config; const STATE_LEN;
+  fn motion_step(state, keys, model, dt, ctx: &PredictCtx);
+  fn render_from_state(state) }`; `PredictCtx` даёт опциональный доступ к
+  статической тайловой сетке движка (той же, что использует raycast) —
+  задел на клиентское скольжение вдоль стен в жанрах без инерции. Движок
+  предоставляет `Interpolator` (schema-driven), `Predictor<G>` (историю
+  ввода, reconciliation, затухание визуальной ошибки), hot-буфер, raycast.
+  Логика вида `ShotPredictor` (клиентское предсказание спавна выстрела) —
+  целиком забота игрового crate, который вызывает движковый raycast.
+
+Форма трейта проверяется фикстурным вторым клиентом (`TestClient`, тесты в
+`packages/engine/core/src/client/game.rs`) ещё до появления настоящей
+второй игры — именно это гарантирует, что трейты остаются
+игро-независимыми.
+
+## Блоки снапшота — декларативная схема
+
+Раскладки фиксированных блоков — это схема, а не захардкоженные структуры:
+`SnapshotConfig.keys` разворачивается в полную схему блока — `id`,
+ширины count/id, `nullMarker`, список полей с типом (`f32/u8/u16/u32`) и
+режимом интерполяции (`lerp`/`lerpAngle`/discrete), класс `hot`
+(интерполируемое) / `event` (только в кадре), `idPrefix`. Упаковщик
+(`snapshot.rs`), распаковщик (`client/unpack.rs`), интерполятор и
+движковый hot-буфер — все интерпретаторы схемы; игровой crate лишь
+поставляет строки как плоский `RowData`. Сама схема — игровые данные,
+поставляемые через `HostPlugin.gameConfig.snapshot` (см.
+[plugin-api.md](plugin-api.md)) — движковый бандл не несёт собственных
+snapshot-ключей. `SNAPSHOT_FORMAT_VERSION` (сейчас `3`) — версия фрейминга
+движка; побайтовая совместимость между деплоями не требуется (хост и
+клиенты — один деплой, версия защищает только фрейминг внутри комнаты).
 
 ## Тесты
 
 | Слой | Где | Что покрывает |
 | --- | --- | --- |
-| Rust unit | `core/src/*` (`#[cfg(test)]`) | PRNG, BodyTag, раскладка кадра, нав-сетка, A*, пространственная сетка; клиентский модуль: round-trip unpack, интерполятор (seq/дедуп/late/лерп), предикт (replay/visualError/freeze), выстрелы (гейты/дубли/RTT), raycast, hot-буфер |
-| Паритет реплики | `core/src/client/predictor.rs` (`mod parity`) | реплика движения предикта против Rapier-мира (6 сценариев) — **обязателен к прогону при любой правке движения в ядре или `models.js`** |
-| Rust интеграция | `core/tests/sim.rs` | сценарии симуляции: езда, стены, hitscan-килл, friendly fire, бомба, смена оружия, боты (патруль и бой), очистки, handoff |
-| JS↔WASM харнесс | `tests/core/core.test.js` + `tests/core/clientCore.test.js` | ABI на реальном конфиге/картах, round-trip кадров через `decode_frame`; e2e клиентского ядра: интерполяция, реордер seq, предикт (сходимость с ядром на реальном конфиге), try_fire и подавление дублей |
+| Rust unit | `packages/engine/core/src/*` (`#[cfg(test)]`) | PRNG, нав-сетка, A*, пространственная сетка; клиентский модуль: round-trip unpack, интерполятор (seq/дедуп/late/лерп), raycast, hot-буфер; форма трейта `GameClientDef`, проверенная фикстурным `TestClient` |
+| Rust интеграция | в этом репозитории отсутствует — сценарии симуляции игры (вождение, оружие, боты, handoff и т.д.) — забота репозитория игры | — |
 
-Тесты `tests/core/` входят в `npm test` и **пропускаются**, если
-`core/pkg-node/` не собран (JS-разработка возможна без Rust-тулчейна).
-CI собирает ядро и гоняет оба слоя.
-
-## Известные технические особенности
-
-- **Свежесозданное тело попадает в broad-phase на первом шаге мира**: выстрел
-  в том же тике, что и спавн, цель «не видит» (в тестах — прогрев одним
-  `step`). На реальных сценариях (спавн в начале раунда) не проявляется.
-- `remove_tank` сам ставит null-маркер удаления в следующий кадр.
+`npm run core:test` запускает `cargo test --workspace`, что в этом
+репозитории — только `packages/engine/core`: здесь выполняются
+собственные unit-тесты движкового crate, и здесь же должна проверяться
+любая правка его трейтов/макросов/фрейминга. Собственный `cargo test
+--workspace` репозитория игры гоняет только её игровой crate (зависимость
+от `vimp-engine-core`, а не member workspace), поэтому эти тесты не
+перезапускает — CI этого репозитория остаётся источником истины для
+самого движкового crate.
 
 ---
 

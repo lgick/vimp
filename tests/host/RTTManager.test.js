@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import RTTManager from '../../src/host/meta/modules/RTTManager.js';
+import RTTManager from '../../packages/engine/src/host/meta/modules/RTTManager.js';
 
 const makeCallbacks = () => ({
   onKickForMissedPings: vi.fn(),

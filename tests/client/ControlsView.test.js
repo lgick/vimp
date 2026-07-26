@@ -8,7 +8,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   document.body.className = '';
   ControlsView = (
-    await import('../../src/client/components/view/Controls.js')
+    await import('../../packages/engine/src/client/components/view/Controls.js')
   ).default;
 });
 

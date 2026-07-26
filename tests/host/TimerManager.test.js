@@ -30,7 +30,7 @@ beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
   vi.setSystemTime(1_000_000);
-  TimerManager = (await import('../../src/host/meta/modules/TimerManager.js')).default;
+  TimerManager = (await import('../../packages/engine/src/host/meta/modules/TimerManager.js')).default;
   callbacks = makeCallbacks();
 });
 

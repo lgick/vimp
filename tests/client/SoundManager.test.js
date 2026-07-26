@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import SoundManager from '../../src/client/SoundManager.js';
+import SoundManager from '../../packages/engine/src/client/SoundManager.js';
 
 // processAudibility использует множество внутренних полей и методов.
 // Тестируем через прототип, подставляя минимальный `this` с моками.

@@ -1,57 +1,76 @@
 # Configuration
 
-The project's configuration splits into three layers:
+This page covers the **engine's own** configuration. The game plugin (e.g.
+`@vimp/tanks`) supplies its own half through the plugin contract
+(`HostPlugin.gameConfig`/`authSchema`/`buildClientGameConfig()`,
+`ClientPlugin` — see [plugin-api.md](plugin-api.md)) and documents it in its
+own repository's docs (e.g. `vimp-tanks`'s `docs/en/configuration.md`).
+
+The engine's configuration splits into two layers:
 
 1. **Environment variables** (`.env`) — parameters for a master server
    instance (domain, port). Only apply in production.
-2. **`src/config/`** — shared config used by the master (Node.js), the
+2. **`packages/engine/src/config/`** — shared config used by the master (Node.js), the
    browser host's Worker, and the client (Vite bundle).
-3. **`src/data/`** — static game data: maps, models, weapons.
 
 The master collects its config into a single store,
-`src/lib/config.js` (accessed via colon-separated paths), inside
-[src/master/main.js](../../src/master/main.js); the host Worker imports
-`game`/`client`/`auth`/`wsports` directly
-([src/host/host.worker.js](../../src/host/host.worker.js)) and layers the
-room's settings on top. The client receives its config (`client`) from
-the host on connect (port `0`).
+`packages/engine/src/lib/config.js` (accessed via colon-separated paths), inside
+[packages/engine/src/master/main.js](../../packages/engine/src/master/main.js); the host Worker
+([packages/engine/src/host/host.worker.js](../../packages/engine/src/host/host.worker.js)) assembles the
+game config as a merge of the engine defaults (`hostDefaults`) and the
+game half from the `HostPlugin` loaded dynamically from the active game's
+manifest (`gameConfig`, `authSchema`, `buildClientGameConfig()`), layering
+the room's settings on top. The client receives its config (CONFIG_DATA)
+from the host on connect (port `0`).
 
 ## Environment variables (.env)
 
-Read in [src/master/main.js](../../src/master/main.js) when
+Read in [packages/engine/src/master/main.js](../../packages/engine/src/master/main.js) when
 `NODE_ENV=production` (`npm start` uses `node --env-file .env`). Ignored in
-development — values from `src/config/master.js` apply instead.
+development — values from `packages/engine/src/config/master.js` apply instead.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `NODE_ENV` | `production` / `development` | — |
 | `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
 | `VIMP_MASTER_PORT` | The master server's port | `3002` |
+| `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
+| `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package, version}[]`) — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp/tanks","version":"0.1.0"}]` |
 
 Game parameters (map, player limit, timers, friendly fire) aren't set
 through environment variables: the room's creator picks them in the lobby,
-and defaults live in `src/config/game.js`.
+and defaults live in `packages/engine/src/config/hostDefaults.js` (engine)
+and the active game plugin's own config (game).
 
-## src/config/game.js — server-side game parameters
+### Auth service (`packages/auth`)
 
-Source: [src/config/game.js](../../src/config/game.js). Imports maps,
-models, and weapons from `src/data/`.
+Read in [packages/auth/src/main.js](../../packages/auth/src/main.js) when
+`NODE_ENV=production`; the service exits at startup if any of these are
+missing (see [auth.md](auth.md#running)).
 
-### Core parameters
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `VIMP_AUTH_DATABASE_URL` | PostgreSQL connection string | `postgres://localhost:5432/vimp_auth` |
+| `VIMP_AUTH_PORT` | The auth service's port | `3010` |
+| `VIMP_AUTH_PUBLIC_URL` | Its own public origin, used to build the OAuth `redirect_uri`. **Required** in production | — (dev falls back to `http://localhost:PORT`) |
+| `VIMP_AUTH_ALLOWED_ORIGINS` | CSV of master origins allowed to CORS `POST /nick` and to receive an OAuth redirect (`returnUrl`). **Required** in production | `https://localhost:3002` (dev only) |
+| `VIMP_AUTH_STATE_SECRET` | HMAC secret for the stateless OAuth `state` param. **Required** in production | — |
+| `VIMP_AUTH_GITHUB_CLIENT_ID` / `VIMP_AUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth App credentials. **Required** in production | — |
+
+## packages/engine/src/config/hostDefaults.js — engine host defaults
+
+Source: [packages/engine/src/config/hostDefaults.js](../../packages/engine/src/config/hostDefaults.js).
+The engine half of the host config: limits, timers, kick policies, and the
+spectator keyset (spectating is an engine mechanism). The host Worker
+merges it with the active game plugin's `HostPlugin.gameConfig` and layers
+the room's settings on top.
 
 | Parameter | Value | Description |
 | --- | --- | --- |
-| `maxPlayers` | `30` | The default participant limit; a host's room clamps it to the creator's setting (≤ 8), counted by humans |
+| `isDevMode` | `false` | Development-mode flag (unlocks dev chat commands) |
+| `maxPlayers` | `30` | The default participant limit; a host's room clamps it to the creator's setting (capped by the game's `roomDefaults.maxPlayers`), counted by humans |
 | `chatMaxLength` | `60` | The max chat message length (authoritative on the host; must match the `maxlength` of the input in `chat.pug`) |
-| `parts.friendlyFire` | `false` | Damage to your own team |
-| `parts.mapConstructor` | `'Map'` | The map constructor's name |
-| `parts.hitscanService` | `'HitscanService'` | The hitscan-shot calculation service |
-| `mapScale` | `0.3` | Map scale |
-| `currentMap` | `'pool mini'` | The default map |
-| `mapsInVote` | `4` | How many maps show up in a vote |
-| `mapSetId` | `'c1'` | The default snapshot key for the map constructor |
-| `spectatorTeam` | `'spectators'` | The spectator team's name |
-| `teams` | `team1: 1, team2: 2, spectators: 3` | Teams and their ids |
+| `spectatorKeys` | `nextPlayer`/`prevPlayer` | Commands of a spectator or inactive player (switching the observed player) |
 
 ### Timers (`timers`, ms)
 
@@ -61,6 +80,7 @@ models, and weapons from `src/data/`.
 | `networkSendRate` | `4` | A snapshot is sent every Nth tick (4 → 30 packets/sec) |
 | `roundTime` | `120000` | Round duration |
 | `mapTime` | `600000` | Map duration |
+| `roomTimeMin` / `roomTimeMax` | `10000` / `3600000` | Server-side clamp bounds for the room's user-set `roundTime`/`mapTime` (the lobby form is not a trust boundary) |
 | `voteTime` | `10000` | How long a vote window stays open |
 | `timeBlockedVote` | `30000` | Cooldown between votes on the same topic |
 | `teamChangeGracePeriod` | `10000` | The team-change window at round start |
@@ -80,90 +100,51 @@ models, and weapons from `src/data/`.
 - `idleKickTimeout.spectator: null` — `null` disables the kick (spectators
   are never kicked).
 
-### Stats (`stat`)
+## The game half of the host config
 
-Describes the scoreboard columns. Per parameter:
+The game half of the host config reaches the Worker as the active game
+plugin's `HostPlugin.gameConfig` field (`host.worker.js` loads
+`HostPlugin` dynamically by `entries.host` from the active
+`GameManifest`) — parameters like `friendlyFire`, `mapScale`, `teams`,
+`scripted`, `soundCues`, the `stat`/`panel`/`playerKeys` schemas, and
+`playerState.defaultState`. This is entirely game-owned data; see the
+active game plugin's own docs for its concrete values (e.g. `vimp-tanks`'s
+`docs/en/configuration.md`). Player rank/state sync mechanics (engine
+side) — [auth.md](auth.md#rank-and-state-loading-and-sync-host) and
+[host.md](host.md#player-rank-and-state-sync-stage-b4); `rank` and `state`
+are opaque as far as the engine is concerned — only the game interprets
+their shape.
 
-- `key` — the cell's index within a row;
-- `bodyMethod` — how the table body updates (`=` — replace, `+` — add);
-- `bodyValue` — the default value;
-- `headSync` — sync the head with the body;
-- `headMethod` — how the header updates (`#` — count of values, `=` —
-  replace, `+` — add);
-- `headValue` — the default value in the header.
-
-Current columns: `name` (0), `status` (1), `score` (2), `deaths` (3),
-`latency` (4).
-
-### HUD panel (`panel`)
-
-String keys and default player resource values (reset every round):
-
-- `health` → key `h`, value `100`;
-- `w1` → key `w1`, `200` ammo;
-- `w2` → key `w2`, `100` bombs.
-
-The client-side mapping of keys to DOM elements is in `client.js`
-(`modules.panel.keys`, including `t` — time and `wa` — active weapon).
-
-### Keys (`spectatorKeys`, `playerKeys`)
-
-`spectatorKeys` — a spectator's commands (`nextPlayer`/`prevPlayer`).
-
-`playerKeys` — a player's commands. Each key has a bitmask `key` (`1 <<
-n`, used by the predictor and the core in the input history) and an
-optional `type`:
+`spectatorKeys` — a spectator's commands (`nextPlayer`/`prevPlayer`); the
+set is engine-owned and lives in
+`packages/engine/src/config/hostDefaults.js`. `playerKeys` (a player's
+commands) is game config, with a bitmask `key` (`1 << n`, used by the
+predictor and the core in the input history) and an optional `type`:
 
 - `type: 0` (default) — a repeatable action: starts on keyDown, ends on
   keyUp (movement, turret rotation);
-- `type: 1` — fires once on keyDown (`gunCenter`, `fire`, `nextWeapon`,
-  `prevWeapon`).
+- `type: 1` — fires once on keyDown.
 
-The keyCode → command mapping is set on the client (`client.js` →
-`modules.controls.keySetList`).
+## The client config: clientDefaults.js + the game's own client config
 
-## src/config/client.js — the client config
-
-Source: [src/config/client.js](../../src/config/client.js). Sent to the
-client on connect. Before sending, the host appends:
+The client's CONFIG_DATA is assembled from two halves: the engine
+defaults — [packages/engine/src/config/clientDefaults.js](../../packages/engine/src/config/clientDefaults.js)
+(interpolation, control modes/service keys, the engine modules' DOM
+structures, `techInformList`) and the game half, supplied by the active
+game plugin's `HostPlugin.buildClientGameConfig()` (`parts.*`, canvases,
+the player keyset, panel/stat schemas, chat/vote/gameInform texts,
+`initIdList`). The deep merge is done by
+[packages/engine/src/lib/buildClientConfig.js](../../packages/engine/src/lib/buildClientConfig.js) in the
+host's Worker; before sending it appends:
 
 - `modules.vote.params.time` = `game:timers:voteTime`;
 - `prediction` — data for the client-side motion and shooting replica
-  (`timeStep`, `playerKeys`, `models`, `weapons`) — assembled by
-  [src/lib/buildClientConfig.js](../../src/lib/buildClientConfig.js).
+  (`timeStep`, `playerKeys`, `models`, `weapons`, all game-owned).
 
-### `parts` — game entities
+The full table of which config fields are engine-owned vs. game-supplied
+lives in [plugin-api.md](plugin-api.md#clientplugin-api) (`ClientPlugin API` section).
 
-- **`gameSets`** — mapping snapshot keys to rendering classes:
-
-  ```js
-  gameSets: {
-    c1: ['Map', 'MapRadar'],
-    c2: ['Map'],
-    m1: ['Tank', 'TankRadar', 'Smoke', 'Tracks'],
-    w1: ['ShotEffect'],
-    w2: ['Bomb'],
-    w2e: ['ExplosionEffect'],
-  }
-  ```
-
-  A single key can create several entities (a tank is drawn on the main
-  canvas and the radar, plus smoke and tank tracks).
-
-- **`entitiesOnCanvas`** — which canvas (`vimp` or `radar`) each class
-  renders on. Entities can be subclassed and shown on different canvases
-  (e.g. `MapRadar` — a simplified map for the radar).
-
-- **`bakedAssets`** — procedural textures "baked" once at startup
-  (`BakingProvider`): explosions, particles, smoke, the tank, the bomb,
-  track marks, radar blips. Each entry: `name` (texture id), `component`
-  (who owns it), `params` (generation parameters).
-
-- **`componentDependencies`** — which services get injected into which
-  components (`renderer` → Map; `soundManager` → ExplosionEffect,
-  ShotEffect, Bomb, Tank).
-
-### `interpolation` — snapshot interpolation
+### `interpolation` — snapshot interpolation (engine)
 
 - `delay: 100` — ms; the world renders in the past
   (`renderTime = serverNow − delay`), ~3 frames at 30 packets/sec;
@@ -171,7 +152,10 @@ client on connect. Before sending, the host appends:
 
 ### `modules.canvasManager` — canvases and camera
 
-`canvases` — keys match HTML canvas element ids:
+The common `dynamicCamera` parameters are engine-owned; the `canvases`
+set is game-owned. The canvas elements are generated by `main.js` from
+this config (the key is the element id; `width`/`height` — the initial
+size before the first resize):
 
 | Parameter | Description |
 | --- | --- |
@@ -188,44 +172,59 @@ Adaptive scaling guarantees the same field of view on any monitor
 ahead of motion), `zoomOutFactor`/`maxZoomOut` (zooming out with speed),
 `smoothnessPosition`/`smoothnessZoom`/`smoothnessVelocity` (smoothing).
 
-Current canvases: `vimp` (16:9, 5:1 zoom, dynamic camera, shake) and
-`radar` (150×150px, 1:8 scale).
+Canvas names, sizes, and zoom are game-owned; e.g. `vimp-tanks` defines
+`vimp` (16:9, 5:1 zoom, dynamic camera, shake) and `radar` (150×150px,
+1:8 scale).
 
 ### `modules.controls` — controls
 
-- **`keySetList`** — an array of two `keyCode: 'command'` sets: `[0]` —
-  spectator (`n`/`p` — switch the watched player), `[1]` — player
-  (`w/s/a/d` — movement, `k/l/u` — turret, `j` — fire, `n/p` — weapon
-  switch). Which set is active is dictated by the host over port `17`
-  (KEYSET_DATA).
-- **`modes`** — UI modes: `c` — chat, `m` — vote, `tab` — stats.
-- **`cmds`** — service keys (`escape`, `enter`), with top priority, used
-  within modes.
+- **`keySetList`** (game) — an array of `keyCode: 'command'` sets, entirely
+  game-defined (e.g. `vimp-tanks` uses two: `[0]` — spectator (`n`/`p` —
+  switch the watched player), `[1]` — player (`w/s/a/d` — movement,
+  `k/l/u` — turret, `j` — fire, `n/p` — weapon switch)). Which set is
+  active is dictated by the host over port `17` (KEYSET_DATA).
+- **`modes`** (engine) — UI modes: `c` — chat, `m` — vote, `tab` — stats.
+- **`cmds`** (engine) — service keys (`escape`, `enter`), with top
+  priority, used within modes.
 
 ### Other modules
 
-- **`chat`** — DOM element ids, output limits (`listLimit: 5` lines,
-  `lineTime: 15000` ms), a cache, and **system message templates**
-  (`messages`): groups `s` (status/commands), `v` (votes), `m` (maps),
-  `c` (teams), `n` (names), `b` (bots). The host only sends
-  `'group:number:params'`, the client assembles the text.
-- **`panel`** — panel element ids and the mapping from server keys (`t`,
-  `h`, `wa`, `w1`, `w2`) to elements.
-- **`stat`** — head/body table ids (`heads`, `bodies`) and `sortList` —
-  sort parameters: an array of `[cell index, descending?]` pairs; on a
-  tie, comparison moves to the next pair.
-- **`vote`** — DOM ids/classes and **vote templates** (`templates`):
-  `[a title with {0} placeholders, options (an array — static, a string —
-  request the list from the host), timeOff]`. `menu` — the main vote
-  menu's items.
-- **`gameInform`** / **`techInformList`** — templates for on-screen game
-  messages (victory, round start) and technical screens (room full,
-  idle/latency kicks, etc.).
+DOM structures (`elems`) are engine-owned; texts and schemas are
+game-owned:
 
-## src/config/master.js
+- **`chat`** — DOM element ids, output limits (`listLimit: 5` lines,
+  `lineTime: 15000` ms), and a cache — engine; **system message
+  templates** (`messages`, game): a code registry of groups, engine-owned
+  groups `s` (status/commands), `v` (votes), `m` (maps), `c` (teams), `n`
+  (names) plus any groups the game plugin registers (e.g. `vimp-tanks`
+  adds `b` for bots). The host only sends `'group:number:params'`, the
+  client assembles the text.
+- **`panel`** — the `containerId` container (engine); the mapping from
+  server keys (`t`, `h`, `wa`, `w1`, `w2`) to fields (`keys`) and the
+  typed field schema `fields` (game): an ordered list of
+  `{ name, elem, type: 'bar'|'value'|'time'|'weapon', max?, blocks? }` —
+  `PanelView` generates the panel DOM and rendering behavior from the
+  types, not from field names.
+- **`stat`** — the container id (engine); the `columns` labels, head/body
+  tables (`heads`, `bodies`), and `sortList` (game) — `StatView` generates
+  the scoreboard DOM from the schema; `sortList` — sort parameters: an
+  array of `[cell index, descending?]` pairs; on a tie, comparison moves
+  to the next pair.
+- **`vote`** — DOM ids/classes (engine) and **vote templates**
+  (`templates`, game): `[a title with {0} placeholders, options (an
+  array — static, a string — request the list from the host), timeOff]`.
+  `menu` — the main vote menu's items.
+- **`gameInform`** / **`techInformList`** — templates for on-screen game
+  messages (the element id — engine, the `list` texts — game) and
+  technical screens (engine: room full, idle/latency kicks, etc.).
+- **`initIdList`** (game) — which modules/canvases to initialize at
+  startup (`vimp`, `radar`, `panel`, `chat`); the initialization
+  mechanism is engine-owned (`main.js`).
+
+## packages/engine/src/config/master.js
 
 The master server's config (see [master.md](master.md)); read by
-`src/master/main.js` (and `vite.config.js` — `httpsOptions` for dev HMR):
+`packages/engine/src/master/main.js` (and `vite.config.js` — `httpsOptions` for dev HMR):
 
 - `protocol`, `domain`, `port` — the address; the default port is `3002`
   (`3001` — Vite HMR). In production the domain is overridden by
@@ -233,14 +232,27 @@ The master server's config (see [master.md](master.md)); read by
 - `httpsOptions` — paths to local certificates
   `.certs/key.pem`/`cert.pem` (dev only; production HTTPS terminates at
   Nginx);
+- `games` — the game-plugin list resolved by `GameCatalog`:
+  `{id, package, version}[]` (default: `@vimp/tanks`). `package` is
+  resolved as an ordinary `node_modules/` dependency (the game plugin's own
+  repository, e.g. `vimp-tanks`, publishes it); `version` isn't used by
+  `GameCatalog` itself — reserved for deploy-time version checks.
+  Overridable in production via the `GAMES_MATRIX` env var (JSON);
 - `servers` — `GET /servers` parameters: `regionThreshold: 15` (at or
   below this many rooms, the regional filter and pagination are disabled),
   `defaultLimit: 10`, `maxLimit: 50`;
 - `host` — room constraints: `maxNameLength: 30`, `maxPlayersLimit: 8`,
   `heartbeatTimeout: 30000` (a room without a heartbeat for longer is
-  removed), `sweepInterval: 10000`; `/ban` social moderation:
-  `banThreshold: 5` (unique per-IP reports needed for a ban),
-  `reportWindowMs: 3600000` (the report/ban window, 1 h);
+  removed), `sweepInterval: 10000`;
+- `rating` — server-rating defaults (`/like`·`/unlike`, replacing the old
+  `/ban`, see [master.md](master.md#server-rating-likeunlike)): `min: -10`,
+  `max: 10`, `blockAt: -10` (a hoster whose rating hits this score can't
+  create rooms); `refreshInterval: 30000` — how often `main.js` calls
+  `SignalingServer.refreshRatings()` to re-poll every active room's cached
+  `rating` from the auth service (stage 3 — catches a score changed on a
+  different master or after a restart). Mirrored in
+  `packages/auth/src/config/auth.js` (`rating`) — the auth service is the
+  one that actually clamps/decides `blocked`;
 - `regionHeader: 'x-region'` — the header carrying a host's region from
   Nginx/CDN;
 - `pingRateLimit` — the limit on signaling `ping_host` requests per IP
@@ -254,7 +266,7 @@ The master server's config (see [master.md](master.md)); read by
   (it would break Vite HMR in dev);
 - `iceServers` — ICE config for clients and hosts (STUN; TURN optional).
 
-## src/config/lobby.js
+## packages/engine/src/config/lobby.js
 
 The client lobby's config (see
 [client.md](client.md#mvc-components-srcclientcomponents)). Unlike
@@ -262,9 +274,16 @@ The client lobby's config (see
 host: the lobby happens before connecting to a host.
 
 - `serversUrl: '/servers'` — the master's server-list REST endpoint;
-- `maps` — the master's map catalog: `manifestUrl: '/maps/manifest.json'`,
-  `baseUrl: '/maps'` — a host's room starts on current maps (falls back to
-  the bundle if unavailable);
+- `gamesManifestUrl: '/games/manifest.json'` — the master's game catalog
+  (`GameCatalog`): the room-creation form's `roomDefaults` and the
+  ClientPlugin come from here;
+- `maps` — the master's map catalog, per-game function URLs:
+  `manifestUrl: gameId => '/games/<id>/maps/manifest.json'`,
+  `baseUrl: gameId => '/games/<id>/maps'` — a host's room starts on the
+  active game's current maps (falls back to the bundle if unavailable);
+- `game` — a specific game's manifest:
+  `manifestUrl: gameId => '/games/<id>/manifest.json'` — the Worker handoff
+  re-reads it before a swap so the new Worker gets fresh `entries.host/wasm`;
 - `worker` — the master's worker bundle manifest:
   `manifestUrl: '/worker/manifest.json'` — the room's Worker is created
   from the `url` in the manifest, a `codeVersion` mismatch on re-register
@@ -283,72 +302,48 @@ host: the lobby happens before connecting to a host.
   `hostSocketId: 'local'` — the loopback socketId of the host player (the
   Worker uses it to exclude the host from kick policies).
 
-## src/config/auth.js
+## The game's auth config
 
-The auth form: DOM element ids (`elems`) and form parameters (`params`).
-Each parameter: `name`, a default value, `validator` (a function from
-[src/lib/validators.js](../../src/lib/validators.js): `isValidName`,
-`isValidModel`), and a `storage` key for localStorage. Validation runs on
-the client and is repeated by the host (Worker).
+The auth form schema (`HostPlugin.authSchema`: DOM element ids, form
+parameters, the game's validators, texts) is entirely game-owned data; the
+engine only provides the neutral `auth.pug` shell and `AuthView`, which
+fills in the game's title/help sections from `texts` and runs the engine
+validator `isValidName`
+([packages/engine/src/lib/validators.js](../../packages/engine/src/lib/validators.js))
+alongside any game validators injected into `validateAuth`. Validation
+runs on the client (with validators from the game bundle) and is repeated
+by the host (Worker); only `elems`/`params`/`texts` travel over the wire
+(`AUTH_DATA`, port 1) — the validator code doesn't. The game's own auth
+config is documented in its own repo's docs.
 
-## src/config/sounds.js
+## The game's sound catalog
 
-The sound catalog. Each sound: `file` (the filename without an extension
-in `public/sounds/`), `priority` (higher wins when voices compete),
-`volume`, optionally `loop: true`. `codecList: ['webm', 'mp3']` — files
-must exist in both formats. More on playback — [client.md](client.md#soundmanager).
+The sound catalog (file names, priorities, volumes, loop flags, codec
+list) is game data, served under the game's `assetsBase`. Playback
+mechanics (voice limits, priorities) are engine-owned — see
+[client.md](client.md#soundmanager).
 
-## src/config/wsports.js and src/config/opcodes.js
+## packages/engine/src/config/wsports.js and packages/engine/src/config/opcodes.js
 
 - **`wsports.js`** — the numeric port registry for the game protocol
   (the source of truth). Full tables — [network.md](network.md#ports).
 - **`opcodes.js`** — the binary snapshot format version
-  (`SNAPSHOT_FORMAT_VERSION = 3`) and the `SNAPSHOT_KEYS` registry
-  (`m1`, `w1`, `w2`, `w2e`, `c1`, `c2` → a numeric id + `kind`, which
+  (`SNAPSHOT_FORMAT_VERSION = 3`), `ENGINE_API_VERSION` and `HOT_FLAGS`.
+  The snapshot key registry is game data, supplied through
+  `HostPlugin.gameConfig.snapshot` (a numeric id + `kind` per key, which
   drives the block's byte layout). An unregistered key breaks frame
   packing. Details — [network.md](network.md#binary-snapshot-frame-port-5).
 
-## src/data/ — game data
+## Game data (models, weapons, maps)
 
-### models.js
-
-The only model — the `m1` tank
-([src/data/models.js](../../src/data/models.js)): the `Tank` constructor,
-starting weapon `w1`, size (`size: 2`, dimensions `size×4 : size×3`),
-motion parameters (acceleration/braking, `maxForwardSpeed: 260`,
-`maxReverseSpeed: −130`, turn torque, damping, lateral grip), physics
-(`density`, `friction`, `restitution`), "driving feel" (throttle/turn
-thresholds and rates), and the turret (`maxGunAngle: 1.4` rad,
-rotation/centering rates).
-
-> ⚠️ The `models.js` coefficients are used both by the core's
-> authoritative path and by the client prediction replica
-> (`core/src/client/predictor.rs`, formulas shared through
-> `core/src/motion.rs`). Changing them requires the cargo parity check:
-> `npm run core:test`.
-
-### weapons.js
-
-Two architecturally different weapon types
-([src/data/weapons.js](../../src/data/weapons.js)):
-
-| | `w1` (bullet) | `w2` (bomb) |
-| --- | --- | --- |
-| Type | `hitscan` — an instant ray, no physical projectile | `explosive` — a physical `Bomb` projectile in the Rapier world |
-| Damage | 40 | 70 at the epicenter, 50 blast radius |
-| Range | 1500 units | — (detonates on a `time: 300` ms timer) |
-| Cooldown | 0.01 s | 0.1 s |
-| Other | `spread: 0`, costs 1 ammo | `size: 8`, explosion impulse `2000000`, effect `w2e` |
-| Camera shake | 20px / 200ms | 30px / 400ms |
-
-### maps/
-
-Three maps: `pool mini` (small), `canopy`, `garden`. Each describes tile
-layers (`layers`, `tiles`), respawn points (`respawns`), static
-(`physicsStatic`) and dynamic (`physicsDynamic`) physics. Registration —
-[src/data/maps/index.js](../../src/data/maps/index.js). How to add a map
-— see [extending.md](extending.md#new-map).
+Model/tank parameters, weapon definitions, and maps are entirely
+game-owned static data — see the active game plugin's own docs (e.g.
+`vimp-tanks`'s `docs/en/configuration.md`) for their concrete shape and
+values. One cross-cutting invariant to know as an engine contributor:
+motion-model coefficients are typically shared between a game's
+authoritative core and its client prediction replica, so games gate
+changes to them behind their own cargo parity tests.
 
 ---
 
-[← Previous: Network Protocol](network.md) · [Next: Extending the Game →](extending.md)
+[← Previous: Network Protocol](network.md) · [Next: Deployment →](deployment.md)

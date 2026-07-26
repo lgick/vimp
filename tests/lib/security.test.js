@@ -8,11 +8,11 @@ const ORIGINAL_ENV = process.env.NODE_ENV;
 
 beforeEach(async () => {
   vi.resetModules();
-  config = (await import('../../src/lib/config.js')).default;
+  config = (await import('../../packages/engine/src/lib/config.js')).default;
   config.set('server:domain', 'example.com');
   config.set('server:port', 3000);
   config.set('server:protocol', 'https:');
-  security = (await import('../../src/lib/security.js')).default;
+  security = (await import('../../packages/engine/src/lib/security.js')).default;
 });
 
 afterEach(() => {

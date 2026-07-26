@@ -3,13 +3,13 @@
 The game protocol between the client and the host uses two message formats:
 
 - **JSON**: `[portId, payload]` — every channel except the snapshot.
-  `portId` is a numeric id from [src/config/wsports.js](../../src/config/wsports.js) (the source of truth).
+  `portId` is a numeric id from [packages/engine/src/config/wsports.js](../../packages/engine/src/config/wsports.js) (the source of truth).
 - **Binary**: the game snapshot frame (port `5`, SHOT_DATA) — an
-  `ArrayBuffer` packed by the core (`core/src/snapshot.rs`).
+  `ArrayBuffer` packed by the core (`packages/engine/core/src/snapshot.rs`).
 
 The client tells the formats apart by incoming data type: a string → the
 JSON dispatcher `socketMethods[portId]`
-([src/client/main.js](../../src/client/main.js) `handleMessage`); an
+([packages/engine/src/client/main.js](../../packages/engine/src/client/main.js) `handleMessage`); an
 `ArrayBuffer` → `ClientCore.push_frame` (decoding and the interpolation
 buffer live in the client core, see
 [core.md](core.md#clientcore--the-cores-client-mode)).
@@ -19,7 +19,7 @@ buffer live in the client core, see
 The game transport is a direct P2P connection between the client and the
 browser host (two `RTCDataChannel`s), not a WebSocket. The port protocol and
 formats themselves are unchanged — only the transport is different. The
-client's network layer — [src/client/network/](../../src/client/network/):
+client's network layer — [packages/engine/src/client/network/](../../packages/engine/src/client/network/):
 
 - **`SignalingClient`** — the master server's signaling WebSocket
   ([master.md](master.md)): coordinates setting up P2P (welcome with
@@ -65,13 +65,14 @@ already behind `renderTime`, are emitted immediately on the next
 `sample()` — "exactly once" is preserved (see
 [client.md](client.md#client-core-clientcore)).
 
-**The `/ban` report** travels **outside the port protocol**: the client
-intercepts the command before sending it to the host and sends
-`report_host { hostId, reason }` over the master's signaling WS
-(`SignalingClient.reportHost`), bypassing the P2P channel to the host. The
-reason: the host runs its own `CommandProcessor` and could filter out a
-complaint about itself. Ban logic lives on the master
-([master.md](master.md#ban-social-moderation)).
+**The `/like`·`/unlike` server-rating vote** travels **outside the port
+protocol**: the client intercepts the command before sending it to the host
+and sends `like_host`/`unlike_host { hostId, reason, token }` over the
+master's signaling WS (`SignalingClient.likeHost`/`unlikeHost`), bypassing
+the P2P channel to the host. The reason: the host runs its own
+`CommandProcessor` and could filter out a vote against itself. `token` is the
+voter's Bearer identity-token; rating logic lives on the master and the
+central auth service ([master.md](master.md#server-rating-likeunlike)).
 
 ## Ports
 
@@ -79,7 +80,7 @@ complaint about itself. Ban logic lives on the master
 
 | Port | Name | Format | Description |
 | :--: | --- | :--: | --- |
-| 0 | `CONFIG_DATA` | JSON | The client config (`src/config/client.js` + `prediction`) |
+| 0 | `CONFIG_DATA` | JSON | The client config (a merge of `packages/engine/src/config/clientDefaults.js` + the game plugin's `src/config/client.js` (e.g. `vimp-tanks`'s) + `prediction`) |
 | 1 | `AUTH_DATA` | JSON | Auth form data |
 | 2 | `AUTH_RESULT` | JSON | Auth errors (or `null`) |
 | 3 | `MAP_DATA` | JSON | Map data |
@@ -103,7 +104,7 @@ complaint about itself. Ban logic lives on the master
 | Port | Name | Description |
 | :--: | --- | --- |
 | 0 | `CONFIG_READY` | Config received, canvas ready |
-| 1 | `AUTH_RESPONSE` | Auth form data (`{name, model}`) |
+| 1 | `AUTH_RESPONSE` | Auth form data plus the lobby identity JWT (`{model, ..., token}`); the host derives the nick from the verified token, not from a form field (Stage B3, see [auth.md](auth.md)) |
 | 2 | `MODULES_READY` | Client modules initialized |
 | 3 | `MAP_READY` | Map loaded and built |
 | 4 | `FIRST_SHOT_READY` | First frame applied, ready for the game loop |
@@ -113,7 +114,7 @@ complaint about itself. Ban logic lives on the master
 | 8 | `PONG` | A reply to PING (the ping id) |
 
 The host enables client ports in stages (the port state machine in
-[src/host/host.worker.js](../../src/host/host.worker.js)): only
+[packages/engine/src/host/host.worker.js](../../packages/engine/src/host/host.worker.js)): only
 `CONFIG_READY` is active before auth, `AUTH_RESPONSE` after, and the rest
 once the user is created. A message on an inactive port is ignored.
 
@@ -142,20 +143,21 @@ Details:
   `4005` an idle kick, `4006` a full room. Closing a data channel carries
   no code/reason — the reason is delivered as a separate
   `TECH_INFORM_DATA` over `meta` before closing.
-- After `FIRST_SHOT_READY` the user gets a team-selection vote
-  (`teamChange`) and starts receiving frames.
+- After `FIRST_SHOT_READY` the user gets the game's initial vote (e.g. a
+  team-selection vote in `vimp-tanks`) and starts receiving frames.
 
 ## Channel split: the hot snapshot vs. meta
 
 On every snapshot tick (`networkSendRate: 4` → 30 packets/sec) the host
 sends a binary frame on port `5` to **every user ready to play**. Meta data
 travels **its own JSON channels, only on change** (see
-`HostGame._onShotTick` in [src/host/HostGame.js](../../src/host/HostGame.js)):
+`HostGame._onShotTick` in [packages/engine/src/host/HostGame.js](../../packages/engine/src/host/HostGame.js)):
 
-- **panel (13)** — per-user; an array of `'key:value'` strings (`t` —
-  round time, `h` — health, `w1`/`w2` — ammo, `wa` — the active weapon).
-  A full panel is sent on joining the game, an empty one (keys only) to a
-  spectator.
+- **panel (13)** — per-user; an array of `'key:value'` strings, keys from
+  the game's panel schema (`t` — round time is the only engine-defined
+  key; e.g. `vimp-tanks` adds `h` — health, `w1`/`w2` — ammo, `wa` — the
+  active weapon). A full panel is sent on joining the game, an empty one
+  (keys only) to a spectator.
 - **stat (14)** — broadcast, a delta of changes (format below).
 - **chat (15)** — a broadcast or personal message (`shiftByUser`).
 - **vote (16)** — a broadcast or personal vote.
@@ -164,10 +166,13 @@ travels **its own JSON channels, only on change** (see
 ## Binary snapshot frame (port 5)
 
 The codec lives entirely in the Rust core: packing —
-`core/src/snapshot.rs` (host side), decoding —
-`core/src/client/unpack.rs` (client side); both sides live in the same
-crate — layout mismatches are impossible by construction. Key registry and
-format version: [src/config/opcodes.js](../../src/config/opcodes.js)
+`packages/engine/core/src/snapshot.rs` (host side), decoding —
+`packages/engine/core/src/client/unpack.rs` (client side); both sides live
+in the same crate — layout mismatches are impossible by construction. The
+key registry is game data: the game plugin's `src/config/snapshot.js`
+(e.g. [`vimp-tanks`'s](https://github.com/lgick/vimp-tanks/blob/main/src/config/snapshot.js))
+(`gameConfig.snapshot`); the format version stays with the engine —
+[packages/engine/src/config/opcodes.js](../../packages/engine/src/config/opcodes.js)
 (`SNAPSHOT_FORMAT_VERSION = 3`). Big-endian, a manual block layout with no
 libraries. On a version mismatch the client drops the frame.
 
@@ -190,11 +195,17 @@ a copy of the body.
 | body blocks | to the end of the buffer | `Uint8 keyId` + content per `kind` |
 
 **Player block** (the foundation of client-side prediction): `gameId`
-(Uint8), `lastInputSeq` (Uint32), the tank's exact state as Float32×8 —
-`x, y, angle, vx, vy, angvel, gunRotation, throttle` (**not rounded** —
+(Uint8), `lastInputSeq` (Uint32), the player actor's exact state as
+Float32×8 — the fields are game-defined (e.g. `vimp-tanks`'s
+`x, y, angle, vx, vy, angvel, gunRotation, throttle`) (**not rounded** —
 precision is needed by the predictor), a turret-centering flag (Uint8).
 
-### Entity blocks (`kind` from `SNAPSHOT_KEYS`)
+### Entity blocks (`kind` from the game's snapshot schema)
+
+Entity keys, `kind` values, and their data shapes are entirely game-defined
+in the plugin's own snapshot schema — the engine only enforces the block
+layout (id + typed fields). Example from the reference plugin
+(`vimp-tanks`):
 
 | Key | id | kind | Data format |
 | :--: | :--: | --- | --- |
@@ -206,15 +217,26 @@ precision is needed by the predictor), a turret-centering flag (Uint8).
 
 Every float is originally rounded by the host to 2 decimals; the decoder
 restores values by rounding the Float32 again (the player block isn't
-rounded). Weapon events carry the author's id (`shooterId`/`ownerId`,
-added in v3) — the shooter uses it to suppress authoritative duplicates of
-locally spawned shots (the client core, `core/src/client/shot.rs`).
+rounded). Game entity events can carry an author id (`vimp-tanks` uses
+`shooterId`/`ownerId`, added in v3) so the client can suppress authoritative
+duplicates of locally spawned entities (the client core, the game plugin's
+`core/src/client/shot.rs`, e.g. `vimp-tanks`'s).
+
+Each schema entry is more than `{id, kind}`: `class` (`'hot'` —
+interpolated by the client between frames, `'event'` — one-shot, delivered
+as-is in the frame) and `fields` — the row's field schema (`name`, `ty`:
+`f32`/`u8`/`u16`/`u32`, `interp`: `lerp`/`lerpAngle`/`discrete`, for
+`class: 'hot'` only). `fields` must match the key's Row struct in
+`packages/engine/core/src/snapshot.rs` exactly in field count and type
+order (`GameCore`/`ClientCore` reject the constructor on a mismatch).
 
 When adding a new weapon/entity, its snapshot key **must** be registered in
-`SNAPSHOT_KEYS`, or `pack_body` will throw. If the existing `kind` values
-don't fit the data shape, add a new block layout to `core/src/snapshot.rs`
-+ `core/src/client/unpack.rs` and bump the format version. See
-[extending.md](extending.md#new-weapon).
+the game plugin's schema (`src/config/snapshot.js`, e.g. `vimp-tanks`'s) — with a full
+`fields` list for its `kind` — or `pack_body`/the core constructor will
+throw. If the existing `kind` values don't fit the data shape, add a new
+block layout to `packages/engine/core/src/snapshot.rs` +
+`packages/engine/core/src/client/unpack.rs` and bump the format version.
+See the active game plugin's own docs (e.g. [vimp-tanks/docs/en/extending.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/extending.md#new-weapon)).
 
 ## Input format: `"seq:action:name"`
 
@@ -241,7 +263,7 @@ sides send these over the **unreliable `state` channel** (the only JSON
 traffic outside `meta`): the measurement reflects the real network path,
 not the reliable `meta` stream with its retransmissions; a lost ping is
 tolerated by `maxMissedPings`.
-[RTTManager](../../src/host/meta/modules/RTTManager.js) computes latency,
+[RTTManager](../../packages/engine/src/host/meta/modules/RTTManager.js) computes latency,
 publishes it to stats (the `latency` column), and kicks:
 
 - at a smoothed (EMA) `latency > maxLatency` (1000 ms; a threshold sized
@@ -266,7 +288,7 @@ of keys with no values (containers are hidden).
 ### Stats (port 14)
 
 `statArray = [tBodies, tHead, fullUpdate?]` (assembled by
-[src/host/meta/modules/Stat.js](../../src/host/meta/modules/Stat.js)):
+[packages/engine/src/host/meta/modules/Stat.js](../../packages/engine/src/host/meta/modules/Stat.js)):
 
 - **`statArray[0]`** — table rows: `[row id, table number, cell array |
   null, tbody number]`. `null` instead of cells — remove the row; an empty

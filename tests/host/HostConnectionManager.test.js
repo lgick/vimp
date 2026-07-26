@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
-import HostConnectionManager from '../../src/client/network/HostConnectionManager.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
+import HostConnectionManager from '../../packages/engine/src/client/network/HostConnectionManager.js';
 
 // Юнит-тесты WebRTC-answerer хоста: приём оффера/answer, каналы meta/state
 // (ondatachannel), классификация reliable → meta/state, бэкпрешер на state,

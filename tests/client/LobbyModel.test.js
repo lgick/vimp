@@ -16,7 +16,7 @@ let model;
 
 beforeEach(async () => {
   vi.resetModules();
-  LobbyModel = (await import('../../src/client/components/model/Lobby.js'))
+  LobbyModel = (await import('../../packages/engine/src/client/components/model/Lobby.js'))
     .default;
   model = new LobbyModel({ pageSize: 10, pingInterval: 5000 });
 });

@@ -21,9 +21,9 @@ export default [
     },
   },
 
-  // конфигурация для файлов в корне проекта (конфиги и т.д.)
+  // конфигурация для конфигов корня и воркспейсов (vite.config.js и т.д.)
   {
-    files: ['*.js', '*.cjs', '*.mjs'], // eslint.config.js, vite.config.js, etc.
+    files: ['*.js', '*.cjs', '*.mjs', 'packages/*/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -39,7 +39,8 @@ export default [
   // конфигурация серверного кода Node.js
   {
     files: [
-      'src/master/**/*.js', // мастер-сервер (Node.js)
+      'packages/engine/src/master/**/*.js', // мастер-сервер (Node.js)
+      'packages/auth/src/**/*.js', // центральный auth-сервис (Node.js)
     ],
     languageOptions: {
       ecmaVersion: 'latest', // последний ECMAScript
@@ -56,7 +57,8 @@ export default [
   // конфигурация для клиентского кода
   {
     files: [
-      'src/client/**/*.js', // все JS файлы в src/client и его подпапках
+      // клиент движка
+      'packages/engine/src/client/**/*.js',
     ],
     languageOptions: {
       ecmaVersion: 'latest',
@@ -72,7 +74,7 @@ export default [
   // конфигурация для кода браузерного хоста (Web Worker: WASM-ядро + мета)
   {
     files: [
-      'src/host/**/*.js', // Worker хоста и его модули
+      'packages/engine/src/host/**/*.js', // Worker хоста и его модули
     ],
     languageOptions: {
       ecmaVersion: 'latest',
@@ -88,7 +90,11 @@ export default [
   },
 
   {
-    files: ['src/lib/**/*.js', 'src/config/**/*.js', 'scripts/*.js'],
+    files: [
+      'packages/engine/src/lib/**/*.js',
+      'packages/engine/src/config/**/*.js',
+      'scripts/*.js',
+    ],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -103,9 +109,35 @@ export default [
     },
   },
 
-  // конфигурация для тестов (Vitest)
+  // ESLint-граница движок↔игра (этапы 5/6.4 плана отделения, A3.5: игра
+  // выехала в отдельный репозиторий vimp-tanks — правило по-прежнему
+  // страхует от случайного статического импорта @vimp/tanks из node_modules):
+  // движок не импортирует игру статически вовсе — игра грузится динамически
+  // по GameManifest (import() с рантаймовым URL, который ESLint не проверяет)
   {
-    files: ['tests/**/*.js'],
+    files: ['packages/engine/**/*.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@vimp/tanks', '@vimp/tanks/*', '@vimp/tanks/**'],
+              message:
+                'Движок не импортирует игру напрямую — только динамически по GameManifest.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // конфигурация для тестов (Vitest) + движковой тестовой фикстуры
+  // (packages/engine/tests/fixtures/miniGame/**, Этап 7 плана: HostPlugin/
+  // ClientPlugin фикстуры и её собственные тесты — вне packages/engine/src/,
+  // поэтому не попадают под другие блоки globals/sourceType выше)
+  {
+    files: ['tests/**/*.js', 'packages/engine/tests/**/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -160,17 +192,28 @@ export default [
     },
   },
 
+  // fake-core фикстуры миниигры: имена методов зеркалят Wasm Host ABI
+  // (snake_case, как у настоящих wasm-bindgen-биндингов GameCore/ClientCore) —
+  // camelCase здесь неприменим, это не движковый JS-код, а стенд-ин ядра
+  {
+    files: [
+      'packages/engine/tests/fixtures/miniGame/host/fakeCore.js',
+      'packages/engine/tests/fixtures/miniGame/client/fakeClientCore.js',
+    ],
+    rules: {
+      camelcase: 'off',
+    },
+  },
+
   // игнорируемые файлы и директории
   {
     ignores: [
       'node_modules/**',
       'dist/**', // результаты сборки Vite
+      'packages/*/dist/**', // сборка Vite движка
       'public/**', // статика, которую не нужно линтить
       'build/**',
-      'core/pkg-node/**', // сгенерированный wasm-pack glue (nodejs)
-      'core/pkg-web/**', // сгенерированный wasm-pack glue (web)
-      'core/target/**', // артефакты cargo
-      'src/data/maps/json/**', // сгенерированные JSON-карты (maps:export)
+      'target/**', // артефакты cargo (workspace)
       '**/.*', // игнорировать все файлы/директории, начинающиеся с '.'
       '**/_*', // игнорировать все файлы/директории, начинающиеся с '_'
     ],

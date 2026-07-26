@@ -46,6 +46,45 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ====================================================
+  # 1b. СБОРКА И ПУБЛИКАЦИЯ ОБРАЗА AUTH-СЕРВИСА (Этап B6)
+  # ====================================================
+  # Отдельный образ: packages/auth не тянет Rust/Vite, деплоится как
+  # самостоятельный сервис (свой домен, PostgreSQL) — см. docs/en/deployment.md
+  build_and_push_auth:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Lowercase Image Name
+        run: |
+          echo "AUTH_IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}-auth" >> $GITHUB_ENV
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: packages/auth/Dockerfile
+          push: true
+          tags: ${{ env.AUTH_IMAGE_NAME }}:latest
+          cache-from: type=gha,scope=auth
+          cache-to: type=gha,mode=max,scope=auth
+
+  # ====================================================
   # 2. ПОДГОТОВКА СПИСКА СЕРВЕРОВ
   # ====================================================
   prepare-matrix:
@@ -88,6 +127,9 @@ jobs:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           VIMP_DOMAIN: ${{ matrix.domain }}
           VIMP_PORT: ${{ matrix.port }}
+          # общий для всех мастеров central auth-сервис (Этап B6); задаётся
+          # один раз в Settings → Variables, см. docs/en/deployment.md
+          VIMP_AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -95,7 +137,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           # Передача переменных окружения внутрь скрипта SSH
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             # Остановка выполнения при любой критической ошибке
             set -e
@@ -127,6 +169,9 @@ jobs:
             {
               echo "NODE_ENV=production"
               echo "VIMP_DOMAIN=$VIMP_DOMAIN"
+              if [ -n "$VIMP_AUTH_SERVICE_URL" ]; then
+                echo "VIMP_AUTH_SERVICE_URL=$VIMP_AUTH_SERVICE_URL"
+              fi
             } > .env.prod
 
 

@@ -12,9 +12,11 @@ yarn-error.log*
 # =========================
 # Rust core (артефакты; пересобирается в core-builder)
 # =========================
-core/target
-core/pkg-web
-core/pkg-node
+target
+packages/engine/core/target
+games/tanks/core/target
+games/tanks/core/pkg-web
+games/tanks/core/pkg-node
 
 # =========================
 # Git

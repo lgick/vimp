@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import VoteCoordinator from '../../src/host/meta/core/VoteCoordinator.js';
+import VoteCoordinator from '../../packages/engine/src/host/meta/core/VoteCoordinator.js';
 
 const makeDeps = (overrides = {}) => ({
   vote: {

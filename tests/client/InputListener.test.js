@@ -5,7 +5,7 @@ let InputListener;
 
 beforeEach(async () => {
   vi.resetModules();
-  InputListener = (await import('../../src/client/InputListener.js')).default;
+  InputListener = (await import('../../packages/engine/src/client/InputListener.js')).default;
 });
 
 describe('InputListener', () => {

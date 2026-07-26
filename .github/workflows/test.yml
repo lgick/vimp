@@ -6,8 +6,14 @@ on:
     branches: ['**']
   pull_request:
 
+# lint не требует Rust; engine доказывает, что движковые тесты (cargo +
+# vitest engine-*) проходят БЕЗ единого Rust-артефакта игры (fixture-миниигра,
+# packages/engine/tests/fixtures/miniGame/) и гоняет vitest-проект auth
+# (packages/auth — central auth-сервис, чистый Node/Express, без Rust/WASM
+# зависимостей). Игровые (tanks/integration) job'ы переехали в CI
+# репозитория игры (A3.5 плана отделения движка).
 jobs:
-  lint-and-test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
@@ -15,25 +21,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-
-      - name: Setup Rust (ядро core/)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            core/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('core/Cargo.lock') }}
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Install dependencies
         run: npm ci
@@ -41,11 +30,37 @@ jobs:
       - name: Lint
         run: npx eslint .
 
-      - name: Rust tests (ядро)
-        run: npm run core:test
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
 
-      - name: Build core (nodejs-таргет для JS↔WASM харнесса)
-        run: npm run core:build:node
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
 
-      - name: Run tests
-        run: npm test
+      - name: Setup Rust (vimp-engine-core)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-engine-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rust tests (движковый crate)
+        run: cargo test -p vimp-engine-core
+
+      - name: JS tests (движок, без Rust-артефактов игры)
+        run: npx vitest run --project engine-node --project engine-client
+
+      - name: JS tests (central auth-сервис, packages/auth — не тянет Rust)
+        run: npx vitest run --project auth

@@ -36,7 +36,7 @@ const collect = model => {
 beforeEach(async () => {
   vi.resetModules();
   CanvasManagerModel = (
-    await import('../../src/client/components/model/CanvasManager.js')
+    await import('../../packages/engine/src/client/components/model/CanvasManager.js')
   ).default;
 });
 

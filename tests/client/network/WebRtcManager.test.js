@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../../src/lib/Publisher.js';
-import WebRtcManager from '../../../src/client/network/WebRtcManager.js';
+import Publisher from '../../../packages/engine/src/lib/Publisher.js';
+import WebRtcManager from '../../../packages/engine/src/client/network/WebRtcManager.js';
 
 // фейковый DataChannel
 class FakeChannel {

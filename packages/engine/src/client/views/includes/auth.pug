@@ -1,0 +1,22 @@
+//- нейтральный каркас формы авторизации: заголовок и help-секции
+//- заполняет AuthView из authSchema.texts игры (AUTH_DATA, порт 1)
+div#auth
+
+  div#auth-form
+
+    h2#auth-title
+
+    div#auth-name.auth-field
+      span= 'Name:'
+      input#auth-name-input(type='text', name='name' maxlength='15', placeholder='Vanya')
+
+    div#auth-error
+
+    input#auth-enter(type='button', autofocus, value='Enter')
+
+    div#auth-informs
+
+    div#auth-link
+      p
+        a(href='https://github.com/lgick/vimp') GitHub
+      p &copy; #{new Date().getFullYear()} VIMP

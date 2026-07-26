@@ -29,7 +29,7 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  ChatModel = (await import('../../src/client/components/model/Chat.js')).default;
+  ChatModel = (await import('../../packages/engine/src/client/components/model/Chat.js')).default;
 });
 
 describe('ChatModel.sendMessage', () => {

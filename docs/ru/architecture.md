@@ -1,14 +1,14 @@
 # Архитектура
 
-VIMP P2P Tank Battle — многопользовательская 2D-игра реального времени на
-**P2P-архитектуре**. **Хост авторитетен**: вся физика (Rapier 2D в Rust-ядре,
-WASM), урон и правила считаются в Web Worker'е вкладки создателя комнаты;
-клиенты рендерят мир (PixiJS) и маскируют сетевую задержку интерполяцией и
-предсказанием. Мастер-сервер (Node.js) игровой логики не несёт: лобби,
-сигналинг WebRTC, каталог карт, соц-модерация.
+VIMP — **P2P**-движок для многопользовательских 2D-игр реального времени.
+**Хост авторитетен**: вся физика (Rapier 2D в Rust-ядре, WASM) и правила
+игры считаются в Web Worker'е вкладки создателя комнаты; клиенты рендерят
+мир (PixiJS) и маскируют сетевую задержку интерполяцией и предсказанием.
+Мастер-сервер (Node.js) игровой логики не несёт: лобби, сигналинг WebRTC,
+каталог карт, рейтинг серверов (соц-анти-чит, `/like`·`/unlike`).
 
 ```
-┌──────────────────┐  сигнальный WS (SDP/ICE, ping, /ban)  ┌──────────────────┐
+┌──────────────────┐  сигнальный WS (SDP/ICE, ping, голос) ┌──────────────────┐
 │  Мастер-сервер   │ ◄───────────────────────────────────► │      Клиент      │
 │ Node.js: лобби,  │                                       │ PixiJS + Howler  │
 │ GET /servers,    │ ◄───────────┐                         │ интерполяция     │
@@ -27,51 +27,62 @@ WASM), урон и правила считаются в Web Worker'е вклад
 
 ## Структура репозитория
 
+Этот репозиторий содержит **только движок** — игра (сейчас танки) вынесена в
+отдельно публикуемый, динамически загружаемый пакет-плагин, который живёт в
+своём собственном репозитории (например, `vimp-tanks`) и ставится сюда как
+`@vimp/tanks` в `node_modules/`; движок никогда не импортирует её статически
+(граница закреплена ESLint-правилом `no-restricted-imports`). Структуру
+самой игры см. в [vimp-tanks/docs/ru/architecture.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/architecture.md).
+
 ```
-src/
-  master/        — мастер-сервер (точка входа): реестр комнат, REST,
+packages/engine/ — vimp-engine: движок-приложение (npm workspace)
+  index.html / vite.config.js — Vite-root движка
+  public/        — статика (звуки, favicon)
+  src/
+    master/      — мастер-сервер (точка входа): реестр комнат, REST,
                    сигналинг, каталог карт (docs/master.md)
-  host/          — браузерный хост (docs/host.md)
-    host.worker.js — Web Worker: WASM-ядро + мета + порт-машина + цикл ~120 Гц
-    HostGame.js  — host-фасад: wiring мета-модулей, core-driven тик
-    GameCoreAdapter.js — поверхность физики/ботов/упаковки поверх GameCore
-    HostBotManager.js  — тонкий реестр ботов (ИИ — в ядре)
-    meta/        — JS-мета Worker'а: core/ (RoundManager, CommandProcessor,
+    host/        — браузерный хост (docs/host.md)
+      host.worker.js — Web Worker: WASM-ядро + мета + порт-машина + цикл ~120 Гц
+      HostGame.js — host-фасад: wiring мета-модулей, core-driven тик
+      GameCoreAdapter.js — поверхность физики/ботов/упаковки поверх GameCore
+      meta/      — JS-мета Worker'а: core/ (RoundManager, CommandProcessor,
                    VoteCoordinator), modules/ (Panel, Stat, Vote, chat/,
                    TimerManager, RTTManager), player/ (Participant/Human/Bot +
                    ParticipantManager), SocketManager
-  client/        — браузерный клиент
-    main.js      — диспетчер портов, лобби/роли, инициализация модулей, рендер-цикл
-    network/     — SignalingClient, WebRtcManager (offerer), HostController,
+    client/      — браузерный клиент
+      main.js    — диспетчер портов, лобби/роли, инициализация модулей, рендер-цикл
+      network/   — SignalingClient, WebRtcManager (offerer), HostController,
                    LoopbackTransport, HostConnectionManager (answerer)
-    components/  — MVC-тройки (Auth, Lobby, CanvasManager, Controls, Game,
+      components/ — MVC-тройки (Auth, Lobby, CanvasManager, Controls, Game,
                    Chat, Panel, Stat, Vote)
-    parts/       — PixiJS-сущности и эффекты
-    providers/   — BakingProvider (текстуры), DependencyProvider
-    SoundManager.js / InputListener.js
-  config/        — общие конфиги (game, client, auth, sounds, wsports, opcodes,
-                   lobby, master)
-  data/          — статические данные: maps/, models.js, weapons.js
-  lib/           — общие утилиты: Publisher, factory, math, validators,
+      providers/ — BakingProvider (пекари приходят из ClientPlugin игры),
+                   DependencyProvider
+      SoundManager.js / InputListener.js
+    config/      — конфиги движка (hostDefaults, clientDefaults, wsports,
+                   opcodes, lobby, master)
+    lib/         — общие утилиты: Publisher, factory, math, validators,
                    sanitizers, security, config, clientCoreConfig, …
-core/            — Rust-ядро симуляции → WASM: физика, танки, оружие, боты,
-                   кодек снапшотов и клиентская математика — интерполяция,
-                   предикт, спавн снарядов (src/client в core/, docs/core.md)
-tests/           — Vitest (tests/host — хост и мета; tests/core — JS↔WASM
-                   харнесс ядра; tests/master, tests/client, tests/lib)
-public/          — статика (звуки)
-scripts/         — вспомогательные скрипты (обработка аудио, экспорт карт в JSON)
+  core/          — vimp-engine-core (Rust rlib): физика, кодек снапшотов,
+                   интерполяция, распаковка кадров, ABI-макросы (docs/core.md)
+tests/           — Vitest-проекты: engine-node, engine-client,
+                   integration (tests/host/HostGame.test.js + tests/core,
+                   пропускается без собранного/подключённого WASM-ядра игры)
+scripts/         — вспомогательные скрипты (экспорт карт в JSON и т.п.)
 .github/         — CI/CD (test.yml, deploy.yml) и скрипты развертывания
 ```
 
-`src/config/`, `src/data/` и `src/lib/` — **shared-слой**: импортируются
-мастером (Node.js), Worker'ом хоста и клиентом (Vite-бандл). Благодаря этому
-кодек снапшота, математика, валидаторы и параметры моделей гарантированно
-совпадают на всех сторонах.
+`packages/engine/src/config/` и `packages/engine/src/lib/` — **shared-слой**:
+импортируются мастером (Node.js), Worker'ом хоста и клиентом (Vite-бандл).
+Благодаря этому кодек снапшота, математика, валидаторы и логика мерджа
+гарантированно совпадают на всех сторонах; свои данные (модели, оружие,
+карты) игра-плагин поставляет через контракт плагина — см.
+[plugin-api.md](plugin-api.md).
 
 Проект изначально строился вокруг авторитетного WS-сервера; текущая
 P2P-архитектура (браузерный хост + мастер-сервер) — результат завершённой
-миграции, легаси-сервер полностью демонтирован.
+миграции, легаси-сервер полностью демонтирован. Сама игра (в этом репозитории
+раньше — `games/tanks/`) позже была вынесена в отдельный репозиторий по
+границе контракта плагина, описанной ниже.
 
 ## Вкладка хоста
 
@@ -91,10 +102,10 @@ P2P-архитектура (браузерный хост + мастер-сер�
 │   ├─ LoopbackTransport         — транспорт хоста-игрока поверх postMessage
 │   └─ HostConnectionManager     — WebRTC-answerer удалённых клиентов + бэкпрешер
 └─ Web Worker (host.worker.js)   — авторитетная симуляция ~120 Гц
-    ├─ GameCore (WASM, core/)    — физика, оружие, боты
+    ├─ GameCore (WASM, из игры-плагина, напр. @vimp/tanks/core) — физика, игровые сущности, боты
     ├─ GameCoreAdapter           — поверхность физики/ботов/упаковки поверх ядра
     └─ HostGame-фасад + мета      — RoundManager, ParticipantManager, Chat, Vote,
-                                    Stat, Panel, TimerManager… (src/host/meta/)
+                                    Stat, Panel, TimerManager… (packages/engine/src/host/meta/)
 ```
 
 **`HostGame`** — фасад: связывает модули, ведёт жизненный цикл соединений и
@@ -106,15 +117,16 @@ HostGame (фасад/wiring + core-driven тик)
  ├─ RoundManager         — раунды, team wipe, смена карты, spectator↔active
  ├─ CommandProcessor     — чат-команды (/name, /bot, /nr, /timeleft, /mapname)
  ├─ VoteCoordinator      — создание/кулдаун/сброс голосований
- ├─ GameCoreAdapter      — ядро: физика, Tank/Bomb/Hitscan, боты, packBody/packFrame
+ ├─ GameCoreAdapter      — ядро: физика, игровые сущности, боты, packBody/packFrame
  ├─ Cold path: Panel, Stat, Chat, Vote (JSON, по изменению)
  ├─ TimerManager         — все таймеры  /  RTTManager — пинги и кики
- └─ HostBotManager       — реестр участников-ботов (ИИ — в ядре)
+ └─ scripted-модуль игры (напр. bot-менеджер, из плагина; ИИ — в ядре)
 ```
 
-**Граница ядра — симуляция, а не мета**: в ядре физика, танки, оба типа оружия,
-боты и упаковка бинарных кадров; здоровье/боезапас тоже живут в ядре, панель —
-проекция его событий (`take_events()`: kill/health/ammo/activeWeapon/shake).
+**Граница ядра — симуляция, а не мета**: в ядре физика, игровые сущности,
+боты и упаковка бинарных кадров; игровое состояние (напр. здоровье/боезапас)
+тоже живёт в ядре, панель — проекция его событий (стандартный словарь
+`take_events()`: panelSet/panelActive/death/shake/custom).
 Мета (чат, голосования, статистика, раунды, реестр участников, auth) — JS в
 Worker'е.
 
@@ -148,21 +160,55 @@ Worker'е.
 
 Клиент строится вокруг трёх механизмов сглаживания сети; все три живут в клиентском ядре — WASM-классе `ClientCore` того же Rust-бинаря (подробно — [client.md](client.md), ABI — [core.md](core.md#clientcore--клиентский-режим-ядра)):
 
-- **Интерполяция** (`core/src/client/interpolator.rs`): кадры буферизуются, мир рендерится в прошлом (`serverNow − 100 мс`); события выдаются ровно один раз, позиции интерполируются.
-- **Предсказание** (`core/src/client/predictor.rs`): свой танк симулируется репликой авторитетной модели движения (формулы общие с ядром — `motion.rs`); хост подтверждает ввод (`lastInputSeq`), reconciliation переигрывает неподтверждённые вводы, расхождение плавно затухает.
-- **Клиентский спавн снарядов** (`core/src/client/shot.rs`): выстрел виден и слышен мгновенно, дубли от хоста подавляются по id автора.
+- **Интерполяция** (`packages/engine/core/src/client/interpolator.rs`): кадры буферизуются, мир рендерится в прошлом (`serverNow − 100 мс`); события выдаются ровно один раз, позиции интерполируются.
+- **Предсказание** (ядро игры-плагина, напр. `core/src/client/predictor.rs` в `vimp-tanks`): своя сущность симулируется репликой авторитетной модели движения (формулы общие с ядром игры); хост подтверждает ввод (`lastInputSeq`), reconciliation переигрывает неподтверждённые вводы, расхождение плавно затухает.
+- **Клиентский спавн снарядов** (ядро игры-плагина, напр. `core/src/client/shot.rs` в `vimp-tanks`): выстрел виден и слышен мгновенно, дубли от хоста подавляются по id автора.
 
 JS-оболочка читает результат рендер-тика плоским Float32-буфером zero-copy из памяти WASM (горячие позиции) и JSON-строкой (редкие событийные кадры), применяя его прежним parse-конвейером.
 
 Рендеринг — MVC-компоненты + PixiJS-сущности `parts/` на двух полотнах (`vimp`, `radar`), процедурные текстуры запекаются при старте.
 
+## ADR: движок — приложение, игра — динамический плагин
+
+**Статус: принято, миграция завершена.** Движок и референсная игра (танки)
+теперь живут в отдельных репозиториях, связанных только рантайм-контрактом
+плагина, описанным в [plugin-api.md](plugin-api.md). Полная летопись этапов
+миграции — в `plan/done/` этого репозитория, включая
+`plan/done/repo-split/`.
+
+**Решение.** Проект разделяется на **движок** — приложение, деплоящееся
+один раз (мастер, P2P-транспорт, Worker-инфраструктура и эстафета,
+мета-*механизмы*, MVC-каркас клиента, рендер/звук-инфраструктура,
+Rust-каркас), — и **игру** — динамический плагин (JS-бандлы client/host,
+WASM-бинарь, ассеты), загружаемый по манифесту с мастера. Композиция: этот
+репозиторий публикует `vimp-engine` (npm) и `vimp-engine-core` (Rust rlib
+crate); репозиторий игры (например, `vimp-tanks`) публикует `@vimp/tanks`,
+устанавливаемый здесь как обычная `node_modules`-зависимость, и свой crate
+`vimp-tanks-core` (cdylib + wasm-bindgen-обёртки), зависящий от
+`vimp-engine-core` и связанный через трейты со статической
+мономорфизацией. Мета-модули (Panel/Stat/Chat/Vote/Timer/RTT/Participant/
+Round/CommandProcessor) остаются движковыми, но **вся их параметризация —
+из конфига игры**. Ботов в движке нет — только нейтральное понятие
+«скриптовый участник».
+
+**Обоснование.** На движке могут работать другие игры; один мастер может
+обслуживать несколько игр; репозиторий игры может выпускаться в своём
+темпе. Динамический плагин (а не build-time зависимость) позволяет
+деплоить движок один раз, а играм версионироваться независимо
+(`codeVersion` составной, расхождение запускает эстафету Worker'ов).
+
+Историческую построчную разметку «что уехало в движок, а что — в игру» во
+время миграции см. в `plan/done/` в истории git этого репозитория — здесь
+она больше не воспроизводится, так как оба дерева с тех пор развиваются
+независимо.
+
 ## Ключевые инварианты
 
-- **Источник истины по портам** — `src/config/wsports.js`; по snapshot-ключам и версии бинарного формата — `src/config/opcodes.js`.
-- **Паритет реплики движения**: авторитетное движение (Rapier) и реплика клиентского предикта делят формулы тика (`core/src/motion.rs`); паритет интеграции закреплён cargo-тестами (`client::predictor::parity`) — любая правка движения в ядре или коэффициентов `models.js` требует прогона `npm run core:test`.
-- **Единое числовое пространство id** для людей и ботов; различение — `isBot`/`isNetworked`. Ядро оперирует числовыми id, мета ключует строками — приведение на границе `GameCoreAdapter`.
+- **Источник истины по портам** — `packages/engine/src/config/wsports.js`; по версии бинарного формата — `packages/engine/src/config/opcodes.js`; по snapshot-ключам — собственная схема игры, поставляемая через `HostPlugin.gameConfig.snapshot` (см. [plugin-api.md](plugin-api.md)).
+- **Паритет реплики движения**: авторитетное движение и реплика клиентского предикта обязаны делить формулы тика — это забота репозитория игры (например, `core/src/motion.rs` и cargo-тесты `client::predictor::parity` в `vimp-tanks`); движок предоставляет только общую машинерию `Predictor<G>`/интерполяции.
+- **Единое числовое пространство id** для людей и scripted-участников (ботов); различение — `isScripted`/`isNetworked`. Ядро оперирует числовыми id, мета ключует строками — приведение на границе `GameCoreAdapter`.
 - Все отправки клиенту — только через `SocketManager`.
 
 ---
 
-[← Предыдущая: Локальная настройка](getting-started.md) · [Следующая: Игровой процесс →](gameplay.md)
+[← Предыдущая: Локальная настройка](getting-started.md) · [Следующая: Мастер-сервер →](master.md)

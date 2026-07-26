@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import RateLimiter from '../../src/lib/rateLimiter.js';
+import RateLimiter from '../../packages/engine/src/lib/rateLimiter.js';
 
 describe('RateLimiter', () => {
   it('пропускает события в пределах лимита', () => {

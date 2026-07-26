@@ -1,74 +1,80 @@
 # ============================================================
-# 1. CORE-BUILDER — Rust-ядро симуляции (WASM для браузера)
+# 1. BUILDER — сборка движка
 # ============================================================
 
-FROM rust:slim AS core-builder
-
-# wasm-pack + target wasm32 для сборки ядра
-RUN rustup target add wasm32-unknown-unknown \
-    && cargo install wasm-pack --locked
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
-COPY core ./core
-
-RUN wasm-pack build core --release --target web --out-dir pkg-web
-
-# ============================================================
-# 2. BUILDER — фронтенд, обработка аудио
-# ============================================================
-
-FROM node:20-slim AS builder
-
-# ffmpeg для process-audio.js
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# копирование package.json, чтобы установить зависимости
+# копирование package.json (включая манифест пакета движка),
+# чтобы установить зависимости
 COPY package.json package-lock.json ./
+COPY packages/engine/package.json ./packages/engine/
 
-# установка зависимостей
+# установка зависимостей: npm ci ставит игровые пакеты-плагины (объявлены в
+# корневом package.json, по списку `master:games`/GAMES_MATRIX — не в
+# packages/engine, движок остаётся game-agnostic, кодревью Этапов A,
+# находка F1) из registry — приносит их уже собранный dist/ (манифест +
+# бандлы + карты + звуки), движок больше не собирает WASM игры сам
 RUN npm ci
 
 # копирование проекта
 COPY . .
 
-# WASM-ядро из core-builder (бандлится в host.worker при vite build)
-COPY --from=core-builder /app/core/pkg-web ./core/pkg-web
-
 # переменная окружения для Vite
 ENV NODE_ENV=production
 
-# запуск обработки аудио и сборки фронтенда (ядро уже собрано)
+# сборка движка (vite build → packages/engine/dist/)
 RUN npm run build:app
 
+# стейджинг dist/ всех установленных игровых пакетов-плагинов (любой @vimp/*
+# в node_modules, кроме собственных workspace-пакетов движка) — без хардкода
+# конкретной игры, чтобы деплой не переписывать при добавлении второй игры
+# в master:games (кодревью Этапов A, находка F6)
+RUN mkdir -p /app/game-dists && \
+    for pkg_dir in node_modules/@vimp/*/; do \
+      pkg_name=$(basename "$pkg_dir"); \
+      if [ "$pkg_name" = "engine" ] || [ "$pkg_name" = "auth" ]; then \
+        continue; \
+      fi; \
+      if [ -d "${pkg_dir}dist" ]; then \
+        mkdir -p "/app/game-dists/@vimp/${pkg_name}"; \
+        cp -r "${pkg_dir}dist" "/app/game-dists/@vimp/${pkg_name}/dist"; \
+      fi; \
+    done
+
 # ============================================================
-# 3. RUNNER — Production Image
+# 2. RUNNER — Production Image
 # ============================================================
 
-FROM node:20-slim AS runner
+FROM node:24-slim AS runner
 
 WORKDIR /app
 
-# зависимости
+# зависимости: манифест пакета движка нужен npm ci для симлинков @vimp/*
 COPY package.json package-lock.json* ./
+COPY packages/engine/package.json ./packages/engine/
 
 RUN npm ci --omit=dev
 
-# фронтенд
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
+# фронтенд движка (vite build; public копируется Vite внутрь dist)
+COPY --from=builder /app/packages/engine/dist ./packages/engine/dist
+COPY --from=builder /app/packages/engine/public ./packages/engine/public
 
-# мастер-сервер (лобби + сигналинг WebRTC)
-COPY --from=builder /app/src/config ./src/config
-COPY --from=builder /app/src/data ./src/data
-COPY --from=builder /app/src/lib ./src/lib
-COPY --from=builder /app/src/master ./src/master
+# мастер-сервер движка (лобби + сигналинг WebRTC + каталоги)
+COPY --from=builder /app/packages/engine/src/config ./packages/engine/src/config
+COPY --from=builder /app/packages/engine/src/lib ./packages/engine/src/lib
+COPY --from=builder /app/packages/engine/src/master ./packages/engine/src/master
+
+# собранные бандлы игр-плагинов, поставленных как npm-зависимости (мастер
+# читает только dist/manifest.json + dist/maps/*.json через GameCatalog) —
+# все @vimp/* из /app/game-dists, без хардкода конкретной игры (находка F6)
+COPY --from=builder /app/game-dists/@vimp ./node_modules/@vimp
 
 ENV NODE_ENV=production
 
-# запуск мастер-сервера
+# запуск мастер-сервера (cwd — пакет движка: dist/assets для WorkerCatalog,
+# ../../node_modules/@vimp/<id> — для GameCatalog)
+WORKDIR /app/packages/engine
+
 CMD ["node", "src/master/main.js"]

@@ -22,7 +22,7 @@ const ev = keyCode => ({ keyCode, preventDefault: vi.fn() });
 
 beforeEach(async () => {
   vi.resetModules();
-  ControlsModel = (await import('../../src/client/components/model/Controls.js'))
+  ControlsModel = (await import('../../packages/engine/src/client/components/model/Controls.js'))
     .default;
 });
 

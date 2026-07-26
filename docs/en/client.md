@@ -1,25 +1,37 @@
 # Client Modules and Systems
 
 The client is a browser app built on PixiJS (Vite build, Pug templates in
-[src/client/views/](../../src/client/views/)). The entry point is
-[src/client/main.js](../../src/client/main.js).
+[packages/engine/src/client/views/](../../packages/engine/src/client/views/)). The entry point is
+[packages/engine/src/client/main.js](../../packages/engine/src/client/main.js).
 
 ## main.js — bootstrap, dispatcher, and render loop
 
-- **Bootstrap**: creates `SignalingClient`, connects to the master; on
-  `welcome` it brings up the lobby (`initLobby`). Picking a server →
-  `connectToHost` creates a `WebRtcManager`, establishes P2P, and remembers
-  `currentHostId` (for `/ban`).
-- **`/ban` social moderation**: outgoing chat goes through `handleChatSend`
-  — it intercepts `/ban <reason>` and, instead of sending it to the host
-  (port `CHAT_DATA`), sends the report straight to the master
-  (`signaling.reportHost(currentHostId, reason)`), bypassing the cheating
-  host. A reason is required, available only to guests (`currentHostId` is
-  set); for the host player the command shows a local hint; a dropped
-  signaling WS shows a plain error message (the report wasn't sent). The
-  master additionally only accepts reports from a session that actually
-  connected to the room — see [master.md](master.md#ban-social-moderation).
-  The rest of chat goes to the host as usual.
+- **Bootstrap**: before anything else, fetches the master's game catalog
+  (`GET /games/manifest.json`, `GameCatalog` — see [master.md](master.md))
+  and dynamically loads the active game's `ClientPlugin` by its manifest's
+  `entries.client` (`packages/engine/src/lib/gamePlugin.js`,
+  `loadClientPlugin`), rejecting a mismatched `engineApi`. With one game in
+  the catalog, the first manifest entry is used and the lobby's game picker
+  stays hidden (see [plugin-api.md](plugin-api.md)). It also brings up the
+  **LobbyAuth** login gate independently of the signaling socket (see below)
+  and connects `SignalingClient`. The lobby (`initLobby`) opens only once
+  both `welcome` (from the master) and `authenticated` (from LobbyAuth) have
+  fired — `#lobby` stays hidden until the player is signed in. Picking a
+  server → `connectToHost` creates a `WebRtcManager`, establishes P2P, and
+  remembers `currentHostId` (for `/like`·`/unlike`).
+- **Server rating (`/like`·`/unlike`)**: outgoing chat goes through
+  `handleChatSend` — it intercepts `/like <reason>`/`/unlike <reason>` and,
+  instead of sending it to the host (port `CHAT_DATA`), sends the vote
+  straight to the master (`signaling.likeHost`/`unlikeHost(currentHostId,
+  reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
+  bypassing the cheating host. A reason is required, available only to
+  signed-in guests (`currentHostId` is set); for the host player or a signed-
+  out player the command shows a local hint; a dropped signaling WS shows a
+  plain error message (the vote wasn't sent). The master additionally only
+  accepts votes from a session that actually connected to the room and
+  verifies the identity-token — see
+  [master.md](master.md#server-rating-likeunlike). The rest of chat goes to
+  the host as usual.
 - Branches incoming host packets (`handleMessage`) by data type: a string →
   the JSON dispatcher `[portId, payload]` → `socketMethods[portId]`; an
   `ArrayBuffer` → `clientCore.push_frame` (decoding, seq insertion into the
@@ -27,9 +39,11 @@ The client is a browser app built on PixiJS (Vite build, Pug templates in
   mismatch drops the frame).
 - On `CONFIG_DATA` (port 0) it initializes every module: the PixiJS
   `Application`s, the MVC components, `BakingProvider` (texture baking),
-  `SoundManager`, and the **client core** (`await init()` for WASM + `new
-  ClientCore(...)`, its config is assembled by
-  [src/lib/clientCoreConfig.js](../../src/lib/clientCoreConfig.js) from the
+  `SoundManager`, and the **client core** (`ClientPlugin.createClientCore(configJson,
+  { wasmUrl })`, where `wasmUrl` is the active game manifest's
+  `entries.wasm` — the plugin runs its own wasm-bindgen `init()` and returns
+  `{ core, memory }`; the config is assembled by
+  [packages/engine/src/lib/clientCoreConfig.js](../../packages/engine/src/lib/clientCoreConfig.js) from the
   `prediction`/`interpolation` sections of CONFIG_DATA); it replies
   `CONFIG_READY`.
 - The first frame (`FIRST_SHOT_DATA`, port 4) is applied immediately
@@ -49,7 +63,7 @@ The client is a browser app built on PixiJS (Vite build, Pug templates in
   reason is delivered by the host's Worker as a `TECH_INFORM_DATA` message
   right before the channel closes (see
   [network.md](network.md#rtt-pingpong-and-kicks)). `techInformList` has a
-  bundle default (`src/config/client.js`) — a full-room refusal arrives
+  bundle default (`packages/engine/src/config/clientDefaults.js`) — a full-room refusal arrives
   before `CONFIG_DATA`.
 - **WebRTC unavailable** (`ensureWebRtcAvailable`): if `RTCPeerConnection`
   is unavailable (Firefox with `media.peerconnection.enabled = false`,
@@ -65,7 +79,7 @@ The client is a browser app built on PixiJS (Vite build, Pug templates in
   failure (`error`) tears down the room with a message and returns to the
   lobby.
 
-## Network layer (src/client/network/)
+## Network layer (packages/engine/src/client/network/)
 
 The game transport is WebRTC, not WebSocket (channel details —
 [network.md](network.md#transport-webrtc)):
@@ -73,8 +87,8 @@ The game transport is WebRTC, not WebSocket (channel details —
 - **`SignalingClient`** — a thin wrapper around the master's signaling
   WebSocket: `connect()`, caching `id`/`iceServers` from `welcome`,
   relaying incoming messages to subscribers by `type` (via `Publisher`),
-  methods `sendOffer`/`sendIceCandidate`/`pingHost`/`reportHost`. The
-  transport is injected by a factory for tests.
+  methods `sendOffer`/`sendIceCandidate`/`pingHost`/`likeHost`/`unlikeHost`.
+  The transport is injected by a factory for tests.
 - **`WebRtcManager`** — the P2P connection to the host: `RTCPeerConnection`
   + the `meta` (reliable-ordered) and `state` (unreliable-unordered)
   channels. The client is the offerer: it creates the channels/offer,
@@ -83,7 +97,7 @@ The game transport is WebRTC, not WebSocket (channel details —
   stream), `close` (a drop). `RTCPeerConnection` is injected by a factory
   for tests.
 
-The client's role is picked in the lobby (`src/client/main.js`): **joining**
+The client's role is picked in the lobby (`packages/engine/src/client/main.js`): **joining**
 (`connectToHost` → `WebRtcManager`, offerer) or **hosting** (`connectAsHost`
 → a browser host in the same tab). For a host, the game transport is
 **`LoopbackTransport`**: the same interface as `WebRtcManager` (`publisher`
@@ -102,11 +116,56 @@ master (`register_host`/heartbeat), and answers the lobby ping
 (`ping_host`). Remote clients' data flows into the same Worker as the host
 player's loopback. Details — [host.md](host.md).
 
-## MVC components (src/client/components/)
+There's no classic-Worker fallback (it would forbid ESM and require an
+inlined WASM binary — see PLAN.md risk #5), so "Create server" first feature-
+detects module-Worker support
+(`packages/engine/src/client/network/workerSupport.js`,
+`supportsModuleWorker` — a browser only reads a `type` constructor option if
+it understands module Workers). On an unsupported browser it shows a plain
+"this browser cannot be a host" message and returns without touching
+anything else — joining existing rooms is unaffected.
 
-Nine `model/` + `view/` + `controller/` triplets: **Auth**, **Lobby**,
-**CanvasManager**, **Controls**, **Game**, **Chat**, **Panel**, **Stat**,
-**Vote**.
+## MVC components (packages/engine/src/client/components/)
+
+Ten `model/` + `view/` + `controller/` triplets: **LobbyAuth**, **Auth**,
+**Lobby**, **CanvasManager**, **Controls**, **Game**, **Chat**, **Panel**,
+**Stat**, **Vote**.
+
+**LobbyAuth** — the login gate shown before the lobby (`plan/done/central-auth/auth_b2.md`):
+
+- **model** — talks to the central auth service (`packages/auth`, see
+  [auth.md](auth.md)) directly, not through the master. `boot(search)` reads
+  the OAuth-redirect query string (`?token=`/`?pendingToken=`/`?authError=`)
+  once at startup, falling back to a persisted identity JWT in
+  `localStorage`; `submitNick` does the one REST call this model makes
+  itself (`POST /nick` with the pending token, unlike the signaling-relayed
+  I/O other models publish as events) since it's a plain cross-origin fetch,
+  not signaling traffic. Publishes `login-required`/`nick-required`/
+  `authenticated`/`login-error`/`nick-error`. The identity JWT's payload is
+  decoded client-side only for display (`packages/engine/src/lib/jwt.js`,
+  `decodeJwtPayload`, no signature check) — a host authoritatively verifies
+  it against `/jwks` (`plan/done/central-auth/auth_b3.md`; see
+  [auth.md](auth.md#joining-a-room-host-verification)).
+- **view** — toggles `#lobby-auth-login`/`#lobby-auth-nick`
+  (`views/includes/lobbyAuth.pug`) and, on `authenticated`, hides
+  `#lobby-auth` and reveals `#lobby` plus the `#lobby-user` nick/sign-out
+  badge (`views/includes/lobby.pug`) — `#lobby` itself starts hidden in the
+  template and only `LobbyAuthView` (or `LobbyCtrl.open`) turns it on.
+  Provider buttons (`.lobby-auth-provider`, `data-provider`) are filtered
+  against the configured provider list.
+- **controller** — `login(provider)` navigates the browser
+  (`window.location.href = model.loginUrl(provider)`) to the auth service's
+  `GET /oauth/:provider/start`; this is a top-level navigation, not a fetch,
+  so it isn't subject to CSP `connect-src`. `nick`/`logout` proxy to the
+  model.
+
+Config — [packages/engine/src/config/authClient.js](../../packages/engine/src/config/authClient.js)
+(bundled into the build like `lobby.js` — `serviceUrl` must point at the
+real auth-service domain per deployment; the master's CSP `connect-src`
+(`config/master.js`, `security.csp`) is templated with the same
+`authServiceUrl` so the lobby's `POST /nick` fetch isn't blocked in
+production. `GET /oauth/:provider/start` and the callback redirect are
+top-level navigation and unaffected by CSP either way).
 
 **Lobby** — the server-selection screen BEFORE connecting to a host:
 
@@ -119,31 +178,59 @@ Nine `model/` + `view/` + `controller/` triplets: **Auth**, **Lobby**,
 - **view** — renders cards, search, "Load more"; **smart pinging** through
   `IntersectionObserver`: a card entering the visible area → `visible` →
   the controller sends `ping_host`; `pong` updates latency and re-sorts
-  cards ascending. `IntersectionObserver` is injected for tests.
+  cards ascending. `IntersectionObserver` is injected for tests. Each card
+  also shows the hoster's cached rating (server-rating stage 3 —
+  `.lobby-card-rating`, straight from the server object's `rating` field,
+  signed for positive values (`+7`/`-3`/`0`); this is engine-level lobby UI,
+  not something a game plugin renders.
 - **controller** — proxies view events to the model; ping throttling lives
   in the model (`pingHost` returns `false` if the server was pinged
   recently, interval `pingInterval`).
 
-Config — [src/config/lobby.js](../../src/config/lobby.js) (bundled into the
+Config — [packages/engine/src/config/lobby.js](../../packages/engine/src/config/lobby.js) (bundled into the
 build, since the lobby happens before connecting to a host). The ping
 measurement is **approximate** (client→master→host, not P2P RTT) and shown
 as such in the UI.
+
+The "Create server" form is **generated** from the keys of the active game
+manifest's `roomDefaults` (`populateRoomForm` in `main.js`) — the engine
+knows no game-specific fields. The control type is inferred from the
+default value: `boolean` → checkbox, `number` → number input, the special
+key `map` → a select built from `manifest.maps.list`; the label comes from
+the camelCase key (`friendlyFire` → "Friendly fire"). Engine-owned keys get
+hints from `lobbyConfig.form`: `secondsKeys` (`roundTime`/`mapTime` are
+stored in milliseconds but shown in seconds) and `attrs` (min/max for
+number inputs). The game picker (`#lobby-game`) stays hidden while the
+master's catalog has a single game. On submit every `roomDefaults` key
+(defaults overridden by the form values) is sent as the room object to
+`connectAsHost` → `HostController` → the Worker, where `applyRoomOverrides`
+(`packages/engine/src/lib/applyRoomOverrides.js`) reads `maxPlayers`/`roundTime`/`mapTime`/
+`friendlyFire`/`map`.
 
 The Publisher pattern within a triplet:
 
 - `main.js` or the `view` → calls the `controller`'s methods **directly**;
 - the `controller` → calls the `model`'s methods **directly**;
 - the `model` → the `view` — **through `Publisher`**
-  ([src/lib/Publisher.js](../../src/lib/Publisher.js)): the model publishes
+  ([packages/engine/src/lib/Publisher.js](../../packages/engine/src/lib/Publisher.js)): the model publishes
   an event, the view is subscribed; external subscribers can listen to a
   model too.
 
 What each component does:
 
-- **Auth** — the login form (name, model), client-side validation
-  (`validators.js`), localStorage.
+- **LobbyAuth** — the pre-lobby login gate against the central auth service
+  (see above).
+- **Auth** — the per-room login form for game-specific fields only (e.g.
+  `model`), client-side validation (`validators.js`), localStorage. The nick
+  is no longer typed here (Stage B3, see [auth.md](auth.md#joining-a-room-host-verification)):
+  `main.js` attaches `LobbyAuthModel.getToken()` to the `AUTH_RESPONSE`
+  payload as `token`, and the host verifies it against `/auth/jwks` to
+  derive the nick.
 - **CanvasManager** — manages several PixiJS `Application`s at once:
-  `vimp` (the main game canvas) and `radar` (the mini-map). Adaptive
+  `vimp` (the main game canvas) and `radar` (the mini-map); the canvas
+  elements are generated by `main.js` from the game's canvases config
+  (`modules.canvasManager.canvases`, including the initial
+  `width`/`height`) — they're not in the HTML. Adaptive
   scaling (a 1920px reference width), `aspectRatio`/`fixSize`/`baseScale`,
   a dynamic camera (look-ahead, speed-based zoom), and shake — parameters
   in [configuration.md](configuration.md#modulescanvasmanager--canvases-and-camera).
@@ -155,8 +242,18 @@ What each component does:
 - **Chat** — message output (row/lifetime limits), the command line;
   escaping happens on output (`textContent`).
 - **Panel** — the HUD: round time, health, ammo, active weapon (from
-  `'key:value'` strings).
+  `'key:value'` strings). `PanelView` **generates the DOM from the game's
+  schema** (`modules.panel.fields`: an ordered list of
+  `{ name, elem, type }`; cell semantics come from
+  `type: 'bar' | 'value' | 'time' | 'weapon'`, not from field names — a
+  `bar` field also takes `max` and `blocks`) inside the engine's `#panel`
+  container; the cells' look is the game's CSS (bar blocks use the
+  engine-neutral `panel-bar-*` classes).
 - **Stat** — sortable scoreboard tables (`sortList`), shown on Tab.
+  `StatView` **generates the header and tables from the game's schema**
+  (`modules.stat.params`: `columns` — column labels, `bodies` — an
+  arbitrary number of teams) inside the `#stat` container; team
+  colors/labels are the game's CSS.
 - **Vote** — vote windows built from templates, pagination, a lifetime
   timer.
 
@@ -164,7 +261,9 @@ What each component does:
 
 Client-side math — snapshot interpolation, the local tank's prediction,
 visual shot spawning, and v3 frame decoding — lives in the Rust core
-(`core/src/client/`, the wasm-bindgen class `ClientCore` from the same WASM
+(`packages/engine/core/src/client/` + the game plugin's own `core/src/client/`,
+e.g. `vimp-tanks`'s, the
+wasm-bindgen class `ClientCore` from the same WASM
 binary as the host's `GameCore`). The JS shell (`main.js`) only forwards
 data and applies the result to rendering; ABI and layouts —
 [core.md](core.md#clientcore--the-cores-client-mode).
@@ -187,29 +286,43 @@ Data flow:
   (~40 lines in `main.js`) assembles the previous shape
   `{ m1: { id: [...] }, c1: {...} }` from it and feeds the existing
   `applyGameData` — GameCtrl/parts were never touched; the predicted record
-  overrides the local tank through the same pipeline.
+  overrides the local actor through the same pipeline.
 - **Event frames** (the `hasFrames` flag): `take_frames()` returns a JSON
   array `[{ game, camera }, …]` — every crossed `renderTime` frame emitted
   exactly once (events `w1`/`w2e`, creations/removals, camera reset/shake),
   already with duplicate own shots suppressed; applied through the previous
   `applyShot`. Sound and effects trigger as before, from the parts
   themselves on entity creation — there's no separate eventId dispatcher.
-- **Input**: `apply_input(action, name, now)` records predictor history; on
-  `down` `fire` — `try_fire(now)` (cooldown/ammo/pending-bomb/alive gates
-  are internal to the core) returns spawn JSON for `applyGameData`;
-  `nextWeapon`/`prevWeapon` — `cycle_weapon`. Sending `"seq:action:name"` to
-  the host is unchanged.
+- **Input**: `apply_input(action, name, now)` records predictor history;
+  game actions go through the `ClientPlugin.hooks.onLocalAction` hook
+  (`try_fire(now)` — cooldown/ammo/pending-bomb/alive gates are internal
+  to the core — returns spawn JSON for `applyGameData`;
+  `nextWeapon`/`prevWeapon` — `cycle_weapon`). Sending `"seq:action:name"`
+  to the host is unchanged.
+
+**The game's ClientPlugin** (the game plugin's `src/client/index.js`, e.g.
+`vimp-tanks`'s; loaded dynamically by the engine from the master's
+`GameManifest`, stage 6.3 —
+`packages/engine/src/lib/gamePlugin.js`) supplies `parts` (entity renderers),
+`bakers` (procedural textures), the game CSS and the hooks. The core's game
+methods are called only from its hooks — `onAuth` (`set_model` on auth), `onPanel` (`sync_panel`
+per panel frame), `onLocalAction` (e.g. `try_fire`/`cycle_weapon` in
+`vimp-tanks`); `main.js` doesn't know the core's game methods. The game's
+CSS (panel cells, canvases, team colors) is the game plugin's own
+`src/client/*.css` (e.g. `vimp-tanks`'s `tanks.css`); the engine UI skeleton
+is `packages/engine/src/client/style.css`.
 
 Internally the core implements the following algorithms:
 
 - **interpolation** (`client/interpolator.rs`): an EMA offset of server
   time, `renderTime = serverNow − delay` (config `interpolation.delay: 100`
-  ms), lerp for tanks/dynamics/camera (angles by shortest path), discrete
+  ms), lerp for actors/dynamics/camera (angles by shortest path), discrete
   fields taken from the reference frame, hold with no extrapolation,
   seq-based insertion + immediate emission of late-frame events;
 - **prediction** (`client/predictor.rs`): a replica of the authoritative
   motion without Rapier collisions, at a fixed `timeStep`; tick formulas
-  are **shared** with `Tank::update` (`core/src/motion.rs`) — the replica
+  are **shared** with the game plugin's own actor-update code (e.g.
+  `vimp-tanks`'s `core/src/motion.rs`) — the replica
   can't diverge from the authoritative path on formulas, integration
   parity (manual vs. Rapier) is locked in by the `client_parity` cargo
   tests; input history, replay from the frame's `serverTime`,
@@ -217,23 +330,24 @@ Internally the core implements the following algorithms:
   0`, resets on a camera forceReset/map change/keySet;
 - **shot spawning** (`client/shot.rs` + `client/raycast.rs`): a replica of
   the authoritative gate and muzzle formulas, DDA raycasting over wall
-  tiles + an OBB test against dynamics and tanks, a single pending-bomb
-  gate, RTT-compensated bomb position, suppressing authoritative
-  duplicates by author id (`tracers[7]`, `bombs[5]`, a FIFO queue with a
-  2 s timeout, local keys `L<n>`). Tracer spread uses a client-side PRNG,
-  not synced with the host — a purely visual effect, the authoritative
-  tracer arrives in a frame.
+  tiles + an OBB test against dynamics and actors, a single
+  pending-projectile gate, RTT-compensated projectile position,
+  suppressing authoritative duplicates by author id (a FIFO queue with a
+  timeout, local keys `L<n>`) — field names and exact gating are
+  game-defined (e.g. `vimp-tanks`'s `tracers`/`bombs` entity blocks, see
+  [network.md](network.md)). Any client-side-only visual randomness (e.g.
+  tracer spread) is a purely visual effect — the authoritative entity
+  arrives in a frame.
 
 ## Rendering
 
 ### parts/ — entities
 
-[src/client/parts/](../../src/client/parts/) — classes rendered on the
-PixiJS canvases: `Tank` (one class for both your own tank and others'),
-`TankRadar`, `Map`, `MapRadar`, `Bomb`, `Smoke`, `Tracks` (+`TrackMark`),
-`ParticlePool`. Effects live in `parts/effects/` (`BaseEffect`,
-`explosion/` — explosion/crater/smoke, `shot/` — tracer/impact), animated
-on `Ticker.shared`.
+The game plugin's own `src/client/parts/` (e.g. [`vimp-tanks`'s](https://github.com/lgick/vimp-tanks/tree/main/src/client/parts)) —
+classes rendered on the PixiJS canvases, one per game entity type (e.g.
+`vimp-tanks`'s `Tank`, `TankRadar`, `Map`, `MapRadar`, `Bomb`, `Smoke`,
+`Tracks`). Effects follow the same plugin-owned convention (e.g.
+`vimp-tanks`'s `parts/effects/`), animated on `Ticker.shared`.
 
 Mapping snapshot keys to classes, and their canvas assignment, is
 `gameSets`/`entitiesOnCanvas` in `client.js`. There's no fixed contract for
@@ -241,25 +355,30 @@ a part — use the existing ones as a template when creating a new one.
 
 ### Factory
 
-[src/lib/factory.js](../../src/lib/factory.js) — an entity-name → class
+[packages/engine/src/lib/factory.js](../../packages/engine/src/lib/factory.js) — an entity-name → class
 registry. `GameCtrl.parse(name, data)` creates an instance from incoming
 data, calls `update(data)` on an existing one, or removes it (`null`).
 
 ### Providers
 
 - **`BakingProvider`**
-  ([providers/BakingProvider.js](../../src/client/providers/BakingProvider.js))
+  ([providers/BakingProvider.js](../../packages/engine/src/client/providers/BakingProvider.js))
   — one-time procedural texture generation at startup from the
   `bakedAssets` config; baking functions live in
-  [providers/bakers/](../../src/client/providers/bakers/) (no fixed
+  [the game plugin's `src/client/bakers/`](https://github.com/lgick/vimp-tanks/tree/main/src/client/bakers) (e.g. `vimp-tanks`'s; no fixed
   interface, follow the existing ones).
 - **`DependencyProvider`** — injects services (`renderer`, `soundManager`)
   into components via the `componentDependencies` map.
 
 ## SoundManager
 
-[src/client/SoundManager.js](../../src/client/SoundManager.js) (built on
-Howler.js). Sounds are described in `src/config/sounds.js`.
+[packages/engine/src/client/SoundManager.js](../../packages/engine/src/client/SoundManager.js) (built on
+Howler.js). Sounds are described in the game plugin's `src/config/sounds.js`
+(e.g. `vimp-tanks`'s); its
+`path` field is overridden client-side (`main.js`, `CONFIG_DATA` handler) to
+`${activeGameManifest.assetsBase}sounds/` — the game build's own sound copy
+served alongside its client/host bundles (the game plugin's `dist/sounds/`),
+rather than the engine-bundled `/sounds/` static copy.
 
 - **UI/system** (no position): `playSystemSound(name)` — plays instantly,
   bypassing priorities (also used for port 6 sounds).
@@ -270,7 +389,7 @@ Howler.js). Sounds are described in `src/config/sounds.js`.
 
 ## InputListener
 
-[src/client/InputListener.js](../../src/client/InputListener.js) — low-level
+[packages/engine/src/client/InputListener.js](../../packages/engine/src/client/InputListener.js) — low-level
 keydown/keyup capture for Controls; `modes`/`cmds` take priority over the
 game key set.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 describe('Publisher', () => {
   it('вызывает подписчика при emit', () => {

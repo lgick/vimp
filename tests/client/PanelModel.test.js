@@ -3,13 +3,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // PanelModel — синглтон, перезагружаем модуль для изоляции
 let PanelModel;
 
+// форматирование задаёт type в схеме полей (Д2), а не имя поля
 const makeModel = () =>
-  new PanelModel({
-    h: 'health',
-    t: 'time',
-    w1: 'bullet',
-    wa: 'activeWeapon',
-  });
+  new PanelModel(
+    {
+      h: 'health',
+      t: 'time',
+      w1: 'bullet',
+      wa: 'activeWeapon',
+    },
+    [
+      { name: 'health', elem: 'panel-health', type: 'bar' },
+      { name: 'bullet', elem: 'panel-bullet', type: 'weapon' },
+      { name: 'time', elem: 'panel-time', type: 'time' },
+    ],
+  );
 
 const collect = model => {
   const events = [];
@@ -21,7 +29,7 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  PanelModel = (await import('../../src/client/components/model/Panel.js'))
+  PanelModel = (await import('../../packages/engine/src/client/components/model/Panel.js'))
     .default;
 });
 

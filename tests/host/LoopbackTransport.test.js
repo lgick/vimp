@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import HostController from '../../src/client/network/HostController.js';
-import LoopbackTransport from '../../src/client/network/LoopbackTransport.js';
+import HostController from '../../packages/engine/src/client/network/HostController.js';
+import LoopbackTransport from '../../packages/engine/src/client/network/LoopbackTransport.js';
 
 // Юнит-тесты моста главного потока: HostController (роутер Worker↔клиенты)
 // и LoopbackTransport (транспорт хоста-игрока поверх postMessage). Worker —

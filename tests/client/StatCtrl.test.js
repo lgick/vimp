@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // StatCtrl — синглтон, перезагружаем модуль для изоляции
 let StatCtrl;
@@ -12,7 +12,7 @@ const makeModel = () => ({
 
 beforeEach(async () => {
   vi.resetModules();
-  StatCtrl = (await import('../../src/client/components/controller/Stat.js'))
+  StatCtrl = (await import('../../packages/engine/src/client/components/controller/Stat.js'))
     .default;
 });
 

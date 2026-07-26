@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // LobbyCtrl — синглтон, перезагружаем модуль для изоляции
 let LobbyCtrl;
@@ -25,7 +25,7 @@ let now;
 
 beforeEach(async () => {
   vi.resetModules();
-  LobbyCtrl = (await import('../../src/client/components/controller/Lobby.js'))
+  LobbyCtrl = (await import('../../packages/engine/src/client/components/controller/Lobby.js'))
     .default;
   model = makeModel();
   view = makeView();

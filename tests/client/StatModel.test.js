@@ -23,7 +23,7 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  StatModel = (await import('../../src/client/components/model/Stat.js')).default;
+  StatModel = (await import('../../packages/engine/src/client/components/model/Stat.js')).default;
 });
 
 describe('StatModel.update', () => {

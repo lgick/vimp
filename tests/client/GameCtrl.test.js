@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import GameCtrl from '../../src/client/components/controller/Game.js';
+import GameCtrl from '../../packages/engine/src/client/components/controller/Game.js';
 
 // GameCtrl — НЕ синглтон, можно создавать напрямую
 const makeModel = (existing = {}) => ({

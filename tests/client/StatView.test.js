@@ -1,10 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // StatView — синглтон, перезагружаем модуль для изоляции
 let StatView;
 
-const elems = { stat: 'stat' };
+// схема scoreboard: DOM генерируется view (контейнер — движок, схема — игра)
+const config = {
+  elems: { stat: 'stat' },
+  params: {
+    columns: ['names', 'score'],
+    heads: { 1: 'table1' },
+    bodies: { 1: 'table1', 2: 'table2' },
+  },
+};
 
 // happy-dom 20 не реализует HTMLTableSectionElement.rows; StatView активно
 // использует tHead.rows / tbody.rows / namedItem. Полифиллим живой геттер,
@@ -21,30 +29,48 @@ const addRowsPolyfill = el => {
 };
 
 const seedDom = () => {
-  document.body.innerHTML = `
-    <div id="stat">
-      <table id="table1">
-        <thead><tr><th></th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  `;
-  document
-    .querySelectorAll('#table1 thead, #table1 tbody')
-    .forEach(addRowsPolyfill);
+  document.body.innerHTML = '<div id="stat"></div>';
 };
 
 const makeModel = () => ({ publisher: new Publisher() });
 
+// конструирует view и полифиллит секции сгенерированных таблиц
+const makeView = (model = makeModel()) => {
+  const view = new StatView(model, config);
+
+  document
+    .querySelectorAll('#stat thead, #stat tbody')
+    .forEach(addRowsPolyfill);
+
+  return view;
+};
+
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  StatView = (await import('../../src/client/components/view/Stat.js')).default;
+  StatView = (await import('../../packages/engine/src/client/components/view/Stat.js')).default;
+});
+
+describe('StatView: генерация DOM по схеме', () => {
+  it('строит шапку по columns и таблицы по bodies', () => {
+    makeView();
+
+    const headSpans = document.querySelectorAll('#stat .stat-head span');
+    expect([...headSpans].map(s => s.textContent)).toEqual(['names', 'score']);
+
+    const tables = document.querySelectorAll('#stat .stat-tables table');
+    expect([...tables].map(t => t.id)).toEqual(['table1', 'table2']);
+
+    // в шапке каждой таблицы — по ячейке на колонку
+    const headCells = document.querySelectorAll('#table1 thead td');
+    expect(headCells.length).toBe(2);
+    expect(document.querySelector('#table2 tbody')).not.toBeNull();
+  });
 });
 
 describe('StatView: открытие/закрытие', () => {
   it('open/close переключают display', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
 
     view.open();
     expect(document.getElementById('stat').style.display).toBe('block');
@@ -56,7 +82,7 @@ describe('StatView: открытие/закрытие', () => {
 
 describe('StatView.updateTableHead', () => {
   it('заполняет ячейки заголовка', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
 
     view.updateTableHead({
       tableId: 'table1',
@@ -72,7 +98,7 @@ describe('StatView.updateTableHead', () => {
 
 describe('StatView.clearBodies', () => {
   it('очищает содержимое всех tbody', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
     view.updateTableBody({
       tableId: 'table1',
       bodyNumber: 0,
@@ -89,7 +115,7 @@ describe('StatView.clearBodies', () => {
 
 describe('StatView.updateTableBody', () => {
   it('создаёт строку при отсутствии и наличии данных', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
 
     view.updateTableBody({
       tableId: 'table1',
@@ -106,7 +132,7 @@ describe('StatView.updateTableBody', () => {
   });
 
   it('обновляет ячейки существующей строки', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
     const base = { tableId: 'table1', bodyNumber: 0, id: 'p1', sortData: null };
 
     view.updateTableBody({ ...base, cellsData: ['Bob', '10'] });
@@ -116,7 +142,7 @@ describe('StatView.updateTableBody', () => {
   });
 
   it('удаляет строку при cellsData === null', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
     const base = { tableId: 'table1', bodyNumber: 0, id: 'p1', sortData: null };
 
     view.updateTableBody({ ...base, cellsData: ['Bob', '10'] });
@@ -126,7 +152,7 @@ describe('StatView.updateTableBody', () => {
   });
 
   it('сортирует строки по убыванию указанной колонки', () => {
-    const view = new StatView(makeModel(), elems);
+    const view = makeView();
     const base = { tableId: 'table1', bodyNumber: 0, sortData: [[1, true]] };
 
     // сначала игрок с меньшим счётом, затем с большим
@@ -143,7 +169,7 @@ describe('StatView.updateTableBody', () => {
 describe('StatView: события модели', () => {
   it('open/close/tHead/tBody/clearBodies проксируются', () => {
     const model = makeModel();
-    new StatView(model, elems);
+    makeView(model);
 
     model.publisher.emit('open');
     expect(document.getElementById('stat').style.display).toBe('block');

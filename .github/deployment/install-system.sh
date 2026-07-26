@@ -355,7 +355,7 @@ generate_dhparam() {
 }
 
 write_nginx_template() {
-  local dest="/etc/nginx/vimp-p2p.template"
+  local dest="/etc/nginx/vimp.template"
   log "Запись шаблона Nginx в $dest"
 
   if [[ $DRY_RUN -eq 1 ]]; then

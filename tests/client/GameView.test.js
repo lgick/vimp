@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
-import GameView from '../../src/client/components/view/Game.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
+import GameView from '../../packages/engine/src/client/components/view/Game.js';
 
 // GameView — НЕ синглтон, создаём напрямую
 const makeApp = () => ({

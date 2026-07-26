@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Publisher from '../../src/lib/Publisher.js';
+import Publisher from '../../packages/engine/src/lib/Publisher.js';
 
 // AuthCtrl — синглтон, перезагружаем модуль для изоляции
 let AuthCtrl;
@@ -18,7 +18,7 @@ const makeView = () => ({
 
 beforeEach(async () => {
   vi.resetModules();
-  AuthCtrl = (await import('../../src/client/components/controller/Auth.js'))
+  AuthCtrl = (await import('../../packages/engine/src/client/components/controller/Auth.js'))
     .default;
 });
 

@@ -7,7 +7,7 @@ import {
   radToDeg,
   normalizeAngle,
   randomRange,
-} from '../../src/lib/math.js';
+} from '../../packages/engine/src/lib/math.js';
 
 const PI = Math.PI;
 

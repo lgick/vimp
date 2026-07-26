@@ -6,8 +6,8 @@ in a Web Worker, while the `RTCPeerConnection` router runs in the main
 thread. This is the canonical "server side" of the game: the legacy
 authoritative WS server (`src/server/`) has been fully removed.
 
-Host code lives in `src/host/` (Worker + core + meta modules under
-`src/host/meta/`) and `src/client/network/` (the main-thread router +
+Host code lives in `packages/engine/src/host/` (Worker + core + meta modules under
+`packages/engine/src/host/meta/`) and `packages/engine/src/client/network/` (the main-thread router +
 transports).
 
 ## Host tab topology
@@ -15,16 +15,16 @@ transports).
 ```
 Host tab
 ├─ Main thread (client + router)
-│   ├─ client (src/client/main.js): render, prediction, sound — a regular client
+│   ├─ client (packages/engine/src/client/main.js): render, prediction, sound — a regular client
 │   ├─ HostController: spawns the Worker, routes packets Worker ↔ clients
 │   ├─ LoopbackTransport: host-player transport (a WebRtcManager-shaped
 │   │  interface over postMessage)
 │   └─ HostConnectionManager: WebRTC answerer for remote clients
 │      (register_host, meta/state, backpressure)
-└─ Web Worker (src/host/host.worker.js): authoritative simulation
-    ├─ GameCore (WASM, core/pkg-web)
+└─ Web Worker (packages/engine/src/host/host.worker.js): authoritative simulation
+    ├─ GameCore (WASM, the game plugin's core/pkg-web, e.g. vimp-tanks's)
     ├─ GameCoreAdapter: physics/bots/packing surface over the core
-    └─ HostGame facade + meta src/host/meta/ (RoundManager, Participant-
+    └─ HostGame facade + meta packages/engine/src/host/meta/ (RoundManager, Participant-
        Manager, Chat, Vote, Stat, Panel, TimerManager, RTTManager,
        CommandProcessor, VoteCoordinator, SocketManager) + ~120 Hz loop
 ```
@@ -35,21 +35,30 @@ timers aren't throttled by the browser in a background tab, unlike the main
 thread). The main thread is a dumb pipe: it forwards wire frames between the
 DataChannel/loopback and the Worker.
 
-## Web Worker (`src/host/host.worker.js`)
+## Web Worker (`packages/engine/src/host/host.worker.js`)
 
-Loads the WASM core (`init()` + `GameCore` from `core/pkg-web`), builds
+Loads the game's `HostPlugin` (dynamic `import(room.game.hostEntryUrl)`,
+Stage 6.4 — the Worker doesn't know the game at build time), builds
 `HostGame` with the room's settings, and holds a per-client port state
 machine — an automaton over client ports 0–8 (see [network.md](network.md)).
 Main-thread messages:
 
-- `init(room, handoff?)` — applies room settings to the game config
-  (`applyRoomOverrides`: name/map/limit ≤ 8/timers/friendly fire; maps come
+- `init(room, handoff?)` — dynamically imports `HostPlugin` from
+  `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
+  wasmUrl }`, built by `connectAsHost` from the active `GameManifest`),
+  assembles the game config (a merge of the engine defaults
+  `packages/engine/src/config/hostDefaults.js` and `HostPlugin.gameConfig`)
+  and applies room settings to it
+  (`applyRoomOverrides`, `packages/engine/src/lib/applyRoomOverrides.js`:
+  name/map/limit ≤ `roomDefaults.maxPlayers`/timers (`roundTime`/`mapTime`
+  clamped to `roomTimeMin…roomTimeMax`)/friendly fire; maps come
   from `room.maps` if the main thread fetched the master's catalog),
-  initializes the core, creates `HostGame`, replies `ready`; `handoff` is the
-  Worker handoff state: the room is restored instead of a cold start. A
-  failure (WASM/config/handoff meta) sends `error { message }`: on a cold
-  start the main thread tears down the room and returns to the lobby, on a
-  handoff it resumes the old Worker;
+  initializes the core via `HostPlugin.createCore(coreConfigJson, {
+  wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies `ready`;
+  `handoff` is the Worker handoff state: the room is restored instead of a
+  cold start. A failure (game import/WASM/config/handoff meta) sends
+  `error { message }`: on a cold start the main thread tears down the room
+  and returns to the lobby, on a handoff it resumes the old Worker;
 - `connect(socketId)` — a new client: registers a wire socket in
   `SocketManager`, sends `CONFIG_DATA` (port 0), starts the
   config→auth→map→firstShot handshake. **A full room** (`HostGame.isFull`,
@@ -88,7 +97,105 @@ The ~120 Hz game loop starts on its own (`HostGame` constructor →
 `RoundManager.createMap` → `TimerManager.startGameTimers`); frames only go
 out to participants ready to play.
 
-## HostGame (`src/host/HostGame.js`)
+### Auth response (Stage B3)
+
+Port 1 (`AUTH_RESPONSE`) still runs `validateAuth` against the game's
+`HostPlugin.authSchema.params`/`.validators` (game-specific fields only,
+e.g. `model` — `name` was removed from the game plugin's `src/config/auth.js`,
+e.g. `vimp-tanks`'s).
+Once those pass, the Worker itself is the authority on identity: it calls
+`verifyClientToken(data.token)`, which lazily fetches and caches
+`GET /auth/jwks` (the master's proxy of the central auth service, see
+[auth.md](auth.md#joining-a-room-host-verification) and
+[master.md](master.md#get-authjwks)) for the Worker's lifetime, then
+`verifyIdentityToken` (`packages/engine/src/lib/jwt.js`) checks the RS256
+signature (Web Crypto `crypto.subtle`, no JWT dependency), `iss`
+(`config/authClient.js`'s `issuer`) and expiry, and returns the token's
+`nick` claim. Only then does `host.createUser({ ...data, name: nick },
+socketId, cb)` run — a client can no longer type an arbitrary name. A
+missing/invalid/expired token sends `AUTH_RESULT` with
+`[{ name: 'token', error: 'invalid' }]` and no user is created; a client
+that disconnects mid-verification is checked against the live `clients` map
+before `createUser` runs.
+
+### Player rank and state sync (Stage B4)
+
+Now that the identity token is verified once (above), it's also **retained**
+on the participant — `HumanParticipant.token` (set from `params.token` by
+`ParticipantManager.createHuman`) — so later authenticated writes back to
+the auth service can reuse it without re-verifying.
+
+`meta/modules/PlayerDataSync.js` is a per-participant in-memory map of
+`{ token, rank, state, rankLoaded, stateLoaded }`. `rankLoaded`/`stateLoaded`
+(added in a post-B4 code-review pass, `plan/done/central-auth/auth_fixes.md`) track whether the
+value currently held was actually confirmed by the auth service, as opposed
+to still being the join-time default:
+
+- **Load on join**: `HostGame.createUser()` fires
+  `playerDataSync.load(gameId, params.token)` fire-and-forget — it doesn't
+  block the join flow. `load()` calls the master's `GET /auth/rank` and
+  `GET /auth/state` (same relative-fetch pattern the Worker already uses for
+  JWKS, see [auth.md](auth.md#joining-a-room-host-verification) and
+  [master.md](master.md#getput-authrank-getput-authstate)) using the
+  participant's own token. On any failure (auth service down, network
+  error) it silently keeps the defaults — rank `0` and the game's declared
+  `playerState.defaultState` (`HostGame` reads it from
+  `data.playerState?.defaultState`, e.g. the game plugin's
+  `src/config/game.js`, `vimp-tanks`'s,
+  cloned per participant rather than shared) — a join is never blocked by
+  auth-service unavailability, and `rankLoaded`/`stateLoaded` stay `false`
+  until a real value is confirmed. A rank delta applied via `addRank` while
+  the load is still in flight is added to, not overwritten by, the server
+  value once it arrives.
+- **Accumulate**: `RoundManager.reportKill()` is the single choke point for
+  rank, mirroring how it already accumulates the ephemeral `Stat` score
+  there — `playerDataSync.addRank(killerId, +1 or -1)` with the same
+  win/team-kill branching as the score update.
+- **Sync back**: `flush(participantId)` `PUT`s the participant's current
+  state and *rank delta* to the master (`Promise.allSettled`, best-effort —
+  errors are swallowed and a later flush retries with whatever's accumulated
+  by then). Since server-rating stage 1, auth's `/rank` is an append-only
+  ledger, not an absolute value — `PlayerDataSync` tracks `pendingRankDelta`
+  (everything `addRank` has added since the last successful flush) and
+  `PUT`s that instead of the locally accumulated total; on a `200`, exactly
+  the delta that was sent is subtracted back out, so an `addRank` racing the
+  in-flight request isn't lost (same pattern as the load-race fix below). If
+  `rankLoaded`/`stateLoaded` is still `false` (the initial `load` never
+  succeeded), `flush` retries `load()` first and only `PUT`s the part that's
+  now confirmed loaded — otherwise a transient auth-service outage at join
+  time would `PUT` the rank-`0` default over a player's real saved rank on
+  the very next map/round boundary. `flushAll()` flushes every current
+  participant. Two lifecycle points call `flushAll()`:
+  `RoundManager.createMap()` (map change) and
+  `RoundManager._checkTeamWipe()` (round end) — both alongside the existing
+  `Stat.reset()`/`Stat.updateHead()` calls at those same boundaries.
+  `HostGame.removeUser()` does one more best-effort `flush()` for the
+  leaving participant before deleting its `PlayerDataSync` entry.
+- **Attribution** (code-review fix, `plan/server-rating/review.md` finding
+  №1): every `PUT` body also carries `hostId` **and its per-room
+  `hostSecret`**, so the master can stamp the event with this room's verified
+  `hosterUserId`/`sessionId` before forwarding it to auth (see
+  [master.md](master.md#getput-authrank-getput-authstate)) — without it,
+  stage 4's rank/skill voiding on a blocked hoster had nothing to void. The
+  secret proves the host owns `hostId` (public via `GET /servers`), so a
+  cheating host can't attribute its writes to another active room to dodge
+  the void. `PlayerDataSync` doesn't know its own `hostId`/`hostSecret` at
+  construction (the Worker starts before the master's `register_host` reply);
+  `setHostId(hostId, hostSecret)` is called once that reply arrives —
+  `host.worker.js`'s `set_host_id` message, posted by
+  `HostController.setHostId` (called from `client/main.js`'s
+  `host_registered` handler) — and again, without waiting for a fresh
+  `register_host`, from `room.hostId`/`room.hostSecret` on a Worker-handoff
+  `init` (Stage 5.2), since `HostController` persists them onto `_room` so a
+  swapped-in Worker inherits them immediately.
+
+`HostGame` exposes `getPlayerRank(gameId)`/`getPlayerState(gameId)`/
+`setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` for game-plugin modules
+(and a future `/rank` chat command, Stage B5) to read/write rank and the
+opaque state blob. The Rust/WASM game core is not involved at all —
+rank/state is a purely engine/JS-side concept.
+
+## HostGame (`packages/engine/src/host/HostGame.js`)
 
 The host facade — module wiring + the participant lifecycle:
 
@@ -96,7 +203,7 @@ The host facade — module wiring + the participant lifecycle:
   `GameCoreAdapter`;
 - meta (`RoundManager`, `ParticipantManager`, `Chat`, `Vote`, `Stat`, `Panel`,
   `TimerManager`, `RTTManager`, `CommandProcessor`, `VoteCoordinator`,
-  `SocketManager`) lives in `src/host/meta/` modules (see "Meta modules"
+  `SocketManager`, `PlayerDataSync`) lives in `packages/engine/src/host/meta/` modules (see "Meta modules"
   below), with dependencies passed through constructors (DI);
 - the hot `_onShotTick` is core-driven: `adapter.updateData(dt)` (a core step
   + event drain), send throttling (`SnapshotThrottle` — a frame every
@@ -104,8 +211,10 @@ The host facade — module wiring + the participant lifecycle:
   per-user `adapter.packFrame(...)` (the core itself assembles the
   prediction player block for `playerId`);
 - **connection lifecycle**: `createUser` (registering a spectator in every
-  module), `removeUser`, `mapReady`, `firstShotReady`, `sendMap` (a proxy to
-  RoundManager); **input** via `updateKeys(gameId, 'seq:action:name')`;
+  module — called with the host Worker's verified nick, not a freely-typed
+  name, see "Auth response" below), `removeUser`, `mapReady`,
+  `firstShotReady`, `sendMap` (a proxy to RoundManager); **input** via
+  `updateKeys(gameId, 'seq:action:name')`;
   **chat and votes** via `pushMessage` (sanitizing, `/commands` →
   CommandProcessor) and `parseVote`; bridges for `TimerManager`/`RTTManager`
   callbacks (kicks), `reportKill`, `triggerCameraShake`, `updateRTT`;
@@ -132,9 +241,9 @@ The host facade — module wiring + the participant lifecycle:
   of a cold start) — see "Worker handoff" below.
 
 The client-facing `CONFIG_DATA` (port 0: base config + vote time + prediction
-data) is assembled by `src/lib/buildClientConfig.js`.
+data) is assembled by `packages/engine/src/lib/buildClientConfig.js`.
 
-## GameCoreAdapter (`src/host/GameCoreAdapter.js`)
+## GameCoreAdapter (`packages/engine/src/host/GameCoreAdapter.js`)
 
 Implements the physics/bots/packing surface consumed by
 `RoundManager`/`SocketManager`/`HostGame`, backed by `GameCore`:
@@ -142,17 +251,24 @@ Implements the physics/bots/packing surface consumed by
 - **lifecycle/physics** → the core's ABI: `createMap` → `load_map` (the map
   is already scaled in JS by `RoundManager.scaleMapData`, so it's loaded
   with `scale: 1` — the core doesn't scale it again); `createPlayer`/
-  `removePlayer` tell bots and humans apart via `participant.isBot`
-  (`add_bot`/`remove_bot` — a tank + AI in the core — versus
-  `spawn_tank`/`remove_tank`); `changePlayerData` → `reset_tank`;
+  `removePlayer` tell scripted participants and humans apart via
+  `participant.isScripted` (`spawn_scripted_actor`/`remove_scripted_actor` —
+  a tank + AI in the core — versus `spawn_actor`/`remove_actor`);
+  `changePlayerData` → `reset_actor`;
 - **input** → `apply_input` (seq is confirmed by the core in the frame's
   player block);
-- **event projection**: after `step`, drains `take_events()` — `health`/
-  `ammo` → `panel.updateUser(..., 'set')`, `activeWeapon` →
-  `panel.setActiveWeapon`, `shake` → `HostGame.triggerCameraShake`, `kill` →
-  `HostGame.reportKill` (health/ammo live in the core, the panel is their
-  projection). The core operates on numeric ids (u32), meta keys by string
-  — event ids are converted to strings at this boundary;
+- **event projection**: after `step`, drains `take_events()` and routes the
+  standard engine dictionary (Wasm Host ABI, `packages/engine/core/src/events.rs`) itself,
+  with no game-side mediator: `panelSet`/`panelActive` →
+  `panel.updateUser(..., 'set')`/`panel.setActiveWeapon` (`field` is the
+  game's panel-schema key, not tied to a specific weapon), `death` →
+  `HostGame.reportKill`, `shake` → `HostGame.triggerCameraShake`
+  (health/ammo live in the core, the panel is their projection). `custom` is
+  the only type carrying game-specific meaning outside the dictionary:
+  drained as-is into the optional `HostPlugin.onCoreEvent(data, { panel,
+  vimp })` (tanks doesn't use it — `onCoreEvent` is left unset). The core
+  operates on numeric ids (u32), meta keys by string — the adapter converts
+  event ids to strings at this boundary;
 - **packing**: `packBody` → `pack_body`, `packFrame` → `pack_frame` +
   `frame_bytes` (a copy from WASM memory, works on both the web and nodejs
   targets);
@@ -160,11 +276,33 @@ Implements the physics/bots/packing surface consumed by
   full player snapshot without draining accumulators — for
   `FIRST_SHOT_DATA`).
 
-`HostBotManager` (`src/host/HostBotManager.js`) is a thin bot manager:
-registering bot participants and linking them to `Stat`/`Panel` (AI,
-navigation, and the spatial grid live in the core).
+The game's scripted module (the game plugin's `src/host/`, e.g.
+`vimp-tanks`'s `TanksBotManager.js`) is a thin bot manager registering
+participants and linking them to `Stat`/`Panel` (AI, navigation, and the
+spatial grid live in the core). It's built by the `createModules(ctx)`
+factory (the game plugin's `src/host/createModules.js` returns
+`{ scripted }`); the engine calls the scripted-module contract: `createMap`,
+`createScripted(count, team?)`, `removeScripted(team?)`,
+`removeOneForHuman(team)`, `getCount`, `getCountsPerTeam`. Parameters come
+from the game config's `scripted` (`namePrefix`, `defaultModel`).
 
-## Meta modules (`src/host/meta/`)
+**The game's HostPlugin** (the game plugin's `src/host/index.js`, e.g.
+`vimp-tanks`'s; the default export
+of the game's host-entry bundle) — the whole game half of the host as a
+single object: `id`, `engineApi`, `createCore(coreConfigJson, { wasmUrl })`,
+`gameConfig`, `authSchema`, `chatCommands` (e.g. a bot-spawn command),
+`systemMessages` (a plugin-defined group), `createModules` (returns the
+scripted module), `buildClientGameConfig()` (the game half of CONFIG_DATA);
+optionally `onCoreEvent` for game-specific `custom` core events (`vimp-tanks`
+doesn't set it).
+`host.worker.js` loads it with a dynamic `import(room.game.hostEntryUrl)` on
+`init` (Stage 6.4) — `room.game` (`{ id, version, hostEntryUrl, wasmUrl }`)
+comes from `GameManifest.entries` via `connectAsHost`, so the engine never
+imports the game statically at all. It's consumed by `host.worker.js`
+(`createCore`, configs/auth) and `HostGame` (commands, codes, modules,
+`onCoreEvent`).
+
+## Meta modules (`packages/engine/src/host/meta/`)
 
 The Worker's JS meta layer: game logic on top of the core's events. Modules
 are dependency-injected and Worker-safe (isomorphic APIs only —
@@ -172,20 +310,26 @@ are dependency-injected and Worker-safe (isomorphic APIs only —
 
 ### ParticipantManager — the participant registry (`meta/player/`)
 
-**The single source of truth for participants** (humans + bots):
+**The single source of truth for participants** (humans + scripted
+participants/bots):
 
 - `Participant` classes (base: `gameId`, `name`, `model`, `team`, `teamId`,
   `status`) → `HumanParticipant` (`socketId`, `isReady`, `currentMap`,
   `isWatching`, `watchedGameId`, `forceCameraReset`, `pendingShake`,
-  `lastActionTime`, `lastInputSeq`) and `BotParticipant`;
-- humans vs. bots are told apart with `isBot`/`isNetworked` getters, **not**
-  by id shape: humans and bots share a single numeric id space (the
-  generator picks the lowest free id);
-- API: `createHuman`/`createBot`/`remove`/`get`/`getAll`/`getHumans`/
-  `getBots`/`getNetworkedReady` (ready to be broadcast to), `checkName`
-  (name deduplication), team sizes (`getTeamSize`/`addToTeam`/
+  `lastActionTime`, `lastInputSeq`) and `ScriptedParticipant`;
+- scripted vs. human is told apart with `isScripted`/`isNetworked` getters,
+  **not** by id shape: humans and scripted participants share a single numeric id
+  space (the generator picks the lowest free id);
+- API: `createHuman`/`createScripted`/`remove`/`get`/`getAll`/`getHumans`/
+  `getScripted`/`getNetworkedReady` (ready to be broadcast to), `checkName`
+  (name deduplication; a scripted name is the game config's
+  `scripted.namePrefix` + id), team sizes (`getTeamSize`/`addToTeam`/
   `resetTeamSizes`), the active-watch list (`addActive`/`removeActive`/
   `getActiveList`/`replaceWatched`), the `maxPlayers` limit (`totalCount`).
+
+Bots and players already share this registry and a single numeric id space,
+but behavior (networked input vs. the core's AI) is still handled by separate
+code paths — fully unifying the two into one abstraction is a future task.
 
 ### `meta/core/` managers
 
@@ -212,22 +356,17 @@ are dependency-injected and Worker-safe (isomorphic APIs only —
 - `setActive`/`setSpectator` — player↔spectator transitions, sending the key
   set and the panel.
 
-**CommandProcessor** — parses chat commands (messages starting with `/`):
-`/name <nick>`, `/timeleft`, `/mapname`, `/nr` (new round, **dev mode
-only**), `/bot`:
-
-```
-/bot 5 team1   # spawn 5 bots into team1
-/bot 10        # spawn 10 bots, spread evenly
-/bot 0 team2   # remove team2's bots
-/bot 0         # remove all bots
-```
-
-`/bot` is only available to active players; if more than one human is
-active, a vote runs instead of immediate execution (category
-`botManagement`). An unknown command produces a "Command not found" system
-message. (`/ban` never reaches the host — the client intercepts it and sends
-the report straight to the master, see [master.md](master.md).)
+**CommandProcessor** — parses chat commands (messages starting with `/`).
+The engine core: `/name <nick>`, `/timeleft`, `/mapname`, `/nr` (new round,
+**dev mode only**); game commands are registered via
+`registerCommand(name, handler)` and receive the meta context —
+`handler(ctx, gameId, args)`. A game plugin can register its own commands
+this way (e.g. `vimp-tanks` registers a bot-spawn command — see that
+plugin's own docs for its syntax); if more than one human is active, a
+vote runs instead of immediate execution (category `botManagement` for the
+tanks example). An unknown command produces a "Command not found" system
+message. (`/like`·`/unlike` never reach the host — the client intercepts them
+and sends the vote straight to the master, see [master.md](master.md).)
 
 **VoteCoordinator** — creates votes on top of the `Vote` module:
 `canCreateVote` (topic cooldown check), `createVote` (payload + result
@@ -236,22 +375,31 @@ callback + participant list), `reset`. Topic cooldown — `timeBlockedVote`
 
 ### `meta/modules/` modules
 
-- **`Panel`** — per-user HUD: values from `game:panel` (health/w1/w2),
+- **`Panel`** — per-user HUD: the schema from `game:panel` (`fields` —
+  game-defined keys, e.g. `vimp-tanks`'s health/ammo; `activeKey` — the
+  active-item key, e.g. the active weapon in `vimp-tanks`),
   `updateUser(gameId, param, value, op)` accumulating `pendingChanges`,
   `processUpdates()` emits only changes once per snapshot tick (strings
   `'key:value'`, round time `t` — on every second change),
-  `getFullPanel`/`getEmptyPanel`, `setActiveWeapon` (`wa`),
-  `hasResources`/`getCurrentValue`. Authoritative health/ammo live in the
-  core — the panel is filled by a projection of its events
-  (`GameCoreAdapter`).
+  `getFullPanel`/`getEmptyPanel`, `setActiveWeapon` (writes the schema's
+  `activeKey`), `hasResources`/`getCurrentValue`. Authoritative game state
+  (e.g. health/ammo) lives in the core — the panel is filled by a
+  projection of its events (`GameCoreAdapter`).
 - **`Stat`** — the scoreboard: row (body) and team totals (head) per the
   `game:stat` config; `addUser`/`removeUser`/`moveUser`/`updateUser`/
   `updateHead`; `getLast()` — the delta for this tick, `getFull()` — full
   state (on join).
+- **`PlayerDataSync`** (Stage B4) — per-participant rank/state, loaded from
+  and flushed back to the master's `/auth/rank`/`/auth/state` proxy; see
+  "Player rank and state sync (Stage B4)" above for the full flow.
 - **`Chat`** (`meta/modules/chat/`) — user messages and system templates
   (`systemMessages.js`): `push` (broadcast), `pushSystem`/
   `pushSystemByUser` (templated `'group:number:params'`), queues
-  `shift`/`shiftByUser`.
+  `shift`/`shiftByUser`. The code registry holds the engine groups
+  `s`/`v`/`m`/`c`/`n`; game codes are registered via `registerCodes` (tanks
+  brings the `b:*` group, the game plugin's `src/host/systemMessages.js`,
+  e.g. `vimp-tanks`'s); the
+  template texts live on the client.
 - **`Vote`** — vote mechanics: a queue (a new vote during an active one
   isn't rejected, it waits), lifetime `voteTime`, list pagination (more
   than 7 options gets Back/More pages), tie resolution by random pick,
@@ -271,14 +419,18 @@ callback + participant list), `reset`. Topic cooldown — `timeBlockedVote`
 The single send point: JSON `_send(socketId, port, data, reliable)` and
 binary `sendShot(socketId, frameBuffer, reliable)`; typed methods
 (`sendConfig`, `sendMap`, `sendPanel`, `sendStat`, `sendChat`, `sendVote`,
-`sendKeySet`, `sendRoundStart`, `sendTechInform`, …) and `close` with a
-technical code. Composite sends: `sendFirstShot` (first frame + full stat +
+`sendKeySet`, `sendGameInform`, `sendTechInform`, …) and `close` with a
+technical code. Game parametrization comes from the game config:
+`sendSoundCue(socketId, cue)` maps engine events
+(`roundStart`/`victory`/`defeat`/`frag`/`death`) to the game's sound names
+via `soundCues`, and `sendFirstVote` sends the `initialVote` vote (team
+selection in tanks). Composite sends: `sendFirstShot` (first frame + full stat +
 empty panel + key set 0), `sendPlayerDefaultShot`/
 `sendSpectatorDefaultShot`. Transport is abstracted: in the Worker, wire
 sockets sit underneath (`makeWorkerSocket`), and the `reliable` flag
 classifies the meta/state channels.
 
-## Main thread: router and transports (`src/client/network/`)
+## Main thread: router and transports (`packages/engine/src/client/network/`)
 
 - **`HostController`** — spawns the Worker (from `workerUrl` in the master's
   manifest; without it, a bundled `new Worker(new URL('host.worker.js'),
@@ -339,9 +491,10 @@ below) / a Worker handoff.
 ### Dynamic maps
 
 A room starts on the master's current maps rather than the ones baked into
-the bundle: `connectAsHost` fetches `GET /maps/manifest.json` plus every map
-and passes them to the Worker's `init` (`room.maps`; catalog unavailability
-is non-critical — falls back to the bundled maps). Updating on the fly:
+the bundle: `connectAsHost` fetches `GET /games/:id/maps/manifest.json`
+(`:id` — the active game's manifest id, Stage 6.4) plus every map and passes
+them to the Worker's `init` (`room.maps`; catalog unavailability is
+non-critical — falls back to the bundled maps). Updating on the fly:
 `host_registered.mapsVersion` (after a reconnect) or the master's
 `update_available` signal → `refreshHostMaps` → fetch the catalog →
 `HostController.updateMaps` → the Worker's `update_maps` →
@@ -365,17 +518,25 @@ participate here.
 **Detecting a new version.** The room's Worker is created from the `url` in
 the master's `GET /worker/manifest.json` (`lobbyConfig.worker.manifestUrl`)
 — Vite hashes asset names, so after a deploy the old page's bundle URL
-disappears from what's served; the manifest version is remembered
-(`hostCodeVersion`). A deploy restarts the master → the signaling WS drops →
-a regular reconnect → re-register → `host_registered.codeVersion` differs
-from ours → `refreshHostWorker()`: re-fetches the manifest →
-`HostController.swapWorker(url)`. A version whose swap failed is remembered
-and not retried on every re-register. The `update_available { codeVersion }`
-push from the master is also handled (for future use). In dev the manifest
-is empty (`version: null`) — code updates are disabled, the Worker is
-bundled.
+disappears from what's served; a composite `hostCodeVersion` is remembered:
+`{ engine, game: { id, version } }` (Stage 6.5). A deploy restarts the
+master → the signaling WS drops → a regular reconnect → re-register →
+`host_registered.codeVersion` differs from ours in either half (an engine
+deploy changes `engine`, a game-plugin-only deploy changes `game.version`) →
+`refreshHostWorker()`: re-fetches **both** `GET /worker/manifest.json` and
+the active game's `GET /games/:id/manifest.json`
+(`lobbyConfig.game.manifestUrl`), builds a fresh `room.game` object
+(`{ id, version, hostEntryUrl, wasmUrl }` from the fresh manifest's
+`entries.host`/`entries.wasm`), and calls
+`HostController.swapWorker(url, freshRoomGame)` — so a game-only redeploy
+triggers a relay exactly like an engine-only one, and the new Worker never
+imports a stale `hostEntryUrl`. A `codeVersion` whose swap failed is
+remembered (by the same composite key) and not retried on every re-register.
+The `update_available { codeVersion }` push from the master is also handled
+(for future use). In dev the worker manifest is empty (`version: null`) —
+code updates are disabled, the Worker is bundled.
 
-**Swap protocol** (`HostController.swapWorker`):
+**Swap protocol** (`HostController.swapWorker(url, game)`):
 
 1. the old Worker receives `prepare_handoff` → `HostGame.requestHandoff`
    installs a callback in `RoundManager`; the game continues until the
@@ -384,24 +545,30 @@ bundled.
 2. at the boundary, the old Worker stops the game (`stopGameTimers` + idle)
    and sends `handoff_state { state }`; from this point `HostController`
    buffers incoming client messages (a capped queue);
-3. the main thread creates a new Worker from the new version's URL and sends
-   it `init { room, handoff: state }` (`room.maps` carries the current map
-   catalog);
-4. the new Worker restores the room (see below) and replies `ready` →
-   `HostController` reconnects every live client with internal `connect`
-   calls (port state machines come up past the handshake), delivers the
-   buffered queue, sends `handoff_complete`, and tears down the old Worker
-   (`terminate`);
+3. `HostController` overwrites `room.game` with the fresh manifest passed to
+   `swapWorker` (Stage 6.5 — falls back to the room's existing `game` if none
+   was passed), creates a new Worker from the new version's URL, and sends it
+   `init { room, handoff: state }` (`room.maps` carries the current map
+   catalog, `room.game` the fresh `hostEntryUrl`/`wasmUrl`);
+4. the new Worker imports `room.game.hostEntryUrl` (Stage 6.4), restores the
+   room (see below) and replies `ready` → `HostController` reconnects every
+   live client with internal `connect` calls (port state machines come up
+   past the handshake), delivers the buffered queue, sends
+   `handoff_complete`, and tears down the old Worker (`terminate`);
 5. `handoff_complete` in the new Worker: `HostGame.completeHandoff` kicks
    restored participants whose `connect` never arrived (dropped during the
    pause), resumes timers (the map — with its time remaining,
    `TimerManager.startMapTimer(duration)`), and starts the first round —
-   clients get the usual `sendClear`/respawn/`sendRoundStart`.
+   clients get the usual `sendClear`/respawn/round start (`sendSoundCue`+`sendGameInform`).
 
 **Handoff meta** (`HostGame._collectHandoff`, a versioned format —
-`HANDOFF_VERSION`): human participants with `isReady` (gameId/socketId/
-name/model/team) and bots (with their original gameId — the single numeric
-id space is preserved), the entire `Stat` score, the current map plus its
+`HANDOFF_VERSION = 3` as of Stage D3, which renamed the `bots` field to
+`scripted`; v2 of Stage 6.5 added `gameId`/`gameVersion`):
+the loaded `HostPlugin`'s `id` and the room's `gameVersion` (so a restore
+into a mismatched game — should that ever happen — fails loudly instead of
+restoring bogus state), human participants with `isReady` (gameId/socketId/
+name/model/team) and scripted participants (with their original gameId —
+the single numeric id space is preserved), the entire `Stat` score, the current map plus its
 remaining time, the frame `seq` (snapshot numbering continues — clients'
 interpolators aren't disturbed). **Deliberately not carried over**: chat
 history, active votes and cooldowns, RTT stats, panel (health/ammo live in
@@ -410,19 +577,19 @@ handshake (their scoreboard rows are wiped, and such a guest goes through
 the handshake again on the client).
 
 **Fault tolerance**: a new Worker's init failure (`error`: incompatible
-`HANDOFF_VERSION`, a map left the catalog, a WASM failure) or a timeout
-(15 s) → the new Worker is torn down, and `resume` is sent to the old one
-(`resumeAfterHandoff`: restoring timers + resuming the interrupted round) —
-**the room keeps living on the old code version**, and players notice
-nothing. Concurrent swaps are prevented (a guard in `main.js` and in
-`HostController`).
+`HANDOFF_VERSION`, a `gameId` mismatch, a map left the catalog, a WASM
+failure) or a timeout (15 s) → the new Worker is torn down, and `resume` is
+sent to the old one (`resumeAfterHandoff`: restoring timers + resuming the
+interrupted round) — **the room keeps living on the old code version**, and
+players notice nothing. Concurrent swaps are prevented (a guard in
+`main.js` and in `HostController`).
 
-In the lobby (`src/client/main.js`):
+In the lobby (`packages/engine/src/client/main.js`):
 
 - **joining** — a server card → `connectToHost(hostId)` → `WebRtcManager`
   (offerer);
 - **creating a server** — the button/name field in the lobby
-  (`#lobby-host`/`#lobby-name`, `src/config/lobby.js`) → `connectAsHost(room)`
+  (`#lobby-host`/`#lobby-name`, `packages/engine/src/config/lobby.js`) → `connectAsHost(room)`
   → `HostController` + Worker + `LoopbackTransport` (the host player) +
   `HostConnectionManager` (remote clients) + registering with the master.
 
@@ -470,16 +637,21 @@ Host and meta module tests live in `tests/host/`:
 
 ## Build
 
-The Worker loads `core/pkg-web` (the web target of the core). The production
-build (`npm run build`) builds it itself (`core:build:web`) — this requires
-the Rust toolchain (see [getting-started.md](getting-started.md),
-[deployment.md](deployment.md)). For dev, `core/pkg-web` must be built by
-hand once (`npm run core:build`).
+The Worker loads the game plugin's `core/pkg-web` (the web target of the
+core, e.g. `vimp-tanks`'s). That WASM build happens in the game plugin's own
+repository, not here — see [core.md](core.md#build) and
+[getting-started.md](getting-started.md) for how a game plugin package gets
+installed/linked into `node_modules` for local development.
 
 ## Manual run checklist
 
-Vitest doesn't reproduce real WebRTC reordering, so an end-to-end match check
-is manual, in the browser:
+The P2P migration is complete: client-side math (interpolation, prediction,
+projectile spawning, frame unpacking) now lives entirely in the Rust core
+(`packages/engine/core/src/client/` +
+the game plugin's own `core/src/client/`, e.g. `vimp-tanks`'s); legacy JS equivalents and the JS-parity tests were
+removed. What's left is this manual two-tab smoke test — Vitest doesn't
+reproduce real WebRTC reordering, so an end-to-end match check is manual, in
+the browser:
 
 ```bash
 npm run core:build     # web target of the core for the Worker (once)
@@ -490,14 +662,16 @@ Open `https://localhost:3002`, "Create server" → the host tab. Remote
 clients are other tabs/machines: lobby → the room shows up in the list →
 joining.
 
-Checklist:
+Checklist (gameplay-specific steps below use `vimp-tanks` as the reference
+plugin — swap in the active plugin's own equivalents):
 
-- [ ] your own tank's movement (prediction/reconciliation without jitter);
-- [ ] `w1`/`w2` shooting, damage, death and respawn, team change (`/bot`, menu);
+- [ ] your own actor's movement (prediction/reconciliation without jitter);
+- [ ] game actions (e.g. shooting), damage, death and respawn, team change
+      (chat command or menu);
 - [ ] bots: spawn, patrol, combat (AI in the core);
 - [ ] chat, votes (map/team change), stats, panel — all update;
 - [ ] a round: start/timer/team victory/new round;
-- [ ] a full 8-player + bots match end-to-end;
+- [ ] a full multi-player + bots match end-to-end;
 - [ ] a drop: the host leaving kills the room → remote clients redirect
       to the lobby (`handleDisconnect`); there's no host migration.
 
@@ -515,4 +689,4 @@ create a room + connect a guest → edit the host code → `npm run build:app`
 
 ---
 
-[← Previous: Master Server](master.md) · [Next: Rust Core →](core.md)
+[← Previous: Central Auth Service](auth.md) · [Next: Rust Core →](core.md)

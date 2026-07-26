@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import WorkerCatalog from '../../src/master/WorkerCatalog.js';
+import WorkerCatalog from '../../packages/engine/src/master/WorkerCatalog.js';
 
 // Каталог worker-бандла (Этап 5.2): версия-хеш содержимого бандла + url —
 // по нему вкладка хоста создаёт Worker и обнаруживает новую версию кода

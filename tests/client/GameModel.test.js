@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import GameModel from '../../src/client/components/model/Game.js';
-import Factory from '../../src/lib/factory.js';
+import GameModel from '../../packages/engine/src/client/components/model/Game.js';
+import Factory from '../../packages/engine/src/lib/factory.js';
 
 // фейковая сущность с update/destroy
 class FakeEntity {

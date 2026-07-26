@@ -17,7 +17,7 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  AuthModel = (await import('../../src/client/components/model/Auth.js')).default;
+  AuthModel = (await import('../../packages/engine/src/client/components/model/Auth.js')).default;
 });
 
 describe('AuthModel.add / update', () => {

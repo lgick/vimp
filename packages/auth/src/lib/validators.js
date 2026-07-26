@@ -1,0 +1,29 @@
+// продублировано из packages/engine/src/lib/validators.js (plan/auth_b1.md:
+// "вынести в общий пакет или продублировать") — auth-сервис живёт в
+// отдельном workspace без рантайм-зависимости на движок, дублирование проще
+// общего пакета на этом этапе. Отличие от движкового оригинала (F13
+// кодревью): `\s` разрешал управляющие пробелы (\t\n\f\v) внутри ника — здесь
+// это глобально-персистентная личность, поэтому сужено до обычного пробела
+const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w #]{0,13})[\\w]{1}$');
+
+export const isValidNick = nick => typeof nick === 'string' && NAME_REGEXP.test(nick);
+
+// server-rating этап 1 (stage_1.md, 1.1): PUT /rank принимает дельту матча,
+// не абсолют — сам rank клампится в диапазон при пересчёте леджера.
+// maxDelta (кодревью №5) — per-match санити-граница модуля дельты, отдельная
+// от клампа кэша: без неё сырое значение в rank_events могло быть любым
+export const isValidRankDelta = (delta, maxDelta) =>
+  Number.isInteger(delta) && Math.abs(delta) <= maxDelta;
+
+// state — непрозрачный JSON игры, auth проверяет только общий объём
+export const isValidStateSize = (state, maxBytes) =>
+  Buffer.byteLength(JSON.stringify(state)) <= maxBytes;
+
+// server-rating этап 2 (stage_2.md, 2.1): голос — ровно +1 (/like) или
+// -1 (/unlike), никаких других значений
+export const isValidVoteValue = value => value === 1 || value === -1;
+
+// причина обязательна (правило /like·/unlike, как раньше у /ban); пустая —
+// голос не учитывается
+export const isValidVoteReason = reason =>
+  typeof reason === 'string' && reason.trim().length > 0;
