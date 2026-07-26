@@ -207,6 +207,10 @@ export default class SignalingServer {
     this._send(session, {
       type: 'host_registered',
       hostId: host.hostId,
+      // per-room секрет для атрибуции rank/state (server-rating кодревью №1,
+      // доработка): уходит только этой сессии; хост эхом шлёт его в PUT
+      // /auth/rank·/state, мастер сверяет с реестром (verifiedAttribution)
+      hostSecret: host.secret,
       gameId: host.gameId,
       mapsVersion,
       codeVersion,

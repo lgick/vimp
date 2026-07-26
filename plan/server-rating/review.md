@@ -25,12 +25,23 @@ append-only леджер дельт с атрибуцией к серверу/с
 локального Postgres в сессии) — остаётся вручную.
 
 - №1 (атрибуция не доходит до auth) — исправлено: атрибуцию теперь
-  проставляет мастер (`attributionFor` в `master/main.js`) из проверенного
-  при `register_host` `hosterUserId`, найденного по `hostId`, который хост
-  шлёт в теле `PUT` (`PlayerDataSync.setHostId`, прокинут от
+  проставляет мастер (`registry.verifiedAttribution` в `master/main.js`) из
+  проверенного при `register_host` `hosterUserId`, найденного по `hostId`,
+  который хост шлёт в теле `PUT` (`PlayerDataSync.setHostId`, прокинут от
   `host_registered` через `HostController`/`host.worker.js`). См.
   `docs/en/master.md#getput-authrank-getput-authstate`,
   `docs/en/host.md#player-rank-and-state-sync-stage-b4`.
+  - **Остаточный риск закрыт (доработка):** `hostId` публичен, поэтому одного
+    его в теле было мало — читер-хост мог приписать записи чужой активной
+    комнате (обойти void / подставить жертву). Введён **per-room `hostSecret`**:
+    генерируется в `HostRegistry.add`, возвращается только регистрирующей
+    сессии в `host_registered`, хост эхом шлёт его в теле `PUT`;
+    `verifiedAttribution(hostId, hostSecret)` атрибутирует, только если секрет
+    совпал. Секрет не попадает в `GET /servers` (`_toPublic` whitelist) и не
+    пробрасывается в auth (мастер срезает). Тесты: `HostRegistry` —
+    `verifiedAttribution` (верный/неверный/пустой секрет, чужой/неизвестный
+    `hostId`, комната без хостера); `SignalingServer` — `hostSecret` в
+    `host_registered`; `PlayerDataSync` — секрет в теле flush.
 - №2 (глобальный блок не эвакуирует уже запущенные комнаты) — исправлено:
   `SignalingServer._evacuateHoster` вызывается и из `_vote`, и из
   `refreshRatings` при `json.blocked`.

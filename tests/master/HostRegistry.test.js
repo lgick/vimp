@@ -293,6 +293,47 @@ describe('HostRegistry: рейтинг хостера (server-rating этап 3)
   });
 });
 
+// кодревью №1 (доработка): атрибуция rank/state к комнате допустима, только
+// если запрос несёт per-room секрет этой комнаты — иначе хост мог бы подставить
+// чужой публичный hostId (обойти void / подставить хостера-жертву)
+describe('HostRegistry.verifiedAttribution (server-rating кодревью №1)', () => {
+  it('add выдаёт per-room секрет, не раскрываемый в публичном списке', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+
+    expect(host.secret).toBeTypeOf('string');
+    expect(host.secret).not.toBe(host.hostId);
+    expect(registry.getList({}).servers[0]).not.toHaveProperty('secret');
+  });
+
+  it('верный секрет → { hosterUserId, sessionId: hostId }', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+
+    expect(registry.verifiedAttribution(host.hostId, host.secret)).toEqual({
+      hosterUserId: 42,
+      sessionId: host.hostId,
+    });
+  });
+
+  it('неверный/отсутствующий секрет → {} (чужой hostId не подставить)', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+
+    expect(registry.verifiedAttribution(host.hostId, 'wrong')).toEqual({});
+    expect(registry.verifiedAttribution(host.hostId, undefined)).toEqual({});
+    expect(registry.verifiedAttribution(host.hostId, null)).toEqual({});
+  });
+
+  it('неизвестный hostId → {}', () => {
+    expect(registry.verifiedAttribution('nope', 'x')).toEqual({});
+    expect(registry.verifiedAttribution(null, null)).toEqual({});
+  });
+
+  it('комната без hosterUserId → {} даже с верным секретом', () => {
+    const host = registry.add({ name: 'a', ip: '1.1.1.1' });
+
+    expect(registry.verifiedAttribution(host.hostId, host.secret)).toEqual({});
+  });
+});
+
 describe('HostRegistry.add — gameId/gameVersion', () => {
   it('сохраняет gameId/gameVersion и выставляет gameId в публичный список', () => {
     const host = registry.add({

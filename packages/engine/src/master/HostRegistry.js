@@ -40,9 +40,15 @@ export default class HostRegistry {
     }
 
     const hostId = uuidv4();
+    // per-room секрет (server-rating кодревью №1, доработка): возвращается
+    // только регистрирующей сессии в host_registered и служит доказательством
+    // владения комнатой при атрибуции rank/state (verifiedAttribution). Живёт
+    // ровно столько, сколько запись комнаты — как остальное её состояние
+    const secret = uuidv4();
 
     const session = {
       hostId,
+      secret,
       name: this._sanitizeName(name) || 'unnamed',
       maxPlayers: toInt(maxPlayers, this._maxPlayersLimit, 1, this._maxPlayersLimit),
       currentPlayers: 0,
@@ -106,6 +112,20 @@ export default class HostRegistry {
         host.rating = rating;
       }
     }
+  }
+
+  // атрибуция записи rank/state к комнате (server-rating кодревью №1,
+  // доработка): возвращает { hosterUserId, sessionId } только если секрет из
+  // тела PUT совпал с секретом комнаты — доказательство, что запрашивающий
+  // владеет hostId, а не подставил чужой (публичный) hostId из GET /servers.
+  // Секрет 122-битный (uuidv4), поэтому подбор нереален и простого === хватает
+  // (тайминг-атака нерелевантна). Иначе — {} (атрибуции нет, событие без хостера)
+  verifiedAttribution(hostId, secret) {
+    const host = typeof hostId === 'string' ? this._hosts.get(hostId) : undefined;
+
+    return host && host.hosterUserId !== null && host.secret === secret
+      ? { hosterUserId: host.hosterUserId, sessionId: host.hostId }
+      : {};
   }
 
   // hostId всех активных комнат данного хостера — эвакуация при глобальном

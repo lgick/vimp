@@ -172,22 +172,25 @@ to still being the join-time default:
   `HostGame.removeUser()` does one more best-effort `flush()` for the
   leaving participant before deleting its `PlayerDataSync` entry.
 - **Attribution** (code-review fix, `plan/server-rating/review.md` finding
-  №1): every `PUT` body also carries `hostId`, so the master can stamp the
-  event with this room's verified `hosterUserId`/`sessionId` before
-  forwarding it to auth (see
+  №1): every `PUT` body also carries `hostId` **and its per-room
+  `hostSecret`**, so the master can stamp the event with this room's verified
+  `hosterUserId`/`sessionId` before forwarding it to auth (see
   [master.md](master.md#getput-authrank-getput-authstate)) — without it,
-  stage 4's rank/skill voiding on a blocked hoster had nothing to void.
-  `PlayerDataSync` doesn't know its own `hostId` at construction (the Worker
-  starts before the master's `register_host` reply); `setHostId(hostId)` is
-  called once that reply arrives — `host.worker.js`'s `set_host_id` message,
-  posted by `HostController.setHostId` (called from `client/main.js`'s
+  stage 4's rank/skill voiding on a blocked hoster had nothing to void. The
+  secret proves the host owns `hostId` (public via `GET /servers`), so a
+  cheating host can't attribute its writes to another active room to dodge
+  the void. `PlayerDataSync` doesn't know its own `hostId`/`hostSecret` at
+  construction (the Worker starts before the master's `register_host` reply);
+  `setHostId(hostId, hostSecret)` is called once that reply arrives —
+  `host.worker.js`'s `set_host_id` message, posted by
+  `HostController.setHostId` (called from `client/main.js`'s
   `host_registered` handler) — and again, without waiting for a fresh
-  `register_host`, from `room.hostId` on a Worker-handoff `init` (Stage 5.2),
-  since `HostController` persists it onto `_room` so a swapped-in Worker
-  inherits it immediately.
+  `register_host`, from `room.hostId`/`room.hostSecret` on a Worker-handoff
+  `init` (Stage 5.2), since `HostController` persists them onto `_room` so a
+  swapped-in Worker inherits them immediately.
 
 `HostGame` exposes `getPlayerRank(gameId)`/`getPlayerState(gameId)`/
-`setPlayerState(gameId, state)`/`setHostId(hostId)` for game-plugin modules
+`setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` for game-plugin modules
 (and a future `/rank` chat command, Stage B5) to read/write rank and the
 opaque state blob. The Rust/WASM game core is not involved at all —
 rank/state is a purely engine/JS-side concept.

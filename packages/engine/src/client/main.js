@@ -1140,10 +1140,11 @@ async function connectAsHost(room) {
   // расхождение (деплой, пока комната жила) — подтянуть каталог к следующей
   // смене карты / заменить Worker эстафетой на границе раунда (Этап 5.2)
   signaling.publisher.on('host_registered', msg => {
-    // кодревью №1 (plan/server-rating/review.md): hostId не известен Worker'у
-    // до этого момента — прокидываем его, чтобы PlayerDataSync атрибутировал
-    // последующие rank/state-flush к этой комнате
-    hostController?.setHostId(msg.hostId);
+    // кодревью №1 (plan/server-rating/review.md): hostId + per-room секрет не
+    // известны Worker'у до этого момента — прокидываем их, чтобы PlayerDataSync
+    // атрибутировал последующие rank/state-flush к этой комнате (секрет
+    // доказывает мастеру владение hostId)
+    hostController?.setHostId(msg.hostId, msg.hostSecret);
 
     if (msg.mapsVersion && msg.mapsVersion !== hostMapsVersion) {
       refreshHostMaps();

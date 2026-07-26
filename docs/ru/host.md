@@ -165,22 +165,25 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   границах. `HostGame.removeUser()` делает ещё один best-effort `flush()`
   для выходящего участника перед удалением его записи в `PlayerDataSync`.
 - **Атрибуция** (фикс кодревью, находка №1 в `plan/server-rating/review.md`):
-  каждое тело `PUT` теперь несёт `hostId`, чтобы мастер мог проставить
-  событию проверенные `hosterUserId`/`sessionId` этой комнаты перед тем, как
-  переслать его в auth (см.
+  каждое тело `PUT` теперь несёт `hostId` **и его per-room `hostSecret`**,
+  чтобы мастер мог проставить событию проверенные `hosterUserId`/`sessionId`
+  этой комнаты перед тем, как переслать его в auth (см.
   [master.md](master.md#getput-authrank-getput-authstate)) — без этого
   аннулированию rank/skills этапа 4 при бане хостера было бы нечего
-  откатывать. `PlayerDataSync` не знает свой `hostId` при создании (Worker
-  стартует раньше ответа мастера на `register_host`); `setHostId(hostId)`
-  вызывается, когда этот ответ приходит — сообщением `set_host_id` в
-  `host.worker.js`, которое отправляет `HostController.setHostId`
-  (вызывается из обработчика `host_registered` в `client/main.js`) — а
-  также, не дожидаясь свежего `register_host`, из `room.hostId` при `init`
-  после эстафеты Worker'ов (Этап 5.2): `HostController` сохраняет его в
-  `_room`, поэтому подменённый Worker наследует его сразу.
+  откатывать. Секрет доказывает, что хост владеет `hostId` (публичным через
+  `GET /servers`), поэтому читер-хост не может приписать свои записи чужой
+  активной комнате, чтобы обойти откат. `PlayerDataSync` не знает свои
+  `hostId`/`hostSecret` при создании (Worker стартует раньше ответа мастера на
+  `register_host`); `setHostId(hostId, hostSecret)` вызывается, когда этот
+  ответ приходит — сообщением `set_host_id` в `host.worker.js`, которое
+  отправляет `HostController.setHostId` (вызывается из обработчика
+  `host_registered` в `client/main.js`) — а также, не дожидаясь свежего
+  `register_host`, из `room.hostId`/`room.hostSecret` при `init` после эстафеты
+  Worker'ов (Этап 5.2): `HostController` сохраняет их в `_room`, поэтому
+  подменённый Worker наследует их сразу.
 
 `HostGame` даёт `getPlayerRank(gameId)`/`getPlayerState(gameId)`/
-`setPlayerState(gameId, state)`/`setHostId(hostId)` для игровых плагинов (и
+`setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` для игровых плагинов (и
 будущей чат-команды `/rank`, Этап B5), чтобы читать/писать rank и
 непрозрачный блок state. Rust/WASM-ядро игры вообще не участвует —
 rank/state это чисто engine/JS-концепция.

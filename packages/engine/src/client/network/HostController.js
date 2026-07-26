@@ -112,13 +112,15 @@ export default class HostController {
     this._worker.postMessage(msg);
   }
 
-  // сообщает Worker'у hostId, подтверждённый мастером при register_host
-  // (кодревью №1, plan/server-rating/review.md) — не известен при создании
-  // Worker'а (постится в него раньше ответа мастера). Сохраняется в _room,
-  // чтобы эстафета (swapWorker) тоже понесла его в новый Worker через 'init'
-  setHostId(hostId) {
+  // сообщает Worker'у hostId + per-room секрет, подтверждённые мастером при
+  // register_host (кодревью №1, plan/server-rating/review.md) — не известны
+  // при создании Worker'а (постится в него раньше ответа мастера).
+  // Сохраняются в _room, чтобы эстафета (swapWorker) тоже понесла их в новый
+  // Worker через 'init'
+  setHostId(hostId, hostSecret) {
     this._room.hostId = hostId;
-    this._worker.postMessage({ type: 'set_host_id', hostId });
+    this._room.hostSecret = hostSecret;
+    this._worker.postMessage({ type: 'set_host_id', hostId, hostSecret });
   }
 
   // передаёт обновлённый каталог карт мастера в Worker (Этап 5.1);

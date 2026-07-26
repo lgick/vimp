@@ -38,7 +38,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/HostRatingProxy.js` | proxies the central auth service's host-rating endpoints: `getRating` (own rating, Bearer) for the `register_host` block check, `vote` (Bearer) for `like_host`/`unlike_host`, `getPublic` (no token — `GET /host-rating/:hosterUserId` is unauthenticated, the value is public lobby data) for `refreshRatings`'s periodic poll |
 | `packages/engine/src/lib/rateLimiter.js` | a shared fixed-window rate limiter (event limit per key per interval) |
 
-`HostSession`: `hostId` (uuid), `name`, `maxPlayers` (clamped to `host.maxPlayersLimit`, the target room size — 8), `currentPlayers`, `mapName`, `region`, `ip`, `gameId`/`gameVersion` (which game plugin and manifest version the host declared at `register_host` — every host as of Stage 6.4), `hosterUserId` (the hoster's identity, from their Bearer token at `register_host` — server-rating stage 2), `rating` (cached hoster score, server-rating stage 3 — see below), `status` (`online`), `lastSeen`.
+`HostSession`: `hostId` (uuid), `name`, `maxPlayers` (clamped to `host.maxPlayersLimit`, the target room size — 8), `currentPlayers`, `mapName`, `region`, `ip`, `gameId`/`gameVersion` (which game plugin and manifest version the host declared at `register_host` — every host as of Stage 6.4), `hosterUserId` (the hoster's identity, from their Bearer token at `register_host` — server-rating stage 2), `secret` (per-room capability minted at registration, returned only to the registering session, proves room ownership for rank/state attribution — never in `GET /servers`), `rating` (cached hoster score, server-rating stage 3 — see below), `status` (`online`), `lastSeen`.
 
 The region is determined from an Nginx/CDN header (`regionHeader`, `x-region` by default; e.g. `CF-IPCountry`) — chosen over `geoip-lite` for its low memory footprint. Without the header the region is `unknown`.
 
@@ -170,26 +170,33 @@ request and passes the upstream status/JSON straight through:
 body** (code-review fix): an untrusted host browser could otherwise misattribute
 its own rank/state writes to itself (dodging stage-4 voiding) or to a
 victim hoster (framing them for a later ban-triggered void). `PUT` bodies
-carry a `hostId` (the room the write belongs to, known to the host once
-`register_host` confirms — see below); `attributionFor(hostId)` in
-`main.js` looks it up in `HostRegistry` and, if found, passes the room's
-already-JWT-verified `hosterUserId` plus `sessionId: hostId` through to
-`PlayerDataProxy.putRank`/`putState`, which merge them into the upstream
-body. An unknown/missing `hostId` (not yet registered, or a swapped-out
-Worker) yields no attribution — the same as before this fix, not an error.
+carry a `hostId` **and its per-room `hostSecret`** (both known to the host
+once `register_host` confirms — see below); `registry.verifiedAttribution(hostId,
+hostSecret)` in `main.js` looks the room up in `HostRegistry` and returns the
+room's already-JWT-verified `hosterUserId` plus `sessionId: hostId` **only if
+the secret matches** — otherwise `{}`. The secret proves the caller owns the
+room: `hostId`s are public (they appear in `GET /servers`), so without the
+secret a cheating host could point attribution at any other active room's
+`hostId`; the secret closes that. It is minted per room in `HostRegistry.add`,
+returned **only to the registering session** in `host_registered`, never
+exposed in `GET /servers` (`_toPublic` whitelists fields) and never forwarded
+to the auth service (the master strips it — only `{ hosterUserId, sessionId }`
+reach `PlayerDataProxy.putRank`/`putState`). An unknown `hostId` or a
+missing/wrong secret (not yet registered, a swapped-out Worker, or a spoof
+attempt) yields no attribution — not an error.
 
 The browser host's `PlayerDataSync`
 (`packages/engine/src/host/meta/modules/PlayerDataSync.js`) calls these
 routes to load a participant's rank/state on join and flush them back at
 round-end/map-change/leave boundaries — see
 [host.md](host.md#player-rank-and-state-sync-stage-b4). It learns its
-room's `hostId` from `host_registered` (`HostController.setHostId`, relayed
-into the Worker as `set_host_id` and carried across a Worker handoff via
-`room.hostId`) and includes it in every `PUT` body from then on.
-`express.json()` is mounted in `main.js` to parse the `PUT` bodies
-(`{ delta, hostId }`/`{ state, hostId }` — `/rank` takes a match delta, not
-an absolute value, since server-rating stage 1; see
-[auth.md](auth.md#rest-api)).
+room's `hostId`/`hostSecret` from `host_registered`
+(`HostController.setHostId`, relayed into the Worker as `set_host_id` and
+carried across a Worker handoff via `room.hostId`/`room.hostSecret`) and
+includes them in every `PUT` body from then on. `express.json()` is mounted
+in `main.js` to parse the `PUT` bodies (`{ delta, hostId, hostSecret }`/
+`{ state, hostId, hostSecret }` — `/rank` takes a match delta, not an absolute
+value, since server-rating stage 1; see [auth.md](auth.md#rest-api)).
 
 ### Composite `codeVersion`
 
@@ -225,7 +232,7 @@ The client-side signaling counterpart — [packages/engine/src/client/network/Si
 
 | → to master | Response / effect |
 | --- | --- |
-| `register_host { name, maxPlayers, mapName, gameId, gameVersion, token }` | `host_registered { hostId, gameId, mapsVersion, codeVersion }`; region — from the header, IP — from the connection; `token` — the hoster's Bearer identity-token (server-rating stage 2), verified against the central auth service's JWKS (`JwksProxy`) — its `sub` becomes `hosterUserId`, stored on the session for rating attribution; missing/invalid signature → error `invalidToken`. Before creating the room the master also asks the auth service for the hoster's own rating (`HostRatingProxy.getRating`) — `blocked: true` → error `blocked` (a hoster whose rating hit `rating.blockAt` can't open a room); a failed call (auth unreachable) sends `error authServiceUnavailable` instead of leaving the client waiting forever with no response (code-review fix); `gameId`/`gameVersion` — which game plugin/manifest version the host is running (stored on the session, echoed back; every host sends them as of Stage 6.4 — `connectAsHost` builds `room.game` from the active `GameManifest`); `mapsVersion` — the declared game's `GameManifest.maps.version` via `GameCatalog` (`null` if `gameId` is unknown to the catalog); `codeVersion` — composite `{ engine, game: { id, version } }` (Stage 6.5, see above; `engine` is the worker-bundle version) — on re-register after a disconnect (a deploy restarts the master) the host compares them to its own: a map mismatch triggers a catalog re-read, a mismatch in either `codeVersion` half triggers a Worker handoff. Errors: `alreadyRegistered`, `hostLimit` (a room from this IP already exists) |
+| `register_host { name, maxPlayers, mapName, gameId, gameVersion, token }` | `host_registered { hostId, hostSecret, gameId, mapsVersion, codeVersion }` (`hostSecret` — per-room capability for rank/state attribution, see above); region — from the header, IP — from the connection; `token` — the hoster's Bearer identity-token (server-rating stage 2), verified against the central auth service's JWKS (`JwksProxy`) — its `sub` becomes `hosterUserId`, stored on the session for rating attribution; missing/invalid signature → error `invalidToken`. Before creating the room the master also asks the auth service for the hoster's own rating (`HostRatingProxy.getRating`) — `blocked: true` → error `blocked` (a hoster whose rating hit `rating.blockAt` can't open a room); a failed call (auth unreachable) sends `error authServiceUnavailable` instead of leaving the client waiting forever with no response (code-review fix); `gameId`/`gameVersion` — which game plugin/manifest version the host is running (stored on the session, echoed back; every host sends them as of Stage 6.4 — `connectAsHost` builds `room.game` from the active `GameManifest`); `mapsVersion` — the declared game's `GameManifest.maps.version` via `GameCatalog` (`null` if `gameId` is unknown to the catalog); `codeVersion` — composite `{ engine, game: { id, version } }` (Stage 6.5, see above; `engine` is the worker-bundle version) — on re-register after a disconnect (a deploy restarts the master) the host compares them to its own: a map mismatch triggers a catalog re-read, a mismatch in either `codeVersion` half triggers a Worker handoff. Errors: `alreadyRegistered`, `hostLimit` (a room from this IP already exists) |
 | `update_host { currentPlayers, mapName }` | refreshes room data (also serves as a heartbeat) |
 | `heartbeat {}` | updates `lastSeen` |
 | `webrtc_answer { clientId, sdp }` | forwarded to the client as `webrtc_answer { hostId, sdp }` |

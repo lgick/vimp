@@ -213,6 +213,12 @@ describe('register_host', () => {
     const host = registry.get(reply.hostId);
 
     expect(host).toMatchObject({ name: 'Room', region: 'US', ip: '1.1.1.1' });
+
+    // per-room секрет (кодревью №1, доработка) уходит только этой сессии и
+    // совпадает с секретом записи комнаты — хост доказывает им владение при
+    // атрибуции rank/state
+    expect(reply.hostSecret).toBeTypeOf('string');
+    expect(reply.hostSecret).toBe(host.secret);
   });
 
   it('атрибутирует комнату к hosterUserId из проверенного identity-токена', async () => {

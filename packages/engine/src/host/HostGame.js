@@ -834,11 +834,12 @@ export default class HostGame {
     this._playerDataSync.setState(gameId, state);
   }
 
-  // hostId комнаты, подтверждённый мастером при register_host (кодревью №1)
-  // — не известен при создании HostGame (Worker стартует раньше ответа
-  // мастера); нужен PlayerDataSync для атрибуции rank/state-flush
-  setHostId(hostId) {
-    this._playerDataSync.setHostId(hostId);
+  // hostId + per-room секрет комнаты, подтверждённые мастером при
+  // register_host (кодревью №1) — не известны при создании HostGame (Worker
+  // стартует раньше ответа мастера); нужны PlayerDataSync для атрибуции
+  // rank/state-flush (секрет доказывает мастеру владение комнатой)
+  setHostId(hostId, hostSecret) {
+    this._playerDataSync.setHostId(hostId, hostSecret);
   }
 
   // обновляет значение round trip time
