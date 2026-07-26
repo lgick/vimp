@@ -1,8 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
+import { verifyIdentityToken } from '../lib/jwt.js';
 
 // Signaling Server: маршрутизация WebRTC-координации между клиентами
 // и браузерными хостами. Игровой логики нет — только пересылка
-// SDP-офферов/ответов, ICE-кандидатов и сигнальных пингов.
+// SDP-офферов/ответов, ICE-кандидатов, сигнальных пингов и голосов рейтинга.
 export default class SignalingServer {
   constructor(registry, options) {
     this._registry = registry;
@@ -18,6 +19,13 @@ export default class SignalingServer {
     // без gameId/каталога — статичный fallback (options.mapsVersion, если
     // задан мастером)
     this._gameCatalog = options.gameCatalog ?? null;
+    // server-rating этап 2 (stage_2.md): идентичность хостера/голосующего —
+    // Bearer identity-токен, проверенный по тому же JWKS-прокси, каким его
+    // проверяет Worker хоста (packages/engine/src/lib/jwt.js). Без jwksProxy
+    // register_host/like_host/unlike_host всегда отклоняются как invalidToken
+    this._jwksProxy = options.jwksProxy ?? null;
+    this._hostRatingProxy = options.hostRatingProxy ?? null;
+    this._issuer = options.issuer ?? null;
 
     this._sessions = new Map(); // id соединения -> { id, ws, ip, region, hostId }
     this._hostSessions = new Map(); // hostId -> id соединения
@@ -32,7 +40,8 @@ export default class SignalingServer {
       'ice_candidate': this._onIceCandidate,
       'ping_host': this._onPingHost,
       'pong_host': this._onPongHost,
-      'report_host': this._onReportHost,
+      'like_host': this._onLikeHost,
+      'unlike_host': this._onUnlikeHost,
     };
   }
 
@@ -74,7 +83,11 @@ export default class SignalingServer {
         const msg = this._unpack(data);
 
         if (msg && this._handlers[msg.type]) {
-          this._handlers[msg.type].call(this, session, msg);
+          // register_host/like_host/unlike_host — async (проверка identity-
+          // токена по JWKS, запрос рейтинга к auth); остальные — синхронные
+          Promise.resolve(this._handlers[msg.type].call(this, session, msg)).catch(err => {
+            console.error(`[signaling] handler "${msg.type}" failed:`, err);
+          });
         }
       });
 
@@ -107,17 +120,38 @@ export default class SignalingServer {
     return removed;
   }
 
-  // хост сообщает о создании комнаты
-  _onRegisterHost(session, { name, maxPlayers, mapName, gameId, gameVersion }) {
+  // хост сообщает о создании комнаты; token — Bearer identity-токен хостера
+  // (server-rating этап 2): без него/при неверной подписи регистрация
+  // отклоняется, т.к. атрибуция и проверка блокировки по рейтингу требуют
+  // проверенного userId
+  async _onRegisterHost(session, { name, maxPlayers, mapName, gameId, gameVersion, token }) {
     if (session.hostId) {
       this._sendError(session, 'alreadyRegistered');
       return;
     }
 
-    // забаненный IP не может поднять комнату, пока действует бан
-    if (this._registry.isBanned(session.ip)) {
-      this._sendError(session, 'banned');
+    const hosterUserId = await this._verifyToken(token);
+
+    if (hosterUserId === null) {
+      this._sendError(session, 'invalidToken');
       return;
+    }
+
+    // хостер с рейтингом на/ниже blockAt не может поднять комнату, пока не
+    // наберёт голосов обратно выше порога (замена бана по IP на этап 5.3);
+    // заодно уже несём собственный рейтинг хостера — сеем им кэш лобби
+    // (server-rating этап 3), не делая для этого второй запрос к auth
+    let rating = 0;
+
+    if (this._hostRatingProxy) {
+      const { json } = await this._hostRatingProxy.getRating(token);
+
+      if (json?.blocked) {
+        this._sendError(session, 'blocked');
+        return;
+      }
+
+      rating = json?.score ?? 0;
     }
 
     const host = this._registry.add({
@@ -126,6 +160,7 @@ export default class SignalingServer {
       mapName,
       gameId,
       gameVersion,
+      hosterUserId,
       region: session.region,
       ip: session.ip,
     });
@@ -135,6 +170,8 @@ export default class SignalingServer {
       this._sendError(session, 'hostLimit');
       return;
     }
+
+    this._registry.setRating(host.hostId, rating);
 
     session.hostId = host.hostId;
     this._hostSessions.set(host.hostId, session.id);
@@ -187,7 +224,7 @@ export default class SignalingServer {
       return;
     }
 
-    // память о том, к каким комнатам сессия подключалась — право на report_host
+    // память о том, к каким комнатам сессия подключалась — право на like_host/unlike_host
     (session.offeredHosts ??= new Set()).add(hostId);
 
     this._send(host, { type: 'webrtc_offer', clientId: session.id, sdp });
@@ -248,37 +285,109 @@ export default class SignalingServer {
     }
   }
 
-  // жалоба /ban; уникальность репортёров — по IP. При достижении порога хост
-  // переводится в бан и его сигнальный WS закрывается — новые офферы к нему
-  // больше не маршрутизируются (уже подключённые P2P-пиры это не рвёт)
-  _onReportHost(session, { hostId, reason }) {
-    // жалобу принимаем только от сессии, реально подключавшейся к комнате
-    // (слала ей оффер) — иначе несколько чужих IP банят хост, не заходя в игру
+  // /like — голос +1 за хостера комнаты (server-rating этап 2, замена /ban)
+  _onLikeHost(session, { hostId, reason, token }) {
+    return this._vote(session, hostId, 1, reason, token);
+  }
+
+  // /unlike — голос -1; like/unlike переставляют предыдущий голос того же
+  // голосующего, а не копят оба
+  _onUnlikeHost(session, { hostId, reason, token }) {
+    return this._vote(session, hostId, -1, reason, token);
+  }
+
+  // голос гостя за/против хостера комнаты hostId; token — Bearer identity-
+  // токен голосующего, hostRatingProxy проксирует голос в auth (единственный
+  // источник истины для score/blocked). При достижении blockAt хост
+  // блокируется глобально и его сигнальный WS закрывается — новые офферы к
+  // нему больше не маршрутизируются (уже подключённые P2P-пиры это не рвёт)
+  async _vote(session, hostId, value, reason, token) {
+    // голос принимаем только от сессии, реально подключавшейся к комнате
+    // (слала ей оффер) — иначе чужие голосуют, не заходя в игру
     if (!session.offeredHosts?.has(hostId)) {
-      this._sendError(session, 'reportRejected');
+      this._sendError(session, 'voteRejected');
       return;
     }
 
-    const { counted, banned } = this._registry.report(
-      hostId,
-      session.ip,
-      reason,
-    );
+    const room = this._registry.get(hostId);
 
-    // жалобы — единственная анти-чит-мера: фиксируем их в логе мастера
-    // (только там их и можно посмотреть; наружу причины не отдаются)
-    if (counted) {
-      const room = this._registry.get(hostId);
-
-      console.log(
-        `[report] room "${room?.name ?? hostId}" (${hostId}): ` +
-          `"${reason}" — ${room?.reportCount ?? '?'} report(s) in window`,
-      );
+    if (!room) {
+      this._sendError(session, 'unknownHost');
+      return;
     }
 
-    if (banned) {
-      console.warn(`[report] room ${hostId} banned by report threshold`);
-      this._getHostSession(hostId)?.ws.close(4002, 'banned');
+    const voterUserId = await this._verifyToken(token);
+
+    if (voterUserId === null) {
+      this._sendError(session, 'invalidToken');
+      return;
+    }
+
+    // причина обязательна (правило /like·/unlike) — голос без неё не
+    // учитывается; наружу причины не отдаются, это аудит в БД auth
+    if (typeof reason !== 'string' || !reason.trim()) {
+      return;
+    }
+
+    if (!this._hostRatingProxy || room.hosterUserId === null) {
+      return;
+    }
+
+    const { json } = await this._hostRatingProxy.vote(
+      token,
+      room.hosterUserId,
+      value,
+      reason.trim(),
+    );
+
+    // кэш рейтинга в лобби (server-rating этап 3) — свежее значение сразу,
+    // не дожидаясь periodic-опроса refreshRatings()
+    if (json?.score !== undefined) {
+      this._registry.setRating(hostId, json.score);
+    }
+
+    if (json?.blocked) {
+      console.warn(`[rating] hoster ${room.hosterUserId} blocked (score ${json.score})`);
+      this._getHostSession(hostId)?.ws.close(4002, 'blocked');
+    }
+  }
+
+  // периодически опрашивает auth за актуальным рейтингом каждого активного
+  // хостера (server-rating этап 3) — держит кэш GET /servers свежим даже без
+  // голосов на этом мастере (например, счёт изменился на другом мастере или
+  // после рестарта); публичный эндпоинт auth, Bearer-токен хостера не нужен
+  async refreshRatings() {
+    if (!this._hostRatingProxy) {
+      return;
+    }
+
+    for (const hosterUserId of this._registry.getHosterUserIds()) {
+      try {
+        const { json } = await this._hostRatingProxy.getPublic(hosterUserId);
+
+        if (json) {
+          this._registry.setRatingForHoster(hosterUserId, json.score ?? 0);
+        }
+      } catch (err) {
+        console.error(`[rating] refresh failed for hoster ${hosterUserId}:`, err.message);
+      }
+    }
+  }
+
+  // проверяет Bearer identity-токен по JWKS central auth-сервиса; возвращает
+  // числовой userId или null (нет jwksProxy, токен отсутствует/невалиден)
+  async _verifyToken(token) {
+    if (!this._jwksProxy || typeof token !== 'string') {
+      return null;
+    }
+
+    try {
+      const jwks = await this._jwksProxy.get();
+      const payload = await verifyIdentityToken(token, { jwks, issuer: this._issuer });
+
+      return Number(payload.sub);
+    } catch {
+      return null;
     }
   }
 

@@ -123,8 +123,8 @@ const signaling = new SignalingClient(`${wsProtocol}//${location.host}/`);
 // активное P2P-соединение с хостом (создаётся при выборе сервера в лобби)
 let transport = null;
 
-// hostId комнаты, к которой подключён гость (для жалобы /ban напрямую мастеру).
-// У хоста-игрока (своя вкладка) остаётся null — себя забанить нельзя
+// hostId комнаты, к которой подключён гость (для /like·/unlike напрямую
+// мастеру). У хоста-игрока (своя вкладка) остаётся null — за себя не проголосовать
 let currentHostId = null;
 
 const modules = {};
@@ -840,22 +840,33 @@ function sending(name, data, reliable = true) {
   transport?.send(JSON.stringify([name, data]), reliable);
 }
 
-// перехватывает /ban <причина> и шлёт жалобу напрямую мастеру по сигнальному WS,
-// минуя хоста: его CommandProcessor мог бы отфильтровать жалобу на самого себя.
-// Причина обязательна (публично не отображается). Остальной чат уходит хосту
+// перехватывает /like·/unlike <причина> и шлёт голос напрямую мастеру по
+// сигнальному WS, минуя хоста: его CommandProcessor мог бы отфильтровать
+// голос против самого себя (server-rating этап 2, замена /ban). Причина
+// обязательна (публично не отображается). Остальной чат уходит хосту
 function handleChatSend(message) {
-  if (message === '/ban' || message.startsWith('/ban ')) {
-    const reason = message.slice(4).trim();
+  const likeMatch = message === '/like' || message.startsWith('/like ');
+  const unlikeMatch = message === '/unlike' || message.startsWith('/unlike ');
+
+  if (likeMatch || unlikeMatch) {
+    const command = likeMatch ? '/like' : '/unlike';
+    const reason = message.slice(command.length).trim();
+    const token = lobbyAuthModel.getToken();
 
     if (!currentHostId) {
-      modules.chat.add(['/ban is available to room guests only']);
+      modules.chat.add([`${command} is available to room guests only`]);
+    } else if (!token) {
+      modules.chat.add([`${command} requires signing in`]);
     } else if (!reason) {
-      modules.chat.add(['/ban requires a reason: /ban <reason>']);
+      modules.chat.add([`${command} requires a reason: ${command} <reason>`]);
     } else if (!signaling.connected) {
-      modules.chat.add(['No connection to the master server — report not sent']);
+      modules.chat.add(['No connection to the master server — vote not sent']);
+    } else if (likeMatch) {
+      signaling.likeHost(currentHostId, reason, token);
+      modules.chat.add(['Vote sent to the master server']);
     } else {
-      signaling.reportHost(currentHostId, reason);
-      modules.chat.add(['Report sent to the master server']);
+      signaling.unlikeHost(currentHostId, reason, token);
+      modules.chat.add(['Vote sent to the master server']);
     }
 
     return;
@@ -1060,6 +1071,7 @@ async function connectAsHost(room) {
           mapName: currentMapName,
           gameId: room.game.id,
           gameVersion: room.game.version,
+          token: lobbyAuthModel.getToken(),
         });
 
         clearInterval(hostHeartbeat);

@@ -1,4 +1,4 @@
-# Этап 2. `/like`·`/unlike` вместо `/ban` (master + client)
+# Этап 2. `/like`·`/unlike` вместо `/ban` (master + client) ✅ выполнен
 
 Цель: заменить эфемерную жалобу `/ban` на идентичностный рейтинг сервера с
 двумя командами и порогом блокировки хостера.
@@ -90,3 +90,44 @@ CREATE TABLE host_votes (
 `/like`·/`unlike` заменили `/ban` end-to-end, рейтинг персистентен и
 ограничен диапазоном, блокировка хостера работает; `npx eslint .` и `npm test`
 зелёные.
+
+## Реализация (2026-07-26)
+
+Auth: миграция `004_host_ratings.sql` (`host_ratings` — денормализованный
+score/blocked, `host_votes` — одна строка на пару `(hoster, voter)`, не
+леджер, т.к. мнение меняемо); `UserRepository.voteHost`/`getHostRating`
+(no-op на неизменный голос, clamp в `config.rating`, признак `blocked`);
+`config/auth.js: rating`; валидаторы `isValidVoteValue`/`isValidVoteReason`;
+REST `GET /host-rating` (self) и `PUT /host-rating/:hosterUserId` (голос,
+запрет self-vote).
+
+Master: `HostRatingProxy` (по образцу `PlayerDataProxy`); `config/master.js:
+rating` заменил `host.banThreshold`/`reportWindowMs`; `HostRegistry`
+упрощён — убраны `_bannedIps`/`report`/`isBanned`, `add()` принимает
+`hosterUserId`; `SignalingServer` — `register_host` требует Bearer
+identity-токен (проверяется по JWKS через тот же `verifyIdentityToken`,
+каким пользуется Worker хоста) и спрашивает у auth собственный рейтинг
+хостера перед созданием комнаты (`blocked` → отказ); `report_host` заменён
+на `like_host`/`unlike_host` (проверка `offeredHosts`, обязательная причина,
+голос проксируется в auth, `blocked` в ответе закрывает WS хоста кодом
+`4002`).
+
+Client: `SignalingClient.registerHost` шлёт `token`, `reportHost` заменён на
+`likeHost`/`unlikeHost`; `handleChatSend` перехватывает `/like`·`/unlike
+<причина>` вместо `/ban`.
+
+Побочный эффект: обработчики `register_host`/`like_host`/`unlike_host` стали
+асинхронными (проверка identity-токена и запрос к auth) — диспетчер
+сообщений в `SignalingServer` обёрнут в `Promise.resolve(...).catch(...)`,
+чтобы ошибка одного обработчика не роняла остальные.
+
+Тесты: добавлены/переписаны `HostRegistry.test.js`, `SignalingServer.test.js`
+(identity-токены подписаны настоящим RSA-ключом через `jsonwebtoken`, как в
+`tests/lib/jwt.test.js`), `HostRatingProxy.test.js`, расширены
+`UserRepository.test.js`/`validators.test.js`/`SignalingClient.test.js`.
+`npx eslint .` чисто, `npm test` — 742/742 зелёных.
+
+Документация обновлена (en+ru): `master.md` (переименован раздел «Соц-
+модерация `/ban`» → «Рейтинг сервера»), `auth.md`, `client.md`, `host.md`,
+`network.md`, `configuration.md`, `architecture.md` (ASCII-диаграмма),
+`README.md`.

@@ -7,3 +7,20 @@
 const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w #]{0,13})[\\w]{1}$');
 
 export const isValidNick = nick => typeof nick === 'string' && NAME_REGEXP.test(nick);
+
+// server-rating этап 1 (stage_1.md, 1.1): PUT /rank принимает дельту матча,
+// не абсолют — сам rank клампится в диапазон при пересчёте леджера
+export const isValidRankDelta = delta => Number.isInteger(delta);
+
+// state — непрозрачный JSON игры, auth проверяет только общий объём
+export const isValidStateSize = (state, maxBytes) =>
+  Buffer.byteLength(JSON.stringify(state)) <= maxBytes;
+
+// server-rating этап 2 (stage_2.md, 2.1): голос — ровно +1 (/like) или
+// -1 (/unlike), никаких других значений
+export const isValidVoteValue = value => value === 1 || value === -1;
+
+// причина обязательна (правило /like·/unlike, как раньше у /ban); пустая —
+// голос не учитывается
+export const isValidVoteReason = reason =>
+  typeof reason === 'string' && reason.trim().length > 0;

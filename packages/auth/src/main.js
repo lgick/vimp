@@ -6,7 +6,13 @@ import oauthState from './lib/oauthState.js';
 import { getProvider } from './oauth/index.js';
 import dbPool from './db/pool.js';
 import UserRepository, { NickTakenError, NickAlreadySetError } from './UserRepository.js';
-import { isValidNick } from './lib/validators.js';
+import {
+  isValidNick,
+  isValidRankDelta,
+  isValidStateSize,
+  isValidVoteValue,
+  isValidVoteReason,
+} from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
 
 const env = process.env;
@@ -292,6 +298,16 @@ app.get('/rank', requireAuth, async (req, res) => {
   res.json({ rank: await userRepo.getRank(req.user.id, gameId) });
 });
 
+// server-rating этап 1 (stage_1.md): извлекает атрибуцию записи к
+// серверу/сессии из тела запроса — опциональна, пока мастер (этап 2) не
+// начал их прокидывать; отсутствие не отклоняется, событие просто без хостера
+function readAttribution(body) {
+  const hosterUserId = Number.isFinite(Number(body?.hosterUserId)) ? Number(body.hosterUserId) : null;
+  const sessionId = typeof body?.sessionId === 'string' && body.sessionId ? body.sessionId : null;
+
+  return { hosterUserId, sessionId };
+}
+
 app.put('/rank', requireAuth, async (req, res) => {
   const gameId = req.query.game;
 
@@ -300,15 +316,17 @@ app.put('/rank', requireAuth, async (req, res) => {
     return;
   }
 
-  const rank = Number(req.body?.rank);
+  // stage_1.md: PUT /rank теперь принимает дельту матча, не абсолют
+  const delta = Number(req.body?.delta);
 
-  if (!Number.isFinite(rank)) {
+  if (!isValidRankDelta(delta)) {
     res.status(400).json({ error: 'invalidRank' });
     return;
   }
 
-  await userRepo.upsertRank(req.user.id, gameId, rank);
-  res.json({ ok: true });
+  const rank = await userRepo.upsertRank(req.user.id, gameId, delta, readAttribution(req.body));
+
+  res.json({ rank });
 });
 
 app.get('/state', requireAuth, async (req, res) => {
@@ -339,8 +357,64 @@ app.put('/state', requireAuth, async (req, res) => {
     return;
   }
 
-  await userRepo.upsertState(req.user.id, gameId, state);
+  if (!isValidStateSize(state, config.state.maxBytes)) {
+    res.status(400).json({ error: 'stateTooLarge' });
+    return;
+  }
+
+  await userRepo.upsertState(req.user.id, gameId, state, readAttribution(req.body));
   res.json({ ok: true });
+});
+
+// server-rating этап 2 (stage_2.md): собственный рейтинг хостера, каким его
+// видит сам хостер (для проверки блокировки при регистрации комнаты мастером)
+app.get('/host-rating', requireAuth, async (req, res) => {
+  res.json(await userRepo.getHostRating(req.user.id));
+});
+
+// публичный (без авторизации) рейтинг хостера — server-rating этап 3
+// (stage_3.md): мастер опрашивает его периодически для кэша GET /servers, не
+// держа Bearer-токен конкретного хостера между запросами; значение и так
+// публично показывается в лобби, секретов тут нет
+app.get('/host-rating/:hosterUserId', async (req, res) => {
+  const hosterUserId = Number(req.params.hosterUserId);
+
+  if (!Number.isInteger(hosterUserId)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  res.json(await userRepo.getHostRating(hosterUserId));
+});
+
+// голос гостя за/против хостера комнаты; req.user — голосующий (из его
+// Bearer), :hosterUserId — цель голоса (не может голосовать сам за себя —
+// это отдельный источник спойлинга собственного рейтинга)
+app.put('/host-rating/:hosterUserId', requireAuth, async (req, res) => {
+  const hosterUserId = Number(req.params.hosterUserId);
+  const { value, reason } = req.body || {};
+
+  if (!Number.isInteger(hosterUserId)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  if (!isValidVoteValue(value)) {
+    res.status(400).json({ error: 'invalidVote' });
+    return;
+  }
+
+  if (hosterUserId === req.user.id) {
+    res.status(403).json({ error: 'selfVote' });
+    return;
+  }
+
+  if (!isValidVoteReason(reason)) {
+    res.json({ counted: false, ...(await userRepo.getHostRating(hosterUserId)) });
+    return;
+  }
+
+  res.json(await userRepo.voteHost(hosterUserId, req.user.id, value, reason.trim()));
 });
 
 const server = http.createServer(app);

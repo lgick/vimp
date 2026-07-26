@@ -11,7 +11,7 @@
 | --- | --- |
 | [getting-started.md](getting-started.md) | Локальная настройка: установка, Rust-тулчейн, HTTPS-сертификаты, запуск, тесты, локальный мультиплеер |
 | [architecture.md](architecture.md) | Общая архитектура: мастер/хост/клиент, игровой цикл, жизненный цикл соединения, ключевые инварианты |
-| [master.md](master.md) | Мастер-сервер (точка входа): реестр комнат, REST-список серверов, каталог карт, сигналинг WebRTC, `/ban` |
+| [master.md](master.md) | Мастер-сервер (точка входа): реестр комнат, REST-список серверов, каталог карт, сигналинг WebRTC, рейтинг сервера `/like`·`/unlike` |
 | [auth.md](auth.md) | Центральный auth-сервис (`packages/auth/`): OAuth-вход, глобальный ник, JWT/JWKS, rank/state по играм |
 | [host.md](host.md) | Браузерный хост: Worker с ядром, `GameCoreAdapter`, host-фасад, мета-модули, loopback хоста-игрока, роутер главного потока |
 | [core.md](core.md) | Rust-ядро движка (`vimp-engine-core`): структура `packages/engine/core/`, общие трейты/макросы, framing снапшотов, сборка, тесты |

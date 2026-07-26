@@ -35,6 +35,9 @@ export default class PlayerDataSync {
     const entry = this._entries.get(participantId) ?? {
       token,
       rank: 0,
+      // server-rating этап 1: PUT /auth/rank шлёт дельту матча, не абсолют
+      // (auth ведёт леджер) — pendingRankDelta копит то, что ещё не flush'нуто
+      pendingRankDelta: 0,
       state: structuredClone(this._defaultState),
       rankLoaded: false,
       stateLoaded: false,
@@ -86,6 +89,7 @@ export default class PlayerDataSync {
 
     if (entry) {
       entry.rank += delta;
+      entry.pendingRankDelta += delta;
     }
   }
 
@@ -117,14 +121,25 @@ export default class PlayerDataSync {
       entry = await this.load(participantId, entry.token);
     }
 
-    const { token, rank, state, rankLoaded, stateLoaded } = entry;
+    const { token, state, rankLoaded, stateLoaded } = entry;
     const requests = [];
 
     if (rankLoaded) {
-      requests.push(this._authedFetch(lobbyConfig.auth.rankUrl, token, {
-        method: 'PUT',
-        body: { rank },
-      }));
+      // отправляем именно накопленную на этот момент дельту и вычитаем её
+      // же после успеха — addRank во время await не теряется (тот же
+      // паттерн, что F9 в load())
+      const delta = entry.pendingRankDelta;
+
+      requests.push(
+        this._authedFetch(lobbyConfig.auth.rankUrl, token, {
+          method: 'PUT',
+          body: { delta },
+        }).then(res => {
+          if (res.ok) {
+            entry.pendingRankDelta -= delta;
+          }
+        }),
+      );
     }
 
     if (stateLoaded) {

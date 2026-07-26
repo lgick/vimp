@@ -514,6 +514,12 @@
   white-space: nowrap;
 }
 
+.lobby-card-rating {
+  min-width: 32px;
+  text-align: right;
+  color: #8f8;
+}
+
 .lobby-card-latency {
   min-width: 48px;
   text-align: right;

@@ -294,6 +294,35 @@ The completed module split of the former monolithic `core/src/` (Stage 4b):
 | --- | --- |
 | `physics.rs` (world, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), `snapshot.rs` framing, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, fixed-step/contacts out of `game.rs`, the handoff skeleton | `tank.rs`, `bomb.rs`, `motion.rs` (+parity tests), the `events` mapping, `bots/{controller,navigation}.rs`, the game logic of `game.rs` (→ `sim.rs`), `client/shot.rs`, game block layouts (as schema+RowData), the `#[wasm_bindgen]` wrappers, `tests/sim.rs` |
 
+## Profile writes: rank & skills
+
+Any game present in the master's catalog (`config/master.js › games` — a
+curated onboarding, `gameId` is assigned by the deployer) may write to a
+player's shared profile in the central auth service. Every write is
+namespaced by `game_id`; a game only ever touches its own namespace, never
+another game's.
+
+- **rank** — a single format shared by every game: one clamped integer per
+  `(user, game)`, rendered identically wherever the master shows it (e.g. the
+  lobby). This is part of the public SDK contract. `HostPlugin` reports a
+  **match delta** (`PlayerDataProxy`/`PlayerDataSync`, `PUT /rank { delta }`),
+  not an absolute value — the auth service owns the ledger and the clamp
+  (`config.rank.min/max`), see [auth.md](auth.md#schema).
+- **skills** — an opaque JSONB `state`, format entirely up to the game
+  (`PUT /state { state }`). The engine never reads or validates its fields,
+  only its overall byte size (`config.state.maxBytes`); the SDK contract
+  covers only the namespacing mechanism, not the schema.
+- A game **never** writes nick or identity — those come from the player's
+  JWT, not from game code.
+- Both endpoints are proxied through the host (`PlayerDataProxy`) under the
+  reporting player's own Bearer identity-token, and are attributed to the
+  hosting server (`hosterUserId`/`sessionId`). If that server's rating later
+  hits `blockAt`, every rank/skills contribution attributed to it is
+  reverted — see
+  [auth.md](auth.md#schema) and
+  [master.md](master.md#server-rating-likeunlike). A game cannot opt out of
+  this: it is a property of the shared profile, not of the game's own data.
+
 ## Versions and compatibility
 
 | Constant | Owner | Policy |

@@ -167,7 +167,7 @@ describe('SignalingClient: исходящие сообщения', () => {
     });
   });
 
-  it('pingHost и reportHost шлют свои сообщения', () => {
+  it('pingHost, likeHost и unlikeHost шлют свои сообщения', () => {
     client.pingHost('h1', 42);
     expect(socket.lastSent()).toEqual({
       type: 'ping_host',
@@ -175,11 +175,20 @@ describe('SignalingClient: исходящие сообщения', () => {
       pingId: 42,
     });
 
-    client.reportHost('h1', 'aimbot');
+    client.likeHost('h1', 'good game', 'tok');
     expect(socket.lastSent()).toEqual({
-      type: 'report_host',
+      type: 'like_host',
+      hostId: 'h1',
+      reason: 'good game',
+      token: 'tok',
+    });
+
+    client.unlikeHost('h1', 'aimbot', 'tok');
+    expect(socket.lastSent()).toEqual({
+      type: 'unlike_host',
       hostId: 'h1',
       reason: 'aimbot',
+      token: 'tok',
     });
   });
 
@@ -204,6 +213,16 @@ describe('SignalingClient: исходящие сообщения хоста', ()
       name: 'Room',
       maxPlayers: 8,
       mapName: 'pool_mini',
+    });
+  });
+
+  it('registerHost прокидывает identity-токен хостера', () => {
+    client.registerHost({ name: 'Room', token: 'jwt-token' });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'register_host',
+      name: 'Room',
+      token: 'jwt-token',
     });
   });
 

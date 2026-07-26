@@ -1,4 +1,4 @@
-# Этап 1. Модель доверия и атрибуция записей rank/skills (auth)
+# Этап 1. Модель доверия и атрибуция записей rank/skills (auth) ✅ выполнен
 
 Цель: закрепить, кто и куда пишет в общий профиль, и **привязать каждую
 запись rank/skills к серверу и сессии** — без этого этап 4 (аннулирование)
@@ -87,6 +87,17 @@ CREATE TABLE state_snapshots (
   state.
 - `packages/auth/src/main.js` — принять `hosterUserId`/`sessionId` в теле
   `PUT /rank`·`/state` (проброшены мастером).
+
+Смена семантики `PUT /rank` (абсолют → дельта) — breaking change для
+единственного текущего вызывающего, поэтому пришлось задеть ещё три файла
+вне `packages/auth`, иначе rank-синк сломался бы сразу после мержа:
+`packages/engine/src/host/meta/modules/PlayerDataSync.js` (шлёт
+`pendingRankDelta`, накопленный с последнего успешного flush, вместо
+абсолютного `rank`; вычитает отправленное после `200`, чтобы не терять
+`addRank` во время запроса), `packages/engine/src/master/PlayerDataProxy.js`
+и `packages/engine/src/master/main.js` (прокидывают `delta` вместо `rank`
+транзитом, без бизнес-логики). `hosterUserId`/`sessionId` в тело пока не
+добавлены — сервер/сессия появятся в этапе 2.
 
 ## 1.5. Тесты (`tests/`, зеркалит `packages/auth/src/`)
 

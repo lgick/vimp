@@ -63,9 +63,16 @@ In dev, `VIMP_AUTH_ALLOWED_ORIGINS` defaults to the dev master's origin
 ## Schema
 
 ```
-users:    id, provider, provider_uid, nick(UNIQUE), created_at
-ratings:  user_id, game_id, rank, updated_at
-states:   user_id, game_id, state(JSONB opaque), updated_at   ← "skills"
+users:           id, provider, provider_uid, nick(UNIQUE), created_at
+ratings:         user_id, game_id, rank, updated_at            ← denormalized cache
+rank_events:     id, user_id, game_id, hoster_user_id, session_id,
+                 delta, voided, created_at                     ← append-only ledger
+state_snapshots: user_id, game_id, session_id, hoster_user_id,
+                 state_before, created_at                      ← rollback MVP
+states:          user_id, game_id, state(JSONB opaque), updated_at  ← "skills"
+host_ratings:    hoster_user_id, score, blocked, updated_at     ← denormalized cache
+host_votes:      hoster_user_id, voter_user_id, value, reason,
+                 updated_at                                    ← current opinion, one row/pair
 ```
 
 `(provider, provider_uid)` is unique — one row per external identity;
@@ -75,6 +82,50 @@ case-insensitively (`002_nick_case_insensitive.sql`, a `UNIQUE INDEX` on
 can't coexist. `packages/auth/src/UserRepository.js` is the only module
 touching these tables.
 
+**Rank ledger** (server-rating stage 1, `003_rank_ledger.sql`): `ratings.rank`
+is a cache, not the source of truth. Every match result appends a signed
+`delta` row to `rank_events`, attributed to the hosting server
+(`hoster_user_id`, the room creator's `userId`) and its session
+(`session_id`); `ratings.rank` is recomputed as
+`SUM(delta) WHERE voided = false`, clamped to `config.rank.min/max`. This
+attribution is what lets server-rating stage 4 void a banned server's contribution
+without touching the rest of a player's history. `state_snapshots` captures
+`state` once per `(user, game, session)` — the value right before that
+server's first write — as an MVP rollback point; a player who plays a clean
+server between two sessions on a banned one will have that clean progress
+overwritten if the snapshot is ever restored (see
+[server-rating plan](../../plan/server-rating/stage_1.md) for the tradeoff).
+
+**Server rating** (server-rating stage 2, `004_host_ratings.sql`,
+[master.md](master.md#server-rating-likeunlike)): unlike the rank ledger,
+`host_votes` isn't append-only — it holds **one row per `(hoster, voter)`
+pair**, since a guest's opinion of a hoster can change (`like`↔`unlike`) and
+should replace, not accumulate on top of, their previous vote. `voteHost`
+upserts that row (no-op if the value is unchanged — `counted: false`) and
+recomputes `host_ratings.score = clamp(SUM(value), config.rating.min/max)`;
+`blocked = score <= config.rating.blockAt`. `config.rating` here mirrors the
+engine's default (`packages/engine/src/config/master.js: rating`) — this
+service is the one that actually clamps/decides `blocked`, the master's copy
+is just the documented default.
+
+**Annulment on ban** (server-rating stage 4): the first time a vote pushes a
+hoster's score to `blocked` (checked as an edge — a vote that keeps an
+already-blocked hoster blocked doesn't repeat this), `_recomputeHostRating`
+calls `voidHosterContributions(hosterUserId)` — entirely within the auth
+service, since it's the sole owner of both the rank ledger and the state
+snapshots (stage 4.1: "transactional on auth, not on the master"). It marks
+every non-voided `rank_events` row for that hoster as `voided`, recomputes
+`ratings.rank` for every `(user, game)` pair that hoster ever touched (even
+if voiding is a no-op on retry, the cache recompute still runs — that's what
+makes the whole call idempotent), and restores `states.state` from that
+hoster's **earliest** `state_snapshots` row per `(user, game)` — the value
+right before the player's first session on that hoster, discarding any
+progress made specifically there. No SQL transaction wraps this (this class
+doesn't use one anywhere, see `recomputeRank`); idempotency of each step
+substitutes for atomicity. Known limitation carried over from stage 1: clean
+progress made on other servers between two sessions on the banned one is
+also reverted by the snapshot restore.
+
 ## REST API
 
 | Endpoint | Purpose |
@@ -83,10 +134,13 @@ touching these tables.
 | `GET /oauth/:provider/callback` | exchanges `code`, finds/creates the user by `(provider, providerUid)`, re-checks the decoded `returnUrl` origin, then redirects to it with either `?token=` (nick already set — full identity JWT) or `?pendingToken=` (first login — nick not chosen yet) |
 | `POST /nick` (Bearer pending token, `{ nick }`) | CORS-enabled for `VIMP_AUTH_ALLOWED_ORIGINS` origins (preflight `OPTIONS` too — the only endpoint called directly from the browser lobby, not proxied by a master), rate-limited per IP; rejects an identity token (`403 nickAlreadySet` — a pending token is required, so `/nick` can't rename an existing user); validates the nick against `NAME_REGEXP` (case-insensitively unique — see Schema) and sets it, returns `{ token }` (full identity JWT). `409 { error: 'nickTaken' }` on a race |
 | `GET /jwks` | RS256 public key as a JWK — a host verifies `token`'s signature against this before trusting its `nick` |
-| `GET /rank?game=` (Bearer identity token) | `{ rank }` for the caller and game |
-| `PUT /rank?game=` (Bearer, `{ rank }`) | upserts the rank (must be a finite number); mirrors `PUT /state` (Stage B4) |
+| `GET /rank?game=` (Bearer identity token) | `{ rank }` — the cached, clamped sum of the caller's non-voided `rank_events` for that game |
+| `PUT /rank?game=` (Bearer, `{ delta, hosterUserId?, sessionId? }`) | appends a match-delta ledger event (must be an integer, positive or negative) attributed to the reporting server/session, recomputes and returns `{ rank }`; mirrors `PUT /state` (Stage B4, delta semantics since server-rating stage 1) |
 | `GET /state?game=` (Bearer) | `{ state }` (opaque JSON, the "skills" blob) |
-| `PUT /state?game=` (Bearer, `{ state }`) | upserts the state blob |
+| `PUT /state?game=` (Bearer, `{ state, hosterUserId?, sessionId? }`) | if `sessionId` is given and no snapshot exists yet for `(user, game, session)`, first stores the current `state` into `state_snapshots`, then upserts the new `state`; rejects a state above `config.state.maxBytes` (`400 stateTooLarge`) |
+| `GET /host-rating` (Bearer identity token) | `{ score, blocked }` — the caller's **own** rating, as a hoster; the master calls this with the hoster's token on `register_host` to decide whether to reject the room (`blocked: true`), and to seed the room's cached lobby `rating` (server-rating stage 3) |
+| `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | a guest's vote for/against `hosterUserId` (the caller is the voter, taken from their Bearer token — `403 selfVote` if it equals `hosterUserId`); `value` must be `1` or `-1` (`400 invalidVote`); an empty/missing `reason` isn't counted (returns the current rating with `counted: false`, no write); otherwise upserts the vote and returns `{ score, blocked, counted }` |
+| `GET /host-rating/:hosterUserId` (no auth — server-rating stage 3) | `{ score, blocked }` for an arbitrary `hosterUserId`; unauthenticated because the value is already public lobby data (`GET /servers`' `rating` field) — the master's `HostRatingProxy.getPublic` polls this on a timer (`SignalingServer.refreshRatings()`) to refresh its per-room rating cache without holding a Bearer token for every active hoster between requests. `400 badRequest` for a non-integer `:hosterUserId` |
 
 Rate limiting keys on the client IP taken from `X-Forwarded-For` (first hop)
 with a `req.socket.remoteAddress` fallback (`clientIp()` in `src/main.js`) —
@@ -114,7 +168,7 @@ the opposite case (an identity token, i.e. `pending` missing).
 | `src/lib/jwt.js` | RS256 sign/verify (identity + pending tokens), JWKS export |
 | `src/lib/oauthState.js` | signed stateless OAuth `state` param (return URL + CSRF nonce) |
 | `src/lib/validators.js` | nick regexp, duplicated from `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — the two workspaces don't share a runtime dependency |
-| `src/UserRepository.js` | all SQL: find/create user, set nick, get/upsert rank, get/upsert state |
+| `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions |
 | `src/oauth/github.js`, `src/oauth/index.js` | provider registry; `getAuthorizationUrl`/`exchangeCode` shape, extensible for Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, a minimal idempotent migration runner (`CREATE TABLE IF NOT EXISTS`, no version table yet) |
 
@@ -243,7 +297,9 @@ control-whitespace case), `jwt.test.js` (signs with a throwaway RSA key pair,
 mocks `config/auth.js`), `github.test.js` (mocks `fetch`), `oauthState.test.js`
 (incl. the timing-safe compare still rejecting a tampered signature),
 `UserRepository.test.js` (a stub `{ query() }` object — no real PostgreSQL
-needed for unit tests, incl. the `nick IS NULL` rename guard).
+needed for unit tests, incl. the `nick IS NULL` rename guard, and the
+`voteHost`/`getHostRating` cases: first vote, unchanged repeat vote as a
+no-op, an opinion flip, clamping into `config.rating` and setting `blocked`).
 
 Host-side verification (B3) and rank/state sync (B4) are tested in the
 engine tree instead: `tests/lib/jwt.test.js` (`verifyIdentityToken` — valid

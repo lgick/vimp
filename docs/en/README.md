@@ -11,7 +11,7 @@ and signaling.
 | --- | --- |
 | [getting-started.md](getting-started.md) | Local setup: install, Rust toolchain, HTTPS certificates, running, tests, local multiplayer |
 | [architecture.md](architecture.md) | Overall architecture: master/host/client, game loop, connection lifecycle, key invariants |
-| [master.md](master.md) | Master server (entry point): room registry, `GET /servers`, map catalog, WebRTC signaling, `/ban` |
+| [master.md](master.md) | Master server (entry point): room registry, `GET /servers`, map catalog, WebRTC signaling, `/like`·`/unlike` server rating |
 | [auth.md](auth.md) | Central auth service (`packages/auth/`): OAuth login, global nick, JWT/JWKS, per-game rank/state |
 | [host.md](host.md) | Browser host: Worker with the core, `GameCoreAdapter`, the host facade, meta modules, host-player loopback, main-thread router |
 | [core.md](core.md) | Rust engine core (`vimp-engine-core`): `packages/engine/core/` layout, generic traits/macros, snapshot framing, build, tests |

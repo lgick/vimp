@@ -63,9 +63,16 @@ openssl rsa -in .keys/jwt.pem -pubout -out .keys/jwt.pub.pem
 ## Схема БД
 
 ```
-users:    id, provider, provider_uid, nick(UNIQUE), created_at
-ratings:  user_id, game_id, rank, updated_at
-states:   user_id, game_id, state(JSONB opaque), updated_at   ← «скиллы»
+users:           id, provider, provider_uid, nick(UNIQUE), created_at
+ratings:         user_id, game_id, rank, updated_at            ← денормализованный кэш
+rank_events:     id, user_id, game_id, hoster_user_id, session_id,
+                 delta, voided, created_at                     ← append-only леджер
+state_snapshots: user_id, game_id, session_id, hoster_user_id,
+                 state_before, created_at                      ← MVP отката
+states:          user_id, game_id, state(JSONB opaque), updated_at  ← «скиллы»
+host_ratings:    hoster_user_id, score, blocked, updated_at    ← денормализованный кэш
+host_votes:      hoster_user_id, voter_user_id, value, reason,
+                 updated_at                              ← текущее мнение, 1 строка/пара
 ```
 
 `(provider, provider_uid)` уникальна — одна строка на внешнюю личность;
@@ -73,6 +80,52 @@ states:   user_id, game_id, state(JSONB opaque), updated_at   ← «скиллы
 (`002_nick_case_insensitive.sql` — `UNIQUE INDEX` по `lower(nick)` поверх
 обычного `UNIQUE(nick)`), так что `"Admin"` и `"admin"` не могут сосуществовать.
 Единственный модуль, трогающий эти таблицы, — `packages/auth/src/UserRepository.js`.
+
+**Леджер rank** (server-rating этап 1, `003_rank_ledger.sql`): `ratings.rank`
+теперь кэш, а не источник истины. Каждый результат матча дописывает строку
+`delta` в `rank_events`, атрибутированную к серверу-хосту
+(`hoster_user_id` — `userId` создателя комнаты) и его сессии
+(`session_id`); `ratings.rank` пересчитывается как
+`SUM(delta) WHERE voided = false`, клампится в `config.rank.min/max`. Именно
+эта атрибуция позволяет server-rating этапу 4 аннулировать вклад забаненного
+сервера, не трогая остальную историю игрока. `state_snapshots` фиксирует `state` один раз
+на `(user, game, session)` — значение прямо перед первой записью этого
+сервера — как MVP-точку отката; если игрок между двумя сессиями на
+забаненном сервере поиграл на честном, восстановление снапшота затрёт этот
+честный прогресс (компромисс описан в
+[плане server-rating](../../plan/server-rating/stage_1.md)).
+
+**Рейтинг сервера** (server-rating этап 2, `004_host_ratings.sql`,
+[master.md](master.md#рейтинг-сервера-likeunlike)): в отличие от леджера
+rank, `host_votes` — не append-only, а **одна строка на пару `(hoster,
+voter)`**: мнение гостя о хостере может меняться (`like`↔`unlike`) и должно
+заменять предыдущий голос, а не копиться поверх него. `voteHost` перезаписывает
+эту строку (no-op, если значение не изменилось — `counted: false`) и
+пересчитывает `host_ratings.score = clamp(SUM(value), config.rating.min/max)`;
+`blocked = score <= config.rating.blockAt`. `config.rating` здесь зеркалирует
+движковый дефолт (`packages/engine/src/config/master.js: rating`) — именно
+этот сервис фактически клампит/решает `blocked`, копия мастера — лишь
+документированный дефолт.
+
+**Аннулирование при бане** (server-rating этап 4): в момент, когда голос
+впервые опускает счёт хостера до `blocked` (проверяется как переход —
+голос, который держит уже заблокированного хостера заблокированным, не
+повторяет это), `_recomputeHostRating` вызывает
+`voidHosterContributions(hosterUserId)` — целиком внутри auth-сервиса, т.к.
+он единственный владелец и леджера rank, и снапшотов state (этап 4.1:
+«транзакционно на auth, не на мастере»). Метод помечает все непогашенные
+строки `rank_events` этого хостера как `voided`, пересчитывает `ratings.rank`
+для каждой когда-либо задетой этим хостером пары `(user, game)` (даже если
+само гашение — no-op при повторе, пересчёт кэша всё равно выполняется — это
+и делает весь вызов идемпотентным), и восстанавливает `states.state` из
+**самого раннего** снапшота `state_snapshots` этого хостера для каждой
+`(user, game)` — значения непосредственно перед первой сессией игрока на
+этом хостере, отбрасывая прогресс, набранный именно на нём. SQL-транзакция
+здесь не используется (этот класс нигде её не использует, см.
+`recomputeRank`) — идемпотентность каждого шага заменяет атомарность.
+Известное ограничение, унаследованное с этапа 1: честный прогресс на других
+серверах между двумя сессиями на забаненном тоже откатывается восстановлением
+снапшота.
 
 ## REST API
 
@@ -82,10 +135,13 @@ states:   user_id, game_id, state(JSONB opaque), updated_at   ← «скиллы
 | `GET /oauth/:provider/callback` | обменивает `code`, находит/создаёт пользователя по `(provider, providerUid)`, повторно проверяет origin декодированного `returnUrl`, редиректит на него с `?token=` (ник уже есть — полноценный identity JWT) либо `?pendingToken=` (первый вход, ник не выбран) |
 | `POST /nick` (Bearer pending-токен, `{ nick }`) | CORS для origin'ов из `VIMP_AUTH_ALLOWED_ORIGINS` (включая preflight `OPTIONS` — единственный эндпоинт, вызываемый напрямую браузером лобби, не проксируется мастером), rate-limit по IP; отклоняет identity-токен (`403 nickAlreadySet` — нужен именно pending-токен, иначе `/nick` мог бы переименовывать существующего пользователя); проверяет ник по `NAME_REGEXP` (уникальность регистронезависимая — см. «Схема БД») и сохраняет, возвращает `{ token }` (полный identity JWT). `409 { error: 'nickTaken' }` при гонке |
 | `GET /jwks` | публичный RS256-ключ в формате JWK — хост проверяет подпись `token` перед тем, как довериться его `nick` |
-| `GET /rank?game=` (Bearer identity-токен) | `{ rank }` вызывающего для игры |
-| `PUT /rank?game=` (Bearer, `{ rank }`) | upsert rank (должен быть конечным числом); зеркало `PUT /state` (Этап B4) |
+| `GET /rank?game=` (Bearer identity-токен) | `{ rank }` — закэшированная, клампленная сумма непогашенных `rank_events` вызывающего для игры |
+| `PUT /rank?game=` (Bearer, `{ delta, hosterUserId?, sessionId? }`) | дописывает событие леджера с дельтой матча (целое, может быть отрицательным), атрибутированное к серверу/сессии-репортёру, пересчитывает и возвращает `{ rank }`; зеркало `PUT /state` (Этап B4, семантика дельты — с server-rating этапа 1) |
 | `GET /state?game=` (Bearer) | `{ state }` (непрозрачный JSON, блок «скиллов») |
-| `PUT /state?game=` (Bearer, `{ state }`) | upsert блока state |
+| `PUT /state?game=` (Bearer, `{ state, hosterUserId?, sessionId? }`) | если передан `sessionId` и снапшота для `(user, game, session)` ещё нет — сначала сохраняет текущий `state` в `state_snapshots`, затем upsert'ит новый `state`; отклоняет state больше `config.state.maxBytes` (`400 stateTooLarge`) |
+| `GET /host-rating` (Bearer identity-токен) | `{ score, blocked }` — **собственный** рейтинг вызывающего как хостера; мастер вызывает это с токеном хостера при `register_host`, чтобы решить, отклонить ли комнату (`blocked: true`), и заодно сеет закэшированный `rating` комнаты в лобби (server-rating этап 3) |
+| `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | голос гостя за/против `hosterUserId` (голосующий — вызывающий, из его Bearer-токена — `403 selfVote`, если совпадает с `hosterUserId`); `value` должно быть `1` или `-1` (`400 invalidVote`); пустая/отсутствующая `reason` не учитывается (возвращает текущий рейтинг с `counted: false`, без записи); иначе upsert голоса и `{ score, blocked, counted }` |
+| `GET /host-rating/:hosterUserId` (без авторизации — server-rating этап 3) | `{ score, blocked }` для произвольного `hosterUserId`; без авторизации, т.к. значение и так публично отображается в лобби (поле `rating` в `GET /servers`) — `HostRatingProxy.getPublic` мастера опрашивает этот эндпоинт по таймеру (`SignalingServer.refreshRatings()`), чтобы обновлять кэш рейтинга по комнатам, не храня Bearer-токен каждого активного хостера между запросами. `400 badRequest` для нецелого `:hosterUserId` |
 
 Ключ rate-limit'а — IP клиента из `X-Forwarded-For` (первый адрес) с
 фолбэком на `req.socket.remoteAddress` (`clientIp()` в `src/main.js`), а не
@@ -113,7 +169,7 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 | `src/lib/jwt.js` | подпись/проверка RS256 (identity + pending), экспорт JWKS |
 | `src/lib/oauthState.js` | подписанный stateless `state` OAuth (return URL + CSRF-nonce) |
 | `src/lib/validators.js` | regexp ника, продублирован из `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — воркспейсы не делят рантайм-зависимость |
-| `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get/upsert rank, get/upsert state |
+| `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state |
 | `src/oauth/github.js`, `src/oauth/index.js` | реестр провайдеров; форма `getAuthorizationUrl`/`exchangeCode`, расширяема под Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, минимальный идемпотентный раннер миграций (`CREATE TABLE IF NOT EXISTS`, без таблицы версий пока) |
 
@@ -242,7 +298,9 @@ RSA-парой, мокает `config/auth.js`), `github.test.js` (мокает `
 `oauthState.test.js` (включая тайминг-безопасное сравнение, всё ещё
 отклоняющее подделанную подпись), `UserRepository.test.js` (заглушка
 `{ query() }` — для юнит-тестов реальный PostgreSQL не нужен, включая
-защиту `nick IS NULL` от переименования).
+защиту `nick IS NULL` от переименования, а также кейсы `voteHost`/
+`getHostRating`: первый голос, повторный неизменный голос как no-op, смена
+мнения, кламп в `config.rating` и выставление `blocked`).
 
 Проверка на стороне хоста (B3) и синхронизация rank/state (B4) тестируются
 в дереве движка: `tests/lib/jwt.test.js` (`verifyIdentityToken` — валидная

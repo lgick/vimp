@@ -243,9 +243,16 @@ The master server's config (see [master.md](master.md)); read by
   `defaultLimit: 10`, `maxLimit: 50`;
 - `host` — room constraints: `maxNameLength: 30`, `maxPlayersLimit: 8`,
   `heartbeatTimeout: 30000` (a room without a heartbeat for longer is
-  removed), `sweepInterval: 10000`; `/ban` social moderation:
-  `banThreshold: 5` (unique per-IP reports needed for a ban),
-  `reportWindowMs: 3600000` (the report/ban window, 1 h);
+  removed), `sweepInterval: 10000`;
+- `rating` — server-rating defaults (`/like`·`/unlike`, replacing the old
+  `/ban`, see [master.md](master.md#server-rating-likeunlike)): `min: -10`,
+  `max: 10`, `blockAt: -10` (a hoster whose rating hits this score can't
+  create rooms); `refreshInterval: 30000` — how often `main.js` calls
+  `SignalingServer.refreshRatings()` to re-poll every active room's cached
+  `rating` from the auth service (stage 3 — catches a score changed on a
+  different master or after a restart). Mirrored in
+  `packages/auth/src/config/auth.js` (`rating`) — the auth service is the
+  one that actually clamps/decides `blocked`;
 - `regionHeader: 'x-region'` — the header carrying a host's region from
   Nginx/CDN;
 - `pingRateLimit` — the limit on signaling `ping_host` requests per IP

@@ -18,17 +18,20 @@ The client is a browser app built on PixiJS (Vite build, Pug templates in
   both `welcome` (from the master) and `authenticated` (from LobbyAuth) have
   fired — `#lobby` stays hidden until the player is signed in. Picking a
   server → `connectToHost` creates a `WebRtcManager`, establishes P2P, and
-  remembers `currentHostId` (for `/ban`).
-- **`/ban` social moderation**: outgoing chat goes through `handleChatSend`
-  — it intercepts `/ban <reason>` and, instead of sending it to the host
-  (port `CHAT_DATA`), sends the report straight to the master
-  (`signaling.reportHost(currentHostId, reason)`), bypassing the cheating
-  host. A reason is required, available only to guests (`currentHostId` is
-  set); for the host player the command shows a local hint; a dropped
-  signaling WS shows a plain error message (the report wasn't sent). The
-  master additionally only accepts reports from a session that actually
-  connected to the room — see [master.md](master.md#ban-social-moderation).
-  The rest of chat goes to the host as usual.
+  remembers `currentHostId` (for `/like`·`/unlike`).
+- **Server rating (`/like`·`/unlike`)**: outgoing chat goes through
+  `handleChatSend` — it intercepts `/like <reason>`/`/unlike <reason>` and,
+  instead of sending it to the host (port `CHAT_DATA`), sends the vote
+  straight to the master (`signaling.likeHost`/`unlikeHost(currentHostId,
+  reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
+  bypassing the cheating host. A reason is required, available only to
+  signed-in guests (`currentHostId` is set); for the host player or a signed-
+  out player the command shows a local hint; a dropped signaling WS shows a
+  plain error message (the vote wasn't sent). The master additionally only
+  accepts votes from a session that actually connected to the room and
+  verifies the identity-token — see
+  [master.md](master.md#server-rating-likeunlike). The rest of chat goes to
+  the host as usual.
 - Branches incoming host packets (`handleMessage`) by data type: a string →
   the JSON dispatcher `[portId, payload]` → `socketMethods[portId]`; an
   `ArrayBuffer` → `clientCore.push_frame` (decoding, seq insertion into the
@@ -84,8 +87,8 @@ The game transport is WebRTC, not WebSocket (channel details —
 - **`SignalingClient`** — a thin wrapper around the master's signaling
   WebSocket: `connect()`, caching `id`/`iceServers` from `welcome`,
   relaying incoming messages to subscribers by `type` (via `Publisher`),
-  methods `sendOffer`/`sendIceCandidate`/`pingHost`/`reportHost`. The
-  transport is injected by a factory for tests.
+  methods `sendOffer`/`sendIceCandidate`/`pingHost`/`likeHost`/`unlikeHost`.
+  The transport is injected by a factory for tests.
 - **`WebRtcManager`** — the P2P connection to the host: `RTCPeerConnection`
   + the `meta` (reliable-ordered) and `state` (unreliable-unordered)
   channels. The client is the offerer: it creates the channels/offer,
@@ -175,7 +178,11 @@ top-level navigation and unaffected by CSP either way).
 - **view** — renders cards, search, "Load more"; **smart pinging** through
   `IntersectionObserver`: a card entering the visible area → `visible` →
   the controller sends `ping_host`; `pong` updates latency and re-sorts
-  cards ascending. `IntersectionObserver` is injected for tests.
+  cards ascending. `IntersectionObserver` is injected for tests. Each card
+  also shows the hoster's cached rating (server-rating stage 3 —
+  `.lobby-card-rating`, straight from the server object's `rating` field,
+  signed for positive values (`+7`/`-3`/`0`); this is engine-level lobby UI,
+  not something a game plugin renders.
 - **controller** — proxies view events to the model; ping throttling lives
   in the model (`pingHost` returns `false` if the server was pinged
   recently, interval `pingInterval`).

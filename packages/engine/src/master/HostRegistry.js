@@ -21,20 +21,20 @@ export default class HostRegistry {
     this._maxLimit = options.maxLimit ?? 50;
     this._maxNameLength = options.maxNameLength ?? 30;
     this._maxPlayersLimit = options.maxPlayersLimit ?? 8;
-    this._banThreshold = options.banThreshold ?? 5;
-    this._reportWindowMs = options.reportWindowMs ?? 3600000;
-    this._maxReasons = options.maxReasons ?? 20;
 
     this._hosts = new Map(); // hostId -> HostSession
-    this._bannedIps = new Map(); // ip -> срок снятия бана (timestamp)
   }
 
   get size() {
     return this._hosts.size;
   }
 
-  // регистрирует комнату; null — если с этого IP комната уже создана
-  add({ name, maxPlayers, mapName, region, ip, gameId, gameVersion }, now = Date.now()) {
+  // регистрирует комнату; null — если с этого IP комната уже создана.
+  // hosterUserId — идентичность хостера из его identity-токена
+  // (server-rating этап 2): атрибуция голосов /like·/unlike и (этап 4)
+  // аннулирования rank/skills; блокировку хостера по рейтингу проверяет
+  // вызывающий (SignalingServer) до add(), т.к. это асинхронный запрос к auth
+  add({ name, maxPlayers, mapName, region, ip, gameId, gameVersion, hosterUserId }, now = Date.now()) {
     if (this.getByIp(ip)) {
       return null;
     }
@@ -54,11 +54,13 @@ export default class HostRegistry {
       // композиция) их не присылают — null
       gameId: gameId ?? null,
       gameVersion: gameVersion ?? null,
+      hosterUserId: hosterUserId ?? null,
+      // рейтинг хостера, закэшированный из auth (server-rating этап 3):
+      // выставляется SignalingServer сразу после add() и обновляется по
+      // голосам/таймеру — GET /servers не ходит в БД на каждый запрос
+      rating: 0,
       ip,
       status: 'online',
-      reportCount: 0,
-      reporters: new Map(), // ключ репортёра -> ts жалобы (уникальность + окно)
-      reportReasons: [], // причины жалоб (аудит, наружу не отдаются)
       lastSeen: now,
     };
 
@@ -83,6 +85,41 @@ export default class HostRegistry {
 
   remove(hostId) {
     return this._hosts.delete(hostId);
+  }
+
+  // обновляет закэшированный рейтинг одной комнаты (server-rating этап 3) —
+  // после регистрации хоста и после каждого голоса
+  setRating(hostId, rating) {
+    const host = this._hosts.get(hostId);
+
+    if (host) {
+      host.rating = rating;
+    }
+  }
+
+  // обновляет рейтинг во всех активных комнатах данного хостера (обычно одна,
+  // но технически хостер может держать несколько с разных IP) — используется
+  // периодическим опросом auth, где известен только hosterUserId
+  setRatingForHoster(hosterUserId, rating) {
+    for (const host of this._hosts.values()) {
+      if (host.hosterUserId === hosterUserId) {
+        host.rating = rating;
+      }
+    }
+  }
+
+  // уникальные hosterUserId активных комнат — чтобы периодически опросить
+  // auth за актуальным рейтингом каждого (server-rating этап 3)
+  getHosterUserIds() {
+    const ids = new Set();
+
+    for (const host of this._hosts.values()) {
+      if (host.hosterUserId !== null) {
+        ids.add(host.hosterUserId);
+      }
+    }
+
+    return ids;
   }
 
   // обновляет состояние комнаты; любое обновление — heartbeat
@@ -111,71 +148,7 @@ export default class HostRegistry {
     return true;
   }
 
-  // забанен ли IP (жалобы держатся окно reportWindowMs); лениво чистит протухшие
-  isBanned(ip, now = Date.now()) {
-    const expiry = this._bannedIps.get(ip);
-
-    if (expiry === undefined) {
-      return false;
-    }
-
-    if (now >= expiry) {
-      this._bannedIps.delete(ip);
-      return false;
-    }
-
-    return true;
-  }
-
-  // жалоба на хоста (/ban); reporterKey — уникальность в окне reportWindowMs.
-  // Возвращает { counted, banned }: counted — жалоба учтена (не дубль),
-  // banned — хост достиг порога и переведён в бан
-  report(hostId, reporterKey, reason, now = Date.now()) {
-    const host = this._hosts.get(hostId);
-
-    if (!host) {
-      return { counted: false, banned: false };
-    }
-
-    // причина обязательна (правило /ban) — жалоба без неё не учитывается
-    const clean = sanitizeMessage(reason).trim();
-
-    if (!clean) {
-      return { counted: false, banned: false };
-    }
-
-    // отбросить жалобы старше окна давности
-    for (const [key, ts] of host.reporters) {
-      if (now - ts >= this._reportWindowMs) {
-        host.reporters.delete(key);
-      }
-    }
-
-    if (host.reporters.has(reporterKey)) {
-      return { counted: false, banned: false };
-    }
-
-    host.reporters.set(reporterKey, now);
-    host.reportCount = host.reporters.size;
-
-    host.reportReasons.push(clean);
-
-    if (host.reportReasons.length > this._maxReasons) {
-      host.reportReasons.shift();
-    }
-
-    if (host.reporters.size >= this._banThreshold) {
-      host.status = 'banned';
-      this._bannedIps.set(host.ip, now + this._reportWindowMs);
-
-      return { counted: true, banned: true };
-    }
-
-    return { counted: true, banned: false };
-  }
-
-  // удаляет комнаты без heartbeat дольше timeout; возвращает удалённые id.
-  // Заодно чистит протухшие записи бана
+  // удаляет комнаты без heartbeat дольше timeout; возвращает удалённые id
   sweepStale(timeout, now = Date.now()) {
     const removed = [];
 
@@ -183,12 +156,6 @@ export default class HostRegistry {
       if (now - host.lastSeen >= timeout) {
         this._hosts.delete(hostId);
         removed.push(hostId);
-      }
-    }
-
-    for (const [ip, expiry] of this._bannedIps) {
-      if (now >= expiry) {
-        this._bannedIps.delete(ip);
       }
     }
 
@@ -231,8 +198,8 @@ export default class HostRegistry {
   }
 
   // публичное представление комнаты (без ip и служебных полей)
-  _toPublic({ hostId, name, mapName, currentPlayers, maxPlayers, region, gameId }) {
-    return { hostId, name, mapName, currentPlayers, maxPlayers, region, gameId };
+  _toPublic({ hostId, name, mapName, currentPlayers, maxPlayers, region, gameId, rating }) {
+    return { hostId, name, mapName, currentPlayers, maxPlayers, region, gameId, rating };
   }
 
   _sanitizeName(name) {

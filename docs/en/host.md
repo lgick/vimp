@@ -152,9 +152,15 @@ to still being the join-time default:
   there — `playerDataSync.addRank(killerId, +1 or -1)` with the same
   win/team-kill branching as the score update.
 - **Sync back**: `flush(participantId)` `PUT`s the participant's current
-  rank+state to the master (`Promise.allSettled`, best-effort — errors are
-  swallowed and a later flush retries with whatever's accumulated by then).
-  If `rankLoaded`/`stateLoaded` is still `false` (the initial `load` never
+  state and *rank delta* to the master (`Promise.allSettled`, best-effort —
+  errors are swallowed and a later flush retries with whatever's accumulated
+  by then). Since server-rating stage 1, auth's `/rank` is an append-only
+  ledger, not an absolute value — `PlayerDataSync` tracks `pendingRankDelta`
+  (everything `addRank` has added since the last successful flush) and
+  `PUT`s that instead of the locally accumulated total; on a `200`, exactly
+  the delta that was sent is subtracted back out, so an `addRank` racing the
+  in-flight request isn't lost (same pattern as the load-race fix below). If
+  `rankLoaded`/`stateLoaded` is still `false` (the initial `load` never
   succeeded), `flush` retries `load()` first and only `PUT`s the part that's
   now confirmed loaded — otherwise a transient auth-service outage at join
   time would `PUT` the rank-`0` default over a player's real saved rank on
@@ -342,8 +348,8 @@ this way (e.g. `vimp-tanks` registers a bot-spawn command — see that
 plugin's own docs for its syntax); if more than one human is active, a
 vote runs instead of immediate execution (category `botManagement` for the
 tanks example). An unknown command produces a "Command not found" system
-message. (`/ban` never reaches the host — the client intercepts it and sends
-the report straight to the master, see [master.md](master.md).)
+message. (`/like`·`/unlike` never reach the host — the client intercepts them
+and sends the vote straight to the master, see [master.md](master.md).)
 
 **VoteCoordinator** — creates votes on top of the `Vote` module:
 `canCreateVote` (topic cooldown check), `createVote` (payload + result

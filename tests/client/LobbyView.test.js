@@ -54,6 +54,7 @@ const server = (hostId, over = {}) => ({
   maxPlayers: over.maxPlayers ?? 8,
   region: over.region || 'EU',
   latency: over.latency ?? null,
+  rating: over.rating ?? 0,
 });
 
 let observer;
@@ -108,6 +109,22 @@ describe('LobbyView: рендер списка', () => {
     expect(cards[0].querySelector('.lobby-card-latency').textContent).toBe(
       '40 ms',
     );
+  });
+
+  it('рисует рейтинг хостера со знаком для положительных значений', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('list', {
+      servers: [server('a', { rating: 7 }), server('b', { rating: -3 }), server('c', { rating: 0 })],
+      hasMore: false,
+    });
+
+    const ratings = [...document.querySelectorAll('.lobby-card-rating')].map(
+      el => el.textContent,
+    );
+
+    expect(ratings).toEqual(['+7', '-3', '0']);
   });
 
   it('неизвестная latency показывается как …', () => {

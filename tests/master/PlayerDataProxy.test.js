@@ -19,7 +19,7 @@ describe('PlayerDataProxy', () => {
     });
   });
 
-  it('отправляет PUT rank с телом JSON', async () => {
+  it('отправляет PUT rank с дельтой в теле JSON', async () => {
     const fetchImpl = makeFetch(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
     const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
 
@@ -28,7 +28,7 @@ describe('PlayerDataProxy', () => {
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/rank?game=tanks', {
       method: 'PUT',
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ rank: 10 }),
+      body: JSON.stringify({ delta: 10 }),
     });
   });
 

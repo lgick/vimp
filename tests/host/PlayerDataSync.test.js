@@ -65,7 +65,7 @@ describe('PlayerDataSync', () => {
     expect(sync.getState('p1')).toEqual({ skill: 9 });
   });
 
-  it('flush отправляет PUT rank и state с текущими значениями', async () => {
+  it('flush отправляет PUT rank дельтой (не абсолютом) и state текущим значением', async () => {
     const fetchImpl = makeFetch([
       { ok: true, json: async () => ({ rank: 5 }) },
       { ok: true, json: async () => ({ state: {} }) },
@@ -86,8 +86,50 @@ describe('PlayerDataSync', () => {
     expect(fetchImpl).toHaveBeenCalledWith('/auth/rank?game=tanks', {
       method: 'PUT',
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ rank: 7 }),
+      body: JSON.stringify({ delta: 2 }),
     });
+  });
+
+  it('flush после успеха не переотправляет уже учтённую дельту', async () => {
+    const fetchImpl = makeFetch([
+      { ok: true, json: async () => ({ rank: 5 }) },
+      { ok: true, json: async () => ({ state: {} }) },
+      { ok: true, json: async () => ({ ok: true }) },
+      { ok: true, json: async () => ({ ok: true }) },
+    ]);
+    const sync = new PlayerDataSync('tanks', { fetchImpl });
+
+    await sync.load('p1', 'tok');
+    sync.addRank('p1', 2);
+    await sync.flush('p1');
+
+    fetchImpl.mockClear();
+    fetchImpl.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    await sync.flush('p1');
+
+    const rankPut = fetchImpl.mock.calls.find(([url]) => url.startsWith('/auth/rank'));
+    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 0 }));
+  });
+
+  it('flush не теряет дельту, если PUT rank завершился неуспехом', async () => {
+    const fetchImpl = makeFetch([
+      { ok: true, json: async () => ({ rank: 5 }) },
+      { ok: true, json: async () => ({ state: {} }) },
+      { ok: false, json: async () => ({ error: 'down' }) },
+      { ok: true, json: async () => ({ ok: true }) },
+    ]);
+    const sync = new PlayerDataSync('tanks', { fetchImpl });
+
+    await sync.load('p1', 'tok');
+    sync.addRank('p1', 3);
+    await sync.flush('p1');
+
+    fetchImpl.mockClear();
+    fetchImpl.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    await sync.flush('p1');
+
+    const rankPut = fetchImpl.mock.calls.find(([url]) => url.startsWith('/auth/rank'));
+    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 3 }));
   });
 
   it('flush неизвестного участника не бросает исключение', async () => {

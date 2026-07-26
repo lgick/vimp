@@ -62,4 +62,29 @@ export default {
   nick: {
     maxLength: 14,
   },
+
+  // server-rating этап 1 (plan/server-rating/stage_1.md, 1.1): rank —
+  // единый integer-шаблон для всех game_id, кэш ratings.rank клампится в
+  // этот диапазон при пересчёте леджера rank_events
+  rank: {
+    min: 0,
+    max: 1000000,
+  },
+
+  // лимит размера произвольного state (JSONB) игры — поля не валидируются
+  // (формат на усмотрение игры), только общий объём
+  state: {
+    maxBytes: 8192,
+  },
+
+  // server-rating этап 2 (plan/server-rating/stage_2.md, 2.4): диапазон
+  // рейтинга хостера — зеркало движкового дефолта (master:rating в
+  // packages/engine/src/config/master.js); auth — единственный, кто
+  // фактически клампит SUM(host_votes.value) в этот диапазон и решает
+  // blocked, поэтому владеет собственной копией, как и rank выше
+  rating: {
+    min: -10,
+    max: 10,
+    blockAt: -10,
+  },
 };

@@ -1,4 +1,4 @@
-# Этап 3. Отображение рейтинга сервера в лобби
+# Этап 3. Отображение рейтинга сервера в лобби ✅ выполнен
 
 Цель: показать рейтинг сервера в списке лобби (`GET /servers`) и в UI выбора
 сервера.
@@ -33,3 +33,38 @@
 
 Рейтинг виден в списке серверов лобби и корректно проходит через `GET /servers`;
 `npx eslint .` и `npm test` зелёные.
+
+## Реализация (2026-07-26)
+
+Master: `HostRegistry` — новое поле `rating` (стартует с `0`), методы
+`setRating(hostId, rating)`, `setRatingForHoster(hosterUserId, rating)`,
+`getHosterUserIds()`; `_toPublic` отдаёт `rating`. `SignalingServer`:
+`register_host` сеет `rating` из уже запрошенного `hostRatingProxy.getRating`
+(проверка блокировки), `_vote` сразу пишет `score` голоса в кэш комнаты, новый
+метод `refreshRatings()` периодически опрашивает `getPublic` auth-сервиса по
+каждому `hosterUserId` активных комнат (ошибка одного хостера логируется и не
+прерывает остальных). `main.js` — `setInterval(signaling.refreshRatings,
+config.rating.refreshInterval)` (по образцу `sweepStaleHosts`), новый конфиг
+`rating.refreshInterval` (30 с).
+
+Auth: `GET /host-rating/:hosterUserId` — публичный (без `requireAuth`)
+эндпоинт, отдаёт `{ score, blocked }` — нужен мастеру для `refreshRatings()`,
+т.к. он не хранит Bearer-токен конкретного хостера между запросами.
+`HostRatingProxy.getPublic(hosterUserId)` — новый метод (без токена);
+`_request` научился пропускать заголовок `authorization`, если токена нет.
+
+Client: `LobbyView._appendCard` — новый элемент `.lobby-card-rating`
+(`+N`/`-N`/`0`), стиль в `style.css`. `LobbyModel` рейтинг уже прокидывал как
+обычное поле сервера — правок не потребовалось.
+
+Тесты: `HostRegistry.test.js` (кэш `rating`, `setRating`/`setRatingForHoster`/
+`getHosterUserIds`), `SignalingServer.test.js` (сидирование при регистрации,
+обновление при голосе, `refreshRatings` — успех/no-op без прокси/ошибка одного
+хостера не рушит остальные), `HostRatingProxy.test.js` (`getPublic` без
+Bearer), `LobbyView.test.js` (рендер рейтинга со знаком). `npx eslint .`
+чисто, `npm test` — 754/754 зелёных.
+
+Документация обновлена (en+ru): `master.md` (модули, `HostSession`, `GET
+/servers`, раздел «Рейтинг сервера», описание тестов), `auth.md` (новый
+эндпоинт), `client.md` (карточка лобби), `configuration.md`
+(`rating.refreshInterval`).

@@ -5,10 +5,10 @@ authoritative**: all physics (Rapier 2D in the Rust core, WASM) and game
 rules are computed in the Web Worker of the room creator's tab; clients
 render the world (PixiJS) and mask network latency with interpolation and
 prediction. The master server (Node.js) carries no game logic: lobby, WebRTC
-signaling, map catalog, social moderation.
+signaling, map catalog, server rating (social anti-cheat, `/like`·`/unlike`).
 
 ```
-┌──────────────────┐  signaling WS (SDP/ICE, ping, /ban)   ┌──────────────────┐
+┌──────────────────┐  signaling WS (SDP/ICE, ping, vote)   ┌──────────────────┐
 │   Master server  │ ◄───────────────────────────────────► │      Client      │
 │ Node.js: lobby,  │                                       │ PixiJS + Howler  │
 │ GET /servers,    │ ◄───────────┐                         │ interpolation    │

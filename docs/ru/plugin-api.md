@@ -289,6 +289,34 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 | --- | --- |
 | `physics.rs` (мир, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), фрейминг `snapshot.rs`, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, фикс-шаг/контакты из `game.rs`, handoff-каркас | `tank.rs`, `bomb.rs`, `motion.rs` (+parity-тесты), `events`-маппинг, `bots/{controller,navigation}.rs`, игровая логика `game.rs` (→ `sim.rs`), `client/shot.rs`, game-раскладки блоков (как схема+RowData), `#[wasm_bindgen]`-обёртки, `tests/sim.rs` |
 
+## Запись в профиль: rank и skills
+
+Любая игра из каталога мастера (`config/master.js › games` — курируемый
+онбординг, `gameId` выдаёт деплоер) может писать в общий профиль игрока в
+центральном auth-сервисе. Каждая запись привязана к своему `game_id`; игра
+трогает только собственный namespace, никогда — чужой.
+
+- **rank** — единый формат для всех игр: один клампленный integer на пару
+  `(user, game)`, отображаемый одинаково везде, где его показывает мастер
+  (например, лобби). Это часть публичного SDK-контракта. `HostPlugin`
+  сообщает **дельту матча** (`PlayerDataProxy`/`PlayerDataSync`,
+  `PUT /rank { delta }`), а не абсолютное значение — леджер и клампинг
+  (`config.rank.min/max`) владеет auth-сервис, см.
+  [auth.md](auth.md#схема-бд).
+- **skills** — непрозрачный JSONB `state`, формат целиком на усмотрение игры
+  (`PUT /state { state }`). Движок никогда не читает и не валидирует его
+  поля, только общий объём в байтах (`config.state.maxBytes`); SDK-контракт
+  описывает только механизм namespace, не схему.
+- Игра **никогда** не пишет ник или идентичность — они берутся из JWT
+  игрока, не из игрового кода.
+- Оба эндпоинта проксируются через хост (`PlayerDataProxy`) под собственным
+  Bearer identity-токеном сообщающего игрока и атрибутируются к принимающему
+  серверу (`hosterUserId`/`sessionId`). Если рейтинг этого сервера позже
+  падает до `blockAt`, весь вклад rank/skills, отнесённый к нему,
+  откатывается — см. [auth.md](auth.md#схема-бд) и
+  [master.md](master.md#рейтинг-сервера-likeunlike). Игра не может отказаться
+  от этого поведения: это свойство общего профиля, а не игровых данных.
+
 ## Версии и совместимость
 
 | Константа | Владелец | Политика |

@@ -29,8 +29,9 @@ export default class PlayerDataProxy {
     return this._request('/rank', token, { game });
   }
 
-  putRank(token, game, rank) {
-    return this._request('/rank', token, { method: 'PUT', game, body: { rank } });
+  // server-rating этап 1: /rank принимает дельту матча, не абсолют
+  putRank(token, game, delta) {
+    return this._request('/rank', token, { method: 'PUT', game, body: { delta } });
   }
 
   getState(token, game) {

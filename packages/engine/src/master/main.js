@@ -6,10 +6,12 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import ViteExpress from 'vite-express';
 import { WebSocketServer } from 'ws';
+import authClientConfig from '../config/authClient.js';
 import config from '../lib/config.js';
 import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import GameCatalog from './GameCatalog.js';
+import HostRatingProxy from './HostRatingProxy.js';
 import HostRegistry from './HostRegistry.js';
 import JwksProxy from './JwksProxy.js';
 import PlayerDataProxy from './PlayerDataProxy.js';
@@ -70,6 +72,13 @@ const playerDataProxy = new PlayerDataProxy(
   config.get('master:security:authServiceUrl'),
 );
 
+// проксирует GET/PUT /host-rating central auth-сервиса (server-rating этап 2,
+// plan/server-rating/stage_2.md) — рейтинг хостера/голоса гостей персистентны
+// и глобальны, поэтому живут в БД auth, не в памяти мастера
+const hostRatingProxy = new HostRatingProxy(
+  config.get('master:security:authServiceUrl'),
+);
+
 // каталог игр-плагинов (Этап A2): по конфигу `master:games` резолвит пакеты
 // в node_modules и читает <package>/dist/manifest.json (продукт `npm run
 // build` в репозитории игры, например vimp-tanks); в dev entries указывают
@@ -85,7 +94,9 @@ console.info(`-> Domain: ${config.get('master:domain')}`);
 console.info(`-> Port: ${config.get('master:port')}`);
 console.info(`-> Region threshold: ${config.get('master:servers:regionThreshold')}`);
 console.info(`-> Max players per host: ${config.get('master:host:maxPlayersLimit')}`);
-console.info(`-> Ban threshold: ${config.get('master:host:banThreshold')} reports`);
+console.info(
+  `-> Host rating range: [${config.get('master:rating:min')}..${config.get('master:rating:max')}], blockAt: ${config.get('master:rating:blockAt')}`,
+);
 
 if (gameCatalog.ids.length > 0) {
   console.info(`-> Games loaded: ${gameCatalog.ids.join(', ')}`);
@@ -104,8 +115,6 @@ const registry = new HostRegistry({
   maxLimit: config.get('master:servers:maxLimit'),
   maxNameLength: config.get('master:host:maxNameLength'),
   maxPlayersLimit: config.get('master:host:maxPlayersLimit'),
-  banThreshold: config.get('master:host:banThreshold'),
-  reportWindowMs: config.get('master:host:reportWindowMs'),
 });
 
 // каталог worker-бандла (Этап 5.2): версия кода комнаты для эстафеты
@@ -121,6 +130,12 @@ const signaling = new SignalingServer(registry, {
   pingLimiter: new RateLimiter(config.get('master:pingRateLimit')),
   codeVersion: workerCatalog.version,
   gameCatalog,
+  // server-rating этап 2: идентичность хостера/голосующего — Bearer
+  // identity-токен, проверенный по тому же JWKS-прокси, каким его проверяет
+  // Worker хоста, и той же политике issuer (packages/engine/src/config/authClient.js)
+  jwksProxy,
+  hostRatingProxy,
+  issuer: authClientConfig.issuer,
   checkOrigin: security.createOriginValidator({
     protocol: config.get('master:protocol'),
     domain: config.get('master:domain'),
@@ -199,7 +214,7 @@ app.get('/auth/rank', (req, res) =>
 
 app.put('/auth/rank', (req, res) =>
   forwardPlayerData(req, res, (token, game) =>
-    playerDataProxy.putRank(token, game, req.body?.rank),
+    playerDataProxy.putRank(token, game, req.body?.delta),
   ),
 );
 
@@ -318,6 +333,13 @@ wss.on('connection', (ws, req) => signaling.handleConnection(ws, req));
 setInterval(
   () => signaling.sweepStaleHosts(),
   config.get('master:host:sweepInterval'),
+);
+
+// периодический опрос auth за рейтингом активных хостеров (server-rating
+// этап 3) — держит кэш GET /servers свежим между голосами/регистрациями
+setInterval(
+  () => signaling.refreshRatings(),
+  config.get('master:rating:refreshInterval'),
 );
 
 // раздача клиентской статики в dev; в prod её отдаёт Nginx

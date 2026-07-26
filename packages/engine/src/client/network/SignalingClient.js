@@ -58,8 +58,11 @@ export default class SignalingClient {
     this._send({ type: 'webrtc_offer', hostId, sdp });
   }
 
-  // хост → регистрация комнаты у мастера (ответ — событие 'host_registered')
-  registerHost({ name, maxPlayers, mapName, gameId, gameVersion }) {
+  // хост → регистрация комнаты у мастера (ответ — событие 'host_registered').
+  // token — Bearer identity-токен хостера (server-rating этап 2): без него
+  // мастер отклоняет регистрацию, т.к. не может атрибутировать комнату и
+  // проверить рейтинг хостера
+  registerHost({ name, maxPlayers, mapName, gameId, gameVersion, token }) {
     this._send({
       type: 'register_host',
       name,
@@ -67,6 +70,7 @@ export default class SignalingClient {
       mapName,
       gameId,
       gameVersion,
+      token,
     });
   }
 
@@ -95,9 +99,15 @@ export default class SignalingClient {
     this._send({ type: 'ping_host', hostId, pingId });
   }
 
-  // жалоба /ban напрямую мастеру (минуя хоста-читера); reason — причина
-  reportHost(hostId, reason) {
-    this._send({ type: 'report_host', hostId, reason });
+  // /like·/unlike напрямую мастеру (минуя хоста-читера), server-rating
+  // этап 2: reason — причина (обязательна), token — Bearer identity-токен
+  // голосующего
+  likeHost(hostId, reason, token) {
+    this._send({ type: 'like_host', hostId, reason, token });
+  }
+
+  unlikeHost(hostId, reason, token) {
+    this._send({ type: 'unlike_host', hostId, reason, token });
   }
 
   close() {

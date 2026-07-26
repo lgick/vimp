@@ -65,13 +65,14 @@ already behind `renderTime`, are emitted immediately on the next
 `sample()` — "exactly once" is preserved (see
 [client.md](client.md#client-core-clientcore)).
 
-**The `/ban` report** travels **outside the port protocol**: the client
-intercepts the command before sending it to the host and sends
-`report_host { hostId, reason }` over the master's signaling WS
-(`SignalingClient.reportHost`), bypassing the P2P channel to the host. The
-reason: the host runs its own `CommandProcessor` and could filter out a
-complaint about itself. Ban logic lives on the master
-([master.md](master.md#ban-social-moderation)).
+**The `/like`·`/unlike` server-rating vote** travels **outside the port
+protocol**: the client intercepts the command before sending it to the host
+and sends `like_host`/`unlike_host { hostId, reason, token }` over the
+master's signaling WS (`SignalingClient.likeHost`/`unlikeHost`), bypassing
+the P2P channel to the host. The reason: the host runs its own
+`CommandProcessor` and could filter out a vote against itself. `token` is the
+voter's Bearer identity-token; rating logic lives on the master and the
+central auth service ([master.md](master.md#server-rating-likeunlike)).
 
 ## Ports
 

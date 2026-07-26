@@ -99,6 +99,13 @@ export default class LobbyView {
     info.className = 'lobby-card-info';
     info.textContent = `${server.mapName} · ${server.currentPlayers}/${server.maxPlayers} · ${server.region}`;
 
+    // рейтинг хостера (server-rating этап 3) — сервер уже отдаёт кэшированное
+    // значение в GET /servers, диапазон известен из конфига движка
+    const ratingEl = document.createElement('span');
+
+    ratingEl.className = 'lobby-card-rating';
+    ratingEl.textContent = server.rating > 0 ? `+${server.rating}` : `${server.rating}`;
+
     const latencyEl = document.createElement('span');
 
     latencyEl.className = 'lobby-card-latency';
@@ -107,6 +114,7 @@ export default class LobbyView {
 
     card.appendChild(name);
     card.appendChild(info);
+    card.appendChild(ratingEl);
     card.appendChild(latencyEl);
 
     card.onclick = () => this.publisher.emit('join', server.hostId);
