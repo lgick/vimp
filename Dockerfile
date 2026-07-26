@@ -27,21 +27,21 @@ ENV NODE_ENV=production
 # сборка движка (vite build → packages/engine/dist/)
 RUN npm run build:app
 
-# стейджинг dist/ всех установленных игровых пакетов-плагинов (любой @vimp/*
-# в node_modules, кроме собственных workspace-пакетов движка) — без хардкода
-# конкретной игры, чтобы деплой не переписывать при добавлении второй игры
-# в master:games (кодревью Этапов A, находка F6)
+# стейджинг dist/ всех установленных игровых пакетов-плагинов (любой
+# @vimp-games/* в node_modules — отдельный scope от движковых
+# workspace-пакетов @vimp/engine, @vimp/auth) — без хардкода конкретной игры,
+# чтобы деплой не переписывать при добавлении второй игры в master:games
+# (кодревью Этапов A, находка F6)
 RUN mkdir -p /app/game-dists && \
-    for pkg_dir in node_modules/@vimp/*/; do \
-      pkg_name=$(basename "$pkg_dir"); \
-      if [ "$pkg_name" = "engine" ] || [ "$pkg_name" = "auth" ]; then \
-        continue; \
-      fi; \
-      if [ -d "${pkg_dir}dist" ]; then \
-        mkdir -p "/app/game-dists/@vimp/${pkg_name}"; \
-        cp -r "${pkg_dir}dist" "/app/game-dists/@vimp/${pkg_name}/dist"; \
-      fi; \
-    done
+    if [ -d node_modules/@vimp-games ]; then \
+      for pkg_dir in node_modules/@vimp-games/*/; do \
+        pkg_name=$(basename "$pkg_dir"); \
+        if [ -d "${pkg_dir}dist" ]; then \
+          mkdir -p "/app/game-dists/@vimp-games/${pkg_name}"; \
+          cp -r "${pkg_dir}dist" "/app/game-dists/@vimp-games/${pkg_name}/dist"; \
+        fi; \
+      done; \
+    fi
 
 # ============================================================
 # 2. RUNNER — Production Image
@@ -68,8 +68,9 @@ COPY --from=builder /app/packages/engine/src/master ./packages/engine/src/master
 
 # собранные бандлы игр-плагинов, поставленных как npm-зависимости (мастер
 # читает только dist/manifest.json + dist/maps/*.json через GameCatalog) —
-# все @vimp/* из /app/game-dists, без хардкода конкретной игры (находка F6)
-COPY --from=builder /app/game-dists/@vimp ./node_modules/@vimp
+# все @vimp-games/* из /app/game-dists, без хардкода конкретной игры
+# (находка F6)
+COPY --from=builder /app/game-dists/@vimp-games ./node_modules/@vimp-games
 
 ENV NODE_ENV=production
 

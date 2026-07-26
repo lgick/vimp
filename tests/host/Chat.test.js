@@ -6,7 +6,7 @@ import {
 // Стенд-ин игровых кодов (зеркалит форму реальных game-кодов, например
 // b:* танков — vimp-tanks/src/host/systemMessages.js): registerCodes не
 // завязан на конкретную игру, поэтому тест использует собственную фикстуру,
-// а не импорт из @vimp/tanks.
+// а не импорт из @vimp-games/tanks.
 const fixtureSystemMessages = {
   BOT_PLAYERS_ONLY: 'b:0',
   BOT_INVALID_COUNT: 'b:1',

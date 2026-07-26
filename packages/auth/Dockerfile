@@ -22,7 +22,6 @@ FROM node:24-slim AS runner
 WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/auth/node_modules ./packages/auth/node_modules
 COPY packages/auth ./packages/auth
 
 ENV NODE_ENV=production

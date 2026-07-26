@@ -20,7 +20,7 @@ service). Root scripts (`npm run dev`, `npm run build`) proxy into
 `vimp-engine`.
 
 **A game plugin package is required to actually play a match** — this repo
-no longer builds one. Install/link a game (e.g. `@vimp/tanks`, built and
+no longer builds one. Install/link a game (e.g. `@vimp-games/tanks`, built and
 published from the separate `vimp-tanks` repository) into `node_modules`;
 see that repository's own getting-started docs for building it locally
 (`npm link` or a local `file:`/`path:` dependency works for development).

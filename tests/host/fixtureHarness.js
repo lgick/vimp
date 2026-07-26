@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 // Каркас движковых тестов host-фасада поверх фикстурной миниигры
 // (Этап 7 плана отделения движка, PLAN.md: «Тесты движковой меты/HostGame
 // переводятся на фикстуру») — доказывает, что HostGame и мета не
-// завязаны на @vimp/tanks: fake-core (JS, без WASM), поэтому не требует
+// завязаны на @vimp-games/tanks: fake-core (JS, без WASM), поэтому не требует
 // собранного Rust-ядра игры и запускается всегда (engine-node, без гейта).
 //
 // Онбординг/тики/нажатия клавиш ниже — самостоятельная копия аналогичных
@@ -123,7 +123,7 @@ export const pressKey = (host, gameId, name, action = 'down') => {
 };
 
 // Загружает конфиг фикстуры в свежий синглтон config (зеркало loadConfig
-// из ./harness.js, но с миниигрой вместо @vimp/tanks).
+// из ./harness.js, но с миниигрой вместо @vimp-games/tanks).
 export const loadFixtureConfig = async () => {
   const config = (await import('../../packages/engine/src/lib/config.js'))
     .default;

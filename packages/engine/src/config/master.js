@@ -26,7 +26,7 @@ export default {
   // используется GameCatalog напрямую, это опорная точка для проверки версии
   // при деплое (Этап A4). В проде переопределяется переменной окружения
   // GAMES_MATRIX (JSON), см. master/main.js
-  games: [{ id: 'tanks', package: '@vimp/tanks', version: '0.1.0' }],
+  games: [{ id: 'tanks', package: '@vimp-games/tanks', version: '0.1.0' }],
 
   // список серверов (GET /servers)
   servers: {

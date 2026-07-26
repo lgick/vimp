@@ -8,7 +8,7 @@ import MapCatalog from './MapCatalog.js';
 // и читает <package>/dist/manifest.json (продукт сборки пакета игры, см.
 // `docs/en/extending.md`) + per-game MapCatalog из <package>/dist/maps/*.json.
 // Мастер не исполняет код игры (только уже собранный манифест + статичные
-// JSON карт). Пакет игры — обычная npm-зависимость (`@vimp/tanks` и т.п.),
+// JSON карт). Пакет игры — обычная npm-зависимость (`@vimp-games/tanks` и т.п.),
 // не workspace-член этого репозитория (Этап A3).
 //
 // Манифест с несовпадающим `engineApi` (Этап A4) пропускается тем же

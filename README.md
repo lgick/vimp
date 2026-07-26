@@ -19,7 +19,7 @@ published, dynamically loaded game plugins.
 git clone https://github.com/lgick/vimp.git
 cd vimp
 npm install
-npm link @vimp/tanks   # or another game plugin — see its own setup docs
+npm link @vimp-games/tanks   # or another game plugin — see its own setup docs
 npm run dev
 ```
 

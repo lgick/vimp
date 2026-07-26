@@ -12,14 +12,14 @@ Docker image and publishes it to GHCR → SSHes into every server in
 container. On the VPS, Nginx terminates HTTPS and proxies to the app port
 (the master listens on `3002` inside the container).
 
-> **No Rust toolchain needed.** Since the game plugin (`@vimp/tanks`) moved
+> **No Rust toolchain needed.** Since the game plugin (`@vimp-games/tanks`) moved
 > to its own repository (Stage A3), [Dockerfile](../../Dockerfile) no
 > longer builds any WASM core — the game repo's own CI does that and
 > publishes the package. The node stage just runs `npm ci` (installs
-> `@vimp/tanks` from the registry, which brings its already-built `dist/` —
+> `@vimp-games/tanks` from the registry, which brings its already-built `dist/` —
 > client/host entries, the WASM asset, maps, sounds, `manifest.json`)
 > followed by `npm run build:app` (engine Vite build). The runner stage
-> copies `packages/engine/dist/` and `node_modules/@vimp/tanks/dist/`; the
+> copies `packages/engine/dist/` and `node_modules/@vimp-games/tanks/dist/`; the
 > master reads the plugin only through `GameCatalog`
 > (`dist/manifest.json` + `dist/maps/*.json`) and rejects it at load time if
 > its `engineApi` doesn't match this engine build's `ENGINE_API_VERSION`

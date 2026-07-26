@@ -11,7 +11,7 @@ WebRTC signaling and game/map catalog. Game rules themselves (e.g. the tanks
 game) live in separately published, dynamically loaded plugin packages —
 contract in `docs/en/plugin-api.md`. The reference game, formerly `games/tanks/` in
 this repo, now lives at `vimp-tanks` (separate repository); the engine loads
-it only through `@vimp/tanks` in `node_modules` (`GameManifest`), never by
+it only through `@vimp-games/tanks` in `node_modules` (`GameManifest`), never by
 path into this repo.
 
 ## Documentation
@@ -59,7 +59,7 @@ npm run auth:db:migrate   # apply packages/auth/src/db/migrations/*.sql
 ```
 
 Dev requires local HTTPS certs (`mkcert`, see `docs/en/getting-started.md`).
-Playing a match locally also needs a game plugin package (e.g. `@vimp/tanks`)
+Playing a match locally also needs a game plugin package (e.g. `@vimp-games/tanks`)
 installed/linked into `node_modules` — this repo no longer builds one; see
 `vimp-tanks` and `docs/en/extending.md`.
 
@@ -79,7 +79,7 @@ installed/linked into `node_modules` — this repo no longer builds one; see
 - **Client** (`packages/engine/src/client/`) — WebRTC transport, MVC
   component triplets (model/view/controller, Publisher pattern); game-specific
   rendering parts live in the game plugin package. Details: `docs/en/client.md`.
-- **Game plugins** — published packages (e.g. `@vimp/tanks`, developed in the
+- **Game plugins** — published packages (e.g. `@vimp-games/tanks`, developed in the
   separate `vimp-tanks` repository), loaded by the engine only dynamically at
   runtime via `GameManifest`/`GameCatalog` (never imported statically); the
   boundary is enforced by ESLint `no-restricted-imports` in
@@ -127,7 +127,7 @@ live in the game's own repository (e.g. `vimp-tanks`).
 ## Deployment
 
 CI/CD is in `.github/`; only the master server is deployed. Production only,
-no staging. `Dockerfile` installs the game plugin (`@vimp/tanks`) as a
+no staging. `Dockerfile` installs the game plugin (`@vimp-games/tanks`) as a
 regular npm dependency (`npm ci`) instead of building its WASM core here;
 `GameCatalog` rejects a plugin manifest whose `engineApi` doesn't match this
 engine build's `ENGINE_API_VERSION`. Details: `docs/en/deployment.md`.

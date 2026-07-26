@@ -23,6 +23,14 @@
 - Ник/rank — JWT + отчёт хоста: мастер выдаёт подписанный токен, хост
   проверяет подпись и берёт ник из токена, итоги матча хост шлёт на мастер
   аутентифицированным REST.
+- Имя игрового scope (2026-07-26): `@vimp/tanks` тоже оказался занят на
+  npmjs.com третьей стороной — референсная игра опубликована как
+  `@vimp-games/tanks`. Обновлены зависимость в корневом `package.json`,
+  дефолт `packages/engine/src/config/master.js` (`games[].package`),
+  ESLint-барьер `no-restricted-imports` (обобщён на весь scope
+  `@vimp-games/*`) и все доки/комментарии. Заодно исправлен независимый баг
+  в `packages/auth/Dockerfile` — лишний `COPY packages/auth/node_modules`,
+  которого при npm workspace hoisting без конфликтов версий не существует.
 - Реестр пакетов движка (2026-07-26): `vimp-engine` — **публичный npm**,
   `vimp-engine-core` — **публичный crates.io** (не приватный registry, не
   git-зависимость) — игры создают сторонние разработчики, приватный registry

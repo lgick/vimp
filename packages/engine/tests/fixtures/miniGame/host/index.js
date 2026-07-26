@@ -9,7 +9,7 @@ import createModules from './createModules.js';
 
 // HostPlugin миниигры-фикстуры (Этап 7 плана отделения движка, PLAN.md
 // §3.2): доказывает, что HostGame и движковая мета работают с любым
-// HostPlugin, реализующим контракт — не только с @vimp/tanks. createCore
+// HostPlugin, реализующим контракт — не только с @vimp-games/tanks. createCore
 // не грузит WASM (fake-core — обычный JS-класс), поэтому фикстура не
 // требует собранного Rust-ядра игры.
 export default {

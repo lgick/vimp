@@ -1,7 +1,7 @@
 # Configuration
 
 This page covers the **engine's own** configuration. The game plugin (e.g.
-`@vimp/tanks`) supplies its own half through the plugin contract
+`@vimp-games/tanks`) supplies its own half through the plugin contract
 (`HostPlugin.gameConfig`/`authSchema`/`buildClientGameConfig()`,
 `ClientPlugin` — see [plugin-api.md](plugin-api.md)) and documents it in its
 own repository's docs (e.g. `vimp-tanks`'s `docs/en/configuration.md`).
@@ -35,7 +35,7 @@ development — values from `packages/engine/src/config/master.js` apply instead
 | `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
 | `VIMP_MASTER_PORT` | The master server's port | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
-| `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package, version}[]`) — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp/tanks","version":"0.1.0"}]` |
+| `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package, version}[]`) — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.1.0"}]` |
 
 Game parameters (map, player limit, timers, friendly fire) aren't set
 through environment variables: the room's creator picks them in the lobby,
@@ -233,7 +233,7 @@ The master server's config (see [master.md](master.md)); read by
   `.certs/key.pem`/`cert.pem` (dev only; production HTTPS terminates at
   Nginx);
 - `games` — the game-plugin list resolved by `GameCatalog`:
-  `{id, package, version}[]` (default: `@vimp/tanks`). `package` is
+  `{id, package, version}[]` (default: `@vimp-games/tanks`). `package` is
   resolved as an ordinary `node_modules/` dependency (the game plugin's own
   repository, e.g. `vimp-tanks`, publishes it); `version` isn't used by
   `GameCatalog` itself — reserved for deploy-time version checks.

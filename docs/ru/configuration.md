@@ -1,7 +1,7 @@
 # Конфигурация
 
 Эта страница описывает **конфигурацию самого движка**. Игра-плагин
-(например, `@vimp/tanks`) поставляет свою половину через контракт плагина
+(например, `@vimp-games/tanks`) поставляет свою половину через контракт плагина
 (`HostPlugin.gameConfig`/`authSchema`/`buildClientGameConfig()`,
 `ClientPlugin` — см. [plugin-api.md](plugin-api.md)) и документирует её в
 доках своего репозитория (например, `docs/ru/configuration.md` в
@@ -24,7 +24,7 @@
 | `VIMP_DOMAIN` | Домен мастера. **Обязательна** в production (иначе процесс завершится с ошибкой) | `localhost` |
 | `VIMP_MASTER_PORT` | Порт мастер-сервера | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | Origin central auth-сервиса (`packages/auth`), переопределяет `security.authServiceUrl` — используется в CSP `connect-src` и прокси-роутах `/auth/*` ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-сервис-packagesauth)) | `http://localhost:3010` |
-| `GAMES_MATRIX` | JSON-массив, переопределяющий `master:games` (список игр-плагинов, резолвится `GameCatalog`, `{id, package, version}[]`) — см. [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp/tanks","version":"0.1.0"}]` |
+| `GAMES_MATRIX` | JSON-массив, переопределяющий `master:games` (список игр-плагинов, резолвится `GameCatalog`, `{id, package, version}[]`) — см. [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.1.0"}]` |
 
 Игровые параметры (карта, лимит игроков, таймеры, friendly fire) переменными окружения не задаются: их выбирает создатель комнаты в лобби, а дефолты живут в `packages/engine/src/config/hostDefaults.js` (движковые) и в собственном конфиге активной игры-плагина (игровые).
 
@@ -155,7 +155,7 @@ DOM-структуры (`elems`) — движковые; тексты и схе�
 
 - `protocol`, `domain`, `port` — адрес; порт по умолчанию `3002` (`3001` — Vite HMR). В production домен переопределяет `VIMP_DOMAIN`, порт — `VIMP_MASTER_PORT`;
 - `httpsOptions` — пути к локальным сертификатам `.certs/key.pem`/`cert.pem` (только для разработки; в production HTTPS терминирует Nginx);
-- `games` — список игр-плагинов, резолвится `GameCatalog`: `{id, package, version}[]` (по умолчанию — `@vimp/tanks`). `package` резолвится как обычная зависимость `node_modules/` (публикуется собственным репозиторием игры, например `vimp-tanks`); `version` самим `GameCatalog` не используется — резервируется под проверку версии при деплое. В production переопределяется переменной окружения `GAMES_MATRIX` (JSON);
+- `games` — список игр-плагинов, резолвится `GameCatalog`: `{id, package, version}[]` (по умолчанию — `@vimp-games/tanks`). `package` резолвится как обычная зависимость `node_modules/` (публикуется собственным репозиторием игры, например `vimp-tanks`); `version` самим `GameCatalog` не используется — резервируется под проверку версии при деплое. В production переопределяется переменной окружения `GAMES_MATRIX` (JSON);
 - `servers` — параметры `GET /servers`: `regionThreshold: 15` (комнат меньше или столько — региональный фильтр и пагинация отключаются), `defaultLimit: 10`, `maxLimit: 50`;
 - `host` — ограничения комнат: `maxNameLength: 30`, `maxPlayersLimit: 8`, `heartbeatTimeout: 30000` (без heartbeat дольше — комната удаляется), `sweepInterval: 10000`;
 - `rating` — дефолт рейтинга сервера (`/like`·`/unlike`, заменяет прежний `/ban`, см. [master.md](master.md#рейтинг-сервера-likeunlike)): `min: -10`, `max: 10`, `blockAt: -10` (хостер с рейтингом на этом значении не может создавать комнаты); `refreshInterval: 30000` — как часто `main.js` вызывает `SignalingServer.refreshRatings()`, переопрашивая закэшированный `rating` каждой активной комнаты у auth-сервиса (этап 3 — подхватывает изменение счёта на другом мастере или после рестарта). Зеркалируется в `packages/auth/src/config/auth.js` (`rating`) — фактически клампит/решает `blocked` auth-сервис;

@@ -7,7 +7,7 @@ import { ENGINE_API_VERSION } from '../../src/config/opcodes.js';
 
 // Доказательство «второй игры» (Этап 7 плана отделения движка): миниигра-
 // фикстура удовлетворяет тем же контрактам (§3.2/§3.3 PLAN.md), что и
-// @vimp/tanks, — без единого общего файла с игрой.
+// @vimp-games/tanks, — без единого общего файла с игрой.
 describe('miniGame fixture: HostPlugin/ClientPlugin contract', () => {
   it('HostPlugin.engineApi совпадает с движковым', () => {
     expect(hostPlugin.engineApi).toBe(ENGINE_API_VERSION);

@@ -6,7 +6,7 @@ import ActorRadar from './parts/ActorRadar.js';
 // ClientPlugin миниигры-фикстуры (Этап 7 плана отделения движка, PLAN.md
 // §3.3): минимальные заглушечные parts (без PixiJS) — доказывает, что
 // gamePlugin.js/Factory работают с любым ClientPlugin, а не только с
-// @vimp/tanks.
+// @vimp-games/tanks.
 export default {
   id: 'miniGame',
   engineApi: ENGINE_API_VERSION,

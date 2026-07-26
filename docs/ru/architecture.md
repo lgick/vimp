@@ -30,7 +30,7 @@ VIMP — **P2P**-движок для многопользовательских 
 Этот репозиторий содержит **только движок** — игра (сейчас танки) вынесена в
 отдельно публикуемый, динамически загружаемый пакет-плагин, который живёт в
 своём собственном репозитории (например, `vimp-tanks`) и ставится сюда как
-`@vimp/tanks` в `node_modules/`; движок никогда не импортирует её статически
+`@vimp-games/tanks` в `node_modules/`; движок никогда не импортирует её статически
 (граница закреплена ESLint-правилом `no-restricted-imports`). Структуру
 самой игры см. в [vimp-tanks/docs/ru/architecture.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/architecture.md).
 
@@ -102,7 +102,7 @@ P2P-архитектура (браузерный хост + мастер-сер�
 │   ├─ LoopbackTransport         — транспорт хоста-игрока поверх postMessage
 │   └─ HostConnectionManager     — WebRTC-answerer удалённых клиентов + бэкпрешер
 └─ Web Worker (host.worker.js)   — авторитетная симуляция ~120 Гц
-    ├─ GameCore (WASM, из игры-плагина, напр. @vimp/tanks/core) — физика, игровые сущности, боты
+    ├─ GameCore (WASM, из игры-плагина, напр. @vimp-games/tanks/core) — физика, игровые сущности, боты
     ├─ GameCoreAdapter           — поверхность физики/ботов/упаковки поверх ядра
     └─ HostGame-фасад + мета      — RoundManager, ParticipantManager, Chat, Vote,
                                     Stat, Panel, TimerManager… (packages/engine/src/host/meta/)
@@ -182,7 +182,7 @@ JS-оболочка читает результат рендер-тика пло
 Rust-каркас), — и **игру** — динамический плагин (JS-бандлы client/host,
 WASM-бинарь, ассеты), загружаемый по манифесту с мастера. Композиция: этот
 репозиторий публикует `vimp-engine` (npm) и `vimp-engine-core` (Rust rlib
-crate); репозиторий игры (например, `vimp-tanks`) публикует `@vimp/tanks`,
+crate); репозиторий игры (например, `vimp-tanks`) публикует `@vimp-games/tanks`,
 устанавливаемый здесь как обычная `node_modules`-зависимость, и свой crate
 `vimp-tanks-core` (cdylib + wasm-bindgen-обёртки), зависящий от
 `vimp-engine-core` и связанный через трейты со статической

@@ -1,6 +1,6 @@
 // Сборка клиентского CONFIG_DATA (порт 0): merge движковых дефолтов
 // (src/config/clientDefaults.js) с игровым client-конфигом
-// (@vimp/tanks/config/client.js) + время голосования и данные client-side
+// (@vimp-games/tanks/config/client.js) + время голосования и данные client-side
 // prediction из game-конфига. Используется Worker'ом хоста
 // (src/host/host.worker.js).
 

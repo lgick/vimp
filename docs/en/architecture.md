@@ -29,7 +29,7 @@ signaling, map catalog, server rating (social anti-cheat, `/like`·`/unlike`).
 
 This repository holds the **engine only** — the game (currently tanks) is a
 separately published, dynamically loaded plugin package that lives in its
-own repository (e.g. `vimp-tanks`) and is installed here as `@vimp/tanks`
+own repository (e.g. `vimp-tanks`) and is installed here as `@vimp-games/tanks`
 under `node_modules/`; the engine never imports it statically (ESLint
 `no-restricted-imports` enforces the boundary). See
 [vimp-tanks/docs/en/architecture.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/architecture.md) for its own layout.
@@ -104,7 +104,7 @@ Host tab
 │   ├─ LoopbackTransport         — host-player transport over postMessage
 │   └─ HostConnectionManager     — WebRTC answerer for remote clients + backpressure
 └─ Web Worker (host.worker.js)   — authoritative simulation ~120 Hz
-    ├─ GameCore (WASM, from the game plugin, e.g. @vimp/tanks/core) — physics, game entities, bots
+    ├─ GameCore (WASM, from the game plugin, e.g. @vimp-games/tanks/core) — physics, game entities, bots
     ├─ GameCoreAdapter           — physics/bots/packing surface over the core
     └─ HostGame facade + meta     — RoundManager, ParticipantManager, Chat, Vote,
                                     Stat, Panel, TimerManager… (packages/engine/src/host/meta/)
@@ -191,7 +191,7 @@ Rust framework crate) — and a **game** — a dynamic plugin (client/host JS
 bundles, a WASM binary, assets) loaded by a manifest from the master.
 Composition: this repository publishes `vimp-engine` (npm) and
 `vimp-engine-core` (Rust rlib crate); the game repository (e.g.
-`vimp-tanks`) publishes `@vimp/tanks`, installed here as a regular
+`vimp-tanks`) publishes `@vimp-games/tanks`, installed here as a regular
 `node_modules` dependency, and its own `vimp-tanks-core` crate (cdylib +
 wasm-bindgen wrappers), depending on `vimp-engine-core` and linked by traits
 with static monomorphization. Engine meta modules
