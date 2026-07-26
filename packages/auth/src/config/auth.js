@@ -69,6 +69,11 @@ export default {
   rank: {
     min: 0,
     max: 1000000,
+    // кодревью №5 (plan/server-rating/review.md): без потолка на дельту один
+    // PUT /rank мог разогнать rank до клампа за один матч — санити-граница
+    // per-match, с запасом над реальным начислением (RoundManager.reportKill
+    // — ±1 за килл)
+    maxDelta: 1000,
   },
 
   // лимит размера произвольного state (JSONB) игры — поля не валидируются

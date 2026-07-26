@@ -33,16 +33,25 @@ describe('validators (auth)', () => {
 });
 
 describe('isValidRankDelta', () => {
-  it('принимает целые числа, положительные и отрицательные', () => {
-    expect(isValidRankDelta(5)).toBe(true);
-    expect(isValidRankDelta(-5)).toBe(true);
-    expect(isValidRankDelta(0)).toBe(true);
+  it('принимает целые числа, положительные и отрицательные, в пределах maxDelta', () => {
+    expect(isValidRankDelta(5, 1000)).toBe(true);
+    expect(isValidRankDelta(-5, 1000)).toBe(true);
+    expect(isValidRankDelta(0, 1000)).toBe(true);
   });
 
   it('отклоняет нецелые и не-числа', () => {
-    expect(isValidRankDelta(1.5)).toBe(false);
-    expect(isValidRankDelta(NaN)).toBe(false);
-    expect(isValidRankDelta(Infinity)).toBe(false);
+    expect(isValidRankDelta(1.5, 1000)).toBe(false);
+    expect(isValidRankDelta(NaN, 1000)).toBe(false);
+    expect(isValidRankDelta(Infinity, 1000)).toBe(false);
+  });
+
+  // кодревью №5 (plan/server-rating/review.md): без потолка на модуль дельты
+  // один PUT мог разогнать rank до клампа за один матч
+  it('отклоняет дельту за пределами maxDelta', () => {
+    expect(isValidRankDelta(1001, 1000)).toBe(false);
+    expect(isValidRankDelta(-1001, 1000)).toBe(false);
+    expect(isValidRankDelta(1000, 1000)).toBe(true);
+    expect(isValidRankDelta(-1000, 1000)).toBe(true);
   });
 });
 

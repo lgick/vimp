@@ -184,6 +184,17 @@ export default class UserRepository {
     );
     const blocked = score <= config.rating.blockAt;
 
+    // server-rating этап 4 (stage_4.md, 4.1): только на первом переходе в
+    // blocked — повторные голоса, держащие хостера заблокированным, не
+    // должны раз за разом гасить одни и те же (уже voided) события.
+    // Кодревью №6: void выполняется ДО записи host_ratings.blocked — если он
+    // упадёт на середине, кэш остаётся blocked=false, и следующий голос
+    // (before.blocked снова false) повторит void начисто на непогашенном
+    // остатке (voidHosterContributions идемпотентен по voided=false)
+    if (blocked && !before.blocked) {
+      await this.voidHosterContributions(hosterUserId);
+    }
+
     await this._db.query(
       `INSERT INTO host_ratings (hoster_user_id, score, blocked, updated_at)
        VALUES ($1, $2, $3, now())
@@ -191,13 +202,6 @@ export default class UserRepository {
        DO UPDATE SET score = EXCLUDED.score, blocked = EXCLUDED.blocked, updated_at = now()`,
       [hosterUserId, score, blocked],
     );
-
-    // server-rating этап 4 (stage_4.md, 4.1): только на первом переходе в
-    // blocked — повторные голоса, держащие хостера заблокированным, не
-    // должны раз за разом гасить одни и те же (уже voided) события
-    if (blocked && !before.blocked) {
-      await this.voidHosterContributions(hosterUserId);
-    }
 
     return { score, blocked };
   }

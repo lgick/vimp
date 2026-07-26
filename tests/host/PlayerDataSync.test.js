@@ -65,7 +65,35 @@ describe('PlayerDataSync', () => {
     expect(sync.getState('p1')).toEqual({ skill: 9 });
   });
 
-  it('flush отправляет PUT rank дельтой (не абсолютом) и state текущим значением', async () => {
+  it('flush отправляет PUT rank дельтой (не абсолютом) и state текущим значением, с hostId для атрибуции', async () => {
+    const fetchImpl = makeFetch([
+      { ok: true, json: async () => ({ rank: 5 }) },
+      { ok: true, json: async () => ({ state: {} }) },
+      { ok: true, json: async () => ({ ok: true }) },
+      { ok: true, json: async () => ({ ok: true }) },
+    ]);
+    const sync = new PlayerDataSync('tanks', { fetchImpl });
+
+    await sync.load('p1', 'tok');
+    sync.setHostId('host-1');
+    sync.addRank('p1', 2);
+    await sync.flush('p1');
+
+    expect(fetchImpl).toHaveBeenLastCalledWith('/auth/state?game=tanks', {
+      method: 'PUT',
+      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ state: {}, hostId: 'host-1' }),
+    });
+    expect(fetchImpl).toHaveBeenCalledWith('/auth/rank?game=tanks', {
+      method: 'PUT',
+      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ delta: 2, hostId: 'host-1' }),
+    });
+  });
+
+  // кодревью №1 (plan/server-rating/review.md): без hostId PUT несёт
+  // атрибуцию null — auth молча пишет событие без хостера, а не отклоняет
+  it('flush без setHostId шлёт hostId: null (атрибуция не назначена)', async () => {
     const fetchImpl = makeFetch([
       { ok: true, json: async () => ({ rank: 5 }) },
       { ok: true, json: async () => ({ state: {} }) },
@@ -78,16 +106,10 @@ describe('PlayerDataSync', () => {
     sync.addRank('p1', 2);
     await sync.flush('p1');
 
-    expect(fetchImpl).toHaveBeenLastCalledWith('/auth/state?game=tanks', {
-      method: 'PUT',
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ state: {} }),
-    });
-    expect(fetchImpl).toHaveBeenCalledWith('/auth/rank?game=tanks', {
-      method: 'PUT',
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ delta: 2 }),
-    });
+    const rankPut = fetchImpl.mock.calls.find(
+      ([url, opts]) => url.startsWith('/auth/rank') && opts.method === 'PUT',
+    );
+    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 2, hostId: null }));
   });
 
   it('flush после успеха не переотправляет уже учтённую дельту', async () => {
@@ -108,7 +130,7 @@ describe('PlayerDataSync', () => {
     await sync.flush('p1');
 
     const rankPut = fetchImpl.mock.calls.find(([url]) => url.startsWith('/auth/rank'));
-    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 0 }));
+    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 0, hostId: null }));
   });
 
   it('flush не теряет дельту, если PUT rank завершился неуспехом', async () => {
@@ -129,7 +151,7 @@ describe('PlayerDataSync', () => {
     await sync.flush('p1');
 
     const rankPut = fetchImpl.mock.calls.find(([url]) => url.startsWith('/auth/rank'));
-    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 3 }));
+    expect(rankPut[1].body).toBe(JSON.stringify({ delta: 3, hostId: null }));
   });
 
   it('flush неизвестного участника не бросает исключение', async () => {

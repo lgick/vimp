@@ -47,6 +47,30 @@ describe('PlayerDataProxy', () => {
     });
   });
 
+  // кодревью №1 (plan/server-rating/review.md): атрибуция проставляется
+  // мастером (из проверенного register_host), не телом хоста — putRank/
+  // putState просто сливают её в тело запроса к auth
+  it('putRank/putState несут атрибуцию hosterUserId/sessionId в теле', async () => {
+    const fetchImpl = makeFetch(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+    const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
+
+    await proxy.putRank('tok', 'tanks', 10, { hosterUserId: 7, sessionId: 'host-1' });
+
+    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/rank?game=tanks', {
+      method: 'PUT',
+      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ delta: 10, hosterUserId: 7, sessionId: 'host-1' }),
+    });
+
+    await proxy.putState('tok', 'tanks', { skill: 2 }, { hosterUserId: 7, sessionId: 'host-1' });
+
+    expect(fetchImpl).toHaveBeenLastCalledWith('http://auth.local/state?game=tanks', {
+      method: 'PUT',
+      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ state: { skill: 2 }, hosterUserId: 7, sessionId: 'host-1' }),
+    });
+  });
+
   it('пробрасывает status ответа auth-сервиса', async () => {
     const fetchImpl = makeFetch(async () => ({ ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) }));
     const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });

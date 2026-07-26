@@ -144,7 +144,18 @@ export default class SignalingServer {
     let rating = 0;
 
     if (this._hostRatingProxy) {
-      const { json } = await this._hostRatingProxy.getRating(token);
+      // кодревью №3: недоступность auth раньше бросала необработанным —
+      // хост не получал ни host_registered, ни error, UI зависал. Теперь
+      // это явная ошибка клиенту, регистрация не завершается
+      let json;
+
+      try {
+        ({ json } = await this._hostRatingProxy.getRating(token));
+      } catch (err) {
+        console.error('[rating] getRating failed at register_host:', err.message);
+        this._sendError(session, 'authServiceUnavailable');
+        return;
+      }
 
       if (json?.blocked) {
         this._sendError(session, 'blocked');
@@ -333,12 +344,22 @@ export default class SignalingServer {
       return;
     }
 
-    const { json } = await this._hostRatingProxy.vote(
-      token,
-      room.hosterUserId,
-      value,
-      reason.trim(),
-    );
+    // кодревью №3: голос уже подтверждён гостю ("Vote sent") на клиенте —
+    // при сбое auth хотя бы залогировать и не уронить обработчик молча
+    let json;
+
+    try {
+      ({ json } = await this._hostRatingProxy.vote(
+        token,
+        room.hosterUserId,
+        value,
+        reason.trim(),
+      ));
+    } catch (err) {
+      console.error('[rating] vote failed:', err.message);
+      this._sendError(session, 'authServiceUnavailable');
+      return;
+    }
 
     // кэш рейтинга в лобби (server-rating этап 3) — свежее значение сразу,
     // не дожидаясь periodic-опроса refreshRatings()
@@ -347,15 +368,30 @@ export default class SignalingServer {
     }
 
     if (json?.blocked) {
-      console.warn(`[rating] hoster ${room.hosterUserId} blocked (score ${json.score})`);
+      this._evacuateHoster(room.hosterUserId, json.score);
+    }
+  }
+
+  // закрывает все активные комнаты заблокированного хостера (кодревью №2):
+  // раньше блок применялся только в register_host/на голосе, который сам
+  // пересёк порог на этом же мастере — хостер, забаненный на другом мастере
+  // (или в прошлом, до рестарта), продолжал держать живую комнату здесь
+  _evacuateHoster(hosterUserId, score) {
+    console.warn(`[rating] hoster ${hosterUserId} blocked (score ${score})`);
+
+    for (const hostId of this._registry.getHostIdsForHoster(hosterUserId)) {
       this._getHostSession(hostId)?.ws.close(4002, 'blocked');
+      this._registry.remove(hostId);
+      this._hostSessions.delete(hostId);
     }
   }
 
   // периодически опрашивает auth за актуальным рейтингом каждого активного
   // хостера (server-rating этап 3) — держит кэш GET /servers свежим даже без
   // голосов на этом мастере (например, счёт изменился на другом мастере или
-  // после рестарта); публичный эндпоинт auth, Bearer-токен хостера не нужен
+  // после рестарта); публичный эндпоинт auth, Bearer-токен хостера не нужен.
+  // Кодревью №2: json.blocked теперь тоже применяется здесь — глобальный
+  // блок эвакуирует уже запущенные комнаты, а не только новые регистрации
   async refreshRatings() {
     if (!this._hostRatingProxy) {
       return;
@@ -365,9 +401,16 @@ export default class SignalingServer {
       try {
         const { json } = await this._hostRatingProxy.getPublic(hosterUserId);
 
-        if (json) {
-          this._registry.setRatingForHoster(hosterUserId, json.score ?? 0);
+        if (!json) {
+          continue;
         }
+
+        if (json.blocked) {
+          this._evacuateHoster(hosterUserId, json.score ?? 0);
+          continue;
+        }
+
+        this._registry.setRatingForHoster(hosterUserId, json.score ?? 0);
       } catch (err) {
         console.error(`[rating] refresh failed for hoster ${hosterUserId}:`, err.message);
       }

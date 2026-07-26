@@ -108,6 +108,21 @@ export default class HostRegistry {
     }
   }
 
+  // hostId всех активных комнат данного хостера — эвакуация при глобальном
+  // блоке (server-rating кодревью №2): обычно одна, но хостер технически
+  // может держать несколько комнат с разных IP
+  getHostIdsForHoster(hosterUserId) {
+    const ids = [];
+
+    for (const host of this._hosts.values()) {
+      if (host.hosterUserId === hosterUserId) {
+        ids.push(host.hostId);
+      }
+    }
+
+    return ids;
+  }
+
   // уникальные hosterUserId активных комнат — чтобы периодически опросить
   // auth за актуальным рейтингом каждого (server-rating этап 3)
   getHosterUserIds() {

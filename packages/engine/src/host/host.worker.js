@@ -164,6 +164,14 @@ async function onInit(room, handoff = null) {
     gameVersion: room.game.version,
   });
 
+  // эстафета Worker'ов (Этап 5.2) несёт уже известный hostId в room — новый
+  // Worker не должен ждать повторного register_host, чтобы возобновить
+  // атрибуцию rank/state-flush (кодревью №1); при холодном старте hostId
+  // ещё не назначен мастером, придёт позже через 'set_host_id'
+  if (room?.hostId) {
+    host.setHostId(room.hostId);
+  }
+
   if (handoff) {
     handoffClients = new Map(handoff.humans.map(h => [h.socketId, h.gameId]));
   }
@@ -398,6 +406,12 @@ self.onmessage = async event => {
 
     case 'update_maps':
       host?.updateMaps(msg.maps);
+      break;
+
+    // мастер подтвердил регистрацию комнаты (кодревью №1) — hostId нужен
+    // PlayerDataSync для атрибуции последующих rank/state-flush
+    case 'set_host_id':
+      host?.setHostId(msg.hostId);
       break;
 
     // эстафета Worker'ов (Этап 5.2)

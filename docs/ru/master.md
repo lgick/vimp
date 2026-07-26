@@ -153,16 +153,37 @@ origin мастера (Этап B4): `PlayerDataProxy`
 пробрасывает статус/JSON апстрима как есть:
 
 - `400 badRequest`, если токен или параметр `game` отсутствуют.
+- `404 unknownGame`, если `game` не входит в `gameCatalog.ids` (фикс
+  кодревью — иначе любой валидный identity-токен мог бы писать rank/state в
+  произвольный, некаталожный `game_id`-namespace, ломая модель доверия
+  «пишут только каталожные игры»).
 - `502 authServiceUnavailable` при сбое запроса к апстриму.
+
+**Атрибуцию проставляет мастер, а не тело запроса хоста** (фикс кодревью):
+недоверенный браузер хоста иначе мог бы приписать собственные rank/state
+записи себе же (уходя от аннулирования этапа 4) или чужому
+хостеру-жертве (подставляя его под будущий откат при бане). Тела `PUT`
+несут `hostId` (комнату, к которой относится запись — хост узнаёт его
+после подтверждения `register_host`, см. ниже); `attributionFor(hostId)` в
+`main.js` ищет его в `HostRegistry` и, если находит, передаёт уже
+проверенный по JWT `hosterUserId` комнаты плюс `sessionId: hostId` в
+`PlayerDataProxy.putRank`/`putState`, которые сливают их в тело апстрима.
+Неизвестный/отсутствующий `hostId` (комната ещё не зарегистрирована или
+Worker подменён эстафетой) даёт запись без атрибуции — как и до этого
+фикса, не ошибку.
 
 Браузерный хост в лице `PlayerDataSync`
 (`packages/engine/src/host/meta/modules/PlayerDataSync.js`) вызывает эти
 роуты, чтобы загрузить rank/state участника на join и слить их обратно на
 границах конец-раунда/смены-карты/выхода — см.
-[host.md](host.md#синхронизация-rank-и-state-игрока-этап-b4). `express.json()`
-подключён в `main.js`, чтобы разбирать тела `PUT` (`{ delta }`/`{ state }` —
-`/rank` принимает дельту матча, не абсолютное значение, с server-rating
-этапа 1; см. [auth.md](auth.md#rest-api)).
+[host.md](host.md#синхронизация-rank-и-state-игрока-этап-b4). Свой `hostId`
+он узнаёт из `host_registered` (`HostController.setHostId`, передаётся в
+Worker сообщением `set_host_id` и переживает эстафету Worker'ов через
+`room.hostId`) и с этого момента несёт его в каждом теле `PUT`.
+`express.json()` подключён в `main.js`, чтобы разбирать тела `PUT`
+(`{ delta, hostId }`/`{ state, hostId }` — `/rank` принимает дельту матча,
+не абсолютное значение, с server-rating этапа 1; см.
+[auth.md](auth.md#rest-api)).
 
 ### Составной `codeVersion`
 
@@ -194,7 +215,7 @@ origin мастера (Этап B4): `PlayerDataProxy`
 
 | → мастеру | Ответ / эффект |
 | --- | --- |
-| `register_host { name, maxPlayers, mapName, gameId, gameVersion, token }` | `host_registered { hostId, gameId, mapsVersion, codeVersion }`; регион — из заголовка, IP — из соединения; `token` — Bearer identity-токен хостера (server-rating этап 2), проверяется по JWKS central auth-сервиса (`JwksProxy`) — его `sub` становится `hosterUserId`, сохраняется в сессии для атрибуции рейтинга; отсутствие/неверная подпись → ошибка `invalidToken`. Перед созданием комнаты мастер также запрашивает у auth-сервиса собственный рейтинг хостера (`HostRatingProxy.getRating`) — `blocked: true` → ошибка `blocked` (хостер с рейтингом на `rating.blockAt` не может поднять комнату); `gameId`/`gameVersion` — какую игру-плагин и версию манифеста запустил хост (сохраняются в сессии, эхо в ответе; с Этапа 6.4 их шлёт каждый хост — `connectAsHost` собирает `room.game` из активного `GameManifest`); `mapsVersion` — `GameManifest.maps.version` объявленной игры через `GameCatalog` (`null`, если `gameId` неизвестен каталогу); `codeVersion` — составной `{ engine, game: { id, version } }` (Этап 6.5, см. выше; `engine` — версия worker-бандла) — при re-register после разрыва (деплой рестартует мастер) хост сверяет их со своими: расхождение карт → перечитывание каталога, расхождение любой половины `codeVersion` → эстафета Worker'ов. Ошибки: `alreadyRegistered`, `hostLimit` (уже есть комната с этого IP) |
+| `register_host { name, maxPlayers, mapName, gameId, gameVersion, token }` | `host_registered { hostId, gameId, mapsVersion, codeVersion }`; регион — из заголовка, IP — из соединения; `token` — Bearer identity-токен хостера (server-rating этап 2), проверяется по JWKS central auth-сервиса (`JwksProxy`) — его `sub` становится `hosterUserId`, сохраняется в сессии для атрибуции рейтинга; отсутствие/неверная подпись → ошибка `invalidToken`. Перед созданием комнаты мастер также запрашивает у auth-сервиса собственный рейтинг хостера (`HostRatingProxy.getRating`) — `blocked: true` → ошибка `blocked` (хостер с рейтингом на `rating.blockAt` не может поднять комнату); сбой самого запроса (auth недоступен) шлёт ошибку `authServiceUnavailable` вместо того, чтобы оставить клиента без ответа навсегда (фикс кодревью); `gameId`/`gameVersion` — какую игру-плагин и версию манифеста запустил хост (сохраняются в сессии, эхо в ответе; с Этапа 6.4 их шлёт каждый хост — `connectAsHost` собирает `room.game` из активного `GameManifest`); `mapsVersion` — `GameManifest.maps.version` объявленной игры через `GameCatalog` (`null`, если `gameId` неизвестен каталогу); `codeVersion` — составной `{ engine, game: { id, version } }` (Этап 6.5, см. выше; `engine` — версия worker-бандла) — при re-register после разрыва (деплой рестартует мастер) хост сверяет их со своими: расхождение карт → перечитывание каталога, расхождение любой половины `codeVersion` → эстафета Worker'ов. Ошибки: `alreadyRegistered`, `hostLimit` (уже есть комната с этого IP) |
 | `update_host { currentPlayers, mapName }` | актуализация данных комнаты (одновременно heartbeat) |
 | `heartbeat {}` | обновление `lastSeen` |
 | `webrtc_answer { clientId, sdp }` | пересылается клиенту как `webrtc_answer { hostId, sdp }` |
@@ -208,7 +229,7 @@ origin мастера (Этап B4): `PlayerDataProxy`
 | --- | --- |
 | `webrtc_offer { hostId, sdp }` | пересылается хосту как `webrtc_offer { clientId, sdp }`; ошибка `unknownHost` |
 | `ping_host { hostId, pingId }` | пересылается хосту; ограничен rate limiter'ом по IP (`pingRateLimit`, ошибка `rateLimited`). Замер **приблизительный** (клиент→мастер→хост, не P2P RTT) |
-| `like_host { hostId, reason, token }` / `unlike_host { hostId, reason, token }` | голос рейтинга сервера (+1 / -1), заменяет прежнюю жалобу `/ban`: принимается **только от сессии, слававшей `webrtc_offer` этой комнате** (иначе ошибка `voteRejected`); `token` — Bearer identity-токен голосующего, проверяется так же, как у `register_host` (ошибка `invalidToken` при отсутствии/невалидности); причина обязательна (голос без неё не отправляется). Голос проксируется в central auth-сервис (`HostRatingProxy.vote`, цель — `hosterUserId` комнаты) — `voteHost` перезаписывает одну строку на пару `(hoster, voter)` (мнение меняемо, `like`↔`unlike`, а не копится) и пересчитывает `score = clamp(SUM(value), rating.min, rating.max)`; `blocked: true` в ответе закрывает сигнальный WS хоста кодом `4002` |
+| `like_host { hostId, reason, token }` / `unlike_host { hostId, reason, token }` | голос рейтинга сервера (+1 / -1), заменяет прежнюю жалобу `/ban`: принимается **только от сессии, слававшей `webrtc_offer` этой комнате** (иначе ошибка `voteRejected`); `token` — Bearer identity-токен голосующего, проверяется так же, как у `register_host` (ошибка `invalidToken` при отсутствии/невалидности); причина обязательна (голос без неё не отправляется). Голос проксируется в central auth-сервис (`HostRatingProxy.vote`, цель — `hosterUserId` комнаты) — `voteHost` перезаписывает одну строку на пару `(hoster, voter)` (мнение меняемо, `like`↔`unlike`, а не копится) и пересчитывает `score = clamp(SUM(value), rating.min, rating.max)`; `blocked: true` в ответе эвакуирует хостера (`_evacuateHoster`, см. ниже). Сбой запроса к апстриму (auth недоступен) шлёт ошибку `authServiceUnavailable` вместо того, чтобы молча проглотить голос (фикс кодревью) |
 
 ### Общие сообщения
 
@@ -235,7 +256,7 @@ origin мастера (Этап B4): `PlayerDataProxy`
 - фактическое хранение score/голосов централизовано в БД auth-сервиса (`host_ratings`/`host_votes`), не в памяти мастера: оно должно быть глобальным (заблокированный на одном мастере хостер остаётся заблокированным везде) и персистентным (нужно для аннулирования rank/skills, этап 4 плана). `HostRegistry` лишь кэширует текущий `rating` на каждую комнату (этап 3 — чтобы `GET /servers` не ходил в БД на каждый запрос) — источником истины он не является.
 - `HostRatingProxy.vote` возвращает `{ score, blocked, counted }`; при `blocked: true` `SignalingServer` закрывает сигнальный WS хоста кодом `4002` — новые WebRTC-офферы к нему больше не маршрутизируются (уже установленные P2P-пиры это не рвёт, host-migration нет: читер остаётся в комнате один). Возвращённый `score` тут же обновляет кэш `HostRegistry` для этой комнаты (`registry.setRating`), поэтому голос отражается в лобби, не дожидаясь очередного периодического опроса.
 - при `register_host` `HostRatingProxy.getRating` сначала проверяет собственный рейтинг хостера — `blocked: true` отклоняет комнату ошибкой `blocked` ещё до её создания; его `score` заодно сеет закэшированный `rating` новой комнаты.
-- `SignalingServer.refreshRatings()` (этап 3) периодически переопрашивает рейтинг каждой активной комнаты через `HostRatingProxy.getPublic` (`GET /host-rating/:hosterUserId`, без авторизации — Bearer-токен конкретного хостера между запросами не хранится) и записывает его в `HostRegistry` через `setRatingForHoster`, по ключу `hosterUserId` (не `hostId` — если хостер держит несколько комнат, обновляются все разом). Это единственный путь, который подхватывает изменение счёта голосом на *другом* мастере или после рестарта этого; `main.js` запускает его по таймеру (`rating.refreshInterval`, по умолчанию 30 с) — по тому же паттерну, что и `sweepStaleHosts`. Сбой опроса одного хостера логируется и не прерывает обход остальных.
+- `SignalingServer.refreshRatings()` (этап 3) периодически переопрашивает рейтинг каждой активной комнаты через `HostRatingProxy.getPublic` (`GET /host-rating/:hosterUserId`, без авторизации — Bearer-токен конкретного хостера между запросами не хранится) и записывает его в `HostRegistry` через `setRatingForHoster`, по ключу `hosterUserId` (не `hostId` — если хостер держит несколько комнат, обновляются все разом). Это единственный путь, который подхватывает изменение счёта голосом на *другом* мастере или после рестарта этого; `main.js` запускает его самоперезапускающимся циклом на `setTimeout`, а не обычным `setInterval` (фикс кодревью — медленный auth с большим числом активных хостеров иначе мог бы наслаивать циклы друг на друга), выжидая `rating.refreshInterval` (по умолчанию 30 с) после завершения каждого цикла. Сбой опроса одного хостера логируется и не прерывает обход остальных. Если опрос вернул `blocked: true`, `refreshRatings` вызывает тот же хелпер `_evacuateHoster`, что и голос, пересёкший `blockAt` на этом мастере (фикс кодревью): закрывает сигнальный WS всех активных комнат этого хостера кодом `4002` и удаляет их из `HostRegistry` через `getHostIdsForHoster`. Без этого хостер, заблокированный на мастере A (или заблокированный до последнего рестарта этого мастера), держал бы присоединяемую комнату здесь до следующей попытки `register_host`.
 
 Осознанное ограничение принятой модели «минимум анти-чита»: базовая гигиена
 среды (см. «Защита» ниже) отсекает «уличных» злоумышленников, но не хоста,

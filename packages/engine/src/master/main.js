@@ -186,10 +186,27 @@ app.get('/auth/jwks', (req, res) => {
     });
 });
 
+// server-rating кодревью №1 (plan/server-rating/review.md): атрибуция
+// rank_events/state_snapshots к серверу/сессии должна идти от мастера, из
+// hosterUserId уже проверенного при register_host — не из тела запроса
+// хоста (недоверенный браузер мог бы занизить свою атрибуцию или подставить
+// чужого хостера-жертву). hostId, который хост присылает вместе с PUT, ищется
+// в registry — источник истины для hosterUserId этой комнаты; sessionId —
+// сам hostId (уникален на жизнь комнаты)
+function attributionFor(hostId) {
+  const host = typeof hostId === 'string' ? registry.get(hostId) : undefined;
+
+  return host && host.hosterUserId !== null
+    ? { hosterUserId: host.hosterUserId, sessionId: host.hostId }
+    : {};
+}
+
 // REST API: rank/state central auth-сервиса, проксированные под origin
 // мастера (Этап B4) — хост запрашивает их на join и синхронизирует обратно
 // по границам раунда/карты, авторизуясь тем же Bearer identity-токеном
-// игрока, каким проверяется вход
+// игрока, каким проверяется вход. game проверяется против каталога
+// (кодревью №4) — иначе любой валидный identity-токен мог бы писать
+// rank/state в произвольный, в т.ч. некаталожный, game_id-namespace
 function forwardPlayerData(req, res, call) {
   const header = req.get('authorization') || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -197,6 +214,11 @@ function forwardPlayerData(req, res, call) {
 
   if (!token || !game) {
     res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  if (!gameCatalog.ids.includes(game)) {
+    res.status(404).json({ error: 'unknownGame' });
     return;
   }
 
@@ -214,7 +236,7 @@ app.get('/auth/rank', (req, res) =>
 
 app.put('/auth/rank', (req, res) =>
   forwardPlayerData(req, res, (token, game) =>
-    playerDataProxy.putRank(token, game, req.body?.delta),
+    playerDataProxy.putRank(token, game, req.body?.delta, attributionFor(req.body?.hostId)),
   ),
 );
 
@@ -224,7 +246,7 @@ app.get('/auth/state', (req, res) =>
 
 app.put('/auth/state', (req, res) =>
   forwardPlayerData(req, res, (token, game) =>
-    playerDataProxy.putState(token, game, req.body?.state),
+    playerDataProxy.putState(token, game, req.body?.state, attributionFor(req.body?.hostId)),
   ),
 );
 
@@ -336,11 +358,18 @@ setInterval(
 );
 
 // периодический опрос auth за рейтингом активных хостеров (server-rating
-// этап 3) — держит кэш GET /servers свежим между голосами/регистрациями
-setInterval(
-  () => signaling.refreshRatings(),
-  config.get('master:rating:refreshInterval'),
-);
+// этап 3) — держит кэш GET /servers свежим между голосами/регистрациями.
+// Самоперезапуск через setTimeout после завершения (кодревью, мелкая
+// находка) — setInterval не ждёт разрешения промиса, и при медленном auth
+// с многими хостерами циклы наслаивались бы друг на друга
+(function scheduleRatingsRefresh() {
+  signaling
+    .refreshRatings()
+    .catch(err => console.error('[rating] refresh cycle failed:', err.message))
+    .finally(() => {
+      setTimeout(scheduleRatingsRefresh, config.get('master:rating:refreshInterval'));
+    });
+})();
 
 // раздача клиентской статики в dev; в prod её отдаёт Nginx
 ViteExpress.bind(app, server);

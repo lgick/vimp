@@ -29,16 +29,22 @@ export default class PlayerDataProxy {
     return this._request('/rank', token, { game });
   }
 
-  // server-rating этап 1: /rank принимает дельту матча, не абсолют
-  putRank(token, game, delta) {
-    return this._request('/rank', token, { method: 'PUT', game, body: { delta } });
+  // server-rating этап 1: /rank принимает дельту матча, не абсолют.
+  // attribution ({ hosterUserId, sessionId }, кодревью №1) — проставлена
+  // мастером из проверенного register_host, не из тела хоста
+  putRank(token, game, delta, attribution = {}) {
+    return this._request('/rank', token, { method: 'PUT', game, body: { delta, ...attribution } });
   }
 
   getState(token, game) {
     return this._request('/state', token, { game });
   }
 
-  putState(token, game, state) {
-    return this._request('/state', token, { method: 'PUT', game, body: { state } });
+  putState(token, game, state, attribution = {}) {
+    return this._request('/state', token, {
+      method: 'PUT',
+      game,
+      body: { state, ...attribution },
+    });
   }
 }

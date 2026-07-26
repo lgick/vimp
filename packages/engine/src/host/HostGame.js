@@ -834,6 +834,13 @@ export default class HostGame {
     this._playerDataSync.setState(gameId, state);
   }
 
+  // hostId комнаты, подтверждённый мастером при register_host (кодревью №1)
+  // — не известен при создании HostGame (Worker стартует раньше ответа
+  // мастера); нужен PlayerDataSync для атрибуции rank/state-flush
+  setHostId(hostId) {
+    this._playerDataSync.setHostId(hostId);
+  }
+
   // обновляет значение round trip time
   updateRTT(gameId, pingId) {
     const latency = this._RTTManager.handlePong(gameId, pingId);

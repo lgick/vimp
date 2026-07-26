@@ -394,6 +394,41 @@ describe('UserRepository', () => {
     expect(result.blocked).toBe(true);
   });
 
+  // кодревью №6 (plan/server-rating/review.md): host_ratings.blocked должен
+  // фиксироваться только ПОСЛЕ успешного void — иначе сбой на середине void
+  // навсегда застревал бы в частично-погашенном состоянии (before.blocked
+  // уже true при следующем голосе, повтор void не запускается)
+  it('voteHost: если void упал на первом переходе в blocked, host_ratings не обновляется — следующий голос повторит void', async () => {
+    const calls = [];
+    const db = createDbStub(text => {
+      calls.push(text);
+
+      if (text.startsWith('SELECT value FROM host_votes')) {
+        return { rows: [] };
+      }
+
+      if (text.startsWith('SELECT score, blocked')) {
+        return { rows: [{ score: -8, blocked: false }] };
+      }
+
+      if (text.includes('SUM(value)')) {
+        return { rows: [{ total: '-10' }] };
+      }
+
+      if (text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')) {
+        throw new Error('auth db unavailable mid-void');
+      }
+
+      return { rows: [] };
+    });
+
+    const repo = new UserRepository(db);
+
+    await expect(repo.voteHost(5, 9, -1, 'cheat')).rejects.toThrow('auth db unavailable mid-void');
+
+    expect(calls.some(text => text.startsWith('INSERT INTO host_ratings'))).toBe(false);
+  });
+
   it('voidHosterContributions гасит непогашенные rank_events, пересчитывает кэш и откатывает states к самому раннему снапшоту', async () => {
     const calls = [];
     const db = createDbStub(text => {

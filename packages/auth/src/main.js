@@ -299,10 +299,15 @@ app.get('/rank', requireAuth, async (req, res) => {
 });
 
 // server-rating этап 1 (stage_1.md): извлекает атрибуцию записи к
-// серверу/сессии из тела запроса — опциональна, пока мастер (этап 2) не
-// начал их прокидывать; отсутствие не отклоняется, событие просто без хостера
+// серверу/сессии из тела запроса — мастер проставляет её из проверенного при
+// register_host hosterUserId (не тело от хоста, кодревью №1); опциональна
+// (отсутствие не отклоняется, событие просто без хостера). Number.isInteger +
+// `> 0` (не Number.isFinite, кодревью, мелкая находка) — явный
+// `hosterUserId: null` иначе давал бы 0 и атрибутировал к несуществующему user 0
 function readAttribution(body) {
-  const hosterUserId = Number.isFinite(Number(body?.hosterUserId)) ? Number(body.hosterUserId) : null;
+  const rawHosterUserId = Number(body?.hosterUserId);
+  const hosterUserId =
+    Number.isInteger(rawHosterUserId) && rawHosterUserId > 0 ? rawHosterUserId : null;
   const sessionId = typeof body?.sessionId === 'string' && body.sessionId ? body.sessionId : null;
 
   return { hosterUserId, sessionId };
@@ -319,7 +324,7 @@ app.put('/rank', requireAuth, async (req, res) => {
   // stage_1.md: PUT /rank теперь принимает дельту матча, не абсолют
   const delta = Number(req.body?.delta);
 
-  if (!isValidRankDelta(delta)) {
+  if (!isValidRankDelta(delta, config.rank.maxDelta)) {
     res.status(400).json({ error: 'invalidRank' });
     return;
   }

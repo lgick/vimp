@@ -245,6 +245,24 @@ describe('register_host', () => {
     expect(ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
   });
 
+  // кодревью №3 (plan/server-rating/review.md): раньше сбой auth бросал
+  // необработанным (пойман только логирующим диспетчером) — хост не получал
+  // ни host_registered, ни error, и UI регистрации зависал
+  it('недоступность auth при регистрации — явная ошибка клиенту, не тихое зависание', async () => {
+    hostRatingProxy.getRating.mockRejectedValue(new Error('auth unreachable'));
+
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { ws } = await connect({ ip: '1.1.1.1' });
+
+    ws.message({ type: 'register_host', name: 'Room', token: signToken(1) });
+    await flushAsync();
+
+    expect(ws.lastSent()).toEqual({ type: 'error', code: 'authServiceUnavailable' });
+    expect(registry.size).toBe(0);
+
+    errSpy.mockRestore();
+  });
+
   it('заблокированный по рейтингу хостер не может зарегистрировать комнату', async () => {
     hostRatingProxy.getRating.mockResolvedValue({ status: 200, json: { score: -10, blocked: true } });
 
@@ -571,6 +589,25 @@ describe('like_host / unlike_host', () => {
     expect(registry.get(host.hostId)).toBeUndefined();
   });
 
+  // кодревью №3 (plan/server-rating/review.md): раньше сбой auth во время
+  // голоса бросал необработанным — клиенту уже сказали "Vote sent", ошибка
+  // никуда не долетала
+  it('недоступность auth при голосе — явная ошибка, а не тихий провал', async () => {
+    hostRatingProxy.vote.mockRejectedValue(new Error('auth unreachable'));
+
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const host = await connectHost({ hosterUserId: 3 });
+    const client = await connect({ ip: '5.5.5.5' });
+
+    joinRoom(client, host.hostId);
+    client.ws.message({ type: 'like_host', hostId: host.hostId, reason: 'good', token: signToken(9) });
+    await flushAsync();
+
+    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'authServiceUnavailable' });
+
+    errSpy.mockRestore();
+  });
+
   it('обновляет закэшированный рейтинг комнаты сразу после голоса', async () => {
     hostRatingProxy.vote.mockResolvedValue({ status: 200, json: { score: 5, blocked: false, counted: true } });
 
@@ -633,6 +670,28 @@ describe('refreshRatings', () => {
     expect(errSpy).toHaveBeenCalled();
 
     errSpy.mockRestore();
+  });
+
+  // кодревью №2 (plan/server-rating/review.md): блок раньше применялся
+  // только в register_host/_vote — хостер, забаненный на другом мастере
+  // (или в прошлом, до рестарта), продолжал держать живую комнату здесь до
+  // следующей попытки регистрации. refreshRatings теперь эвакуирует её.
+  it('эвакуирует комнату хостера, заблокированного вне этого мастера', async () => {
+    const host = await connectHost({ hosterUserId: 1, ip: '10.0.0.5' });
+
+    hostRatingProxy.getPublic.mockResolvedValue({
+      status: 200,
+      json: { score: -10, blocked: true },
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await signaling.refreshRatings();
+
+    expect(host.ws.closed.code).toBe(4002);
+    expect(registry.get(host.hostId)).toBeUndefined();
+
+    warnSpy.mockRestore();
   });
 });
 

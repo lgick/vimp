@@ -279,6 +279,18 @@ describe('HostRegistry: рейтинг хостера (server-rating этап 3)
 
     expect(registry.getHosterUserIds()).toEqual(new Set([42]));
   });
+
+  // кодревью №2 (plan/server-rating/review.md): эвакуация всех комнат
+  // заблокированного хостера — обычно одна, но технически может быть больше
+  it('getHostIdsForHoster возвращает все hostId данного хостера', () => {
+    const a = registry.add({ name: 'a', ip: '1.1.1.1', hosterUserId: 42 });
+    const b = registry.add({ name: 'b', ip: '2.2.2.2', hosterUserId: 42 });
+    registry.add({ name: 'c', ip: '3.3.3.3', hosterUserId: 99 });
+
+    expect(registry.getHostIdsForHoster(42).sort()).toEqual([a.hostId, b.hostId].sort());
+    expect(registry.getHostIdsForHoster(99)).toEqual([expect.any(String)]);
+    expect(registry.getHostIdsForHoster(7)).toEqual([]);
+  });
 });
 
 describe('HostRegistry.add — gameId/gameVersion', () => {

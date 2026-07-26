@@ -9,8 +9,11 @@ const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w #]{0,13})[\\w]{1}$');
 export const isValidNick = nick => typeof nick === 'string' && NAME_REGEXP.test(nick);
 
 // server-rating этап 1 (stage_1.md, 1.1): PUT /rank принимает дельту матча,
-// не абсолют — сам rank клампится в диапазон при пересчёте леджера
-export const isValidRankDelta = delta => Number.isInteger(delta);
+// не абсолют — сам rank клампится в диапазон при пересчёте леджера.
+// maxDelta (кодревью №5) — per-match санити-граница модуля дельты, отдельная
+// от клампа кэша: без неё сырое значение в rank_events могло быть любым
+export const isValidRankDelta = (delta, maxDelta) =>
+  Number.isInteger(delta) && Math.abs(delta) <= maxDelta;
 
 // state — непрозрачный JSON игры, auth проверяет только общий объём
 export const isValidStateSize = (state, maxBytes) =>

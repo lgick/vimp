@@ -12,6 +12,18 @@ export default class PlayerDataSync {
     this._fetch = fetchImpl;
     this._defaultState = defaultState;
     this._entries = new Map(); // participantId -> { token, rank, state }
+    // hostId комнаты (кодревью №1, plan/server-rating/review.md): неизвестен
+    // при создании (назначается мастером на register_host, после запуска
+    // Worker'а) — проставляется позже через setHostId(). Едет в теле PUT
+    // rank/state, мастер по нему подставляет проверенную атрибуцию
+    // (hosterUserId/sessionId из registry), не доверяя телу хоста напрямую
+    this._hostId = null;
+  }
+
+  // вызывается HostGame, когда мастер подтвердил регистрацию комнаты
+  // (host_registered) — до этого flush уходит без атрибуции
+  setHostId(hostId) {
+    this._hostId = hostId;
   }
 
   _authedFetch(url, token, { method = 'GET', body } = {}) {
@@ -133,7 +145,7 @@ export default class PlayerDataSync {
       requests.push(
         this._authedFetch(lobbyConfig.auth.rankUrl, token, {
           method: 'PUT',
-          body: { delta },
+          body: { delta, hostId: this._hostId },
         }).then(res => {
           if (res.ok) {
             entry.pendingRankDelta -= delta;
@@ -145,7 +157,7 @@ export default class PlayerDataSync {
     if (stateLoaded) {
       requests.push(this._authedFetch(lobbyConfig.auth.stateUrl, token, {
         method: 'PUT',
-        body: { state },
+        body: { state, hostId: this._hostId },
       }));
     }
 
