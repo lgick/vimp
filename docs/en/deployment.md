@@ -183,7 +183,16 @@ shared instance that every master domain points at.
     to restart the whole script), up to 3 attempts, then `docker compose up
     -d`;
   - runs migrations (`docker compose exec auth node src/db/migrate.js`,
-    retried until Postgres is ready) and checks `GET /jwks` for a 200.
+    retried until Postgres is ready) and checks `GET /jwks` for a 200, first
+    against `http://127.0.0.1:<port>` (up to 10 attempts, 1s apart) — this
+    local check can spuriously fail (`Connection reset by peer`) even when
+    the service is actually up, a race with the docker-proxy/freshly-started
+    process, not a real fault. Since Nginx+SSL for the domain are already in
+    place by this point (Step 3 above runs first), a failed local check is
+    re-verified against the real public path instead of being guessed at:
+    `https://<domain>/jwks` (up to 5 attempts, 2s apart). Only if *both* fail
+    does the script report a genuine failure (`docker compose ... logs
+    auth`).
   - **Re-running on the same auth domain** offers a choice: `1) update
     image` (keep the DB, RS256 keys and secrets, just re-pull and restart)
     or `2) recreate` (`docker compose down -v` — wipes the DB and keys,

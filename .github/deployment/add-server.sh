@@ -433,9 +433,34 @@ EOF
     sleep 1
     health_attempt=$((health_attempt + 1))
   done
+
+  # Локальный curl на 127.0.0.1:$PORT изредка ловит "Connection reset by peer"
+  # даже когда сервис уже реально отвечает (гонка с docker-proxy/только что
+  # стартовавшим процессом) — ложное срабатывание, не факт поломки. К этому
+  # моменту Nginx+SSL для $DOMAIN уже настроены (Этап 3 выполняется раньше
+  # этого шага) и проксируют на тот же порт, так что вместо предположений
+  # перепроверяем по публичному HTTPS-пути — тому же самому, который реально
+  # важен (это его вызывает браузер/master), и получаем точный ответ, а не
+  # догадку.
   if [ "$healthy" -ne 1 ]; then
-    warn "/jwks не ответил 200. Проверьте логи:"
-    warn "  docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
+    warn "Локальная проверка /jwks (127.0.0.1:$PORT) не прошла за 10 попыток —"
+    warn "перепроверяю через публичный https://$DOMAIN/jwks..."
+    local pub_attempt=1
+    while [ "$pub_attempt" -le 5 ]; do
+      if curl -fsS -o /dev/null "https://$DOMAIN/jwks"; then
+        healthy=1
+        break
+      fi
+      sleep 2
+      pub_attempt=$((pub_attempt + 1))
+    done
+  fi
+
+  if [ "$healthy" -ne 1 ]; then
+    error "/jwks не ответил 200 ни локально, ни через https://$DOMAIN — сервис"
+    error "действительно не поднялся. Смотрите логи:"
+    error "  docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
+    return 1
   fi
 
   return 0
@@ -588,11 +613,12 @@ else
   # раскатывает master-образ, а auth — отдельный образ + PostgreSQL)
   echo "⚠️  ВАЖНО (central auth-сервис):"
   if [[ "$AUTH_STACK_OK" == "1" ]]; then
-    echo "✅ Auth-стек поднят и прошёл проверку."
+    echo "✅ Auth-стек поднят и прошёл проверку (локально или через https://$DOMAIN/jwks)."
     echo "   docker compose -f $TARGET_DIR/docker-compose.yml ps"
     echo "   curl https://$DOMAIN/jwks"
   else
-    echo "❌ Auth-стек поднялся не полностью — смотрите логи:"
+    echo "❌ Auth-стек поднялся не полностью — /jwks не ответил ни локально,"
+    echo "   ни через https://$DOMAIN. Смотрите логи:"
     echo "   docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
   fi
   echo "1. Задайте переменную репозитория AUTH_SERVICE_URL = https://$DOMAIN"
