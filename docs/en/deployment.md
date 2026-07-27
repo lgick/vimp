@@ -101,7 +101,10 @@ domain (e.g. `game.example.com`).
      service" below); prepare a **GitHub OAuth App** beforehand
      (github.com/settings/developers) with callback URL
      `https://<domain>/oauth/github/callback`, and have its Client ID/Secret
-     and a GHCR login + PAT (`read:packages`) ready to paste in.
+     and a GHCR login + PAT (`read:packages`) ready to paste in — the
+     freshly published GHCR package defaults to **private**, so either make
+     it public (Package settings → Change visibility → Public) beforehand
+     or have the PAT ready.
 
 **Result:**
 
@@ -161,7 +164,9 @@ shared instance that every master domain points at.
   - asks for the master origins to allow (CSV,
     `VIMP_AUTH_ALLOWED_ORIGINS`), the OAuth Client ID/Secret, the image
     name (default `ghcr.io/lgick/vimp-auth`), and an optional GHCR login +
-    PAT (`read:packages`; leave blank if the image is public);
+    PAT (`read:packages`; leave blank if the image is public — note the
+    freshly published package defaults to **private** until switched to
+    Public in its GitHub package settings);
   - generates the RS256 key pair under `./.keys/` (once — reused on
     re-runs), writes `.env.prod` (`VIMP_AUTH_PUBLIC_URL`,
     `VIMP_AUTH_ALLOWED_ORIGINS`, `VIMP_AUTH_STATE_SECRET`,
@@ -169,8 +174,12 @@ shared instance that every master domain points at.
     two-service `docker-compose.yml` (`postgres` + `auth`, same shape as
     the master's single-container setup but with a Postgres sidecar) in
     `~/vimp_projects/<domain>/`;
-  - logs in to GHCR if credentials were given, then
-    `docker compose pull && docker compose up -d`;
+  - logs in to GHCR if credentials were given (otherwise logs out first, to
+    discard stale credentials before an anonymous pull), then runs
+    `docker compose pull`; if the pull fails (typically because the GHCR
+    package is still private), it prompts for a GHCR login/PAT and retries
+    in the same run (no need to restart the whole script), up to 3
+    attempts, then `docker compose up -d`;
   - runs migrations (`docker compose exec auth node src/db/migrate.js`,
     retried until Postgres is ready) and checks `GET /jwks` for a 200.
   - **Re-running on the same auth domain** offers a choice: `1) update

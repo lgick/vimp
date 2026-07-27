@@ -266,7 +266,7 @@ read_auth_stack_inputs() {
   fi
 
   echo ""
-  read -r -p "   GitHub-логин для GHCR (Enter — пропустить вход, если образ публичный): " GHCR_USER
+  read -r -p "   GitHub-логин для GHCR (Enter — пропустить, если пакет сделан публичным; иначе скрипт спросит PAT при неудачном pull): " GHCR_USER
   if [[ -n "$GHCR_USER" ]]; then
     read -rs -p "   GHCR Personal Access Token (read:packages): " GHCR_TOKEN
     echo ""
@@ -346,21 +346,47 @@ volumes:
 EOF
   fi
 
-  if [[ -n "$GHCR_USER" && -n "$GHCR_TOKEN" ]]; then
-    info "🔐 Вход в GHCR..."
-    if ! echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null; then
-      error "Не удалось войти в GHCR."
+  # Каждая итерация: привести авторизацию docker в нужное состояние, затем pull.
+  # Публичный образ: docker logout убирает устаревшие креды ghcr.io (напр.
+  # просроченный логин от CI-деплоя мастера на этом же VPS) — иначе docker
+  # пошлёт их и анонимный pull упадёт 'denied' даже для публичного образа.
+  # Приватный образ: свежий GHCR-пакет по умолчанию приватный → анонимный pull
+  # падает, предлагаем ввести PAT и повторить в этом же запуске.
+  local pull_try=1 max_try=3
+  while true; do
+    if [[ -n "$GHCR_USER" && -n "$GHCR_TOKEN" ]]; then
+      info "🔐 Вход в GHCR..."
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null \
+        || warn "Не удалось войти в GHCR — проверьте логин/PAT."
+    else
+      docker logout ghcr.io >/dev/null 2>&1 || true
+      warn "Вход в GHCR пропущен — pull анонимный (образ должен быть публичным)."
+    fi
+
+    info "📥 docker compose pull..."
+    docker compose pull && break
+
+    error "docker compose pull не удался для '$GHCR_IMAGE:latest'."
+    warn  "Обычно причина — GHCR-пакет по умолчанию ПРИВАТНЫЙ."
+    warn  "Сделайте его публичным (Package settings → Change visibility → Public)"
+    warn  "ИЛИ войдите с PAT (scope read:packages)."
+
+    if [[ "$pull_try" -ge "$max_try" ]]; then
+      error "Не удалось скачать образ после $max_try попыток."
       return 1
     fi
-  else
-    warn "Вход в GHCR пропущен — если образ приватный, docker compose pull упадёт."
-  fi
+    read -r -p "   Ввести GHCR-логин/PAT и повторить? [Y/n]: " RETRY_ANS
+    [[ "$RETRY_ANS" =~ ^[Nn]$ ]] && return 1
 
-  info "📥 docker compose pull..."
-  if ! docker compose pull; then
-    error "docker compose pull упал. Если образ приватный — проверьте GHCR-логин/PAT (read:packages) и повторите запуск."
-    return 1
-  fi
+    read -r -p "   GitHub-логин для GHCR (Enter — повторить анонимно): " GHCR_USER
+    if [[ -n "$GHCR_USER" ]]; then
+      read -rs -p "   GHCR Personal Access Token (read:packages): " GHCR_TOKEN
+      echo ""
+    else
+      GHCR_TOKEN=""
+    fi
+    pull_try=$((pull_try + 1))
+  done
 
   info "🐳 docker compose up -d..."
   if ! docker compose up -d; then
@@ -531,7 +557,11 @@ fi
 
 echo ""
 echo "=================================================="
-echo "✅ УСПЕХ! Сервер подготовлен."
+if [[ "$IS_AUTH_SERVICE" == "y" && "$AUTH_STACK_OK" == "0" ]]; then
+  echo "⚠️ ЧАСТИЧНО. Сервер подготовлен, но auth-стек поднялся не полностью."
+else
+  echo "✅ УСПЕХ! Сервер подготовлен."
+fi
 echo "   URL:  https://$DOMAIN"
 echo "   Порт: 127.0.0.1:$PORT"
 echo ""

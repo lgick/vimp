@@ -79,7 +79,10 @@
      весь auth-стек (см. «Central auth-сервис» ниже); заранее подготовьте
      **GitHub OAuth App** (github.com/settings/developers) с callback URL
      `https://<домен>/oauth/github/callback`, и держите под рукой его
-     Client ID/Secret, а также логин + PAT (`read:packages`) для GHCR.
+     Client ID/Secret, а также логин + PAT (`read:packages`) для GHCR —
+     свежеопубликованный GHCR-пакет по умолчанию **приватный**, так что
+     заранее либо сделайте его публичным (Package settings → Change
+     visibility → Public), либо держите PAT под рукой.
 
 **Результат:**
 
@@ -132,7 +135,9 @@
   - спросит origin'ы мастеров, которым разрешён доступ (CSV,
     `VIMP_AUTH_ALLOWED_ORIGINS`), Client ID/Secret OAuth, имя образа
     (по умолчанию `ghcr.io/lgick/vimp-auth`) и опционально логин + PAT для
-    GHCR (`read:packages`; можно оставить пустым, если образ публичный);
+    GHCR (`read:packages`; можно оставить пустым, если образ публичный —
+    учтите, что свежеопубликованный пакет по умолчанию **приватный**, пока
+    его не переключат в Public в настройках пакета на GitHub);
   - сгенерирует пару RS256-ключей в `./.keys/` (один раз — переиспользуется
     при повторных запусках), запишет `.env.prod` (`VIMP_AUTH_PUBLIC_URL`,
     `VIMP_AUTH_ALLOWED_ORIGINS`, `VIMP_AUTH_STATE_SECRET`,
@@ -140,8 +145,12 @@
     docker-compose стек из двух сервисов (`postgres` + `auth`, по форме
     похож на одиночный контейнер мастера, но с соседом Postgres) в
     `~/vimp_projects/<домен>/`;
-  - при наличии логина/PAT войдёт в GHCR, затем выполнит `docker compose
-    pull && docker compose up -d`;
+  - при наличии логина/PAT войдёт в GHCR (иначе сначала выйдет — чтобы
+    сбросить устаревшие креды перед анонимным pull), затем выполнит
+    `docker compose pull`; если pull не удался (обычно потому, что
+    GHCR-пакет ещё приватный), предложит ввести логин/PAT и повторит в
+    этом же запуске (без перезапуска всего скрипта), до 3 попыток, затем
+    `docker compose up -d`;
   - прогонит миграции (`docker compose exec auth node src/db/migrate.js`,
     с повторами до готовности Postgres) и проверит `GET /jwks` на 200.
   - **При повторном запуске на том же auth-домене** предложит выбор:
