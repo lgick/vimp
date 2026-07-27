@@ -174,12 +174,14 @@ shared instance that every master domain points at.
     two-service `docker-compose.yml` (`postgres` + `auth`, same shape as
     the master's single-container setup but with a Postgres sidecar) in
     `~/vimp_projects/<domain>/`;
-  - logs in to GHCR if credentials were given (otherwise logs out first, to
-    discard stale credentials before an anonymous pull), then runs
-    `docker compose pull`; if the pull fails (typically because the GHCR
-    package is still private), it prompts for a GHCR login/PAT and retries
-    in the same run (no need to restart the whole script), up to 3
-    attempts, then `docker compose up -d`;
+  - logs in to GHCR if credentials were given, then runs `docker compose
+    pull` with whatever auth is present (so an existing valid ambient
+    `docker login` is used as-is and not discarded); on failure it first
+    retries once anonymously (clearing any stale ghcr.io credentials, which
+    covers a public image blocked by an expired login), and if it still
+    fails prompts for a GHCR login/PAT and retries in the same run (no need
+    to restart the whole script), up to 3 attempts, then `docker compose up
+    -d`;
   - runs migrations (`docker compose exec auth node src/db/migrate.js`,
     retried until Postgres is ready) and checks `GET /jwks` for a 200.
   - **Re-running on the same auth domain** offers a choice: `1) update

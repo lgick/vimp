@@ -276,7 +276,8 @@ read_auth_stack_inputs() {
 # --- Поднятие central auth-стека (postgres + auth) в $TARGET_DIR ---
 # Вызывается ПОСЛЕ снятия trap ERR: сбой docker'а не должен откатывать уже
 # применённые Nginx/SSL. set -e внутри функции не действует, когда функция
-# вызвана в левой части '||' — поэтому ошибки каждого шага обрабатываем явно.
+# вызвана как `if setup_auth_stack; then` — поэтому ошибки каждого шага
+# обрабатываем явно.
 setup_auth_stack() {
   cd "$TARGET_DIR" || { error "Каталог проекта $TARGET_DIR недоступен."; return 1; }
 
@@ -346,30 +347,40 @@ volumes:
 EOF
   fi
 
-  # Каждая итерация: привести авторизацию docker в нужное состояние, затем pull.
-  # Публичный образ: docker logout убирает устаревшие креды ghcr.io (напр.
-  # просроченный логин от CI-деплоя мастера на этом же VPS) — иначе docker
-  # пошлёт их и анонимный pull упадёт 'denied' даже для публичного образа.
-  # Приватный образ: свежий GHCR-пакет по умолчанию приватный → анонимный pull
-  # падает, предлагаем ввести PAT и повторить в этом же запуске.
+  # Каждая итерация: pull с текущим состоянием docker-авторизации; при неудаче —
+  # ступенчатое восстановление, бережа уже существующий валидный логин ghcr.io:
+  #   1) первый pull — как есть (ambient-креды, если валидны — приватный образ);
+  #   2) упал и явный логин не задавали → один раз сбрасываем возможные
+  #      УСТАРЕВШИЕ креды (docker logout) и повторяем анонимно (чинит публичный
+  #      образ, заблокированный протухшими кредами);
+  #   3) не помогло → просим PAT (приватный образ) и повторяем, до max_try.
   local pull_try=1 max_try=3
+  local anon_reset=0
+  local RETRY_ANS
   while true; do
     if [[ -n "$GHCR_USER" && -n "$GHCR_TOKEN" ]]; then
       info "🔐 Вход в GHCR..."
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null \
         || warn "Не удалось войти в GHCR — проверьте логин/PAT."
-    else
-      docker logout ghcr.io >/dev/null 2>&1 || true
-      warn "Вход в GHCR пропущен — pull анонимный (образ должен быть публичным)."
     fi
 
     info "📥 docker compose pull..."
     docker compose pull && break
 
-    error "docker compose pull не удался для '$GHCR_IMAGE:latest'."
-    warn  "Обычно причина — GHCR-пакет по умолчанию ПРИВАТНЫЙ."
-    warn  "Сделайте его публичным (Package settings → Change visibility → Public)"
-    warn  "ИЛИ войдите с PAT (scope read:packages)."
+    error "docker compose pull не удался для '${GHCR_IMAGE:-образ auth}:latest'."
+
+    # Публичный образ, но pull упал → возможно, мешают устаревшие ambient-креды.
+    # Сбрасываем их ОДИН раз и повторяем анонимно, не тратя попытку на ввод PAT.
+    if [[ -z "$GHCR_USER" && "$anon_reset" -eq 0 ]]; then
+      anon_reset=1
+      warn "Сбрасываю возможные устаревшие креды ghcr.io и повторяю анонимно..."
+      docker logout ghcr.io >/dev/null 2>&1 || true
+      continue
+    fi
+
+    warn "Обычно причина — GHCR-пакет по умолчанию ПРИВАТНЫЙ."
+    warn "Сделайте его публичным (Package settings → Change visibility → Public)"
+    warn "ИЛИ войдите с PAT (scope read:packages)."
 
     if [[ "$pull_try" -ge "$max_try" ]]; then
       error "Не удалось скачать образ после $max_try попыток."
