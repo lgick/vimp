@@ -83,6 +83,7 @@ describe('LobbyAuthView: переключение секций', () => {
 
     model.publisher.emit('nick-required');
 
+    expect(document.getElementById('lobby-auth').style.display).toBe('block');
     expect(document.getElementById('lobby-auth-login').style.display).toBe('none');
     expect(document.getElementById('lobby-auth-nick').style.display).toBe('block');
     expect(document.getElementById('lobby-auth-nick-input').value).toBe('');

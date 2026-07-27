@@ -76,6 +76,7 @@ export default class LobbyAuthView {
   }
 
   showNick() {
+    this._container.style.display = 'block';
     this._loginSection.style.display = 'none';
     this._nickSection.style.display = 'block';
     this._nickError.textContent = '';
