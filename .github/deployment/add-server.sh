@@ -14,6 +14,7 @@ PROJECTS_ROOT="$HOME/vimp_projects"
 DOMAIN=""
 PORT=""
 EMAIL=""
+AUTH_SERVICE_URL=""
 CONFIG_FILE=""
 SYMLINK_FILE=""
 
@@ -133,6 +134,32 @@ read_email() {
   EMAIL="${EMAIL_INPUT:-$DEFAULT_EMAIL}"
 }
 
+read_auth_service_url() {
+  local IS_AUTH_SERVICE
+  read -r -p "🔐 Этот домен — сам central auth-сервис? [y/N]: " IS_AUTH_SERVICE
+  if [[ "$IS_AUTH_SERVICE" =~ ^[Yy]$ ]]; then
+    AUTH_SERVICE_URL=""
+    return
+  fi
+
+  # Мастер без auth-URL в CSP сломает вход в лобби (fetch POST /nick
+  # заблокирует connect-src) — поэтому URL обязателен. Если auth-сервис ещё
+  # не развёрнут: сначала добавьте его домен этим же скриптом (ответ "y" на
+  # вопрос выше), потом добавляйте домен мастера. Чтобы поменять auth-URL на
+  # уже настроенном мастере позже — запустите ./add-server.sh на этом же
+  # домене снова и подтвердите "Перезаписать?".
+  while true; do
+    read -r -p "   URL central auth-сервиса (например https://auth.example.com): " AUTH_SERVICE_URL
+    AUTH_SERVICE_URL="${AUTH_SERVICE_URL// /}"
+    [[ -z "$AUTH_SERVICE_URL" ]] && warn "URL обязателен для домена мастера — auth должен быть развёрнут заранее." && continue
+    if [[ ! "$AUTH_SERVICE_URL" =~ ^https?:// ]]; then
+      warn "URL '$AUTH_SERVICE_URL' без схемы http(s):// — введите ещё раз."
+      continue
+    fi
+    break
+  done
+}
+
 check_system_installed
 
 # --- Основной процесс ---
@@ -141,12 +168,24 @@ info "🚀 МАСТЕР УСТАНОВКИ СЕРВЕРА VIMP"
 read_domain
 read_port
 read_email
+read_auth_service_url
+
+# Старый vimp.template (до фикса CSP) не содержит плейсхолдера — тогда auth-URL
+# молча потеряется при sed и CSP снова заблокирует fetch POST /nick. Падаем
+# громко до любых изменений в системе, вместо тихого повтора бага.
+if [[ -n "$AUTH_SERVICE_URL" ]] && ! grep -q '__AUTH_SERVICE_URL__' "$TEMPLATE"; then
+  error "Шаблон $TEMPLATE не содержит плейсхолдер __AUTH_SERVICE_URL__ —"
+  error "заданный auth-URL не попадёт в CSP. Перезапустите ./install-system.sh,"
+  error "чтобы обновить шаблон, затем повторите."
+  exit 1
+fi
 
 echo ""
 info "Проверка конфигурации:"
 echo "  Домен: $DOMAIN"
 echo "  Порт:  $PORT"
 echo "  Email: $EMAIL"
+echo "  Auth CSP: ${AUTH_SERVICE_URL:-(не задан)}"
 read -r -p "Нажмите Enter для продолжения..."
 
 # --- Этап 1: Создание папки проекта (если не была создана ранее) ---
@@ -186,7 +225,15 @@ sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"
 # --- Этап 4: Финальный HTTPS конфиг ---
 info "3️⃣ Применение финальной конфигурации..."
 ESC_DOMAIN=$(escape_sed "$DOMAIN")
-sudo sed -e "s/__DOMAIN__/$ESC_DOMAIN/g" -e "s/__PORT__/$PORT/g" "$TEMPLATE" | sudo tee "$CONFIG_FILE" >/dev/null
+ESC_AUTH_SERVICE_URL=""
+if [[ -n "$AUTH_SERVICE_URL" ]]; then
+  ESC_AUTH_SERVICE_URL=$(escape_sed " $AUTH_SERVICE_URL")
+fi
+sudo sed \
+  -e "s/__DOMAIN__/$ESC_DOMAIN/g" \
+  -e "s/__PORT__/$PORT/g" \
+  -e "s/__AUTH_SERVICE_URL__/$ESC_AUTH_SERVICE_URL/g" \
+  "$TEMPLATE" | sudo tee "$CONFIG_FILE" >/dev/null
 
 # --- Завершение ---
 info "🔄 Финальная перезагрузка Nginx..."

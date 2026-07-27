@@ -89,7 +89,13 @@ domain (e.g. `game.example.com`).
 2. Follow the setup wizard:
    - enter the **domain** (e.g. `game.example.com`);
    - enter the **port** (e.g. `3005`) — **remember it**;
-   - enter an email (for SSL notifications).
+   - enter an email (for SSL notifications);
+   - answer whether this domain **is the central auth-service itself**;
+     if not (a master domain), enter the **auth-service URL** (e.g.
+     `https://auth.example.com`) — required, for the CSP `connect-src`, so
+     the lobby browser can `fetch POST /nick` (see "🔒 Security headers and
+     CSP" below). **Deploy and add the auth-service domain first** — a
+     master domain cannot be added without a working auth-service URL.
 
 **Result:**
 
@@ -210,13 +216,17 @@ domain. The policy's single source of truth is
 [packages/engine/src/config/master.js](../../packages/engine/src/config/master.js) (`security.csp`, a
 function of `authServiceUrl` — see [auth.md](auth.md#lobby-login-client)); the
 master applies it to its own responses, but HTML/`.wasm` go through
-Nginx, so the real auth-service origin must be substituted by hand into
-the snippet below (or generated from `security.csp` and pasted into the
-Nginx config).
+Nginx.
 
-The `install-system.sh` template already includes these headers; when
-configuring manually, add them to the Nginx `server` block (or a shared
-snippet):
+The `install-system.sh` template includes a `connect-src` with an
+`__AUTH_SERVICE_URL__` placeholder, filled in by `add-server.sh` from the
+"central auth-service URL" prompt (Step 3 above) — answer it with the real
+auth-service origin on master domains, otherwise the lobby browser's
+`fetch POST /nick` is blocked by this same CSP (`Refused to connect ...
+violates Content Security Policy`). If the installed template predates this
+placeholder, `add-server.sh` aborts and asks you to re-run `install-system.sh`
+first. When configuring manually, add these
+headers to the Nginx `server` block (or a shared snippet):
 
 ```nginx
 add_header X-Content-Type-Options "nosniff" always;
