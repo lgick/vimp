@@ -96,6 +96,12 @@ domain (e.g. `game.example.com`).
      the lobby browser can `fetch POST /nick` (see "🔒 Security headers and
      CSP" below). **Deploy and add the auth-service domain first** — a
      master domain cannot be added without a working auth-service URL.
+   - if you answer "yes" (this is the auth-service domain), the script
+     then also brings up the whole auth stack itself (see "Central auth
+     service" below); prepare a **GitHub OAuth App** beforehand
+     (github.com/settings/developers) with callback URL
+     `https://<domain>/oauth/github/callback`, and have its Client ID/Secret
+     and a GHCR login + PAT (`read:packages`) ready to paste in.
 
 **Result:**
 
@@ -145,49 +151,40 @@ shared instance that every master domain points at.
   second image, `ghcr.io/<repo>-auth:latest`, from
   [packages/auth/Dockerfile](../../packages/auth/Dockerfile) on every push
   to `main` — a plain Node image, no Rust/Vite stages.
-- **Hosting.** Deploy it once on its own domain: Steps 2–3 above
-  (`install-system.sh`, then `add-server.sh`) give any domain/port Nginx +
-  SSL, so they work for the auth service too. Run a two-service
-  docker-compose stack instead of the master's single container:
-
-  ```yaml
-  services:
-    postgres:
-      image: postgres:16-alpine
-      restart: always
-      environment:
-        POSTGRES_DB: vimp_auth
-        POSTGRES_USER: vimp
-        POSTGRES_PASSWORD: <secret>
-      volumes:
-        - pgdata:/var/lib/postgresql/data
-    auth:
-      image: ghcr.io/<repo>-auth:latest
-      restart: always
-      env_file: .env.prod
-      volumes:
-        - ./.keys:/app/.keys:ro
-      ports:
-        - '127.0.0.1:<port>:3010'
-  volumes:
-    pgdata:
-  ```
-
-  `.env.prod` on that host needs `VIMP_AUTH_DATABASE_URL` (pointing at the
-  `postgres` service), the OAuth provider secrets
-  (`VIMP_AUTH_GITHUB_CLIENT_ID`/`_SECRET`, see
-  [auth.md](auth.md#running)), and three more the service refuses to start
-  without in production: `VIMP_AUTH_PUBLIC_URL` (its own public origin, used
-  to build the OAuth `redirect_uri` registered with the provider),
-  `VIMP_AUTH_ALLOWED_ORIGINS` (CSV of master origins — CORS on `POST /nick`
-  and the `returnUrl` allowlist for the OAuth redirect) and
-  `VIMP_AUTH_STATE_SECRET` (HMAC secret for the OAuth `state` param). The
-  RS256 key pair goes under `./.keys/` on the host (generated once —
-  [auth.md](auth.md#running)); never bake it into the image or commit it.
-
-- **Migrations.** Not run automatically on container start — apply them
-  once, and again after any schema change: `docker compose exec auth node
-  src/db/migrate.js`.
+- **Hosting is fully automated by `add-server.sh`.** Prepare only what
+  can't be done on the VPS: a **GitHub OAuth App**
+  (github.com/settings/developers) with Homepage URL `https://<domain>`
+  and Authorization callback URL `https://<domain>/oauth/github/callback`.
+  Then run Steps 2–3 above (`install-system.sh`, then `add-server.sh`) and
+  answer "yes" to "is this domain the central auth-service itself?". The
+  script:
+  - asks for the master origins to allow (CSV,
+    `VIMP_AUTH_ALLOWED_ORIGINS`), the OAuth Client ID/Secret, the image
+    name (default `ghcr.io/lgick/vimp-auth`), and an optional GHCR login +
+    PAT (`read:packages`; leave blank if the image is public);
+  - generates the RS256 key pair under `./.keys/` (once — reused on
+    re-runs), writes `.env.prod` (`VIMP_AUTH_PUBLIC_URL`,
+    `VIMP_AUTH_ALLOWED_ORIGINS`, `VIMP_AUTH_STATE_SECRET`,
+    `VIMP_AUTH_GITHUB_CLIENT_ID`/`_SECRET`, `VIMP_AUTH_DATABASE_URL`) and a
+    two-service `docker-compose.yml` (`postgres` + `auth`, same shape as
+    the master's single-container setup but with a Postgres sidecar) in
+    `~/vimp_projects/<domain>/`;
+  - logs in to GHCR if credentials were given, then
+    `docker compose pull && docker compose up -d`;
+  - runs migrations (`docker compose exec auth node src/db/migrate.js`,
+    retried until Postgres is ready) and checks `GET /jwks` for a 200.
+  - **Re-running on the same auth domain** offers a choice: `1) update
+    image` (keep the DB, RS256 keys and secrets, just re-pull and restart)
+    or `2) recreate` (`docker compose down -v` — wipes the DB and keys,
+    requires typing `yes` to confirm).
+- **Migrations** run automatically as part of the above. To re-run by hand
+  (e.g. after a manual schema change): `docker compose exec auth node
+  src/db/migrate.js` from `~/vimp_projects/<domain>/`.
+- **Adding a master later.** `VIMP_AUTH_ALLOWED_ORIGINS` is only set from
+  what you entered when the auth stack was created/recreated — adding a
+  new master domain afterwards means editing it by hand in
+  `~/vimp_projects/<auth-domain>/.env.prod` and running `docker compose
+  restart auth` there.
 - **Wiring masters to it.** Set the `AUTH_SERVICE_URL` repository variable
   (Settings → Secrets and variables → Actions → Variables) to the auth
   service's public URL; `deploy.yml`'s `deploy` job writes it into every

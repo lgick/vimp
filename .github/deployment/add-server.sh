@@ -17,6 +17,19 @@ EMAIL=""
 AUTH_SERVICE_URL=""
 CONFIG_FILE=""
 SYMLINK_FILE=""
+IS_AUTH_SERVICE=""
+AUTH_RECONFIGURE_MODE=""
+AUTH_DB_PASSWORD=""
+AUTH_STATE_SECRET=""
+AUTH_ALLOWED_ORIGINS=""
+AUTH_GITHUB_CLIENT_ID=""
+AUTH_GITHUB_CLIENT_SECRET=""
+GHCR_IMAGE=""
+GHCR_USER=""
+GHCR_TOKEN=""
+GHCR_IMAGE_DEFAULT="ghcr.io/lgick/vimp-auth"
+TARGET_DIR=""
+AUTH_STACK_OK=""
 
 # --- Логирование ---
 info()  { echo -e "ℹ️  $*"; }
@@ -135,12 +148,14 @@ read_email() {
 }
 
 read_auth_service_url() {
-  local IS_AUTH_SERVICE
-  read -r -p "🔐 Этот домен — сам central auth-сервис? [y/N]: " IS_AUTH_SERVICE
-  if [[ "$IS_AUTH_SERVICE" =~ ^[Yy]$ ]]; then
+  local ANSWER
+  read -r -p "🔐 Этот домен — сам central auth-сервис? [y/N]: " ANSWER
+  if [[ "$ANSWER" =~ ^[Yy]$ ]]; then
+    IS_AUTH_SERVICE="y"
     AUTH_SERVICE_URL=""
     return
   fi
+  IS_AUTH_SERVICE="n"
 
   # Мастер без auth-URL в CSP сломает вход в лобби (fetch POST /nick
   # заблокирует connect-src) — поэтому URL обязателен. Если auth-сервис ещё
@@ -168,6 +183,231 @@ read_auth_service_url() {
   done
 }
 
+# Валидирует и нормализует один origin (используется и для AUTH_SERVICE_URL
+# мастера, и для элементов AUTH_ALLOWED_ORIGINS auth-сервиса): срезает
+# хвостовой '/', требует http(s):// и запрещает путь после хоста.
+validate_origin() {
+  local url="${1// /}"
+  [[ -z "$url" ]] && return 1
+  [[ ! "$url" =~ ^https?:// ]] && return 1
+  url="${url%/}"
+  [[ ! "$url" =~ ^https?://[^/]+$ ]] && return 1
+  echo "$url"
+}
+
+read_auth_stack_inputs() {
+  TARGET_DIR="$PROJECTS_ROOT/$DOMAIN"
+
+  # --- Режим повторного запуска ---
+  if [ -f "$TARGET_DIR/.env.prod" ]; then
+    echo ""
+    warn "Найден существующий auth-стек в $TARGET_DIR."
+    echo "   1) Обновить образ (сохранить БД, ключи, секреты)"
+    echo "   2) Пересоздать (docker compose down -v — сотрёт БД и ключи!)"
+    while true; do
+      read -r -p "   Выберите режим [1/2]: " MODE_CHOICE
+      case "$MODE_CHOICE" in
+        1)
+          AUTH_RECONFIGURE_MODE="update"
+          break
+          ;;
+        2)
+          read -r -p "   Точно пересоздать и стереть БД/ключи? Введите 'yes' для подтверждения: " CONFIRM_RECREATE
+          if [[ "$CONFIRM_RECREATE" == "yes" ]]; then
+            AUTH_RECONFIGURE_MODE="recreate"
+            break
+          fi
+          warn "Отменено, выберите режим ещё раз."
+          ;;
+        *)
+          warn "Введите 1 или 2."
+          ;;
+      esac
+    done
+  else
+    AUTH_RECONFIGURE_MODE="fresh"
+  fi
+
+  if [[ "$AUTH_RECONFIGURE_MODE" != "update" ]]; then
+    AUTH_DB_PASSWORD=$(openssl rand -hex 24)
+    AUTH_STATE_SECRET=$(openssl rand -hex 32)
+
+    echo ""
+    info "🌐 Origin'ы мастеров, которым разрешён доступ к auth-сервису (CORS)."
+    echo "   Вводите по одному (например https://ru1.example.com), пустая строка — закончить."
+    local origins=()
+    while true; do
+      read -r -p "   Origin (Enter — закончить, если хоть один уже введён): " ORIGIN_INPUT
+      if [[ -z "$ORIGIN_INPUT" ]]; then
+        [[ ${#origins[@]} -eq 0 ]] && warn "Нужен хотя бы один origin." && continue
+        break
+      fi
+      local VALIDATED
+      if ! VALIDATED=$(validate_origin "$ORIGIN_INPUT"); then
+        warn "Origin '$ORIGIN_INPUT' некорректен — нужен http(s)://host[:port] без пути."
+        continue
+      fi
+      origins+=("$VALIDATED")
+    done
+    AUTH_ALLOWED_ORIGINS=$(IFS=,; echo "${origins[*]}")
+    warn "При добавлении новых мастеров эту переменную нужно будет дополнить"
+    warn "вручную и перезапустить auth-контейнер (docker compose restart auth)."
+
+    echo ""
+    info "🔑 GitHub OAuth App (создаётся заранее вручную на github.com/settings/developers):"
+    echo "   Homepage URL:                https://$DOMAIN"
+    echo "   Authorization callback URL:  https://$DOMAIN/oauth/github/callback"
+    while true; do
+      read -r -p "   Client ID: " AUTH_GITHUB_CLIENT_ID
+      [[ -z "$AUTH_GITHUB_CLIENT_ID" ]] && warn "Client ID обязателен." && continue
+      break
+    done
+    while true; do
+      read -rs -p "   Client Secret: " AUTH_GITHUB_CLIENT_SECRET
+      echo ""
+      [[ -z "$AUTH_GITHUB_CLIENT_SECRET" ]] && warn "Client Secret обязателен." && continue
+      break
+    done
+  fi
+
+  echo ""
+  read -r -p "🐳 Docker-образ auth [по умолчанию: $GHCR_IMAGE_DEFAULT]: " GHCR_IMAGE_INPUT
+  GHCR_IMAGE="${GHCR_IMAGE_INPUT:-$GHCR_IMAGE_DEFAULT}"
+  read -r -p "   GitHub-логин для GHCR (Enter — пропустить вход, если образ публичный): " GHCR_USER
+  if [[ -n "$GHCR_USER" ]]; then
+    read -rs -p "   GHCR Personal Access Token (read:packages): " GHCR_TOKEN
+    echo ""
+  fi
+}
+
+# --- Поднятие central auth-стека (postgres + auth) в $TARGET_DIR ---
+# Вызывается ПОСЛЕ снятия trap ERR: сбой docker'а не должен откатывать уже
+# применённые Nginx/SSL. set -e внутри функции не действует, когда функция
+# вызвана в левой части '||' — поэтому ошибки каждого шага обрабатываем явно.
+setup_auth_stack() {
+  cd "$TARGET_DIR"
+
+  if [[ "$AUTH_RECONFIGURE_MODE" == "recreate" ]]; then
+    if [ -f docker-compose.yml ]; then
+      info "🗑️  Пересоздание: снос старого стека (docker compose down -v)..."
+      docker compose down -v || true
+    fi
+    rm -rf .keys
+  fi
+
+  mkdir -p .keys
+  if [ ! -f .keys/jwt.pem ]; then
+    info "🔑 Генерация RS256-ключей для JWT..."
+    openssl genrsa -out .keys/jwt.pem 2048 >/dev/null 2>&1
+    openssl rsa -in .keys/jwt.pem -pubout -out .keys/jwt.pub.pem >/dev/null 2>&1
+    chmod 600 .keys/jwt.pem
+  fi
+
+  if [[ "$AUTH_RECONFIGURE_MODE" != "update" ]]; then
+    info "📝 Запись .env.prod..."
+    cat > .env.prod <<EOF
+NODE_ENV=production
+VIMP_AUTH_PUBLIC_URL=https://$DOMAIN
+VIMP_AUTH_ALLOWED_ORIGINS=$AUTH_ALLOWED_ORIGINS
+VIMP_AUTH_STATE_SECRET=$AUTH_STATE_SECRET
+VIMP_AUTH_GITHUB_CLIENT_ID=$AUTH_GITHUB_CLIENT_ID
+VIMP_AUTH_GITHUB_CLIENT_SECRET=$AUTH_GITHUB_CLIENT_SECRET
+VIMP_AUTH_DATABASE_URL=postgres://vimp:$AUTH_DB_PASSWORD@postgres:5432/vimp_auth
+EOF
+    chmod 600 .env.prod
+
+    info "📝 Запись docker-compose.yml..."
+    cat > docker-compose.yml <<EOF
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vimp-$DOMAIN-postgres
+    environment:
+      POSTGRES_DB: vimp_auth
+      POSTGRES_USER: vimp
+      POSTGRES_PASSWORD: $AUTH_DB_PASSWORD
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vimp -d vimp_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  auth:
+    image: $GHCR_IMAGE:latest
+    container_name: vimp-$DOMAIN
+    env_file: .env.prod
+    volumes:
+      - ./.keys:/app/.keys:ro
+    ports:
+      - "127.0.0.1:$PORT:3010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  pgdata:
+EOF
+  fi
+
+  if [[ -n "$GHCR_USER" && -n "$GHCR_TOKEN" ]]; then
+    info "🔐 Вход в GHCR..."
+    if ! echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null; then
+      error "Не удалось войти в GHCR."
+      return 1
+    fi
+  else
+    warn "Вход в GHCR пропущен — если образ приватный, docker compose pull упадёт."
+  fi
+
+  info "📥 docker compose pull..."
+  if ! docker compose pull; then
+    error "docker compose pull упал. Если образ приватный — проверьте GHCR-логин/PAT (read:packages) и повторите запуск."
+    return 1
+  fi
+
+  info "🐳 docker compose up -d..."
+  docker compose up -d
+
+  info "🗃️  Применение миграций auth-БД..."
+  local attempt=1
+  local migrated=0
+  while [ "$attempt" -le 15 ]; do
+    if docker compose exec -T auth node src/db/migrate.js; then
+      migrated=1
+      break
+    fi
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+  if [ "$migrated" -ne 1 ]; then
+    error "Миграции не прошли за отведённое время. Смотрите логи:"
+    error "  docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
+    return 1
+  fi
+
+  info "🩺 Проверка здоровья (/jwks)..."
+  local health_attempt=1
+  local healthy=0
+  while [ "$health_attempt" -le 10 ]; do
+    if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/jwks"; then
+      healthy=1
+      break
+    fi
+    sleep 1
+    health_attempt=$((health_attempt + 1))
+  done
+  if [ "$healthy" -ne 1 ]; then
+    warn "/jwks не ответил 200. Проверьте логи:"
+    warn "  docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
+  fi
+
+  return 0
+}
+
 check_system_installed
 
 # --- Основной процесс ---
@@ -177,6 +417,7 @@ read_domain
 read_port
 read_email
 read_auth_service_url
+[[ "$IS_AUTH_SERVICE" == "y" ]] && read_auth_stack_inputs
 
 # Старый vimp.template (до фикса CSP) не содержит плейсхолдера — тогда auth-URL
 # молча потеряется при sed и CSP снова заблокирует fetch POST /nick. Падаем
@@ -194,6 +435,19 @@ echo "  Домен: $DOMAIN"
 echo "  Порт:  $PORT"
 echo "  Email: $EMAIL"
 echo "  Auth CSP: ${AUTH_SERVICE_URL:-(не задан)}"
+if [[ "$IS_AUTH_SERVICE" == "y" ]]; then
+  echo "  Auth-стек:"
+  echo "    Образ:         $GHCR_IMAGE"
+  echo "    Режим:         $AUTH_RECONFIGURE_MODE"
+  if [[ "$AUTH_RECONFIGURE_MODE" != "update" ]]; then
+    echo "    Allowed origins: $AUTH_ALLOWED_ORIGINS"
+  fi
+  if [[ -n "$GHCR_USER" ]]; then
+    echo "    Вход в GHCR:   да ($GHCR_USER)"
+  else
+    echo "    Вход в GHCR:   пропущен"
+  fi
+fi
 read -r -p "Нажмите Enter для продолжения..."
 
 # --- Этап 1: Создание папки проекта (если не была создана ранее) ---
@@ -253,13 +507,26 @@ sudo systemctl reload nginx
 # Снимаем ловушку: мы успешно закончили, откат больше не нужен
 trap - ERR
 
+# --- Этап 5: Auth-стек (postgres + auth), только для auth-домена ---
+# После снятия trap ERR: сбой docker'а не должен откатывать уже применённые
+# Nginx/SSL. AUTH_STACK_OK=0 при неудаче — скрипт всё равно доходит до
+# финального блока и печатает инструкцию, а не тихо падает.
+if [[ "$IS_AUTH_SERVICE" == "y" ]]; then
+  info "4️⃣ Поднятие auth-стека (postgres + auth)..."
+  if setup_auth_stack; then
+    AUTH_STACK_OK=1
+  else
+    AUTH_STACK_OK=0
+  fi
+fi
+
 echo ""
 echo "=================================================="
 echo "✅ УСПЕХ! Сервер подготовлен."
 echo "   URL:  https://$DOMAIN"
 echo "   Порт: 127.0.0.1:$PORT"
 echo ""
-if [[ -n "$AUTH_SERVICE_URL" ]]; then
+if [[ "$IS_AUTH_SERVICE" != "y" ]]; then
   # Домен мастера — деплоится CI по SERVERS_MATRIX (master-образ)
   echo "⚠️  ВАЖНО (домен мастера):"
   echo "1. Добавьте этот сервер в переменную SERVERS_MATRIX в настройках GitHub"
@@ -270,11 +537,18 @@ else
   # Домен самого auth-сервиса — НЕ входит в SERVERS_MATRIX (та матрица
   # раскатывает master-образ, а auth — отдельный образ + PostgreSQL)
   echo "⚠️  ВАЖНО (central auth-сервис):"
-  echo "1. Разверните на этом хосте стек postgres + auth вручную (docker-compose"
-  echo "   с образом ghcr.io/<repo>-auth:latest на порту 127.0.0.1:$PORT:3010)"
-  echo "   и примените миграции — раздел «Central auth-сервис» в"
-  echo "   docs/{en,ru}/deployment.md."
-  echo "2. Задайте переменную репозитория AUTH_SERVICE_URL = https://$DOMAIN"
-  echo "   (Settings -> Variables) — мастера получат этот URL в CSP и клиент."
+  if [[ "$AUTH_STACK_OK" == "1" ]]; then
+    echo "✅ Auth-стек поднят и прошёл проверку."
+    echo "   docker compose -f $TARGET_DIR/docker-compose.yml ps"
+    echo "   curl https://$DOMAIN/jwks"
+  else
+    echo "❌ Auth-стек поднялся не полностью — смотрите логи:"
+    echo "   docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
+  fi
+  echo "1. Задайте переменную репозитория AUTH_SERVICE_URL = https://$DOMAIN"
+  echo "   (Settings -> Variables) и перезапустите Build & Deploy — мастера"
+  echo "   пересоберут клиентский бандл/CSP с VITE_AUTH_SERVICE_URL."
+  echo "2. При добавлении новых мастеров дополните VIMP_AUTH_ALLOWED_ORIGINS"
+  echo "   в $TARGET_DIR/.env.prod и перезапустите: docker compose restart auth."
 fi
 echo "=================================================="
