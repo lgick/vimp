@@ -149,11 +149,19 @@ read_auth_service_url() {
   # уже настроенном мастере позже — запустите ./add-server.sh на этом же
   # домене снова и подтвердите "Перезаписать?".
   while true; do
-    read -r -p "   URL central auth-сервиса (например https://auth.example.com): " AUTH_SERVICE_URL
+    read -r -p "   URL central auth-сервиса (например https://auth.example.com, без пути): " AUTH_SERVICE_URL
     AUTH_SERVICE_URL="${AUTH_SERVICE_URL// /}"
     [[ -z "$AUTH_SERVICE_URL" ]] && warn "URL обязателен для домена мастера — auth должен быть развёрнут заранее." && continue
     if [[ ! "$AUTH_SERVICE_URL" =~ ^https?:// ]]; then
       warn "URL '$AUTH_SERVICE_URL' без схемы http(s):// — введите ещё раз."
+      continue
+    fi
+    # Хвостовой '/' срезаем молча (безвреден для connect-src); путь дальше
+    # ('/api' и т.п.) сузил бы host-source в CSP и снова сломал бы
+    # fetch POST /nick — просим только origin (scheme://host[:port]).
+    AUTH_SERVICE_URL="${AUTH_SERVICE_URL%/}"
+    if [[ ! "$AUTH_SERVICE_URL" =~ ^https?://[^/]+$ ]]; then
+      warn "URL '$AUTH_SERVICE_URL' содержит путь — нужен только origin (например https://auth.example.com, без /api и т.п.)."
       continue
     fi
     break
@@ -227,6 +235,8 @@ info "3️⃣ Применение финальной конфигурации..
 ESC_DOMAIN=$(escape_sed "$DOMAIN")
 ESC_AUTH_SERVICE_URL=""
 if [[ -n "$AUTH_SERVICE_URL" ]]; then
+  # Ведущий пробел — разделитель между "data:" и URL в CSP connect-src
+  # (шаблон содержит "data:__AUTH_SERVICE_URL__" без пробела намеренно).
   ESC_AUTH_SERVICE_URL=$(escape_sed " $AUTH_SERVICE_URL")
 fi
 sudo sed \

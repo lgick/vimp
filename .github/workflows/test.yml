@@ -30,6 +30,12 @@ jobs:
       - name: Lint
         run: npx eslint .
 
+      # Только add-server.sh: остальные deployment-скрипты (delete-server.sh,
+      # install-system.sh) уже содержат pre-existing shellcheck-warnings вне
+      # объёма этого коммита (310fea4) — заводить их отдельно.
+      - name: Shellcheck (add-server.sh)
+        run: shellcheck --severity=warning .github/deployment/add-server.sh
+
   engine:
     runs-on: ubuntu-latest
     steps:
