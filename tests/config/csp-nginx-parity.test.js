@@ -28,16 +28,23 @@ function readNginxCspTemplate() {
   return match[1];
 }
 
+// renderNginx зеркалит подстановку add-server.sh (ESC_AUTH_SERVICE_URL =
+// escape_sed(" $AUTH_SERVICE_URL"), пусто без ведущего пробела при ответе
+// "y"), но не исполняет сам скрипт — не ловит, если ведущий пробел из
+// add-server.sh исчезнет; эта связка держится на shellcheck + ручном прогоне.
+function renderNginx(template, authServiceUrl) {
+  return template.replace(
+    '__AUTH_SERVICE_URL__',
+    authServiceUrl ? ` ${authServiceUrl}` : '',
+  );
+}
+
 test('CSP в nginx-шаблоне install-system.sh совпадает с security.csp() из master.js', () => {
   const nginxCspTemplate = readNginxCspTemplate();
-  const authServiceUrl = 'https://auth.example.com';
 
-  // add-server.sh подставляет authServiceUrl с ведущим пробелом-разделителем
-  // (см. add-server.sh: ESC_AUTH_SERVICE_URL = escape_sed(" $AUTH_SERVICE_URL"))
-  const nginxCsp = nginxCspTemplate.replace(
-    '__AUTH_SERVICE_URL__',
-    ` ${authServiceUrl}`,
-  );
-
-  expect(nginxCsp).toBe(masterConfig.security.csp(authServiceUrl));
+  for (const authServiceUrl of ['https://auth.example.com', '']) {
+    expect(renderNginx(nginxCspTemplate, authServiceUrl)).toBe(
+      masterConfig.security.csp(authServiceUrl),
+    );
+  }
 });

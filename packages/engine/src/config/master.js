@@ -77,7 +77,7 @@ export default {
         "default-src 'self'",
         "script-src 'self' 'wasm-unsafe-eval'",
         "worker-src 'self' blob:",
-        `connect-src 'self' wss: data: ${authServiceUrl}`,
+        `connect-src 'self' wss: data:${authServiceUrl ? ` ${authServiceUrl}` : ''}`,
         "img-src 'self' data: blob:",
         "style-src 'self' 'unsafe-inline'",
         "object-src 'none'",

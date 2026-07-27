@@ -259,9 +259,22 @@ echo "✅ УСПЕХ! Сервер подготовлен."
 echo "   URL:  https://$DOMAIN"
 echo "   Порт: 127.0.0.1:$PORT"
 echo ""
-echo "⚠️  ВАЖНО:"
-echo "1. Добавьте этот сервер в переменную SERVERS_MATRIX в настройках GitHub"
-echo "   (Settings -> Secrets and variables -> Variables)."
-echo "   Убедитесь, что 'port' в JSON равен $PORT!"
-echo "2. Перезапустите Action вручную или сделайте push, чтобы запустить деплой."
+if [[ -n "$AUTH_SERVICE_URL" ]]; then
+  # Домен мастера — деплоится CI по SERVERS_MATRIX (master-образ)
+  echo "⚠️  ВАЖНО (домен мастера):"
+  echo "1. Добавьте этот сервер в переменную SERVERS_MATRIX в настройках GitHub"
+  echo "   (Settings -> Secrets and variables -> Variables)."
+  echo "   Убедитесь, что 'port' в JSON равен $PORT!"
+  echo "2. Перезапустите Action вручную или сделайте push, чтобы запустить деплой."
+else
+  # Домен самого auth-сервиса — НЕ входит в SERVERS_MATRIX (та матрица
+  # раскатывает master-образ, а auth — отдельный образ + PostgreSQL)
+  echo "⚠️  ВАЖНО (central auth-сервис):"
+  echo "1. Разверните на этом хосте стек postgres + auth вручную (docker-compose"
+  echo "   с образом ghcr.io/<repo>-auth:latest на порту 127.0.0.1:$PORT:3010)"
+  echo "   и примените миграции — раздел «Central auth-сервис» в"
+  echo "   docs/{en,ru}/deployment.md."
+  echo "2. Задайте переменную репозитория AUTH_SERVICE_URL = https://$DOMAIN"
+  echo "   (Settings -> Variables) — мастера получат этот URL в CSP и клиент."
+fi
 echo "=================================================="
