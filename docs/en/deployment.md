@@ -288,10 +288,39 @@ drops an incompatible binary frame by format version). Details —
 ### Removing a server
 
 On the VPS, use `./delete-server.sh` — it removes the Nginx configs, the
-project folder, and stops the container.
+project folder, and stops the container. It detects whether the domain is
+a master or the central auth service (`VIMP_AUTH_PUBLIC_URL` in its
+`.env.prod`, or its Postgres companion container as a fallback) and prints
+the matching instructions below.
+
+#### Removing a master
 
 > ⚠️ Afterward, remove that server's entry from `SERVERS_MATRIX` on
 > GitHub!
+
+#### Removing/moving the auth service
+
+The auth domain is **not** in `SERVERS_MATRIX` — there is nothing to edit
+there. Instead:
+
+1. Update or clear the `AUTH_SERVICE_URL` repository variable (Settings →
+   Secrets and variables → Actions → Variables).
+2. Re-run the `Build & Deploy` workflow on every master — otherwise they
+   keep the old `VIMP_AUTH_SERVICE_URL` baked into their containers and
+   JWKS/`/rank`/`/state`/`/host-rating` fetches start failing. See
+   "Wiring masters to it" under
+   [Central auth service](#central-auth-service-packagesauth) above.
+3. Each master's Nginx `connect-src` has the auth origin baked in at
+   `add-server.sh` time; a plain redeploy doesn't refresh it — re-run
+   `add-server.sh` on each master domain, or edit the config by hand. See
+   [Security headers and CSP](#-security-headers-and-csp).
+4. The client bundle's `VITE_AUTH_SERVICE_URL` is baked into the shared
+   image at `build_and_push` time — it only picks up the new URL after
+   step 2's rebuild.
+5. If you're standing up a replacement auth service, fill in its
+   `VIMP_AUTH_ALLOWED_ORIGINS` with every master's origin — see
+   "Adding a master later" under
+   [Central auth service](#central-auth-service-packagesauth) above.
 
 ### Viewing logs on the VPS
 

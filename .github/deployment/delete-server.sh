@@ -105,6 +105,16 @@ echo "🔥 Удаление сервера: $DOMAIN..."
 TARGET_DIR="$PROJECTS_ROOT/$DOMAIN"
 CONTAINER_NAME="vimp-$DOMAIN"
 
+# Признак auth-стека: VIMP_AUTH_PUBLIC_URL пишет только
+# add-server.sh:setup_auth_stack() — мастерский .env.prod его не содержит.
+# Фолбэк на случай частичного деплоя: постгрес-компаньон auth-стека.
+IS_AUTH_SERVICE="n"
+if [ -f "$TARGET_DIR/.env.prod" ] && grep -q '^VIMP_AUTH_PUBLIC_URL=' "$TARGET_DIR/.env.prod"; then
+  IS_AUTH_SERVICE="y"
+elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^vimp-$DOMAIN-postgres$"; then
+  IS_AUTH_SERVICE="y"
+fi
+
 if [ -f "$TARGET_DIR/docker-compose.yml" ]; then
   echo "🐳 Остановка Docker Compose проекта ($TARGET_DIR)..."
   (cd "$TARGET_DIR" && docker compose down --remove-orphans --volumes 2>/dev/null) || true
@@ -159,8 +169,26 @@ echo "🔄 Перезагрузка Nginx..."
 if sudo nginx -t; then
   sudo systemctl reload nginx
   echo "✅ ГОТОВО! Сервер $DOMAIN успешно удалён."
-  echo "👉 Не забудьте удалить его конфигурацию из переменной SERVERS_MATRIX"
-  echo "   в настройках репозитория GitHub (Settings -> Secrets and variables)!"
+  if [[ "$IS_AUTH_SERVICE" == "y" ]]; then
+    echo "👉 Это был central auth-сервис — его НЕТ в переменной SERVERS_MATRIX,"
+    echo "   там ничего трогать не нужно. Но проверьте вручную:"
+    echo "   1. Переменная репозитория AUTH_SERVICE_URL (Settings -> Variables) —"
+    echo "      обновите её на новый auth-домен или очистите."
+    echo "   2. Перезапустите workflow 'Build & Deploy' на всех мастерах — иначе"
+    echo "      они продолжат использовать старый VIMP_AUTH_SERVICE_URL, и"
+    echo "      JWKS/rank/state/host-rating начнут падать по fetch."
+    echo "   3. CSP connect-src в Nginx каждого мастера запечён на этапе"
+    echo "      add-server.sh (__AUTH_SERVICE_URL__) — обычный redeploy его не"
+    echo "      обновляет, нужен ручной перезапуск add-server.sh на каждом"
+    echo "      домене мастера либо ручная правка конфига."
+    echo "   4. Клиентский бандл (VITE_AUTH_SERVICE_URL) запечён в образ на"
+    echo "      этапе build_and_push — обновится только после новой сборки."
+    echo "   5. Если поднимаете новый auth взамен — заполните его"
+    echo "      VIMP_AUTH_ALLOWED_ORIGINS origin'ами всех мастеров."
+  else
+    echo "👉 Не забудьте удалить его конфигурацию из переменной SERVERS_MATRIX"
+    echo "   в настройках репозитория GitHub (Settings -> Secrets and variables)!"
+  fi
 else
   echo "❌ Ошибка: некорректная конфигурация Nginx."
   sudo nginx -t
