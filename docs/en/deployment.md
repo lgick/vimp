@@ -192,7 +192,13 @@ shared instance that every master domain points at.
     re-verified against the real public path instead of being guessed at:
     `https://<domain>/jwks` (up to 5 attempts, 2s apart). Only if *both* fail
     does the script report a genuine failure (`docker compose ... logs
-    auth`).
+    auth`). Known limitation: the public re-check runs from the VPS itself
+    back to its own public domain — on a host without hairpin NAT that
+    request can fail even though outside clients reach the service fine,
+    producing a false "partial" result. The failure mode is one-directional
+    (never a false "success"), so at worst it costs an unnecessary manual
+    log check (`docker compose ... logs auth`, `curl https://<domain>/jwks`
+    from another machine), not a masked real outage.
   - **Re-running on the same auth domain** offers a choice: `1) update
     image` (keep the DB, RS256 keys and secrets, just re-pull and restart)
     or `2) recreate` (`docker compose down -v` — wipes the DB and keys,
