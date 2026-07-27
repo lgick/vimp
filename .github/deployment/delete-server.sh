@@ -14,8 +14,13 @@ PROJECTS_ROOT="$HOME/vimp_projects"
 # ----------------------------------------------------
 # 1. Поиск существующих серверов VIMP
 # ----------------------------------------------------
-# Логика: берём конфиги Nginx и проверяем, есть ли для них папки проектов.
-RAW_SITES=$(ls /etc/nginx/sites-enabled/ | grep -v "default")
+# Логика: объединяем три источника, т.к. по отдельности каждый может быть
+# неполным (например, если certbot упал при создании — нет конфига Nginx,
+# но папка проекта и Docker-контейнер уже существуют):
+#   - конфиги Nginx (sites-enabled), у которых есть папка проекта
+#   - папки проектов в $PROJECTS_ROOT
+#   - Docker-контейнеры с именем vimp-<домен> (в т.ч. остановленные)
+RAW_SITES=$(ls /etc/nginx/sites-enabled/ 2>/dev/null | grep -v "default")
 VIMP_SITES=""
 
 for site in $RAW_SITES; do
@@ -23,6 +28,25 @@ for site in $RAW_SITES; do
     VIMP_SITES="$VIMP_SITES $site"
   fi
 done
+
+if [ -d "$PROJECTS_ROOT" ]; then
+  for dir in "$PROJECTS_ROOT"/*/; do
+    [ -d "$dir" ] || continue
+    site=$(basename "$dir")
+    [[ " $VIMP_SITES " == *" $site "* ]] || VIMP_SITES="$VIMP_SITES $site"
+  done
+fi
+
+RAW_CONTAINERS=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep '^vimp-' | sed 's/^vimp-//')
+for site in $RAW_CONTAINERS; do
+  # Пропускаем postgres-компаньон auth-стека (vimp-<домен>-postgres) —
+  # это не отдельный сервер, а часть сервера <домен>
+  [[ "$site" == *-postgres ]] && continue
+  [[ " $VIMP_SITES " == *" $site "* ]] || VIMP_SITES="$VIMP_SITES $site"
+done
+
+# Убираем возможные ведущие пробелы/дубликаты аккуратно
+VIMP_SITES=$(echo $VIMP_SITES | xargs -n1 | sort -u | xargs)
 
 # Если серверов нет
 if [ -z "$VIMP_SITES" ]; then
