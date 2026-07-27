@@ -617,8 +617,7 @@ else
     echo "   docker compose -f $TARGET_DIR/docker-compose.yml ps"
     echo "   curl https://$DOMAIN/jwks"
   else
-    echo "❌ Auth-стек поднялся не полностью — /jwks не ответил ни локально,"
-    echo "   ни через https://$DOMAIN. Смотрите логи:"
+    echo "❌ Auth-стек поднялся не полностью — смотрите логи:"
     echo "   docker compose -f $TARGET_DIR/docker-compose.yml logs auth"
   fi
   echo "1. Задайте переменную репозитория AUTH_SERVICE_URL = https://$DOMAIN"
