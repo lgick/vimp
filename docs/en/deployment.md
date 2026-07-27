@@ -183,8 +183,9 @@ shared instance that every master domain points at.
 - **Adding a master later.** `VIMP_AUTH_ALLOWED_ORIGINS` is only set from
   what you entered when the auth stack was created/recreated — adding a
   new master domain afterwards means editing it by hand in
-  `~/vimp_projects/<auth-domain>/.env.prod` and running `docker compose
-  restart auth` there.
+  `~/vimp_projects/<auth-domain>/.env.prod` and running `docker compose up -d
+  --force-recreate auth` there — `env_file` is only read when the container
+  is created, so a plain `restart` would silently keep the old value.
 - **Wiring masters to it.** Set the `AUTH_SERVICE_URL` repository variable
   (Settings → Secrets and variables → Actions → Variables) to the auth
   service's public URL; `deploy.yml`'s `deploy` job writes it into every

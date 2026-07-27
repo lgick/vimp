@@ -164,19 +164,10 @@ read_auth_service_url() {
   # уже настроенном мастере позже — запустите ./add-server.sh на этом же
   # домене снова и подтвердите "Перезаписать?".
   while true; do
-    read -r -p "   URL central auth-сервиса (например https://auth.example.com, без пути): " AUTH_SERVICE_URL
-    AUTH_SERVICE_URL="${AUTH_SERVICE_URL// /}"
-    [[ -z "$AUTH_SERVICE_URL" ]] && warn "URL обязателен для домена мастера — auth должен быть развёрнут заранее." && continue
-    if [[ ! "$AUTH_SERVICE_URL" =~ ^https?:// ]]; then
-      warn "URL '$AUTH_SERVICE_URL' без схемы http(s):// — введите ещё раз."
-      continue
-    fi
-    # Хвостовой '/' срезаем молча (безвреден для connect-src); путь дальше
-    # ('/api' и т.п.) сузил бы host-source в CSP и снова сломал бы
-    # fetch POST /nick — просим только origin (scheme://host[:port]).
-    AUTH_SERVICE_URL="${AUTH_SERVICE_URL%/}"
-    if [[ ! "$AUTH_SERVICE_URL" =~ ^https?://[^/]+$ ]]; then
-      warn "URL '$AUTH_SERVICE_URL' содержит путь — нужен только origin (например https://auth.example.com, без /api и т.п.)."
+    read -r -p "   URL central auth-сервиса (например https://auth.example.com, без пути): " RAW
+    [[ -z "${RAW// /}" ]] && warn "URL обязателен для домена мастера — auth должен быть развёрнут заранее." && continue
+    if ! AUTH_SERVICE_URL=$(validate_origin "$RAW"); then
+      warn "URL '$RAW' некорректен — нужен только origin http(s)://host[:port], без пути (/api и т.п.)."
       continue
     fi
     break
@@ -251,7 +242,7 @@ read_auth_stack_inputs() {
     done
     AUTH_ALLOWED_ORIGINS=$(IFS=,; echo "${origins[*]}")
     warn "При добавлении новых мастеров эту переменную нужно будет дополнить"
-    warn "вручную и перезапустить auth-контейнер (docker compose restart auth)."
+    warn "вручную и пересоздать auth-контейнер (docker compose up -d --force-recreate auth)."
 
     echo ""
     info "🔑 GitHub OAuth App (создаётся заранее вручную на github.com/settings/developers):"
@@ -268,11 +259,13 @@ read_auth_stack_inputs() {
       [[ -z "$AUTH_GITHUB_CLIENT_SECRET" ]] && warn "Client Secret обязателен." && continue
       break
     done
+
+    echo ""
+    read -r -p "🐳 Docker-образ auth [по умолчанию: $GHCR_IMAGE_DEFAULT]: " GHCR_IMAGE_INPUT
+    GHCR_IMAGE="${GHCR_IMAGE_INPUT:-$GHCR_IMAGE_DEFAULT}"
   fi
 
   echo ""
-  read -r -p "🐳 Docker-образ auth [по умолчанию: $GHCR_IMAGE_DEFAULT]: " GHCR_IMAGE_INPUT
-  GHCR_IMAGE="${GHCR_IMAGE_INPUT:-$GHCR_IMAGE_DEFAULT}"
   read -r -p "   GitHub-логин для GHCR (Enter — пропустить вход, если образ публичный): " GHCR_USER
   if [[ -n "$GHCR_USER" ]]; then
     read -rs -p "   GHCR Personal Access Token (read:packages): " GHCR_TOKEN
@@ -285,7 +278,7 @@ read_auth_stack_inputs() {
 # применённые Nginx/SSL. set -e внутри функции не действует, когда функция
 # вызвана в левой части '||' — поэтому ошибки каждого шага обрабатываем явно.
 setup_auth_stack() {
-  cd "$TARGET_DIR"
+  cd "$TARGET_DIR" || { error "Каталог проекта $TARGET_DIR недоступен."; return 1; }
 
   if [[ "$AUTH_RECONFIGURE_MODE" == "recreate" ]]; then
     if [ -f docker-compose.yml ]; then
@@ -370,7 +363,10 @@ EOF
   fi
 
   info "🐳 docker compose up -d..."
-  docker compose up -d
+  if ! docker compose up -d; then
+    error "docker compose up -d упал. Логи: docker compose -f $TARGET_DIR/docker-compose.yml logs"
+    return 1
+  fi
 
   info "🗃️  Применение миграций auth-БД..."
   local attempt=1
@@ -419,6 +415,19 @@ read_email
 read_auth_service_url
 [[ "$IS_AUTH_SERVICE" == "y" ]] && read_auth_stack_inputs
 
+# В режиме update docker-compose.yml не переписывается — маппинг порта остаётся
+# прежним. Приводим $PORT к нему ДО записи Nginx-конфига (Этап 4), чтобы
+# proxy_pass указывал на реально слушающий порт, а не на свежевведённый; сменить
+# порт можно только пересозданием (recreate).
+if [[ "$IS_AUTH_SERVICE" == "y" && "$AUTH_RECONFIGURE_MODE" == "update" ]]; then
+  EXISTING_PORT=$(grep -oP '127\.0\.0\.1:\K[0-9]+' "$TARGET_DIR/docker-compose.yml" 2>/dev/null | head -n1) || true
+  if [[ -n "$EXISTING_PORT" && "$EXISTING_PORT" != "$PORT" ]]; then
+    warn "Режим update: порт берётся из существующего docker-compose.yml ($EXISTING_PORT);"
+    warn "введённый $PORT игнорируется. Чтобы сменить порт — режим «пересоздать»."
+    PORT="$EXISTING_PORT"
+  fi
+fi
+
 # Старый vimp.template (до фикса CSP) не содержит плейсхолдера — тогда auth-URL
 # молча потеряется при sed и CSP снова заблокирует fetch POST /nick. Падаем
 # громко до любых изменений в системе, вместо тихого повтора бага.
@@ -437,9 +446,9 @@ echo "  Email: $EMAIL"
 echo "  Auth CSP: ${AUTH_SERVICE_URL:-(не задан)}"
 if [[ "$IS_AUTH_SERVICE" == "y" ]]; then
   echo "  Auth-стек:"
-  echo "    Образ:         $GHCR_IMAGE"
   echo "    Режим:         $AUTH_RECONFIGURE_MODE"
   if [[ "$AUTH_RECONFIGURE_MODE" != "update" ]]; then
+    echo "    Образ:         $GHCR_IMAGE"
     echo "    Allowed origins: $AUTH_ALLOWED_ORIGINS"
   fi
   if [[ -n "$GHCR_USER" ]]; then
@@ -549,6 +558,6 @@ else
   echo "   (Settings -> Variables) и перезапустите Build & Deploy — мастера"
   echo "   пересоберут клиентский бандл/CSP с VITE_AUTH_SERVICE_URL."
   echo "2. При добавлении новых мастеров дополните VIMP_AUTH_ALLOWED_ORIGINS"
-  echo "   в $TARGET_DIR/.env.prod и перезапустите: docker compose restart auth."
+  echo "   в $TARGET_DIR/.env.prod и пересоздайте: docker compose up -d --force-recreate auth."
 fi
 echo "=================================================="

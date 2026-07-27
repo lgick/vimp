@@ -157,7 +157,9 @@
   только тем, что было введено при создании/пересоздании auth-стека —
   чтобы добавить новый домен мастера позже, отредактируйте её вручную в
   `~/vimp_projects/<auth-домен>/.env.prod` и выполните там `docker compose
-  restart auth`.
+  up -d --force-recreate auth` — `env_file` перечитывается только при
+  создании контейнера, поэтому обычный `restart` молча оставит старое
+  значение.
 - **Привязка мастеров.** Задайте переменную репозитория
   `AUTH_SERVICE_URL` (Settings → Secrets and variables → Actions →
   Variables) публичным URL auth-сервиса; джоба `deploy` из `deploy.yml`
