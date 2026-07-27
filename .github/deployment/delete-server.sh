@@ -111,7 +111,7 @@ CONTAINER_NAME="vimp-$DOMAIN"
 IS_AUTH_SERVICE="n"
 if [ -f "$TARGET_DIR/.env.prod" ] && grep -q '^VIMP_AUTH_PUBLIC_URL=' "$TARGET_DIR/.env.prod"; then
   IS_AUTH_SERVICE="y"
-elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^vimp-$DOMAIN-postgres$"; then
+elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qxF "vimp-$DOMAIN-postgres"; then
   IS_AUTH_SERVICE="y"
 fi
 
@@ -174,7 +174,8 @@ if sudo nginx -t; then
     echo "   там ничего трогать не нужно. Но проверьте вручную:"
     echo "   1. Переменная репозитория AUTH_SERVICE_URL (Settings -> Variables) —"
     echo "      обновите её на новый auth-домен или очистите."
-    echo "   2. Перезапустите workflow 'Build & Deploy' на всех мастерах — иначе"
+    echo "   2. Перезапустите workflow 'Build & Deploy' (один прогон обновит"
+    echo "      всех мастеров) — иначе"
     echo "      они продолжат использовать старый VIMP_AUTH_SERVICE_URL, и"
     echo "      JWKS/rank/state/host-rating начнут падать по fetch."
     echo "   3. CSP connect-src в Nginx каждого мастера запечён на этапе"

@@ -305,7 +305,8 @@ there. Instead:
 
 1. Update or clear the `AUTH_SERVICE_URL` repository variable (Settings →
    Secrets and variables → Actions → Variables).
-2. Re-run the `Build & Deploy` workflow on every master — otherwise they
+2. Re-run the `Build & Deploy` workflow (one run redeploys every master) —
+   otherwise they
    keep the old `VIMP_AUTH_SERVICE_URL` baked into their containers and
    JWKS/`/rank`/`/state`/`/host-rating` fetches start failing. See
    "Wiring masters to it" under

@@ -234,7 +234,8 @@ Auth-домена **нет** в `SERVERS_MATRIX` — там ничего тро�
 
 1. Обновите или очистите переменную репозитория `AUTH_SERVICE_URL`
    (Settings → Secrets and variables → Actions → Variables).
-2. Перезапустите workflow `Build & Deploy` на всех мастерах — иначе они
+2. Перезапустите workflow `Build & Deploy` (один прогон обновит всех
+   мастеров) — иначе они
    продолжат использовать старый `VIMP_AUTH_SERVICE_URL`, запечённый в
    контейнере, и запросы JWKS/`/rank`/`/state`/`/host-rating` начнут
    падать. См. «Привязка мастеров» в разделе
