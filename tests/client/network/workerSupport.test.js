@@ -49,4 +49,29 @@ describe('workerSupport: supportsModuleWorker', () => {
 
     expect(supportsModuleWorker()).toBe(false);
   });
+
+  it('пробный Worker создаётся из blob:-URL, а не data: (CSP worker-src не разрешает data:)', () => {
+    const probeUrl = 'blob:mock-probe-url';
+    const createObjectURL = vi.fn(() => probeUrl);
+    const revokeObjectURL = vi.fn();
+    let receivedUrl;
+
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    vi.stubGlobal(
+      'Worker',
+      class {
+        constructor(url, options) {
+          receivedUrl = url;
+          void options.type;
+        }
+
+        terminate() {}
+      },
+    );
+
+    expect(supportsModuleWorker()).toBe(true);
+    expect(receivedUrl).toBe(probeUrl);
+    expect(receivedUrl.startsWith('data:')).toBe(false);
+    expect(revokeObjectURL).toHaveBeenCalledWith(probeUrl);
+  });
 });
