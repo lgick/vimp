@@ -152,16 +152,10 @@
   background-position: right var(--space-2) center;
 }
 
-/* toggle: label целиком кликабелен (текст переключает чекбокс без for/id);
-   переключатель — фиксированного размера, checkbox визуально скрыт,
-   дорожка/бегунок стилизуют состояние */
-.field-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-}
-
+/* toggle: подпись — соседний <label for> (buildForm), клик по тексту
+   переключает чекбокс через нативную семантику label/for. Сам переключатель
+   — фиксированного размера, checkbox визуально скрыт, дорожка/бегунок
+   стилизуют состояние */
 .field-toggle-switch {
   position: relative;
   flex: none;
@@ -169,7 +163,7 @@
   height: 18px;
 }
 
-.field-toggle input {
+.field-toggle-switch input {
   position: absolute;
   opacity: 0;
   width: 100%;
@@ -199,17 +193,17 @@
   transition: transform 0.15s;
 }
 
-.field-toggle input:checked + .field-toggle-track {
+.field-toggle-switch input:checked + .field-toggle-track {
   background-color: var(--accent);
   border-color: var(--accent);
 }
 
-.field-toggle input:checked + .field-toggle-track::before {
+.field-toggle-switch input:checked + .field-toggle-track::before {
   transform: translateX(16px);
   background-color: var(--text-strong);
 }
 
-.field-toggle input:focus-visible + .field-toggle-track {
+.field-toggle-switch input:focus-visible + .field-toggle-track {
   box-shadow: 0 0 0 1px var(--accent);
 }
 

@@ -113,6 +113,19 @@ describe('formBuilder.buildField: toggle', () => {
     expect(input.checked).toBe(false);
     expect(field.getValue()).toBe(false);
   });
+
+  // якорь синхронизации с CSS (style.css): состояние toggle стилизуется
+  // селекторами `.field-toggle-switch input:checked + .field-toggle-track`,
+  // завязанными на этот className/структуру — сменил один, не забудь другой
+  it('el.className — field-toggle-switch, input и track — соседи (для CSS-соседского селектора)', () => {
+    const field = buildField({ name: 'friendlyFire', control: 'toggle', default: false });
+
+    expect(field.el.className).toBe('field-toggle-switch');
+
+    const input = field.el.querySelector('input[type=checkbox]');
+    const track = field.el.querySelector('.field-toggle-track');
+    expect(input.nextElementSibling).toBe(track);
+  });
 });
 
 describe('formBuilder.buildField: segmented', () => {
