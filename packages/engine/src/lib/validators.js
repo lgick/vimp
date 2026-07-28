@@ -40,10 +40,10 @@ export const validateAuth = (data, authParams, validators = {}) => {
     if (options?.validator) {
       const validatorFn = rules[options.validator];
 
+      // на клиенте игровые валидаторы не передаются по проводу —
+      // авторитет проверки на хосте, отсутствие validatorFn здесь норма
       if (validatorFn && !validatorFn(value)) {
         errors.push({ name, error: 'not valid' });
-      } else if (!validatorFn) {
-        console.warn(`Validator function '${options.validator}' not found.`);
       }
     }
   }

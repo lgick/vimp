@@ -314,15 +314,19 @@ host: the lobby happens before connecting to a host.
 
 The auth form schema (`HostPlugin.authSchema`: DOM element ids, form
 parameters, the game's validators, texts) is entirely game-owned data; the
-engine only provides the neutral `auth.pug` shell and `AuthView`, which
-fills in the game's title/help sections from `texts` and runs the engine
-validator `isValidName`
-([packages/engine/src/lib/validators.js](../../packages/engine/src/lib/validators.js))
-alongside any game validators injected into `validateAuth`. Validation
-runs on the client (with validators from the game bundle) and is repeated
-by the host (Worker); only `elems`/`params`/`texts` travel over the wire
-(`AUTH_DATA`, port 1) — the validator code doesn't. The game's own auth
-config is documented in its own repo's docs.
+engine only provides the neutral `auth.pug` shell (title, help sections,
+an `Enter` button — no `name` field, see [auth.md](auth.md#joining-a-room-host-verification))
+and `AuthView`, which fills in the game's title/help sections from `texts`.
+`authSchema.params` typically declares only game-specific fields (e.g.
+`vimp-tanks`'s `model`, validated by its own `isValidModel`); the engine's
+`isValidName` ([packages/engine/src/lib/validators.js](../../packages/engine/src/lib/validators.js))
+exists for a game that opts into a form-typed name field, but is unused by
+the default form since the nick comes from the verified lobby identity
+token, not user input. Validation runs on the client (with validators from
+the game bundle) and is repeated by the host (Worker) as the actual
+authority; only `elems`/`params`/`texts` travel over the wire (`AUTH_DATA`,
+port 1) — the validator code doesn't. The game's own auth config is
+documented in its own repo's docs.
 
 ## The game's sound catalog
 

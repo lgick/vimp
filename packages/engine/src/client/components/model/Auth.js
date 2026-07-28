@@ -34,7 +34,7 @@ export default class AuthModel {
   // если value невалиден, возвращается текущий value
   update(data) {
     const { name } = data;
-    const { regExp } = this._options[name];
+    const { regExp } = this._options[name] ?? {};
     let { value } = data;
 
     if (regExp) {

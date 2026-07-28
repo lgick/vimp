@@ -314,17 +314,6 @@
   text-align: center;
 }
 
-#auth-form div.auth-field {
-  padding: 5px;
-}
-
-#auth-name-input {
-  margin-left: 10px;
-  width: 140px;
-  font-size: 10px;
-  line-height: 12px;
-}
-
 #auth-error {
   color: #e00;
   font-size: 12px;
