@@ -15,6 +15,20 @@ const engineDir = path.resolve(import.meta.dirname, '..');
 const distIndexPath = path.join(engineDir, 'dist', 'index.html');
 
 const html = await readFile(distIndexPath, 'utf8');
+
+const importmapTags = html.match(/<script\s+type="importmap"/g) ?? [];
+const hasSrcAttribute = /<script\s+type="importmap"[^>]*\ssrc=/.test(html);
+
+if (importmapTags.length !== 1 || hasSrcAttribute) {
+  console.error(
+    `[check-importmap-csp-hash] expected exactly one <script type="importmap"> tag with no src attribute in ` +
+      `dist/index.html, found ${importmapTags.length}${hasSrcAttribute ? ' (including one with src=)' : ''}. ` +
+      'A stray/broken importmap tag leaked into the built markup — likely a literal tag written inside an ' +
+      'HTML comment in index.html that vite build parsed as real markup.',
+  );
+  process.exit(1);
+}
+
 const match = html.match(/<script type="importmap">([\s\S]*?)<\/script>/);
 
 if (!match) {

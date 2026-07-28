@@ -43,9 +43,11 @@
       собой), синхронизируются скриптом scripts/sync-pixi-vendor.mjs
       (predev/prebuild) из node_modules/pixi.js.
 
-      Инлайн обязателен: <script type="importmap" src="..."> не
-      поддерживается ни одним браузером (спецификация HTML запрещает src
-      на importmap). Прод-CSP (script-src без 'unsafe-inline'/nonce, см.
+      Инлайн обязателен: importmap с атрибутом src не поддерживается ни
+      одним браузером (спецификация HTML запрещает src на importmap).
+      Внутри этого комментария нельзя писать литеральную разметку тегов —
+      vite build парсит её как реальный тег и ломает dist/index.html.
+      Прод-CSP (script-src без 'unsafe-inline'/nonce, см.
       packages/engine/src/config/master.js) разрешает именно этот
       инлайн-скрипт по sha256-хэшу — контент ниже статичен, поэтому хэш
       стабилен; менять его нельзя без пересчёта хэша
