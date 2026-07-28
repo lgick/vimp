@@ -315,7 +315,7 @@ host: the lobby happens before connecting to a host.
 The auth form schema (`HostPlugin.authSchema`: DOM element ids, form
 parameters, the game's validators, texts) is entirely game-owned data; the
 engine only provides the neutral `auth.pug` shell (title, help sections,
-an `Enter` button — no `name` field, see [auth.md](auth.md#joining-a-room-host-verification))
+a `Start` button — no `name` field, see [auth.md](auth.md#joining-a-room-host-verification))
 and `AuthView`, which fills in the game's title/help sections from `texts`.
 `authSchema.params` typically declares only game-specific fields (e.g.
 `vimp-tanks`'s `model`, validated by its own `isValidModel`); the engine's
