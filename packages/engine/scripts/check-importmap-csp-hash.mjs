@@ -18,7 +18,12 @@ const html = await readFile(distIndexPath, 'utf8');
 const match = html.match(/<script type="importmap">([\s\S]*?)<\/script>/);
 
 if (!match) {
-  console.error('[check-importmap-csp-hash] <script type="importmap"> not found in dist/index.html');
+  console.error(
+    '[check-importmap-csp-hash] regex /<script type="importmap">([\\s\\S]*?)<\\/script>/ found no match in ' +
+      "dist/index.html — this doesn't mean the tag is missing, it means the built markup's exact " +
+      'attribute quoting/ordering/whitespace no longer matches what this script expects (e.g. after a ' +
+      'Vite HTML-minifier upgrade). Update the regex above to match the new dist output, then re-run.',
+  );
   process.exit(1);
 }
 
