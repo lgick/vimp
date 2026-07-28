@@ -42,15 +42,12 @@
       без внешних bare-импортов (собраны esbuild'ом, code-split между
       собой), синхронизируются скриптом scripts/sync-pixi-vendor.mjs
       (predev/prebuild) из node_modules/pixi.js.
+
+      Внешний файл, а не инлайновый JSON: прод-CSP (script-src без
+      'unsafe-inline'/nonce, см. packages/engine/src/config/master.js)
+      блокирует инлайновый importmap; same-origin src проходит под 'self'.
     -->
-    <script type="importmap">
-      {
-        "imports": {
-          "pixi.js": "/vendor/pixi/index.js",
-          "pixi.js/unsafe-eval": "/vendor/pixi/unsafe-eval.js"
-        }
-      }
-    </script>
+    <script type="importmap" src="/vendor/pixi/importmap.json"></script>
     <script type="module" src="./src/client//main.js"></script>
   </body>
 </html>
