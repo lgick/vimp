@@ -1,4 +1,5 @@
 import Publisher from '../../../lib/Publisher.js';
+import { buildForm } from '../../lib/formBuilder.js';
 
 // Singleton AuthView
 
@@ -6,8 +7,10 @@ let authView;
 
 export default class AuthView {
   // texts — игровые тексты формы (authSchema.texts: title, sections);
-  // сам каркас (auth.pug) нейтрален и текстов игры не содержит
-  constructor(model, elems, texts = null) {
+  // сам каркас (auth.pug) нейтрален и текстов игры не содержит.
+  // params — та же дескрипторная схема формы, что и у room-формы
+  // (docs/en/plugin-api.md "Form schema"), едет по сети в PS_AUTH_DATA
+  constructor(model, elems, texts = null, params = null) {
     if (authView) {
       return authView;
     }
@@ -17,25 +20,14 @@ export default class AuthView {
     this._mPublic = model.publisher;
 
     this._auth = document.getElementById(elems.authId);
-    this._form = document.getElementById(elems.formId);
     this._error = document.getElementById(elems.errorId);
     this._enter = document.getElementById(elems.enterId);
-
-    this._renderTexts(elems, texts);
+    this._fields = new Map();
 
     this.publisher = new Publisher();
 
-    // действие с инпутами
-    this._form.onchange = e => {
-      const tg = e.target;
-
-      if (tg.tagName === 'INPUT') {
-        this.publisher.emit('input', {
-          name: tg.name,
-          value: tg.value,
-        });
-      }
-    };
+    this._renderTexts(elems, texts);
+    this._renderFields(elems, params);
 
     // форма заполнена
     this._enter.onclick = () => {
@@ -45,6 +37,30 @@ export default class AuthView {
     this._mPublic.on('form', 'renderData', this);
     this._mPublic.on('error', 'renderError', this);
     this._mPublic.on('ok', 'hideAuth', this);
+  }
+
+  // строит контролы формы игрока из той же дескрипторной схемы, что и
+  // room-форма (единый formBuilder, docs/en/plugin-api.md "Form schema")
+  _renderFields(elems, params) {
+    if (!Array.isArray(params)) {
+      return;
+    }
+
+    const container = document.getElementById(elems.fieldsId);
+
+    if (!container) {
+      return;
+    }
+
+    const descriptors = params.map(({ name, value, options }) => ({
+      name,
+      default: value,
+      ...options,
+    }));
+
+    this._fields = buildForm(descriptors, container, {}, ({ name, value }) => {
+      this.publisher.emit('input', { name, value });
+    });
   }
 
   // заполняет нейтральный каркас текстами игры: заголовок и help-секции
@@ -122,20 +138,9 @@ export default class AuthView {
   // обновляет форму
   renderData(data) {
     const { name, value } = data;
-    const inputs = this._form.querySelectorAll('input');
 
     this._error.textContent = '';
-
-    // делает активным нужный инпут
-    inputs.forEach(input => {
-      if (input.type === 'text' && input.name === name) {
-        input.value = value;
-      }
-
-      if (input.type === 'radio' && input.name === name) {
-        input.checked = input.value === value ? true : false;
-      }
-    });
+    this._fields.get(name)?.setValue(value);
   }
 
   // отображает ошибки

@@ -278,6 +278,26 @@ the client shows it instead of the generic "Host left".
 
 ## Meta data formats
 
+### Authentication (port 1)
+
+`AUTH_DATA` (`PS_AUTH_DATA`) payload: `{ elems, params, texts }`
+(`hostPlugin.authSchema` — see [plugin-api.md](plugin-api.md#form-schema)):
+
+- `elems` — DOM ids the neutral `auth.pug` shell exposes to the game plugin
+  (`authId`, `formId`, `errorId`, `enterId`, `fieldsId`, and, for the texts
+  below, `titleId`/`informsId`); the plugin's values must match the ids
+  actually present in `auth.pug`.
+- `params[]` — `{ name, value, options }`, the per-player field schema
+  (same field-descriptor contract as `roomForm`): `options` carries
+  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  plus the pre-existing `validator` (a key into `authSchema.validators`,
+  checked host-side only — validator code never crosses the wire). The
+  client builds one form control per param via `formBuilder.js` and inserts
+  it into `#`+`elems.fieldsId`, seeding its value from `localStorage[storage]`
+  when present.
+- `texts` — optional `{ title, sections }` filled into the neutral shell's
+  `elems.titleId`/`elems.informsId`.
+
 ### Panel (port 13)
 
 An array of `'key:value'` strings, e.g. `['t:97', 'h:100', 'w1:200',

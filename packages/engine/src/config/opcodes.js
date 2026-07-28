@@ -5,8 +5,9 @@
 // версия контракта движок ↔ игра-плагин (GameManifest, HostPlugin,
 // ClientPlugin, Wasm Host ABI — docs/{en,ru}/plugin-api.md);
 // проверяется при загрузке плагинов; ломающие изменения контрактов → +1.
-// Пока номинальная: код движка и игры ещё монолитен (см. PLAN.md)
-export const ENGINE_API_VERSION = 1;
+// v2: явная схема форм (roomForm/authSchema.params[].options — Form schema
+// в plugin-api.md), движок больше не выводит контролы из типа значения
+export const ENGINE_API_VERSION = 2;
 
 // версия формата кадра: первый байт после порта;
 // увеличивать при любом изменении байтовой раскладки в ядре

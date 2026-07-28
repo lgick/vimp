@@ -31,7 +31,7 @@ const writeMap = (pkg, name, data) => {
 
 const fixtureManifest = {
   id: 'tanks',
-  engineApi: 1,
+  engineApi: ENGINE_API_VERSION,
   version: 'abc123',
   title: 'VIMP Tanks',
   entries: {

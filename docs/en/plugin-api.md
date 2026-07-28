@@ -48,7 +48,7 @@ map JSON (a `maps:export` product of the game build).
 ```jsonc
 {
   "id": "tanks",
-  "engineApi": 1,
+  "engineApi": 2,
   "version": "<hash>",                     // gameVersion (client+host+wasm content)
   "title": "VIMP Tanks",                   // for the lobby
   "entries": {
@@ -59,9 +59,23 @@ map JSON (a `maps:export` product of the game build).
   "assetsBase": "/games/tanks/",           // base for sounds/assets
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
-                    "friendlyFire": false, "map": "pool mini" }
+                    "friendlyFire": false, "map": "pool mini" },
+  "roomForm": [
+    { "name": "maxPlayers", "control": "range", "label": "Max players", "min": 1, "max": 32 },
+    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10, "max": 3600 },
+    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10, "max": 3600 },
+    { "name": "friendlyFire", "control": "toggle", "label": "Friendly fire" },
+    { "name": "map", "control": "select", "label": "Map", "source": "maps" }
+  ]
 }
 ```
+
+`roomForm` is the explicit, ordered field-descriptor array the "Create
+server" form is rendered from (see [Form schema](#form-schema) below);
+`roomDefaults` stays the source of default values and the initial set of
+room keys sent to the host. A manifest without `roomForm` renders an empty
+room-creation form (with a console warning) instead of guessing controls
+from `roomDefaults` value types.
 
 Projections: the **master** — the whole manifest + serving `/games/:id/maps/*`;
 the **host** — `entries.host` (dynamic import inside the Worker) +
@@ -71,6 +85,66 @@ schemas (panel, texts, keysets) are **not** part of the manifest — they
 travel as plugin code and, as today, as CONFIG_DATA (port 0) from the host,
 so the client's game data is always consistent with the room's host.
 
+## Form schema
+
+A single field-descriptor contract, shared by the room-creation form
+(`roomForm`, above) and the per-room auth form (`authSchema.params[].options`,
+below) — both are rendered by the same engine module,
+`packages/engine/src/client/lib/formBuilder.js`. The engine renders **only**
+what the descriptor says; there is no inference of a control from a value's
+type.
+
+Purpose split (important for the contract):
+- **Room form** (main lobby) — *server* settings: player limit, team count,
+  round/map time, map, friendly fire.
+- **Auth form** (`#auth`, shown per room) — *player* settings: color, model,
+  weapon, etc.
+
+A form is an **ordered array of descriptors** — array order is field order:
+
+```js
+{
+  name:    'maxPlayers',      // value key
+  control: 'range',           // 'select'|'range'|'number'|'toggle'|'segmented'|'text'
+  label:   'Max players',     // falls back to `name` if omitted
+  default: 8,                 // initial value
+  // numeric (range/number):
+  min: 1, max: 32, step: 1,
+  unit: 's',                  // value is stored in ms, displayed/edited in seconds
+  // choices (select/segmented):
+  options: [{ value, label }],// or a plain array, e.g. ['a', 'b']
+  source:  'maps',            // engine-catalog source of choices instead of `options` (maps only, today)
+  // auth-specific (player settings):
+  storage: 'playerColor',     // localStorage key to remember the choice across sessions
+  regExp:  '^#[0-9a-f]{6}$',  // sets the text input's `pattern` attribute (control:'text')
+}
+```
+
+`control` → markup, all rendered by `formBuilder.js`:
+- `select` — `<select>` (from `options` or `source:'maps'`), themed dark.
+- `range` — `<input type=range>` plus a numeric readout next to it.
+- `number` — `<input type=number>` (`min`/`max`/`step`).
+- `toggle` — a themed checkbox (boolean settings).
+- `segmented` — a button group (backed by plain buttons, not radios) for a
+  discrete choice.
+- `text` — `<input type=text>`, `pattern` set from `regExp` when present.
+
+Where each half of the contract lives:
+- **Room form**: `GameManifest.roomForm` (next to `roomDefaults`, which
+  remains the source of default values and the initial room-key set).
+- **Auth form**: the same descriptors travel over the wire in
+  `PS_AUTH_DATA.params[].options` — see
+  [network.md](network.md#authentication-port-1) — `params[i]` is
+  `{ name, value, options }` where `options` carries
+  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  (plus the pre-existing `validator` key, resolved against
+  `authSchema.validators`).
+
+A manifest/authSchema without a schema renders an empty form (room form:
+console warning; auth form: no fields, `#auth-enter` still works) instead of
+silently falling back to type-based inference — a plugin migrating to this
+contract gets a visible signal, not silent field loss.
+
 ## HostPlugin API
 
 Default export of the game's host entry. Must be worker-safe (no DOM, no
@@ -79,7 +153,7 @@ Node globals).
 ```js
 export default {
   id: 'tanks',
-  engineApi: 1,
+  engineApi: 2,
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // the game half of the former config/game.js
@@ -101,7 +175,16 @@ export default {
   buildClientGameConfig(),            // the game section of CONFIG_DATA (see below)
   // the core init JSON is assembled by the engine itself from gameConfig
   // (packages/engine/src/lib/coreConfig.js) — no plugin hook is needed
-  authSchema: { elems: {…}, params: [...], validators: { isValidModel: v => v in models },
+  authSchema: { elems: { authId:'auth', formId:'auth-form', errorId:'auth-error',
+                         enterId:'auth-enter', fieldsId:'auth-fields',
+                         titleId:'auth-title', informsId:'auth-informs' },
+                params: [
+                  { name: 'model', value: 'm1', options: {
+                      control: 'segmented', label: 'Model',
+                      options: ['m1', 'm2'], storage: 'playerModel',
+                      validator: 'isValidModel' } },
+                ],
+                validators: { isValidModel: v => v in models },
                 texts: { title, sections } },   // form texts for the neutral auth.pug shell
 
   onCoreEvent(ctx, event),            // 'custom' events only; standard ones are routed by the engine
@@ -135,7 +218,7 @@ Default export of the game's client entry.
 ```js
 export default {
   id: 'tanks',
-  engineApi: 1,
+  engineApi: 2,
   async createClientCore(clientConfigJson, { wasmUrl }) { /* init(wasmUrl); return { core, memory } */ },
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
@@ -327,7 +410,7 @@ another game's.
 
 | Constant | Owner | Policy |
 | --- | --- | --- |
-| `ENGINE_API_VERSION` (=1) | engine | checked at plugin import (host worker and client); breaking Plugin API / Wasm ABI changes → +1. While the game lives in the monorepo and updates atomically with the engine, the version is deliberately not bumped on contract renames (e.g. the Stage D3 scripted-module rename); the bump policy kicks in once games live in external repos |
+| `ENGINE_API_VERSION` (=2) | engine | checked at plugin import (host worker and client); breaking Plugin API / Wasm ABI changes → +1. v2: the [Form schema](#form-schema) contract (`roomForm`, `authSchema.params[].options`) replaced type-based control inference — a required update for external game repos (e.g. `vimp-tanks`) |
 | `SNAPSHOT_FORMAT_VERSION` (=3) | engine (framing) | the block schema travels in CONFIG_DATA → always consistent within a room |
 | `HANDOFF_VERSION` (→3) | engine | v2: +`gameId`, `gameVersion` in the handoff meta; v3: the `bots` field renamed to `scripted`; mismatch → the regular `resume` |
 | `codeVersion` | master | composite: `{ engine: hash(host.worker-*.js), game: {id, version} }`; a mismatch of either part → Worker handoff (the new Worker gets a fresh `entries.host`) |

@@ -160,6 +160,26 @@
 
 ## Форматы мета-данных
 
+### Авторизация (порт 1)
+
+Payload `AUTH_DATA` (`PS_AUTH_DATA`): `{ elems, params, texts }`
+(`hostPlugin.authSchema` — см. [plugin-api.md](plugin-api.md#схема-формы)):
+
+- `elems` — DOM-id, которые нейтральный каркас `auth.pug` открывает
+  игре-плагину (`authId`, `formId`, `errorId`, `enterId`, `fieldsId`, и для
+  текстов ниже — `titleId`/`informsId`); значения плагина должны совпадать
+  с реальными id в `auth.pug`.
+- `params[]` — `{ name, value, options }`, схема полей игрока (тот же
+  контракт дескрипторов, что и `roomForm`): `options` несёт
+  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  плюс уже существующий `validator` (ключ в `authSchema.validators`,
+  проверяется только на хосте — код валидатора по проводу не идёт). Клиент
+  строит по одному контролу на param через `formBuilder.js` и вставляет в
+  `#`+`elems.fieldsId`, подставляя значение из `localStorage[storage]`, если
+  оно есть.
+- `texts` — опционально `{ title, sections }`, заполняет
+  `elems.titleId`/`elems.informsId` нейтрального каркаса.
+
 ### Панель (порт 13)
 
 Массив строк `'ключ:значение'`, например `['t:97', 'h:100', 'w1:200', 'wa:w1']`. Отправляются только изменившиеся ключи; `t` (время раунда, сек) — при каждом изменении секунды. Пустая панель (наблюдателю) — время + список ключей без значений (контейнеры скрываются).

@@ -6,24 +6,38 @@ let AuthView;
 
 const elems = {
   authId: 'auth',
-  formId: 'auth-form',
   errorId: 'auth-error',
   enterId: 'auth-enter',
+  fieldsId: 'auth-fields',
 };
 
 const seedDom = () => {
   document.body.innerHTML = `
     <div id="auth">
-      <form id="auth-form">
-        <input type="text" name="login" value="" />
-        <input type="radio" name="team" value="1" />
-        <input type="radio" name="team" value="2" />
-      </form>
-      <div id="auth-error"></div>
-      <button id="auth-enter">OK</button>
+      <div id="auth-form">
+        <div id="auth-error"></div>
+        <div id="auth-fields"></div>
+        <button id="auth-enter">OK</button>
+      </div>
     </div>
   `;
 };
+
+const authParams = [
+  { name: 'login', value: '', options: { control: 'text', label: 'Login' } },
+  {
+    name: 'team',
+    value: '2',
+    options: {
+      control: 'segmented',
+      label: 'Team',
+      options: [
+        { value: '1', label: 'Red' },
+        { value: '2', label: 'Blue' },
+      ],
+    },
+  },
+];
 
 const makeModel = () => ({ publisher: new Publisher() });
 
@@ -35,7 +49,7 @@ beforeEach(async () => {
 
 describe('AuthView: показ/скрытие', () => {
   it('showAuth/hideAuth переключают display', () => {
-    const view = new AuthView(makeModel(), elems);
+    const view = new AuthView(makeModel(), elems, null, authParams);
 
     view.showAuth();
     expect(document.getElementById('auth').style.display).toBe('block');
@@ -47,7 +61,7 @@ describe('AuthView: показ/скрытие', () => {
   it('hideAuth сохраняет данные в localStorage', () => {
     const store = {};
     vi.stubGlobal('localStorage', store);
-    const view = new AuthView(makeModel(), elems);
+    const view = new AuthView(makeModel(), elems, null, authParams);
 
     view.hideAuth([{ name: 'login', value: 'Bob' }]);
     expect(store.login).toBe('Bob');
@@ -58,7 +72,7 @@ describe('AuthView: показ/скрытие', () => {
 
 describe('AuthView.renderData', () => {
   it('заполняет текстовый инпут и чистит ошибку', () => {
-    const view = new AuthView(makeModel(), elems);
+    const view = new AuthView(makeModel(), elems, null, authParams);
     document.getElementById('auth-error').textContent = 'старая ошибка';
 
     view.renderData({ name: 'login', value: 'Alice' });
@@ -68,20 +82,20 @@ describe('AuthView.renderData', () => {
     expect(document.getElementById('auth-error').textContent).toBe('');
   });
 
-  it('отмечает нужный radio', () => {
-    const view = new AuthView(makeModel(), elems);
+  it('отмечает нужную кнопку segmented-поля', () => {
+    const view = new AuthView(makeModel(), elems, null, authParams);
 
-    view.renderData({ name: 'team', value: '2' });
+    view.renderData({ name: 'team', value: '1' });
 
-    const radios = document.querySelectorAll('input[name="team"]');
-    expect(radios[0].checked).toBe(false);
-    expect(radios[1].checked).toBe(true);
+    const buttons = document.querySelectorAll('.field-segmented-btn');
+    expect(buttons[0].classList.contains('active')).toBe(true);
+    expect(buttons[1].classList.contains('active')).toBe(false);
   });
 });
 
 describe('AuthView.renderError', () => {
   it('добавляет строку ошибки с текстом', () => {
-    const view = new AuthView(makeModel(), elems);
+    const view = new AuthView(makeModel(), elems, null, authParams);
 
     view.renderError([{ name: 'login', error: 'too short' }]);
 
@@ -91,7 +105,7 @@ describe('AuthView.renderError', () => {
   });
 
   it('использует дефолтный текст при отсутствии error', () => {
-    const view = new AuthView(makeModel(), elems);
+    const view = new AuthView(makeModel(), elems, null, authParams);
 
     view.renderError([{ name: 'team', error: '' }]);
 
@@ -104,20 +118,30 @@ describe('AuthView.renderError', () => {
 describe('AuthView: события DOM', () => {
   it('изменение инпута эмитит input', () => {
     const model = makeModel();
-    const view = new AuthView(model, elems);
+    const view = new AuthView(model, elems, null, authParams);
     const events = [];
     view.publisher.on('input', d => events.push(d));
 
     const input = document.querySelector('input[name="login"]');
     input.value = 'Neo';
-    // событие всплывает от инпута к форме, e.target === инпут
     input.dispatchEvent(new Event('change', { bubbles: true }));
 
     expect(events[0]).toEqual({ name: 'login', value: 'Neo' });
   });
 
+  it('клик по segmented-кнопке эмитит input', () => {
+    const model = makeModel();
+    const view = new AuthView(model, elems, null, authParams);
+    const events = [];
+    view.publisher.on('input', d => events.push(d));
+
+    document.querySelectorAll('.field-segmented-btn')[0].click();
+
+    expect(events[0]).toEqual({ name: 'team', value: '1' });
+  });
+
   it('клик по enter эмитит enter', () => {
-    const view = new AuthView(makeModel(), elems);
+    const view = new AuthView(makeModel(), elems, null, authParams);
     const enterSpy = vi.fn();
     view.publisher.on('enter', enterSpy);
 

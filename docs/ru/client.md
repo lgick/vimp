@@ -60,7 +60,7 @@ Classic-фолбэка на Worker нет (запретил бы ESM и потр
 
 Конфиг — [packages/engine/src/config/lobby.js](../../packages/engine/src/config/lobby.js) (бандлится в сборку, т.к. лобби проходит до подключения к хосту). Замер пинга **приблизительный** (клиент→мастер→хост, не P2P RTT) — так и подаётся в UI.
 
-Форма «Создать сервер» **генерируется** по ключам `roomDefaults` манифеста активной игры (`populateRoomForm` в `main.js`) — движок не знает игровых полей. Тип контрола выводится из дефолтного значения: `boolean` → чекбокс, `number` → числовое поле, специальный ключ `map` → select из `manifest.maps.list`; подпись строится из camelCase-ключа (`friendlyFire` → «Friendly fire»). Движковые ключи получают подсказки из `lobbyConfig.form`: `secondsKeys` (`roundTime`/`mapTime` хранятся в миллисекундах, в форме — секунды) и `attrs` (min/max числовых полей). Селектор игры (`#lobby-game`) скрыт, пока в каталоге мастера одна игра. При отправке все ключи `roomDefaults` (дефолты, перекрытые значениями формы) уходят объектом комнаты в `connectAsHost` → `HostController` → Worker, где `applyRoomOverrides` (`packages/engine/src/lib/applyRoomOverrides.js`) читает `maxPlayers`/`roundTime`/`mapTime`/`friendlyFire`/`map`.
+Форма «Создать сервер» **генерируется** по явной схеме `roomForm` манифеста активной игры — упорядоченному массиву дескрипторов полей (`populateRoomForm` в `main.js`, рендерится через `client/lib/formBuilder.js`) — см. [plugin-api.md](plugin-api.md#схема-формы). Движок больше не выводит контрол из типа значения по умолчанию: манифест без `roomForm` пишет предупреждение в консоль и рендерит пустой список полей вместо угадывания. Селектор игры (`#lobby-game`) скрыт, пока в каталоге мастера одна игра. При отправке значение каждого поля (`getValue()`, уже сконвертированное по `unit`, например `unit:'s'` секунды→мс) перекрывает соответствующий ключ `roomDefaults`, и результат уходит объектом комнаты в `connectAsHost` → `HostController` → Worker, где `applyRoomOverrides` (`packages/engine/src/lib/applyRoomOverrides.js`) читает `maxPlayers`/`roundTime`/`mapTime`/`friendlyFire`/`map`.
 
 Publisher-паттерн связей внутри тройки:
 
@@ -73,6 +73,8 @@ Publisher-паттерн связей внутри тройки:
 - **LobbyAuth** — экран входа перед лобби через central auth-сервис (см. выше).
 - **Auth** — комнатная форма входа только для игро-специфичных полей
   (например, `model`), клиентская валидация (`validators.js`), localStorage.
+  Поля строятся тем же `formBuilder.js`, что и room-форма, из
+  `PS_AUTH_DATA.params[]` — см. [plugin-api.md](plugin-api.md#схема-формы).
   Ник здесь больше не вводится (Этап B3, см.
   [auth.md](auth.md#вход-в-комнату-проверка-хостом)): `main.js` прикладывает
   `LobbyAuthModel.getToken()` к payload `AUTH_RESPONSE` как `token`, хост

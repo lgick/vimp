@@ -26,6 +26,7 @@ import StatCtrl from './components/controller/Stat.js';
 import VoteModel from './components/model/Vote.js';
 import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
+import { buildForm } from './lib/formBuilder.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
@@ -313,7 +314,7 @@ socketMethods[PS_AUTH_DATA] = data => {
   const clientValidator = authData => validateAuth(authData, params);
 
   const authModel = new AuthModel(clientValidator);
-  const authView = new AuthView(authModel, elems, texts);
+  const authView = new AuthView(authModel, elems, texts, params);
   modules.auth = new AuthCtrl(authModel, authView);
 
   authModel.publisher.on('socket', data => {
@@ -1330,76 +1331,30 @@ async function fetchServers({ offset, limit, search }) {
   }
 }
 
-// поля формы комнаты, сгенерированные по roomDefaults: key -> input
-const roomFormFields = new Map();
+// поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
+let roomFormFields = new Map();
 
-// 'friendlyFire' -> 'Friendly fire' (подпись поля из ключа roomDefaults)
-function roomFieldLabel(key) {
-  const text = key.replace(/([A-Z])/g, ' $1').toLowerCase();
-
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-// генерирует форму создания комнаты по ключам roomDefaults манифеста (Д7):
-// движок не знает игровых полей — контрол выводится из типа значения
-// (boolean → checkbox, number → number, 'map' → select карт каталога)
+// генерирует форму создания комнаты по явной схеме манифеста (roomForm,
+// docs/en/plugin-api.md "Form schema") — движок не выводит контролы из типа
+// значения, схема плагина полностью описывает форму
 function populateRoomForm(manifest) {
-  const { roomDefaults } = manifest;
   const container = document.getElementById(lobbyConfig.elems.fieldsId);
   const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
-  const { secondsKeys, attrs } = lobbyConfig.form;
-
-  roomFormFields.clear();
 
   if (container) {
-    container.textContent = '';
-
-    Object.entries(roomDefaults).forEach(([key, defaultValue]) => {
-      const label = document.createElement('label');
-      let input;
-
-      if (key === 'map') {
-        input = document.createElement('select');
-
-        manifest.maps.list.forEach(name => {
-          const option = document.createElement('option');
-
-          option.value = name;
-          option.textContent = name;
-          option.selected = name === defaultValue;
-          input.appendChild(option);
-        });
-      } else if (typeof defaultValue === 'boolean') {
-        input = document.createElement('input');
-        input.type = 'checkbox';
-        input.checked = defaultValue;
-      } else {
-        const isSeconds = secondsKeys.includes(key);
-
-        input = document.createElement('input');
-        input.type = 'number';
-        input.value = isSeconds ? defaultValue / 1000 : defaultValue;
-
-        Object.entries(attrs[key] || {}).forEach(([attr, attrValue]) => {
-          input.setAttribute(attr, attrValue);
-        });
-      }
-
-      const span = document.createElement('span');
-
-      span.textContent =
-        roomFieldLabel(key) + (secondsKeys.includes(key) ? ' (s)' : '');
-
-      // checkbox — слева от подписи, остальные контролы — справа
-      if (input.type === 'checkbox') {
-        label.append(input, span);
-      } else {
-        label.append(span, input);
-      }
-
-      container.appendChild(label);
-      roomFormFields.set(key, input);
-    });
+    if (Array.isArray(manifest.roomForm)) {
+      roomFormFields = buildForm(manifest.roomForm, container, {
+        sources: { maps: manifest.maps?.list },
+      });
+    } else {
+      // без явной схемы форма комнаты пустая — не выводим контролы из типа
+      // значения (Часть 6 плана), но и не молчим об этом
+      console.warn(
+        `GameManifest "${manifest.id}" has no roomForm — room creation form will be empty`,
+      );
+      container.textContent = '';
+      roomFormFields = new Map();
+    }
   }
 
   // один пункт: список игр появится с добавлением второй игры (§6 PLAN.md)
@@ -1455,25 +1410,12 @@ function initLobby() {
   hostBtn?.addEventListener('click', () => {
     const name = (nameInput?.value || '').trim() || lobbyConfig.create.defaultName;
     const { roomDefaults } = activeGameManifest;
-    const { secondsKeys } = lobbyConfig.form;
 
     // дефолты манифеста перекрываются значениями сгенерированных полей
     const overrides = { ...roomDefaults };
 
-    for (const [key, input] of roomFormFields) {
-      const defaultValue = roomDefaults[key];
-
-      if (typeof defaultValue === 'boolean') {
-        overrides[key] = input.checked;
-      } else if (typeof defaultValue === 'number') {
-        const isSeconds = secondsKeys.includes(key);
-        const fallback = isSeconds ? defaultValue / 1000 : defaultValue;
-        const value = Number(input.value) || fallback;
-
-        overrides[key] = isSeconds ? value * 1000 : value;
-      } else {
-        overrides[key] = input.value || defaultValue;
-      }
+    for (const [key, field] of roomFormFields) {
+      overrides[key] = field.getValue();
     }
 
     connectAsHost({

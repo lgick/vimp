@@ -1,7 +1,265 @@
 @charset "UTF-8";
 
+:root {
+  --bg-page: #000;
+  --bg-overlay: #222;
+  --bg-card: #333;
+  --surface: #444;
+  --surface-2: #555;
+  --text: #ccc;
+  --text-strong: #fff;
+  --text-muted: #aaa;
+  --text-dim: #888;
+  --border: #eee;
+  --border-soft: #555;
+  --border-mid: #999;
+  --accent: #099;
+  --accent-soft: #7ed;
+  --link: #ff0;
+  --ok: #8f8;
+  --error: #e00;
+  --error-soft: #f56;
+  --radius: 5px;
+  --radius-sm: 4px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --font: 'Lucida Grande', Helvetica, Arial, Verdana, sans-serif;
+}
+
 * {
   user-select: none;
+}
+
+/* панель-карточка форм: auth/lobby/lobby-auth используют один каркас */
+.panel {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin: var(--space-3) auto;
+  text-shadow: 1px 1px 1px #000;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.panel-narrow {
+  width: 256px;
+}
+
+.panel-wide {
+  width: 400px;
+  max-width: 90%;
+}
+
+.panel h2 {
+  font-size: 21px;
+  line-height: 30px;
+  margin: 0 0 var(--space-3) 0;
+  text-align: center;
+  color: var(--text-strong);
+}
+
+/* кнопки: провайдеры логина, Create server, Start, Load more, Sign out */
+.btn {
+  display: block;
+  box-sizing: border-box;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text);
+  background-color: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background-color: var(--surface-2);
+}
+
+.btn:active {
+  background-color: var(--bg-card);
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* один вертикальный ритм для всех строк формы (room-форма и auth-форма) */
+.form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.form-label {
+  color: var(--text-muted);
+}
+
+.field-text,
+.field-number,
+.field-select {
+  box-sizing: border-box;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-strong);
+  background-color: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.field-text:hover,
+.field-number:hover,
+.field-select:hover {
+  border-color: var(--border-mid);
+}
+
+.field-text:focus-visible,
+.field-number:focus-visible,
+.field-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.field-text:disabled,
+.field-number:disabled,
+.field-select:disabled {
+  opacity: 0.5;
+}
+
+.field-select {
+  appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ccc'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-2) center;
+}
+
+/* toggle: checkbox визуально скрыт, дорожка/бегунок стилизуют состояние */
+.field-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.field-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.field-toggle-track {
+  position: absolute;
+  inset: 0;
+  background-color: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  transition: background-color 0.15s;
+}
+
+.field-toggle-track::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.field-toggle input:checked + .field-toggle-track {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.field-toggle input:checked + .field-toggle-track::before {
+  transform: translateX(16px);
+  background-color: var(--text-strong);
+}
+
+.field-toggle input:focus-visible + .field-toggle-track {
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* range: трек + заполнение accent, числовой readout моноширинным шрифтом */
+.field-range-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field-range {
+  accent-color: var(--accent);
+}
+
+.field-range-value {
+  min-width: 2.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+/* segmented: строка кнопок, активная — фон accent */
+.field-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.field-segmented-btn {
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text);
+  background-color: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border-soft);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.field-segmented-btn:last-child {
+  border-right: none;
+}
+
+.field-segmented-btn:hover {
+  background-color: var(--surface-2);
+}
+
+.field-segmented-btn.active {
+  background-color: var(--accent);
+  color: var(--text-strong);
+}
+
+.field-segmented-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 #panel {
@@ -287,7 +545,7 @@
 /*auth*/
 
 #auth {
-  background-color: #222;
+  background-color: var(--bg-overlay);
   position: absolute;
   width: 100%;
   min-height: 100%;
@@ -296,26 +554,8 @@
   z-index: 8;
 }
 
-#auth-form {
-  background-color: #333;
-  width: 256px;
-  margin: 10px auto;
-  border: 1px solid #eee;
-  text-shadow: 1px 1px 1px #000;
-  padding: 10px;
-  font-size: 12px;
-  line-height: 15px;
-}
-
-#auth-form h2 {
-  font-size: 21px;
-  line-height: 30px;
-  margin: 0 0 10px 0;
-  text-align: center;
-}
-
 #auth-error {
-  color: #e00;
+  color: var(--error);
   font-size: 12px;
   line-height: 15px;
   min-height: 15px;
@@ -342,7 +582,7 @@
 }
 
 #auth-link p a {
-  color: #ff0;
+  color: var(--link);
 }
 
 #auth-link p:nth-child(1) {
@@ -354,11 +594,11 @@
 }
 
 .auth-inform {
-  background-color: #444;
+  background-color: var(--surface);
   padding: 7px 13px;
   margin: 10px 0;
-  border-radius: 4px;
-  border: 1px solid #999;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-mid);
 }
 
 .auth-inform h4 {
@@ -429,7 +669,7 @@
 /*lobby*/
 
 #lobby {
-  background-color: #222;
+  background-color: var(--bg-overlay);
   position: absolute;
   width: 100%;
   min-height: 100%;
@@ -438,32 +678,21 @@
   z-index: 8;
 }
 
-#lobby-panel {
-  background-color: #333;
-  width: 400px;
-  max-width: 90%;
-  margin: 10px auto;
-  border: 1px solid #eee;
-  text-shadow: 1px 1px 1px #000;
-  padding: 10px;
-  font-size: 12px;
-  line-height: 15px;
+#lobby-create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
-#lobby-panel h2 {
-  font-size: 21px;
-  line-height: 30px;
-  margin: 0 0 10px 0;
-  text-align: center;
+#lobby-name {
+  width: 100%;
 }
 
 #lobby-search {
   display: block;
   width: 100%;
-  box-sizing: border-box;
   margin-bottom: 10px;
-  font-size: 12px;
-  line-height: 18px;
 }
 
 #lobby-list {
@@ -481,13 +710,13 @@
   gap: 10px;
   padding: 8px;
   margin-bottom: 4px;
-  background-color: #444;
-  border: 1px solid #555;
+  background-color: var(--surface);
+  border: 1px solid var(--border-soft);
   cursor: pointer;
 }
 
 .lobby-card:hover {
-  background-color: #555;
+  background-color: var(--surface-2);
 }
 
 .lobby-card-name {
@@ -499,25 +728,25 @@
 }
 
 .lobby-card-info {
-  color: #aaa;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
 .lobby-card-rating {
   min-width: 32px;
   text-align: right;
-  color: #8f8;
+  color: var(--ok);
 }
 
 .lobby-card-latency {
   min-width: 48px;
   text-align: right;
-  color: #ff0;
+  color: var(--link);
 }
 
 #lobby-empty {
   text-align: center;
-  color: #888;
+  color: var(--text-dim);
   margin: 20px 0;
 }
 
@@ -532,13 +761,13 @@
   justify-content: center;
   gap: 8px;
   margin-bottom: 10px;
-  color: #aaa;
+  color: var(--text-muted);
 }
 
 /*lobby-auth (Этап B2: логин перед лобби)*/
 
 #lobby-auth {
-  background-color: #222;
+  background-color: var(--bg-overlay);
   position: absolute;
   width: 100%;
   min-height: 100%;
@@ -549,23 +778,7 @@
 
 #lobby-auth-login,
 #lobby-auth-nick {
-  background-color: #333;
-  width: 400px;
-  max-width: 90%;
-  margin: 10px auto;
-  border: 1px solid #eee;
-  text-shadow: 1px 1px 1px #000;
-  padding: 10px;
-  font-size: 12px;
-  line-height: 15px;
   text-align: center;
-}
-
-#lobby-auth-login h2,
-#lobby-auth-nick h2 {
-  font-size: 21px;
-  line-height: 30px;
-  margin: 0 0 10px 0;
 }
 
 #lobby-auth-login-buttons {
@@ -574,17 +787,21 @@
   gap: 8px;
 }
 
+#lobby-auth-login-buttons .btn,
+#lobby-auth-nick-submit,
+#lobby-host,
+#lobby-user-logout {
+  width: 100%;
+}
+
 #lobby-auth-nick-input {
   display: block;
   width: 100%;
-  box-sizing: border-box;
   margin-bottom: 10px;
-  font-size: 12px;
-  line-height: 18px;
 }
 
 #lobby-auth-login-error,
 #lobby-auth-nick-error {
-  color: #f56;
+  color: var(--error-soft);
   margin: 8px 0;
 }

@@ -47,7 +47,7 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
 ```jsonc
 {
   "id": "tanks",
-  "engineApi": 1,
+  "engineApi": 2,
   "version": "<hash>",                     // gameVersion (контент client+host+wasm)
   "title": "VIMP Tanks",                   // для лобби
   "entries": {
@@ -58,9 +58,23 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
   "assetsBase": "/games/tanks/",           // база звуков/ассетов
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
-                    "friendlyFire": false, "map": "pool mini" }
+                    "friendlyFire": false, "map": "pool mini" },
+  "roomForm": [
+    { "name": "maxPlayers", "control": "range", "label": "Max players", "min": 1, "max": 32 },
+    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10, "max": 3600 },
+    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10, "max": 3600 },
+    { "name": "friendlyFire", "control": "toggle", "label": "Friendly fire" },
+    { "name": "map", "control": "select", "label": "Map", "source": "maps" }
+  ]
 }
 ```
+
+`roomForm` — явный упорядоченный массив дескрипторов полей, из которого
+рендерится форма «Create server» (см. [Схему формы](#схема-формы) ниже);
+`roomDefaults` остаётся источником значений по умолчанию и начальным
+набором ключей комнаты. Манифест без `roomForm` рендерит пустую форму
+создания комнаты (с предупреждением в консоли) вместо вывода контролов из
+типа значений `roomDefaults`.
 
 Проекции: **мастер** — весь манифест + раздача `/games/:id/maps/*`;
 **хост** — `entries.host` (dynamic import в Worker'е) + `entries.wasm` +
@@ -70,6 +84,69 @@ keysets) в манифест **не входят** — едут кодом пл�
 данными CONFIG_DATA (порт 0) от хоста: клиентские данные игры всегда
 согласованы с хостом комнаты.
 
+## Схема формы
+
+Единый контракт дескриптора поля — общий для формы создания комнаты
+(`roomForm`, выше) и формы игрока (`authSchema.params[].options`, ниже):
+обе рендерятся одним и тем же модулем движка,
+`packages/engine/src/client/lib/formBuilder.js`. Движок рендерит **только**
+то, что описано в дескрипторе — вывода контрола из типа значения больше
+нет.
+
+Разграничение назначения (важно для контракта):
+- **Room-форма** (главное лобби) — настройки *сервера*: лимит игроков,
+  число команд, время раунда/карты, карта, огонь по своим.
+- **Auth-форма** (`#auth`, показывается на комнату) — настройки *игрока*:
+  цвет, модель, оружие и т.п.
+
+Форма — **упорядоченный массив дескрипторов** (порядок массива = порядок
+полей):
+
+```js
+{
+  name:    'maxPlayers',      // ключ значения
+  control: 'range',           // 'select'|'range'|'number'|'toggle'|'segmented'|'text'
+  label:   'Max players',     // подпись (fallback — `name`)
+  default: 8,                 // значение по умолчанию
+  // числовые (range/number):
+  min: 1, max: 32, step: 1,
+  unit: 's',                  // значение хранится в мс, показывается/редактируется в секундах
+  // варианты (select/segmented):
+  options: [{ value, label }],// или простой массив, например ['a', 'b']
+  source:  'maps',            // источник вариантов из каталога движка вместо `options` (сегодня только карты)
+  // auth-специфика (настройки игрока):
+  storage: 'playerColor',     // ключ localStorage для запоминания выбора между сессиями
+  regExp:  '^#[0-9a-f]{6}$',  // задаёт атрибут `pattern` текстового поля (control:'text')
+}
+```
+
+`control` → разметка, всё рендерит `formBuilder.js`:
+- `select` — `<select>` (из `options` или `source:'maps'`), в тёмной теме.
+- `range` — `<input type=range>` + числовой readout рядом.
+- `number` — `<input type=number>` (`min`/`max`/`step`).
+- `toggle` — стилизованный checkbox (булевые настройки).
+- `segmented` — кнопочная группа (обычные кнопки, не radio) для
+  дискретного выбора.
+- `text` — `<input type=text>`, `pattern` из `regExp`, если задан.
+
+Где живёт каждая половина контракта:
+- **Room-форма**: `GameManifest.roomForm` (рядом с `roomDefaults`, который
+  остаётся источником значений по умолчанию и начального набора ключей
+  комнаты).
+- **Auth-форма**: те же дескрипторы едут по проводу в
+  `PS_AUTH_DATA.params[].options` — см.
+  [network.md](network.md#авторизация-порт-1) — `params[i]` — это
+  `{ name, value, options }`, где `options` несёт
+  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  (плюс уже существующий ключ `validator`, резолвится через
+  `authSchema.validators`).
+
+Манифест/authSchema без схемы рендерит пустую форму (room-форма —
+предупреждение в консоль; auth-форма — без полей, `#auth-enter` по-прежнему
+работает) вместо тихого отката к выводу контрола из типа значения — плагин,
+переезжающий на этот контракт, получает явный сигнал, а не тихую потерю
+полей.
+
 ## HostPlugin API
 
 Default export host-entry игры. Обязан быть worker-safe (без DOM и
@@ -78,7 +155,7 @@ Node-глобалов).
 ```js
 export default {
   id: 'tanks',
-  engineApi: 1,
+  engineApi: 2,
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // игровая половина бывшего config/game.js
@@ -100,7 +177,16 @@ export default {
   buildClientGameConfig(),            // game-секция CONFIG_DATA (см. ниже)
   // init-JSON ядра движок собирает сам из gameConfig
   // (packages/engine/src/lib/coreConfig.js) — плагин-хук не нужен
-  authSchema: { elems: {…}, params: [...], validators: { isValidModel: v => v in models },
+  authSchema: { elems: { authId:'auth', formId:'auth-form', errorId:'auth-error',
+                         enterId:'auth-enter', fieldsId:'auth-fields',
+                         titleId:'auth-title', informsId:'auth-informs' },
+                params: [
+                  { name: 'model', value: 'm1', options: {
+                      control: 'segmented', label: 'Model',
+                      options: ['m1', 'm2'], storage: 'playerModel',
+                      validator: 'isValidModel' } },
+                ],
+                validators: { isValidModel: v => v in models },
                 texts: { title, sections } },   // тексты формы для нейтрального каркаса auth.pug
 
   onCoreEvent(ctx, event),            // только 'custom'-события; стандартные роутит движок
@@ -133,7 +219,7 @@ Default export client-entry игры.
 ```js
 export default {
   id: 'tanks',
-  engineApi: 1,
+  engineApi: 2,
   async createClientCore(clientConfigJson, { wasmUrl }) { /* init(wasmUrl); return { core, memory } */ },
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
@@ -321,7 +407,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 | Константа | Владелец | Политика |
 | --- | --- | --- |
-| `ENGINE_API_VERSION` (=1) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1. Пока игра живёт в монорепо и обновляется атомарно с движком, версия осознанно не поднимается при переименованиях контракта (например, scripted-модуль Этапа Д3); политика бампа включается с выносом игр во внешние репо |
+| `ENGINE_API_VERSION` (=2) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1. v2: контракт [Form schema](#form-schema) (`roomForm`, `authSchema.params[].options`) заменил вывод контрола из типа значения — обязательное обновление для внешних репо игр (например, `vimp-tanks`) |
 | `SNAPSHOT_FORMAT_VERSION` (=3) | движок (фрейминг) | схема блоков едет в CONFIG_DATA → внутри комнаты всегда согласована |
 | `HANDOFF_VERSION` (→3) | движок | v2: +`gameId`, `gameVersion` в мете эстафеты; v3: поле `bots` переименовано в `scripted`; несовпадение → штатный `resume` |
 | `codeVersion` | мастер | составной: `{ engine: hash(host.worker-*.js), game: {id, version} }`; расхождение любой части → эстафета (новый Worker получает свежий `entries.host`) |
