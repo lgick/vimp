@@ -166,7 +166,7 @@ Payload `AUTH_DATA` (`PS_AUTH_DATA`): `{ elems, params, texts }`
 (`hostPlugin.authSchema` — см. [plugin-api.md](plugin-api.md#схема-формы)):
 
 - `elems` — DOM-id, которые нейтральный каркас `auth.pug` открывает
-  игре-плагину (`authId`, `formId`, `errorId`, `enterId`, `fieldsId`, и для
+  игре-плагину (`authId`, `errorId`, `enterId`, `fieldsId`, и для
   текстов ниже — `titleId`/`informsId`); значения плагина должны совпадать
   с реальными id в `auth.pug`.
 - `params[]` — `{ name, value, options }`, схема полей игрока (тот же

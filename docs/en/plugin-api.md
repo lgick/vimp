@@ -62,8 +62,8 @@ map JSON (a `maps:export` product of the game build).
                     "friendlyFire": false, "map": "pool mini" },
   "roomForm": [
     { "name": "maxPlayers", "control": "range", "label": "Max players", "min": 1, "max": 32 },
-    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10, "max": 3600 },
-    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10, "max": 3600 },
+    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10000, "max": 3600000 },
+    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10000, "max": 3600000 },
     { "name": "friendlyFire", "control": "toggle", "label": "Friendly fire" },
     { "name": "map", "control": "select", "label": "Map", "source": "maps" }
   ]
@@ -108,7 +108,10 @@ A form is an **ordered array of descriptors** — array order is field order:
   control: 'range',           // 'select'|'range'|'number'|'toggle'|'segmented'|'text'
   label:   'Max players',     // falls back to `name` if omitted
   default: 8,                 // initial value
-  // numeric (range/number):
+  // numeric (range/number): min/max/step are in the same unit as `default`
+  // and the stored value (ms for unit:'s') — formBuilder converts them to
+  // the displayed unit itself, so a roundTime field reads min:10000 here,
+  // not min:10
   min: 1, max: 32, step: 1,
   unit: 's',                  // value is stored in ms, displayed/edited in seconds
   // choices (select/segmented):
@@ -175,7 +178,7 @@ export default {
   buildClientGameConfig(),            // the game section of CONFIG_DATA (see below)
   // the core init JSON is assembled by the engine itself from gameConfig
   // (packages/engine/src/lib/coreConfig.js) — no plugin hook is needed
-  authSchema: { elems: { authId:'auth', formId:'auth-form', errorId:'auth-error',
+  authSchema: { elems: { authId:'auth', errorId:'auth-error',
                          enterId:'auth-enter', fieldsId:'auth-fields',
                          titleId:'auth-title', informsId:'auth-informs' },
                 params: [

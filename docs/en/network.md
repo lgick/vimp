@@ -284,7 +284,7 @@ the client shows it instead of the generic "Host left".
 (`hostPlugin.authSchema` — see [plugin-api.md](plugin-api.md#form-schema)):
 
 - `elems` — DOM ids the neutral `auth.pug` shell exposes to the game plugin
-  (`authId`, `formId`, `errorId`, `enterId`, `fieldsId`, and, for the texts
+  (`authId`, `errorId`, `enterId`, `fieldsId`, and, for the texts
   below, `titleId`/`informsId`); the plugin's values must match the ids
   actually present in `auth.pug`.
 - `params[]` — `{ name, value, options }`, the per-player field schema

@@ -60,19 +60,31 @@ function buildRangeOrNumber(descriptor, type) {
   el.name = descriptor.name;
   el.className = type === 'range' ? 'field-range' : 'field-number';
 
+  // границы схемы — в единицах хранения (мс для unit:'s'), как и default;
+  // конвертируем в единицы дисплея, иначе для unit:'s' min/max/step
+  // пришлось бы писать в секундах, а default — в мс (несогласованный контракт)
   if (descriptor.min !== undefined) {
-    el.min = descriptor.min;
+    el.min = toDisplay(descriptor, descriptor.min);
   }
 
   if (descriptor.max !== undefined) {
-    el.max = descriptor.max;
+    el.max = toDisplay(descriptor, descriptor.max);
   }
 
   if (descriptor.step !== undefined) {
-    el.step = descriptor.step;
+    el.step = toDisplay(descriptor, descriptor.step);
   }
 
-  const getValue = () => toStored(descriptor, Number(el.value));
+  // пустой/невалидный ввод (очищенное числовое поле) не должен превращаться
+  // в 0 на сабмите — откатываемся к дефолту схемы
+  const fallback = () => toDisplay(descriptor, descriptor.default ?? 0);
+
+  const getValue = () => {
+    const n = Number(el.value);
+    const value = el.value !== '' && Number.isFinite(n) ? n : fallback();
+
+    return toStored(descriptor, value);
+  };
 
   if (type === 'number') {
     return {
@@ -117,9 +129,15 @@ function buildRangeOrNumber(descriptor, type) {
 }
 
 function buildToggle(descriptor) {
+  // <label> целиком (переключатель + подпись, добавляемая в buildForm) —
+  // клик по тексту переключает чекбокс "бесплатно", без for/id (a11y)
   const wrapper = document.createElement('label');
 
   wrapper.className = 'field-toggle';
+
+  const switchEl = document.createElement('span');
+
+  switchEl.className = 'field-toggle-switch';
 
   const el = document.createElement('input');
 
@@ -129,7 +147,8 @@ function buildToggle(descriptor) {
   const track = document.createElement('span');
 
   track.className = 'field-toggle-track';
-  wrapper.append(el, track);
+  switchEl.append(el, track);
+  wrapper.append(switchEl);
 
   return {
     el: wrapper,
@@ -147,6 +166,11 @@ function buildSegmented(descriptor, ctx) {
   const el = document.createElement('div');
 
   el.className = 'field-segmented';
+  el.setAttribute('role', 'group');
+
+  if (descriptor.label) {
+    el.setAttribute('aria-label', descriptor.label);
+  }
 
   const buttons = [];
   let current;
@@ -246,7 +270,17 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
   container.textContent = '';
 
   descriptors.forEach(descriptor => {
-    const field = buildField(descriptor, ctx);
+    let field;
+
+    try {
+      field = buildField(descriptor, ctx);
+    } catch (e) {
+      // одно поле с кривой/неизвестной схемой не должно ронять всю форму
+      // (room-форма и особенно auth-форма — единственный путь к кнопке Start)
+      console.error(`formBuilder: skipping field "${descriptor.name}" — ${e.message}`);
+      return;
+    }
+
     const row = document.createElement('div');
 
     row.className = 'form-row';
@@ -256,9 +290,11 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
     label.className = 'form-label';
     label.textContent = (descriptor.label || descriptor.name) + (descriptor.unit === 's' ? ' (s)' : '');
 
-    // toggle рисует подпись сам, внутри .field-toggle — не дублируем
+    // toggle: field.el уже <label> — кладём подпись внутрь него, а не рядом,
+    // иначе клик по тексту не переключает чекбокс (a11y)
     if (descriptor.control === 'toggle') {
-      row.append(field.el, label);
+      field.el.appendChild(label);
+      row.append(field.el);
     } else {
       row.append(label, field.el);
     }

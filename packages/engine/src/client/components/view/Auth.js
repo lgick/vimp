@@ -52,10 +52,12 @@ export default class AuthView {
       return;
     }
 
-    const descriptors = params.map(({ name, value, options }) => ({
+    // param.options — дескриптор-хвост (control/label/min/max/... —
+    // "options" здесь ключ протокола PS_AUTH_DATA, не список выбора select
+    const descriptors = params.map(({ name, value, options: descriptorRest }) => ({
       name,
       default: value,
-      ...options,
+      ...descriptorRest,
     }));
 
     this._fields = buildForm(descriptors, container, {}, ({ name, value }) => {

@@ -61,8 +61,8 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
                     "friendlyFire": false, "map": "pool mini" },
   "roomForm": [
     { "name": "maxPlayers", "control": "range", "label": "Max players", "min": 1, "max": 32 },
-    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10, "max": 3600 },
-    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10, "max": 3600 },
+    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10000, "max": 3600000 },
+    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10000, "max": 3600000 },
     { "name": "friendlyFire", "control": "toggle", "label": "Friendly fire" },
     { "name": "map", "control": "select", "label": "Map", "source": "maps" }
   ]
@@ -108,7 +108,9 @@ keysets) в манифест **не входят** — едут кодом пл�
   control: 'range',           // 'select'|'range'|'number'|'toggle'|'segmented'|'text'
   label:   'Max players',     // подпись (fallback — `name`)
   default: 8,                 // значение по умолчанию
-  // числовые (range/number):
+  // числовые (range/number): min/max/step — в тех же единицах, что default
+  // и хранимое значение (мс для unit:'s') — formBuilder сам конвертирует их
+  // в единицы отображения, поэтому у roundTime здесь min:10000, а не min:10
   min: 1, max: 32, step: 1,
   unit: 's',                  // значение хранится в мс, показывается/редактируется в секундах
   // варианты (select/segmented):
@@ -177,7 +179,7 @@ export default {
   buildClientGameConfig(),            // game-секция CONFIG_DATA (см. ниже)
   // init-JSON ядра движок собирает сам из gameConfig
   // (packages/engine/src/lib/coreConfig.js) — плагин-хук не нужен
-  authSchema: { elems: { authId:'auth', formId:'auth-form', errorId:'auth-error',
+  authSchema: { elems: { authId:'auth', errorId:'auth-error',
                          enterId:'auth-enter', fieldsId:'auth-fields',
                          titleId:'auth-title', informsId:'auth-informs' },
                 params: [

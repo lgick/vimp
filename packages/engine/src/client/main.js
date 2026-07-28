@@ -1343,7 +1343,17 @@ function populateRoomForm(manifest) {
 
   if (container) {
     if (Array.isArray(manifest.roomForm)) {
-      roomFormFields = buildForm(manifest.roomForm, container, {
+      const { roomDefaults } = manifest;
+
+      // roomDefaults остаётся единственным источником значений по умолчанию
+      // (docs/en/plugin-api.md "Form schema"): явный descriptor.default
+      // переопределяет его, если задан в схеме
+      const descriptors = manifest.roomForm.map(descriptor => ({
+        default: roomDefaults[descriptor.name],
+        ...descriptor,
+      }));
+
+      roomFormFields = buildForm(descriptors, container, {
         sources: { maps: manifest.maps?.list },
       });
     } else {
