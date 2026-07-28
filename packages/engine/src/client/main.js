@@ -26,7 +26,7 @@ import StatCtrl from './components/controller/Stat.js';
 import VoteModel from './components/model/Vote.js';
 import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
-import { buildForm } from './lib/formBuilder.js';
+import { buildForm, mergeRoomDefaults } from './lib/formBuilder.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
@@ -1343,15 +1343,7 @@ function populateRoomForm(manifest) {
 
   if (container) {
     if (Array.isArray(manifest.roomForm)) {
-      const { roomDefaults } = manifest;
-
-      // roomDefaults остаётся единственным источником значений по умолчанию
-      // (docs/en/plugin-api.md "Form schema"): явный descriptor.default
-      // переопределяет его, если задан в схеме
-      const descriptors = manifest.roomForm.map(descriptor => ({
-        default: roomDefaults[descriptor.name],
-        ...descriptor,
-      }));
+      const descriptors = mergeRoomDefaults(manifest.roomForm, manifest.roomDefaults);
 
       roomFormFields = buildForm(descriptors, container, {
         sources: { maps: manifest.maps?.list },

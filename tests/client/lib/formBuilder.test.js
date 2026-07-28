@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildField, buildForm } from '../../../packages/engine/src/client/lib/formBuilder.js';
+import {
+  buildField,
+  buildForm,
+  mergeRoomDefaults,
+} from '../../../packages/engine/src/client/lib/formBuilder.js';
 
 describe('formBuilder.buildField: select', () => {
   it('строит select из options и возвращает выбранное значение', () => {
@@ -219,23 +223,22 @@ describe('formBuilder.buildForm', () => {
 
     errorSpy.mockRestore();
   });
+});
 
-  it('засев дефолтов room-формы: roomForm.default побеждает roomDefaults, иначе — из roomDefaults', () => {
-    // main.js/populateRoomForm мёржит схему с roomDefaults именно так —
-    // тест фиксирует контракт (Часть 6 плана: roomDefaults остаётся
-    // единственным источником значений по умолчанию)
-    const roomDefaults = { maxPlayers: 8, map: 'pool mini', friendlyFire: true };
-    const roomForm = [
-      { name: 'maxPlayers', control: 'number', label: 'Max players', min: 1, max: 32 },
-      { name: 'map', control: 'select', label: 'Map', source: 'maps' },
-      { name: 'friendlyFire', control: 'toggle', label: 'Friendly fire', default: false },
-    ];
+describe('formBuilder.mergeRoomDefaults', () => {
+  // main.js/populateRoomForm вызывает именно эту функцию — тест накрывает
+  // продовый путь напрямую, а не повторяет мёрж своей копией (Часть 6 плана:
+  // roomDefaults остаётся единственным источником значений по умолчанию)
+  const roomDefaults = { maxPlayers: 8, map: 'pool mini', friendlyFire: true };
+  const roomForm = [
+    { name: 'maxPlayers', control: 'number', label: 'Max players', min: 1, max: 32 },
+    { name: 'map', control: 'select', label: 'Map', source: 'maps' },
+    { name: 'friendlyFire', control: 'toggle', label: 'Friendly fire', default: false },
+  ];
 
+  it('засевает default полей значениями roomDefaults', () => {
     const container = document.createElement('div');
-    const descriptors = roomForm.map(descriptor => ({
-      default: roomDefaults[descriptor.name],
-      ...descriptor,
-    }));
+    const descriptors = mergeRoomDefaults(roomForm, roomDefaults);
 
     const fields = buildForm(descriptors, container, {
       sources: { maps: ['pool mini', 'canopy'] },
@@ -245,5 +248,12 @@ describe('formBuilder.buildForm', () => {
     expect(fields.get('map').getValue()).toBe('pool mini');
     // явный default в схеме побеждает roomDefaults
     expect(fields.get('friendlyFire').getValue()).toBe(false);
+  });
+
+  it('не трогает дескрипторы с явным default', () => {
+    const descriptors = mergeRoomDefaults(roomForm, roomDefaults);
+
+    expect(descriptors.find(d => d.name === 'friendlyFire').default).toBe(false);
+    expect(descriptors.find(d => d.name === 'maxPlayers').default).toBe(8);
   });
 });

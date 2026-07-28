@@ -128,13 +128,16 @@ function buildRangeOrNumber(descriptor, type) {
   };
 }
 
+// уникальный id для <label for> подписи toggle-поля (несколько форм с
+// одноимённым полем могут сосуществовать в DOM — room-форма и auth-форма
+// рендерятся в разные моменты, но обе всегда присутствуют в разметке)
+let toggleIdSeq = 0;
+
 function buildToggle(descriptor) {
-  // <label> целиком (переключатель + подпись, добавляемая в buildForm) —
-  // клик по тексту переключает чекбокс "бесплатно", без for/id (a11y)
-  const wrapper = document.createElement('label');
-
-  wrapper.className = 'field-toggle';
-
+  // field.el — сам переключатель (input+track), без текста: подпись строит
+  // buildForm как <label for=...>, поэтому toggle-строка выглядит как все
+  // остальные (подпись слева, контрол справа), а клик по тексту всё равно
+  // переключает чекбокс через нативную семантику label/for
   const switchEl = document.createElement('span');
 
   switchEl.className = 'field-toggle-switch';
@@ -143,15 +146,16 @@ function buildToggle(descriptor) {
 
   el.type = 'checkbox';
   el.name = descriptor.name;
+  el.id = `field-toggle-${++toggleIdSeq}`;
 
   const track = document.createElement('span');
 
   track.className = 'field-toggle-track';
   switchEl.append(el, track);
-  wrapper.append(switchEl);
 
   return {
-    el: wrapper,
+    el: switchEl,
+    labelFor: el.id,
     getValue: () => el.checked,
     setValue(value) {
       el.checked = Boolean(value);
@@ -261,6 +265,18 @@ export function buildField(descriptor, ctx = {}) {
   return field;
 }
 
+// засеивает default каждого дескриптора room-формы значением из roomDefaults
+// (docs/en/plugin-api.md "Form schema": roomDefaults остаётся единственным
+// источником значений по умолчанию); явный descriptor.default, если он есть
+// в схеме, побеждает. Вынесено из populateRoomForm (main.js), чтобы этот же
+// код был накрыт тестом, а не продублирован в нём
+export function mergeRoomDefaults(descriptors, roomDefaults) {
+  return descriptors.map(descriptor => ({
+    default: roomDefaults[descriptor.name],
+    ...descriptor,
+  }));
+}
+
 // собирает форму (упорядоченный массив дескрипторов = порядок полей) в
 // контейнер: одна .form-row на дескриптор (.form-label + контрол); onChange,
 // если передан, подписывается на все поля разом
@@ -285,19 +301,19 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
 
     row.className = 'form-row';
 
-    const label = document.createElement('span');
+    // toggle подписывается через <label for>, чтобы клик по тексту
+    // переключал чекбокс (a11y) и строка выглядела как у остальных полей
+    // (подпись слева, контрол справа)
+    const label = document.createElement(field.labelFor ? 'label' : 'span');
 
     label.className = 'form-label';
     label.textContent = (descriptor.label || descriptor.name) + (descriptor.unit === 's' ? ' (s)' : '');
 
-    // toggle: field.el уже <label> — кладём подпись внутрь него, а не рядом,
-    // иначе клик по тексту не переключает чекбокс (a11y)
-    if (descriptor.control === 'toggle') {
-      field.el.appendChild(label);
-      row.append(field.el);
-    } else {
-      row.append(label, field.el);
+    if (field.labelFor) {
+      label.htmlFor = field.labelFor;
     }
+
+    row.append(label, field.el);
 
     if (onChange) {
       field.onChange(onChange);
