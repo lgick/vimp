@@ -4,6 +4,36 @@ The client is a browser app built on PixiJS (Vite build, Pug templates in
 [packages/engine/src/client/views/](../../packages/engine/src/client/views/)). The entry point is
 [packages/engine/src/client/main.js](../../packages/engine/src/client/main.js).
 
+## Single shared PixiJS instance
+
+The engine and the dynamically loaded game plugin (`@vimp-games/*`) must
+resolve `pixi.js` to the exact same browser module — two independent
+bundled copies mean two separate PixiJS extension/pipe registries, which
+crashes rendering (`RenderTargetSystem` receiving a render target bound by
+the "other" renderer's registry). This is enforced end to end:
+
+- `pixi.js` is `external` in the engine's production build
+  ([packages/engine/vite.config.js](../../packages/engine/vite.config.js))
+  — the client chunk never bundles its own copy.
+- [packages/engine/scripts/sync-pixi-vendor.mjs](../../packages/engine/scripts/sync-pixi-vendor.mjs)
+  (run via `predev`/`prebuild`) copies the ESM build
+  (`node_modules/pixi.js/lib/**/*.mjs`) into
+  `packages/engine/public/vendor/pixi/lib/` — a generated, gitignored
+  directory Vite serves/ships as static assets.
+- [packages/engine/index.html](../../packages/engine/index.html) declares
+  an `importmap` mapping the bare specifiers `pixi.js` and
+  `pixi.js/unsafe-eval` to that vendored file, before the entry
+  `<script type="module">` — the browser resolves both the engine's own
+  import and the game plugin's externalized import to the same file.
+- The game plugin's own build must externalize `pixi.js` too (as a
+  `peerDependency`, not bundled) — this is the plugin-side half of the
+  contract, done in the plugin's own repository.
+
+Engine and plugin releases that touch this must ship together: a plugin
+built with `pixi.js` external cannot run standalone without the engine's
+import map, and bumping the engine's `pixi.js` version out of sync with the
+plugin's `peerDependencies` range reintroduces the dual-instance crash.
+
 ## main.js — bootstrap, dispatcher, and render loop
 
 - **Bootstrap**: before anything else, fetches the master's game catalog

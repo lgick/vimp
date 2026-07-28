@@ -2,6 +2,17 @@
 
 Клиент — браузерное приложение на PixiJS (сборка Vite, шаблоны Pug в [packages/engine/src/client/views/](../../packages/engine/src/client/views/)). Точка входа — [packages/engine/src/client/main.js](../../packages/engine/src/client/main.js).
 
+## Единый экземпляр PixiJS
+
+Движок и динамически загружаемый game-plugin (`@vimp-games/*`) должны в браузере резолвить `pixi.js` в один и тот же модуль — два независимых бандла означают два разных реестра расширений/пайпов PixiJS, что ломает рендер (`RenderTargetSystem` получает render target, забинженный по реестру «чужого» рендерера). Это обеспечивается сквозной цепочкой:
+
+- `pixi.js` — `external` в продакшен-сборке движка ([packages/engine/vite.config.js](../../packages/engine/vite.config.js)) — клиентский чанк больше не бандлит свою копию.
+- [packages/engine/scripts/sync-pixi-vendor.mjs](../../packages/engine/scripts/sync-pixi-vendor.mjs) (запускается через `predev`/`prebuild`) копирует ESM-сборку (`node_modules/pixi.js/lib/**/*.mjs`) в `packages/engine/public/vendor/pixi/lib/` — сгенерированную директорию, не попадающую в git, которую Vite отдаёт/пакует как статику.
+- [packages/engine/index.html](../../packages/engine/index.html) объявляет `importmap`, резолвящий голые спецификаторы `pixi.js` и `pixi.js/unsafe-eval` в этот вендоренный файл, до входного `<script type="module">` — браузер резолвит и импорт движка, и внешний импорт плагина в один и тот же файл.
+- Сборка самого game-plugin'а тоже должна externalize'ить `pixi.js` (как `peerDependency`, не бандлить) — это плагинная половина контракта, реализуется в репозитории плагина.
+
+Движковые и плагинные релизы, затрагивающие это, нужно выкатывать вместе: плагин, собранный с внешним `pixi.js`, не запустится отдельно без import map движка, а рассинхрон версии `pixi.js` движка с диапазоном `peerDependencies` плагина возвращает баг с двумя экземплярами.
+
 ## main.js — бутстрап, диспетчер и рендер-цикл
 
 - **Бутстрап**: прежде всего фетчит каталог игр мастера (`GET /games/manifest.json`, `GameCatalog` — см. [master.md](master.md)) и динамически грузит `ClientPlugin` активной игры по `entries.client` её манифеста (`packages/engine/src/lib/gamePlugin.js`, `loadClientPlugin`), отклоняя несовпадение `engineApi`. Пока в каталоге одна игра — берётся первая запись манифеста, а селектор игры в лобби скрыт (см. [plugin-api.md](plugin-api.md)). Также независимо от сигнального сокета поднимает экран входа **LobbyAuth** (см. ниже) и подключает `SignalingClient`. Лобби (`initLobby`) открывается только после того, как прилетели оба события — `welcome` от мастера и `authenticated` от LobbyAuth: `#lobby` скрыт, пока игрок не авторизован. Выбор сервера → `connectToHost` создаёт `WebRtcManager`, устанавливает P2P и запоминает `currentHostId` (для `/like`·`/unlike`).

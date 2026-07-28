@@ -93,6 +93,7 @@ export default [
     files: [
       'packages/engine/src/lib/**/*.js',
       'packages/engine/src/config/**/*.js',
+      'packages/engine/scripts/**/*.mjs',
       'scripts/*.js',
     ],
     languageOptions: {
@@ -214,6 +215,7 @@ export default [
       'dist/**', // результаты сборки Vite
       'packages/*/dist/**', // сборка Vite движка
       'public/**', // статика, которую не нужно линтить
+      '**/public/**', // статика воркспейсов (в т.ч. вендоренный pixi.js)
       'build/**',
       'target/**', // артефакты cargo (workspace)
       '**/.*', // игнорировать все файлы/директории, начинающиеся с '.'

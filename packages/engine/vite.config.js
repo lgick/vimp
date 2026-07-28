@@ -38,4 +38,17 @@ export default defineConfig({
       allow: [path.resolve(import.meta.dirname, '..', '..')],
     },
   },
+  build: {
+    rollupOptions: {
+      // pixi.js не бандлится в клиентский чанк движка: и движок, и
+      // динамически загружаемый game-plugin (@vimp-games/*) должны в
+      // браузере резолвить один и тот же экземпляр pixi.js (через
+      // import map в index.html → public/vendor/pixi/, см.
+      // scripts/sync-pixi-vendor.mjs). Два независимых бандла pixi.js
+      // означают два реестра расширений/пайпов и падение рендера
+      // (RenderTargetSystem получает render target от «чужого»
+      // рендерера).
+      external: ['pixi.js', 'pixi.js/unsafe-eval'],
+    },
+  },
 });
