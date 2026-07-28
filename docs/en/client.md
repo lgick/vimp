@@ -16,18 +16,31 @@ the "other" renderer's registry). This is enforced end to end:
   ([packages/engine/vite.config.js](../../packages/engine/vite.config.js))
   — the client chunk never bundles its own copy.
 - [packages/engine/scripts/sync-pixi-vendor.mjs](../../packages/engine/scripts/sync-pixi-vendor.mjs)
-  (run via `predev`/`prebuild`) copies the ESM build
-  (`node_modules/pixi.js/lib/**/*.mjs`) into
-  `packages/engine/public/vendor/pixi/lib/` — a generated, gitignored
+  (run via `predev`/`prebuild`) uses esbuild to bundle `pixi.js` and
+  `pixi.js/unsafe-eval` into self-contained ESM files with no bare
+  imports (`bundle: true`, resolved via the package's `import` export
+  condition — not the raw `lib/**/*.mjs` tree, whose files import their
+  own npm dependencies, e.g. `eventemitter3`, by bare specifier and would
+  fail to resolve in the browser) and `splitting: true`, so the two
+  entries share one chunk of common classes — required for
+  `pixi.js/unsafe-eval`'s prototype patches to land on the exact same
+  class objects the main bundle uses. Output goes to
+  `packages/engine/public/vendor/pixi/` — a generated, gitignored
   directory Vite serves/ships as static assets.
 - [packages/engine/index.html](../../packages/engine/index.html) declares
   an `importmap` mapping the bare specifiers `pixi.js` and
-  `pixi.js/unsafe-eval` to that vendored file, before the entry
+  `pixi.js/unsafe-eval` to those bundled files, before the entry
   `<script type="module">` — the browser resolves both the engine's own
   import and the game plugin's externalized import to the same file.
 - The game plugin's own build must externalize `pixi.js` too (as a
   `peerDependency`, not bundled) — this is the plugin-side half of the
   contract, done in the plugin's own repository.
+- `pixi.js` is pinned to an exact version (no `^` range) in
+  [packages/engine/package.json](../../packages/engine/package.json):
+  nothing enforces that this version satisfies the plugin's
+  `peerDependencies` range the way `GameCatalog` enforces
+  `ENGINE_API_VERSION`, so an unpinned range could silently drift out of
+  the plugin's supported range and reintroduce the dual-instance crash.
 
 Engine and plugin releases that touch this must ship together: a plugin
 built with `pixi.js` external cannot run standalone without the engine's

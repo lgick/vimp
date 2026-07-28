@@ -38,15 +38,16 @@
       загружаемый game-plugin (@vimp-games/*) оба резолвят "pixi.js" в
       один и тот же файл — иначе у них разные реестры расширений/пайпов
       PixiJS и падение рендера (RenderTargetSystem получает render
-      target от «чужого» рендерера). Файл синхронизируется скриптом
-      scripts/sync-pixi-vendor.mjs (predev/prebuild) из
-      node_modules/pixi.js/lib.
+      target от «чужого» рендерера). Файлы — самодостаточные ESM-бандлы
+      без внешних bare-импортов (собраны esbuild'ом, code-split между
+      собой), синхронизируются скриптом scripts/sync-pixi-vendor.mjs
+      (predev/prebuild) из node_modules/pixi.js.
     -->
     <script type="importmap">
       {
         "imports": {
-          "pixi.js": "/vendor/pixi/lib/index.mjs",
-          "pixi.js/unsafe-eval": "/vendor/pixi/lib/unsafe-eval/init.mjs"
+          "pixi.js": "/vendor/pixi/index.js",
+          "pixi.js/unsafe-eval": "/vendor/pixi/unsafe-eval.js"
         }
       }
     </script>

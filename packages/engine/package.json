@@ -9,6 +9,9 @@
   },
   "homepage": "https://github.com/lgick/vimp#readme",
   "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "exports": {
     "./lib/*": "./src/lib/*",
     "./config/*": "./src/config/*",
@@ -28,12 +31,13 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "pixi.js": "^8.14.0",
+    "pixi.js": "8.19.0",
     "uuid": "^13.0.0",
     "vite-express": "^0.21.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "esbuild": "0.27.7",
     "howler": "^2.2.4",
     "nodemon": "^3.1.10",
     "vite": "^7.1.11",

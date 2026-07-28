@@ -1,41 +1,61 @@
-// Копирует ESM-сборку pixi.js (node_modules/pixi.js/lib/**/*.mjs) в
-// public/vendor/pixi/lib/, откуда её по стабильному URL резолвит
-// import map в index.html (см. `<script type="importmap">`). Нужно,
-// чтобы движок и динамически загружаемый game-plugin (@vimp-games/*)
-// использовали ОДИН экземпляр pixi.js в браузере — иначе два
-// независимых модульных графа означают два разных реестра
+// Собирает единый, самодостаточный ESM-вендор pixi.js для import map в
+// index.html. Нужно, чтобы движок и динамически загружаемый game-plugin
+// (@vimp-games/*) использовали ОДИН экземпляр pixi.js в браузере —
+// иначе два независимых модульных графа означают два разных реестра
 // расширений/пайпов PixiJS и падение рендера (RenderTargetSystem
 // получает null render target от «чужого» рендерера).
 //
-// pixi.js в packages/engine остаётся внешней зависимостью сборки
+// Раньше здесь копировалось дерево node_modules/pixi.js/lib/**/*.mjs —
+// не работает: сам pixi.js/lib импортирует свои npm-зависимости
+// (eventemitter3, tiny-lru, earcut, ismobilejs, ...) голыми
+// спецификаторами, которых нет в браузерном import map → рендер вообще
+// не стартует (Failed to resolve module specifier). Вместо этого
+// esbuild бандлит оба входа (`pixi.js` и `pixi.js/unsafe-eval`) в
+// самодостаточные ESM-файлы без внешних импортов, с `splitting: true` —
+// общий код (классы рендерера и т.д.) выносится в один shared-чанк,
+// поэтому `unsafe-eval` патчит ТЕ ЖЕ классы, которые использует
+// основной бандл (раздельная сборка каждого входа дала бы две копии
+// классов и unsafe-eval молча не подействовал бы).
+//
+// pixi.js в packages/engine остаётся внешней зависимостью Vite-сборки
 // (vite.config.js: build.rollupOptions.external) — движок больше не
 // бандлит свою копию, а резолвит `pixi.js` бегущей строкой через
-// import map в тот же файл, что и здесь скопирован.
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
+// import map в файлы, собранные здесь.
+import { build } from 'esbuild';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
 const engineDir = path.resolve(import.meta.dirname, '..');
-const srcDir = path.resolve(engineDir, '../../node_modules/pixi.js/lib');
-const destDir = path.resolve(engineDir, 'public/vendor/pixi/lib');
+const outdir = path.resolve(engineDir, 'public/vendor/pixi');
 
-async function copyMjsTree(from, to) {
-  await mkdir(to, { recursive: true });
+await rm(outdir, { recursive: true, force: true });
 
-  const entries = await readdir(from, { withFileTypes: true });
+await build({
+  // Спецификаторы резолвятся самим esbuild от `absWorkingDir` — важно
+  // передать именно bare-специфкаторы, а не готовый абсолютный путь:
+  // `require.resolve()`/`createRequire` следуют условию CJS `require` в
+  // package.json `exports` и вернули бы `lib/index.js` (CJS-обёртку с
+  // одним default-экспортом вместо именованных) — из-за чего браузер
+  // падал с «does not provide an export named Application». Условие
+  // `import` в `conditions` заставляет esbuild резолвить ESM-вход
+  // (`lib/index.mjs` / `lib/unsafe-eval/init.mjs`) с настоящими named
+  // export'ами.
+  entryPoints: {
+    index: 'pixi.js',
+    'unsafe-eval': 'pixi.js/unsafe-eval',
+  },
+  absWorkingDir: engineDir,
+  conditions: ['import'],
+  mainFields: ['module', 'main'],
+  bundle: true,
+  splitting: true,
+  minify: true,
+  format: 'esm',
+  platform: 'browser',
+  target: 'es2022',
+  outdir,
+  chunkNames: 'chunks/[name]-[hash]',
+  logLevel: 'info',
+});
 
-  for (const entry of entries) {
-    const fromPath = path.join(from, entry.name);
-    const toPath = path.join(to, entry.name);
-
-    if (entry.isDirectory()) {
-      await copyMjsTree(fromPath, toPath);
-    } else if (entry.name.endsWith('.mjs')) {
-      await cp(fromPath, toPath);
-    }
-  }
-}
-
-await rm(destDir, { recursive: true, force: true });
-await copyMjsTree(srcDir, destDir);
-
-console.log(`[sync-pixi-vendor] pixi.js/lib (*.mjs) → ${path.relative(engineDir, destDir)}`);
+console.log(`[sync-pixi-vendor] pixi.js (bundled, code-split) → ${path.relative(engineDir, outdir)}`);
