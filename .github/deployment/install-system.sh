@@ -401,7 +401,7 @@ server {
   # data: — PixiJS проверяет поддержку ImageBitmap фетчем тестового data:-URL;
   # __AUTH_SERVICE_URL__ — домен central auth-сервиса (fetch POST /nick из
   # браузера лобби), подставляется add-server.sh, пусто — если auth не задан.
-  add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss: data:__AUTH_SERVICE_URL__; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-XJmzkFBLHYpcM8KgGRFztTJTwfMb5xIFKAmqlgTpobo='; worker-src 'self' blob:; connect-src 'self' wss: data:__AUTH_SERVICE_URL__; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
 
   # --- СЖАТИЕ (Brotli & Gzip) ---
   # Brotli, если браузер клиента его поддерживает.

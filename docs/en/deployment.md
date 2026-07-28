@@ -256,11 +256,18 @@ headers to the Nginx `server` block (or a shared snippet):
 add_header X-Content-Type-Options "nosniff" always;
 add_header Referrer-Policy "no-referrer" always;
 add_header X-Frame-Options "DENY" always;
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss: data: https://auth.example.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-XJmzkFBLHYpcM8KgGRFztTJTwfMb5xIFKAmqlgTpobo='; worker-src 'self' blob:; connect-src 'self' wss: data: https://auth.example.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
 ```
 
 Key directives: `script-src ... 'wasm-unsafe-eval'` (compiling the WASM
-core in the browser), `worker-src 'self' blob:` (the host's Web Worker),
+core in the browser) `'sha256-...'` (allows the single inline
+`<script type="importmap">` in `packages/engine/index.html` mapping the bare
+`pixi.js` / `pixi.js/unsafe-eval` specifiers — an external importmap
+`src="..."` isn't supported by any browser, so it stays inline; the hash
+must match the built `dist/index.html` byte-for-byte since `vite build`
+minifies HTML — recompute with `npm run build` in `packages/engine`, whose
+`postbuild` step (`scripts/check-importmap-csp-hash.mjs`) fails and prints
+the correct value if it drifts), `worker-src 'self' blob:` (the host's Web Worker),
 `connect-src 'self' wss: data: https://auth.example.com` (the master's
 signaling WebSocket; `data:` — PixiJS checks `ImageBitmap` support by
 fetching a test `data:` URL; `https://auth.example.com` — replace with

@@ -43,11 +43,16 @@
       собой), синхронизируются скриптом scripts/sync-pixi-vendor.mjs
       (predev/prebuild) из node_modules/pixi.js.
 
-      Внешний файл, а не инлайновый JSON: прод-CSP (script-src без
-      'unsafe-inline'/nonce, см. packages/engine/src/config/master.js)
-      блокирует инлайновый importmap; same-origin src проходит под 'self'.
+      Инлайн обязателен: <script type="importmap" src="..."> не
+      поддерживается ни одним браузером (спецификация HTML запрещает src
+      на importmap). Прод-CSP (script-src без 'unsafe-inline'/nonce, см.
+      packages/engine/src/config/master.js) разрешает именно этот
+      инлайн-скрипт по sha256-хэшу — контент ниже статичен, поэтому хэш
+      стабилен; менять его нельзя без пересчёта хэша
+      (scripts/check-importmap-csp-hash.mjs, запускается postbuild) и
+      обновления script-src в master.js и в Nginx-сниппетах доков.
     -->
-    <script type="importmap" src="/vendor/pixi/importmap.json"></script>
+    <script type="importmap">{"imports":{"pixi.js":"/vendor/pixi/index.js","pixi.js/unsafe-eval":"/vendor/pixi/unsafe-eval.js"}}</script>
     <script type="module" src="./src/client//main.js"></script>
   </body>
 </html>

@@ -22,7 +22,7 @@
 // бандлит свою копию, а резолвит `pixi.js` бегущей строкой через
 // import map в файлы, собранные здесь.
 import { build } from 'esbuild';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
 const engineDir = path.resolve(import.meta.dirname, '..');
@@ -57,20 +57,5 @@ await build({
   chunkNames: 'chunks/[name]-[hash]',
   logLevel: 'info',
 });
-
-// Отдельный файл вместо инлайн-<script type="importmap"> в index.html:
-// прод-CSP (packages/engine/src/config/master.js) не даёт 'unsafe-inline'/
-// nonce для script-src, инлайновый importmap блокировался бы браузером.
-// Внешний importmap same-origin ('self') грузится штатно.
-await mkdir(outdir, { recursive: true });
-await writeFile(
-  path.join(outdir, 'importmap.json'),
-  JSON.stringify({
-    imports: {
-      'pixi.js': '/vendor/pixi/index.js',
-      'pixi.js/unsafe-eval': '/vendor/pixi/unsafe-eval.js',
-    },
-  }),
-);
 
 console.log(`[sync-pixi-vendor] pixi.js (bundled, code-split) → ${path.relative(engineDir, outdir)}`);

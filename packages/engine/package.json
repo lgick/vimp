@@ -27,7 +27,8 @@
     "dev": "NODE_ENV=development nodemon src/master/main.js -w src/master -w src/lib -w src/config",
     "start": "NODE_ENV=production node --env-file ../../.env src/master/main.js",
     "prebuild": "node scripts/sync-pixi-vendor.mjs",
-    "build": "vite build"
+    "build": "vite build",
+    "postbuild": "node scripts/check-importmap-csp-hash.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",

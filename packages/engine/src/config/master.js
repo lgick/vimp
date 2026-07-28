@@ -69,13 +69,21 @@ export default {
   // authServiceUrl (Этап B2) — домен central auth-сервиса (packages/auth):
   // лобби делает туда прямой fetch (POST /nick), поэтому connect-src должен
   // его разрешать; сам OAuth-редирект (location.href на auth-сервис/провайдера)
-  // CSP не ограничивает — это навигация верхнего уровня, не fetch/XHR
+  // CSP не ограничивает — это навигация верхнего уровня, не fetch/XHR.
+  // script-src несёт sha256-хэш инлайнового importmap из index.html (для
+  // pixi.js — src="..." на <script type="importmap"> браузеры не
+  // поддерживают, инлайн обязателен). Хэш посчитан по факту собранного
+  // packages/engine/dist/index.html скриптом
+  // scripts/check-importmap-csp-hash.mjs (запускается postbuild) — vite
+  // build минифицирует HTML и может изменить байты скрипта, поэтому хэш
+  // нельзя брать из исходника/консоли браузера; при правке importmap или
+  // апгрейде Vite смотреть на вывод postbuild-проверки.
   security: {
     authServiceUrl: 'http://localhost:3010',
     csp: authServiceUrl =>
       [
         "default-src 'self'",
-        "script-src 'self' 'wasm-unsafe-eval'",
+        "script-src 'self' 'wasm-unsafe-eval' 'sha256-XJmzkFBLHYpcM8KgGRFztTJTwfMb5xIFKAmqlgTpobo='",
         "worker-src 'self' blob:",
         `connect-src 'self' wss: data:${authServiceUrl ? ` ${authServiceUrl}` : ''}`,
         "img-src 'self' data: blob:",
