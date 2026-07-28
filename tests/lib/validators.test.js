@@ -83,4 +83,11 @@ describe('validateAuth', () => {
     const params = [{ name: 'free', options: {} }];
     expect(validateAuth({ free: 'anything' }, params)).toBeUndefined();
   });
+
+  it('незарегистрированное имя валидатора молча пропускает поле (без ошибки и без throw)', () => {
+    const params = [{ name: 'model', options: { validator: 'isValidModel' } }];
+    // validators не передан — isValidModel не найден в rules
+    expect(() => validateAuth({ model: 'm1' }, params)).not.toThrow();
+    expect(validateAuth({ model: 'm1' }, params)).toBeUndefined();
+  });
 });

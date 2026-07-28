@@ -49,6 +49,19 @@ describe('AuthModel.add / update', () => {
     model.update({ name: 'login', value: '123' });
     expect(events.find(e => e.type === 'form').data.value).toBe('');
   });
+
+  it('update для имени без предшествующего add не падает (нет записи в _options)', () => {
+    const model = makeModel();
+    const events = collect(model);
+
+    expect(() =>
+      model.update({ name: 'unknown', value: 'x' }),
+    ).not.toThrow();
+    expect(events.find(e => e.type === 'form').data).toEqual({
+      name: 'unknown',
+      value: 'x',
+    });
+  });
 });
 
 describe('AuthModel.send', () => {

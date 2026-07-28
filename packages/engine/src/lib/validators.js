@@ -40,8 +40,11 @@ export const validateAuth = (data, authParams, validators = {}) => {
     if (options?.validator) {
       const validatorFn = rules[options.validator];
 
-      // на клиенте игровые валидаторы не передаются по проводу —
-      // авторитет проверки на хосте, отсутствие validatorFn здесь норма
+      // validateAuth используется и клиентом (без игровых validators —
+      // это норма, авторитет проверки на хосте), и хостом (с authSchema.validators
+      // игры — здесь отсутствие validatorFn обычно опечатка в имени валидатора
+      // конфига игры). В обоих случаях просто пропускаем поле без ошибки,
+      // сохраняя прежнее поведение (эта ветка никогда не добавляла в errors).
       if (validatorFn && !validatorFn(value)) {
         errors.push({ name, error: 'not valid' });
       }
