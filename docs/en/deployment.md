@@ -286,6 +286,19 @@ weakening the policy.
 Minifying the JS shell is standard for `vite build`. Heavier obfuscation
 is deliberately out of scope: it's useless against a cheating host.
 
+**Troubleshooting: `Executing inline script violates ... script-src` /
+`Failed to resolve module specifier "pixi.js/unsafe-eval"` in production.**
+This means the deployed Nginx `server` block's CSP is missing (or has a
+stale) `'sha256-...'` hash for the importmap, so the browser blocks the
+inline `<script type="importmap">` and the bare `pixi.js` specifier never
+resolves. CI only redeploys the master; it never touches the already
+-deployed Nginx config. Any change to the importmap or its CSP hash (a
+`pixi.js` version bump, an `index.html` edit) requires **regenerating the
+Nginx `server` block** on every affected master domain: re-run
+`install-system.sh` → `add-server.sh <domain>` for each domain, then
+`nginx -t && systemctl reload nginx` (or manually update the `sha256-...`
+value in `script-src` and reload).
+
 ## 🛠 Maintenance and removal
 
 ### Changing server settings

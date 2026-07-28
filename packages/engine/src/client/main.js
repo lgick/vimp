@@ -251,6 +251,7 @@ socketMethods[PS_CONFIG_DATA] = async data => {
         height: canvas.height,
         antialias: true,
         backgroundAlpha: 0,
+        sharedTicker: true,
         accessibilityOptions: {
           activateOnTab: false,
         },

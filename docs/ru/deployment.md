@@ -223,6 +223,19 @@ CSP сознательно не даёт `'unsafe-eval'` — PixiJS без не�
 
 Минификация JS-оболочки — штатная у `vite build`. Усиленная обфускация осознанно вне scope: против хоста-читера она бесполезна.
 
+**Троблшутинг: `Executing inline script violates ... script-src` /
+`Failed to resolve module specifier "pixi.js/unsafe-eval"` на проде.**
+Значит в развёрнутом Nginx-`server`-блоке CSP отсутствует (или устарел)
+хэш `'sha256-...'` для importmap — браузер блокирует инлайновый
+`<script type="importmap">`, и голый спецификатор `pixi.js` не резолвится.
+CI перевыкатывает только мастер и не трогает уже развёрнутый Nginx-конфиг.
+Любое изменение importmap или его CSP-хэша (обновление версии `pixi.js`,
+правка `index.html`) требует **перегенерации Nginx-`server`-блока** на
+каждом затронутом домене-мастере: `install-system.sh` → `add-server.sh
+<домен>` для каждого домена, затем `nginx -t && systemctl reload nginx`
+(либо вручную обновить значение `sha256-...` в `script-src` и
+перезагрузить nginx).
+
 ## 🛠 Обслуживание и удаление
 
 ### Изменение настроек серверов
