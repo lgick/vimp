@@ -205,6 +205,26 @@ export function mergeRoomDefaults(descriptors, roomDefaults) {
   }));
 }
 
+// нативная валидация (pattern/required/maxlength) перед сабмитом room- и
+// auth-формы: обе — обычные div (lobby.pug/auth.pug), не <form>, поэтому
+// reportValidity вызывается на каждом контроле напрямую (Constraint
+// Validation API работает и вне <form>). Останавливается на первом
+// невалидном контроле — иначе браузер фокусирует/подсвечивает последний
+// вызванный reportValidity, а не первый по порядку поля
+export function reportFormValidity(container) {
+  if (!container) {
+    return true;
+  }
+
+  for (const el of container.querySelectorAll('input, select')) {
+    if (!el.reportValidity()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // собирает форму (упорядоченный массив дескрипторов = порядок полей) в
 // контейнер: одна .form-row на дескриптор (.form-label + контрол); onChange,
 // если передан, подписывается на все поля разом. hidden:true — поле строится

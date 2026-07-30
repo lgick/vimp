@@ -1,5 +1,5 @@
 import Publisher from '../../../lib/Publisher.js';
-import { buildForm } from '../../lib/formBuilder.js';
+import { buildForm, reportFormValidity } from '../../lib/formBuilder.js';
 
 // Singleton AuthView
 
@@ -32,18 +32,9 @@ export default class AuthView {
 
     // форма заполнена; нативная проверка (pattern/required) — сервер всё
     // равно валидирует своими validators (renderError), это лишь UX-фильтр
-    // до отправки. auth-fields — обычный div (auth.pug), не <form>, поэтому
-    // reportValidity вызывается на каждом input/select напрямую
+    // до отправки
     this._enter.onclick = () => {
-      let valid = true;
-
-      this._fieldsContainer?.querySelectorAll('input, select').forEach(el => {
-        if (!el.reportValidity()) {
-          valid = false;
-        }
-      });
-
-      if (valid) {
+      if (reportFormValidity(this._fieldsContainer)) {
         authView.publisher.emit('enter');
       }
     };

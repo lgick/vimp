@@ -60,9 +60,13 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
   "roomForm": [
-    { "name": "maxPlayers", "control": "text", "label": "Max players", "numeric": true, "regExp": "^([1-9]|[12][0-9]|3[0-2])$" },
-    { "name": "roundTime", "control": "text", "label": "Round time", "unit": "s", "numeric": true, "regExp": "^[0-9]{2,4}$" },
-    { "name": "mapTime", "control": "text", "label": "Map time", "unit": "s", "numeric": true, "regExp": "^[0-9]{2,4}$" },
+    // regExp у maxPlayers/roundTime/mapTime генерирует build-game-manifest.js
+    // — точный диапазонный паттерн (например, "^([1-8])$" для maxPlayers
+    // 1..roomDefaults.maxPlayers), а не вручную в game.js; здесь опущен для
+    // читаемости
+    { "name": "maxPlayers", "control": "text", "label": "Max players", "numeric": true, "regExp": "<сгенерирован>" },
+    { "name": "roundTime", "control": "text", "label": "Round time", "unit": "s", "numeric": true, "regExp": "<сгенерирован>" },
+    { "name": "mapTime", "control": "text", "label": "Map time", "unit": "s", "numeric": true, "regExp": "<сгенерирован>" },
     { "name": "friendlyFire", "control": "checkbox", "label": "Friendly fire" },
     { "name": "map", "control": "select", "label": "Map", "source": "maps" }
   ]
@@ -145,7 +149,8 @@ keysets) в манифест **не входят** — едут кодом пл�
 поэтому room-форма получает только нативную HTML-валидацию
 (`pattern`/`required`); авторитетную границу значений комнаты всё равно
 накладывает Worker хоста при создании комнаты (клампы таймеров/лимита в
-`host.worker.js`). Auth-форма приходит из кода плагина (`authSchema`),
+`applyRoomOverrides.js`, которую вызывает `host.worker.js`). Auth-форма
+приходит из кода плагина (`authSchema`),
 поэтому у неё есть и нативная валидация, и JS-валидаторы
 (`authSchema.validators`, резолвятся через `validateAuth` на хосте и
 зеркалятся на клиенте).

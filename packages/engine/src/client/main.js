@@ -26,7 +26,7 @@ import StatCtrl from './components/controller/Stat.js';
 import VoteModel from './components/model/Vote.js';
 import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
-import { buildForm, mergeRoomDefaults } from './lib/formBuilder.js';
+import { buildForm, mergeRoomDefaults, reportFormValidity } from './lib/formBuilder.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
@@ -1331,27 +1331,6 @@ async function fetchServers({ offset, limit, search }) {
   }
 }
 
-// вызывает нативный reportValidity() на каждом input/select контейнера:
-// формы движка (lobby-fields, auth-fields) — не <form>, а обычные div
-// (лобби/auth-каркас), Constraint Validation API работает и без него
-function reportContainerValidity(containerId) {
-  const container = document.getElementById(containerId);
-
-  if (!container) {
-    return true;
-  }
-
-  let valid = true;
-
-  container.querySelectorAll('input, select').forEach(el => {
-    if (!el.reportValidity()) {
-      valid = false;
-    }
-  });
-
-  return valid;
-}
-
 // поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
 let roomFormFields = new Map();
 
@@ -1434,11 +1413,9 @@ function initLobby() {
     // нативная валидация (pattern/required) — единственная граница
     // room-формы: она едет клиенту как JSON манифеста, JS-валидаторы
     // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
-    // "Form schema"); авторитетный клампинг всё равно в host.worker.js.
-    // Поля не обёрнуты в <form> (lobby.pug), поэтому reportValidity
-    // вызывается на каждом контроле напрямую (Constraint Validation API
-    // работает и вне <form>)
-    if (!reportContainerValidity(lobbyConfig.elems.fieldsId)) {
+    // "Form schema"); авторитетный клампинг всё равно в applyRoomOverrides.js
+    // (вызывается из host.worker.js при создании комнаты)
+    if (!reportFormValidity(document.getElementById(lobbyConfig.elems.fieldsId))) {
       return;
     }
 
