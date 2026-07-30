@@ -7,13 +7,13 @@ div#lobby-auth
     h2= 'VIMP'
     p= 'Sign in to play'
     div#lobby-auth-login-buttons
-      button.lobby-auth-provider.btn#lobby-auth-login-github(type='button', data-provider='github')= 'Sign in with GitHub'
-      button.lobby-auth-provider.btn#lobby-auth-login-google(type='button', data-provider='google')= 'Sign in with Google'
-      button.lobby-auth-provider.btn#lobby-auth-login-apple(type='button', data-provider='apple')= 'Sign in with Apple'
+      input.lobby-auth-provider#lobby-auth-login-github(type='button', data-provider='github', value='Sign in with GitHub')
+      input.lobby-auth-provider#lobby-auth-login-google(type='button', data-provider='google', value='Sign in with Google')
+      input.lobby-auth-provider#lobby-auth-login-apple(type='button', data-provider='apple', value='Sign in with Apple')
     div#lobby-auth-login-error
 
   div#lobby-auth-nick.panel.panel-wide(style='display:none')
     h2= 'Choose your nick'
     input#lobby-auth-nick-input.field-text(type='text', maxlength='14', placeholder='YourNick')
     div#lobby-auth-nick-error
-    button#lobby-auth-nick-submit.btn(type='button')= 'Continue'
+    input#lobby-auth-nick-submit(type='button', value='Continue')

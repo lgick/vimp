@@ -8,7 +8,7 @@ div#lobby(style='display:none')
     div#lobby-user
       span= 'Signed in as '
       b#lobby-user-nick
-      button#lobby-user-logout.btn(type='button')= 'Sign out'
+      input#lobby-user-logout(type='button', value='Sign out')
     div#lobby-create
       input#lobby-name.field-text(type='text', placeholder='Server name…', maxlength='30')
       //- скрыт, пока каталог мастера содержит одну игру (Этап 6.3, PLAN.md §6)
@@ -16,8 +16,8 @@ div#lobby(style='display:none')
       //- поля настроек комнаты генерируются по явной схеме roomForm
       //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
       div#lobby-fields
-      button#lobby-host.btn(type='button')= 'Create server'
+      input#lobby-host(type='button', value='Create server')
     input#lobby-search.field-text(type='text', placeholder='Search servers…')
     ul#lobby-list
     p#lobby-empty= 'No servers available'
-    button#lobby-more.btn(type='button')= 'Load more'
+    input#lobby-more(type='button', value='Load more')
