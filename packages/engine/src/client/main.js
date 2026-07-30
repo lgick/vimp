@@ -1331,6 +1331,27 @@ async function fetchServers({ offset, limit, search }) {
   }
 }
 
+// вызывает нативный reportValidity() на каждом input/select контейнера:
+// формы движка (lobby-fields, auth-fields) — не <form>, а обычные div
+// (лобби/auth-каркас), Constraint Validation API работает и без него
+function reportContainerValidity(containerId) {
+  const container = document.getElementById(containerId);
+
+  if (!container) {
+    return true;
+  }
+
+  let valid = true;
+
+  container.querySelectorAll('input, select').forEach(el => {
+    if (!el.reportValidity()) {
+      valid = false;
+    }
+  });
+
+  return valid;
+}
+
 // поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
 let roomFormFields = new Map();
 
@@ -1410,6 +1431,17 @@ function initLobby() {
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);
 
   hostBtn?.addEventListener('click', () => {
+    // нативная валидация (pattern/required) — единственная граница
+    // room-формы: она едет клиенту как JSON манифеста, JS-валидаторы
+    // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
+    // "Form schema"); авторитетный клампинг всё равно в host.worker.js.
+    // Поля не обёрнуты в <form> (lobby.pug), поэтому reportValidity
+    // вызывается на каждом контроле напрямую (Constraint Validation API
+    // работает и вне <form>)
+    if (!reportContainerValidity(lobbyConfig.elems.fieldsId)) {
+      return;
+    }
+
     const name = (nameInput?.value || '').trim() || lobbyConfig.create.defaultName;
     const { roomDefaults } = activeGameManifest;
 

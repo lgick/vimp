@@ -29,7 +29,7 @@ const authParams = [
     name: 'team',
     value: '2',
     options: {
-      control: 'segmented',
+      control: 'radio',
       label: 'Team',
       options: [
         { value: '1', label: 'Red' },
@@ -82,14 +82,14 @@ describe('AuthView.renderData', () => {
     expect(document.getElementById('auth-error').textContent).toBe('');
   });
 
-  it('отмечает нужную кнопку segmented-поля', () => {
+  it('отмечает нужный radio-инпут', () => {
     const view = new AuthView(makeModel(), elems, null, authParams);
 
     view.renderData({ name: 'team', value: '1' });
 
-    const buttons = document.querySelectorAll('.field-segmented-btn');
-    expect(buttons[0].classList.contains('active')).toBe(true);
-    expect(buttons[1].classList.contains('active')).toBe(false);
+    const inputs = document.querySelectorAll('input[type=radio]');
+    expect(inputs[0].checked).toBe(true);
+    expect(inputs[1].checked).toBe(false);
   });
 });
 
@@ -129,13 +129,15 @@ describe('AuthView: события DOM', () => {
     expect(events[0]).toEqual({ name: 'login', value: 'Neo' });
   });
 
-  it('клик по segmented-кнопке эмитит input', () => {
+  it('смена radio-инпута эмитит input', () => {
     const model = makeModel();
     const view = new AuthView(model, elems, null, authParams);
     const events = [];
     view.publisher.on('input', d => events.push(d));
 
-    document.querySelectorAll('.field-segmented-btn')[0].click();
+    const input = document.querySelectorAll('input[type=radio]')[0];
+    input.checked = true;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
 
     expect(events[0]).toEqual({ name: 'team', value: '1' });
   });

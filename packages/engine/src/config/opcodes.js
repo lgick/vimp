@@ -7,7 +7,9 @@
 // проверяется при загрузке плагинов; ломающие изменения контрактов → +1.
 // v2: явная схема форм (roomForm/authSchema.params[].options — Form schema
 // в plugin-api.md), движок больше не выводит контролы из типа значения
-export const ENGINE_API_VERSION = 2;
+// v3: набор control сокращён до нативных элементов — 'select'|'text'|
+// 'checkbox'|'radio' (были ещё 'range'/'number'/'toggle'/'segmented')
+export const ENGINE_API_VERSION = 3;
 
 // версия формата кадра: первый байт после порта;
 // увеличивать при любом изменении байтовой раскладки в ядре

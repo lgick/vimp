@@ -33,106 +33,140 @@ describe('formBuilder.buildField: select', () => {
   });
 });
 
-describe('formBuilder.buildField: number/range + unit', () => {
-  it('number хранит значение как есть', () => {
+describe('formBuilder.buildField: text (нечисловой)', () => {
+  it('regExp прокидывается атрибутом pattern', () => {
+    const field = buildField({
+      name: 'color',
+      control: 'text',
+      regExp: '^#[0-9a-f]{6}$',
+      default: '#ffffff',
+    });
+
+    expect(field.el.tagName).toBe('INPUT');
+    expect(field.el.type).toBe('text');
+    expect(field.el.pattern).toBe('^#[0-9a-f]{6}$');
+    expect(field.getValue()).toBe('#ffffff');
+  });
+
+  it('required и maxlength прокидываются нативными атрибутами', () => {
+    const field = buildField({
+      name: 'login',
+      control: 'text',
+      required: true,
+      maxlength: 16,
+      default: '',
+    });
+
+    expect(field.el.required).toBe(true);
+    expect(field.el.maxLength).toBe(16);
+  });
+});
+
+describe('formBuilder.buildField: text (числовой, unit/numeric)', () => {
+  it('numeric:true хранит значение как число', () => {
     const field = buildField({
       name: 'maxPlayers',
-      control: 'number',
-      min: 1,
-      max: 32,
+      control: 'text',
+      numeric: true,
       default: 8,
     });
 
-    expect(field.el.type).toBe('number');
     expect(field.getValue()).toBe(8);
   });
 
-  it('range с unit:"s" хранит мс, отображает секунды', () => {
+  it('unit:"s" хранит мс, отображает секунды', () => {
     const field = buildField({
       name: 'roundTime',
-      control: 'range',
+      control: 'text',
       unit: 's',
-      min: 10000,
-      max: 3600000,
       default: 120000,
     });
 
-    const input = field.el.querySelector('input[type=range]');
-    expect(input.value).toBe('120');
+    expect(field.el.value).toBe('120');
     expect(field.getValue()).toBe(120000);
 
     field.setValue(60000);
-    expect(input.value).toBe('60');
+    expect(field.el.value).toBe('60');
     expect(field.getValue()).toBe(60000);
-  });
-
-  it('min/max/step тоже конвертируются в единицы дисплея (unit:"s")', () => {
-    const field = buildField({
-      name: 'roundTime',
-      control: 'range',
-      unit: 's',
-      min: 10000,
-      max: 3600000,
-      step: 5000,
-      default: 120000,
-    });
-
-    const input = field.el.querySelector('input[type=range]');
-    expect(input.min).toBe('10');
-    expect(input.max).toBe('3600');
-    expect(input.step).toBe('5');
   });
 
   it('пустое числовое поле не превращается в 0 на сабмите', () => {
     const field = buildField({
       name: 'maxPlayers',
-      control: 'number',
-      min: 1,
-      max: 32,
+      control: 'text',
+      numeric: true,
       default: 8,
     });
 
     field.el.value = '';
     expect(field.getValue()).toBe(8);
   });
+
+  it('невалидный ввод откатывается к default', () => {
+    const field = buildField({
+      name: 'maxPlayers',
+      control: 'text',
+      numeric: true,
+      default: 8,
+    });
+
+    field.el.value = 'abc';
+    expect(field.getValue()).toBe(8);
+  });
 });
 
-describe('formBuilder.buildField: toggle', () => {
+describe('formBuilder.buildField: checkbox', () => {
   it('чекбокс отражает boolean-значение', () => {
     const field = buildField({
       name: 'friendlyFire',
-      control: 'toggle',
+      control: 'checkbox',
       default: true,
     });
 
-    const input = field.el.querySelector('input[type=checkbox]');
-    expect(input.checked).toBe(true);
+    expect(field.el.tagName).toBe('INPUT');
+    expect(field.el.type).toBe('checkbox');
+    expect(field.el.checked).toBe(true);
     expect(field.getValue()).toBe(true);
 
     field.setValue(false);
-    expect(input.checked).toBe(false);
+    expect(field.el.checked).toBe(false);
     expect(field.getValue()).toBe(false);
   });
 
-  // якорь синхронизации с CSS (style.css): состояние toggle стилизуется
-  // селекторами `.field-toggle-switch input:checked + .field-toggle-track`,
-  // завязанными на этот className/структуру — сменил один, не забудь другой
-  it('el.className — field-toggle-switch, input и track — соседи (для CSS-соседского селектора)', () => {
-    const field = buildField({ name: 'friendlyFire', control: 'toggle', default: false });
+  it('field.labelFor указывает на id инпута (для <label for>)', () => {
+    const field = buildField({ name: 'friendlyFire', control: 'checkbox', default: false });
 
-    expect(field.el.className).toBe('field-toggle-switch');
-
-    const input = field.el.querySelector('input[type=checkbox]');
-    const track = field.el.querySelector('.field-toggle-track');
-    expect(input.nextElementSibling).toBe(track);
+    expect(field.labelFor).toBe(field.el.id);
   });
 });
 
-describe('formBuilder.buildField: segmented', () => {
-  it('клик по кнопке меняет значение и эмитит onChange', () => {
+describe('formBuilder.buildField: radio', () => {
+  it('группа radio с общим name, getValue/setValue по value', () => {
     const field = buildField({
       name: 'team',
-      control: 'segmented',
+      control: 'radio',
+      options: [
+        { value: '1', label: 'Red' },
+        { value: '2', label: 'Blue' },
+      ],
+      default: '1',
+    });
+
+    const inputs = field.el.querySelectorAll('input[type=radio]');
+    expect(inputs).toHaveLength(2);
+    expect(inputs[0].name).toBe(inputs[1].name);
+    expect(inputs[0].checked).toBe(true);
+    expect(field.getValue()).toBe('1');
+
+    field.setValue('2');
+    expect(inputs[1].checked).toBe(true);
+    expect(field.getValue()).toBe('2');
+  });
+
+  it('изменение radio эмитит onChange', () => {
+    const field = buildField({
+      name: 'team',
+      control: 'radio',
       options: [
         { value: '1', label: 'Red' },
         { value: '2', label: 'Blue' },
@@ -143,29 +177,24 @@ describe('formBuilder.buildField: segmented', () => {
     const events = [];
     field.onChange(e => events.push(e));
 
-    const buttons = field.el.querySelectorAll('.field-segmented-btn');
-    expect(buttons).toHaveLength(2);
-    expect(buttons[0].classList.contains('active')).toBe(true);
+    const inputs = field.el.querySelectorAll('input[type=radio]');
+    inputs[1].checked = true;
+    inputs[1].dispatchEvent(new Event('change', { bubbles: true }));
 
-    buttons[1].click();
-
-    expect(field.getValue()).toBe('2');
     expect(events).toEqual([{ name: 'team', value: '2' }]);
-    expect(buttons[1].classList.contains('active')).toBe(true);
   });
-});
 
-describe('formBuilder.buildField: text', () => {
-  it('regExp прокидывается атрибутом pattern', () => {
+  it('каждый вариант подписан <label for>', () => {
     const field = buildField({
-      name: 'color',
-      control: 'text',
-      regExp: '^#[0-9a-f]{6}$',
-      default: '#ffffff',
+      name: 'team',
+      control: 'radio',
+      options: [{ value: '1', label: 'Red' }],
     });
 
-    expect(field.el.pattern).toBe('^#[0-9a-f]{6}$');
-    expect(field.getValue()).toBe('#ffffff');
+    const input = field.el.querySelector('input[type=radio]');
+    const label = field.el.querySelector('label');
+    expect(label.htmlFor).toBe(input.id);
+    expect(label.textContent).toBe('Red');
   });
 });
 
@@ -175,8 +204,8 @@ describe('formBuilder.buildForm', () => {
 
     const fields = buildForm(
       [
-        { name: 'maxPlayers', control: 'number', label: 'Max players', default: 8 },
-        { name: 'friendlyFire', control: 'toggle', label: 'Friendly fire', default: false },
+        { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', default: 8 },
+        { name: 'friendlyFire', control: 'checkbox', label: 'Friendly fire', default: false },
       ],
       container,
     );
@@ -192,7 +221,7 @@ describe('formBuilder.buildForm', () => {
     const container = document.createElement('div');
 
     buildForm(
-      [{ name: 'roundTime', control: 'range', label: 'Round time', unit: 's', default: 60000 }],
+      [{ name: 'roundTime', control: 'text', label: 'Round time', unit: 's', default: 60000 }],
       container,
     );
 
@@ -217,6 +246,23 @@ describe('formBuilder.buildForm', () => {
     expect(events).toEqual([{ name: 'nick', value: 'Neo' }]);
   });
 
+  it('hidden:true — поле в fields Map, но без .form-row в DOM', () => {
+    const container = document.createElement('div');
+
+    const fields = buildForm(
+      [
+        { name: 'secret', control: 'text', label: 'Secret', default: 'x', hidden: true },
+        { name: 'visible', control: 'text', label: 'Visible', default: 'y' },
+      ],
+      container,
+    );
+
+    expect(container.querySelectorAll('.form-row')).toHaveLength(1);
+    expect(fields.has('secret')).toBe(true);
+    expect(fields.get('secret').getValue()).toBe('x');
+    expect(container.textContent).not.toContain('Secret');
+  });
+
   it('битый дескриптор логируется и пропускается, остальные поля рендерятся', () => {
     const container = document.createElement('div');
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -224,7 +270,7 @@ describe('formBuilder.buildForm', () => {
     const fields = buildForm(
       [
         { name: 'unknown', control: 'not-a-control', default: 1 },
-        { name: 'maxPlayers', control: 'number', label: 'Max players', default: 8 },
+        { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', default: 8 },
       ],
       container,
     );
@@ -244,9 +290,9 @@ describe('formBuilder.mergeRoomDefaults', () => {
   // roomDefaults остаётся единственным источником значений по умолчанию)
   const roomDefaults = { maxPlayers: 8, map: 'pool mini', friendlyFire: true };
   const roomForm = [
-    { name: 'maxPlayers', control: 'number', label: 'Max players', min: 1, max: 32 },
+    { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players' },
     { name: 'map', control: 'select', label: 'Map', source: 'maps' },
-    { name: 'friendlyFire', control: 'toggle', label: 'Friendly fire', default: false },
+    { name: 'friendlyFire', control: 'checkbox', label: 'Friendly fire', default: false },
   ];
 
   it('засевает default полей значениями roomDefaults', () => {

@@ -47,7 +47,7 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
 ```jsonc
 {
   "id": "tanks",
-  "engineApi": 2,
+  "engineApi": 3,
   "version": "<hash>",                     // gameVersion (контент client+host+wasm)
   "title": "VIMP Tanks",                   // для лобби
   "entries": {
@@ -60,10 +60,10 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
   "roomForm": [
-    { "name": "maxPlayers", "control": "range", "label": "Max players", "min": 1, "max": 32 },
-    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10000, "max": 3600000 },
-    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10000, "max": 3600000 },
-    { "name": "friendlyFire", "control": "toggle", "label": "Friendly fire" },
+    { "name": "maxPlayers", "control": "text", "label": "Max players", "numeric": true, "regExp": "^([1-9]|[12][0-9]|3[0-2])$" },
+    { "name": "roundTime", "control": "text", "label": "Round time", "unit": "s", "numeric": true, "regExp": "^[0-9]{2,4}$" },
+    { "name": "mapTime", "control": "text", "label": "Map time", "unit": "s", "numeric": true, "regExp": "^[0-9]{2,4}$" },
+    { "name": "friendlyFire", "control": "checkbox", "label": "Friendly fire" },
     { "name": "map", "control": "select", "label": "Map", "source": "maps" }
   ]
 }
@@ -91,7 +91,8 @@ keysets) в манифест **не входят** — едут кодом пл�
 обе рендерятся одним и тем же модулем движка,
 `packages/engine/src/client/lib/formBuilder.js`. Движок рендерит **только**
 то, что описано в дескрипторе — вывода контрола из типа значения больше
-нет.
+нет. Каждый контрол — обычный **нативный** элемент формы, без тематической
+кастомизации: форма плагина всегда выглядит как остальная страница.
 
 Разграничение назначения (важно для контракта):
 - **Room-форма** (главное лобби) — настройки *сервера*: лимит игроков,
@@ -105,31 +106,49 @@ keysets) в манифест **не входят** — едут кодом пл�
 ```js
 {
   name:    'maxPlayers',      // ключ значения
-  control: 'range',           // 'select'|'range'|'number'|'toggle'|'segmented'|'text'
+  control: 'text',            // 'select'|'text'|'checkbox'|'radio'
   label:   'Max players',     // подпись (fallback — `name`)
   default: 8,                 // значение по умолчанию
-  // числовые (range/number): min/max/step — в тех же единицах, что default
-  // и хранимое значение (мс для unit:'s') — formBuilder сам конвертирует их
-  // в единицы отображения, поэтому у roundTime здесь min:10000, а не min:10
-  min: 1, max: 32, step: 1,
-  unit: 's',                  // значение хранится в мс, показывается/редактируется в секундах
-  // варианты (select/segmented):
+  hidden:  true,               // поле строится и участвует в сабмите, но .form-row не рендерится
+  // числовые text-поля (unit задан, или numeric:true): значение парсится
+  // как Number и конвертируется через ту же единицу, что default/хранимое
+  // значение (мс для unit:'s') — formBuilder сам конвертирует туда-обратно.
+  // Пустой/невалидный ввод откатывается к `default`, а не превращается в 0
+  numeric: true,
+  unit:    's',                // значение хранится в мс, показывается/редактируется в секундах
+  // нативная валидация (text): стандартные HTML constraint-validation
+  // атрибуты — движок вызывает reportValidity() на каждом контроле перед
+  // сабмитом (room-форма — клик по «Create server»; auth-форма — клик по
+  // «#auth-enter»)
+  regExp:    '^#[0-9a-f]{6}$', // задаёт `pattern`
+  required:  true,
+  maxlength: 32,
+  // варианты (select/radio):
   options: [{ value, label }],// или простой массив, например ['a', 'b']
   source:  'maps',            // источник вариантов из каталога движка вместо `options` (сегодня только карты)
   // auth-специфика (настройки игрока):
   storage: 'playerColor',     // ключ localStorage для запоминания выбора между сессиями
-  regExp:  '^#[0-9a-f]{6}$',  // задаёт атрибут `pattern` текстового поля (control:'text')
 }
 ```
 
-`control` → разметка, всё рендерит `formBuilder.js`:
-- `select` — `<select>` (из `options` или `source:'maps'`), в тёмной теме.
-- `range` — `<input type=range>` + числовой readout рядом.
-- `number` — `<input type=number>` (`min`/`max`/`step`).
-- `toggle` — стилизованный checkbox (булевые настройки).
-- `segmented` — кнопочная группа (обычные кнопки, не radio) для
-  дискретного выбора.
-- `text` — `<input type=text>`, `pattern` из `regExp`, если задан.
+`control` → разметка, всё рендерит `formBuilder.js` нативными элементами:
+- `select` — `<select>` (из `options` или `source:'maps'`).
+- `text` — `<input type=text>`; числовые поля (`numeric`/`unit`)
+  конвертируют туда-обратно единицу хранения; `pattern`/`required`/
+  `maxlength` — из дескриптора.
+- `checkbox` — `<input type=checkbox>` (булевые настройки).
+- `radio` — группа `<input type=radio>` с общим сгенерированным `name`,
+  по одному на вариант.
+
+**Разделение валидации.** `roomForm` едет клиенту как JSON манифеста игры
+(`/games/<id>/manifest.json`) — функции не переживают сериализацию в JSON,
+поэтому room-форма получает только нативную HTML-валидацию
+(`pattern`/`required`); авторитетную границу значений комнаты всё равно
+накладывает Worker хоста при создании комнаты (клампы таймеров/лимита в
+`host.worker.js`). Auth-форма приходит из кода плагина (`authSchema`),
+поэтому у неё есть и нативная валидация, и JS-валидаторы
+(`authSchema.validators`, резолвятся через `validateAuth` на хосте и
+зеркалятся на клиенте).
 
 Где живёт каждая половина контракта:
 - **Room-форма**: `GameManifest.roomForm` (рядом с `roomDefaults`, который
@@ -139,7 +158,7 @@ keysets) в манифест **не входят** — едут кодом пл�
   `PS_AUTH_DATA.params[].options` — см.
   [network.md](network.md#авторизация-порт-1) — `params[i]` — это
   `{ name, value, options }`, где `options` несёт
-  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  `control`/`label`/`unit`/`numeric`/`options`/`source`/`storage`/`regExp`/`required`/`maxlength`/`hidden`
   (плюс уже существующий ключ `validator`, резолвится через
   `authSchema.validators`).
 
@@ -157,7 +176,7 @@ Node-глобалов).
 ```js
 export default {
   id: 'tanks',
-  engineApi: 2,
+  engineApi: 3,
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // игровая половина бывшего config/game.js
@@ -184,7 +203,7 @@ export default {
                          titleId:'auth-title', informsId:'auth-informs' },
                 params: [
                   { name: 'model', value: 'm1', options: {
-                      control: 'segmented', label: 'Model',
+                      control: 'select', label: 'Model',
                       options: ['m1', 'm2'], storage: 'playerModel',
                       validator: 'isValidModel' } },
                 ],
@@ -221,7 +240,7 @@ Default export client-entry игры.
 ```js
 export default {
   id: 'tanks',
-  engineApi: 2,
+  engineApi: 3,
   async createClientCore(clientConfigJson, { wasmUrl }) { /* init(wasmUrl); return { core, memory } */ },
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
@@ -409,7 +428,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 | Константа | Владелец | Политика |
 | --- | --- | --- |
-| `ENGINE_API_VERSION` (=2) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1. v2: контракт [Form schema](#form-schema) (`roomForm`, `authSchema.params[].options`) заменил вывод контрола из типа значения — обязательное обновление для внешних репо игр (например, `vimp-tanks`) |
+| `ENGINE_API_VERSION` (=3) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1. v2: контракт [Form schema](#form-schema) (`roomForm`, `authSchema.params[].options`) заменил вывод контрола из типа значения. v3: набор `control` сокращён до нативных элементов (`select`/`text`/`checkbox`/`radio`, убраны `range`/`number`/`toggle`/`segmented`) — обязательное обновление для внешних репо игр (например, `vimp-tanks`) |
 | `SNAPSHOT_FORMAT_VERSION` (=3) | движок (фрейминг) | схема блоков едет в CONFIG_DATA → внутри комнаты всегда согласована |
 | `HANDOFF_VERSION` (→3) | движок | v2: +`gameId`, `gameVersion` в мете эстафеты; v3: поле `bots` переименовано в `scripted`; несовпадение → штатный `resume` |
 | `codeVersion` | мастер | составной: `{ engine: hash(host.worker-*.js), game: {id, version} }`; расхождение любой части → эстафета (новый Worker получает свежий `entries.host`) |

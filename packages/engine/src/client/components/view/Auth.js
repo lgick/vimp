@@ -22,6 +22,7 @@ export default class AuthView {
     this._auth = document.getElementById(elems.authId);
     this._error = document.getElementById(elems.errorId);
     this._enter = document.getElementById(elems.enterId);
+    this._fieldsContainer = document.getElementById(elems.fieldsId);
     this._fields = new Map();
 
     this.publisher = new Publisher();
@@ -29,9 +30,22 @@ export default class AuthView {
     this._renderTexts(elems, texts);
     this._renderFields(elems, params);
 
-    // форма заполнена
+    // форма заполнена; нативная проверка (pattern/required) — сервер всё
+    // равно валидирует своими validators (renderError), это лишь UX-фильтр
+    // до отправки. auth-fields — обычный div (auth.pug), не <form>, поэтому
+    // reportValidity вызывается на каждом input/select напрямую
     this._enter.onclick = () => {
-      authView.publisher.emit('enter');
+      let valid = true;
+
+      this._fieldsContainer?.querySelectorAll('input, select').forEach(el => {
+        if (!el.reportValidity()) {
+          valid = false;
+        }
+      });
+
+      if (valid) {
+        authView.publisher.emit('enter');
+      }
     };
 
     this._mPublic.on('form', 'renderData', this);

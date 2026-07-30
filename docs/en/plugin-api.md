@@ -48,7 +48,7 @@ map JSON (a `maps:export` product of the game build).
 ```jsonc
 {
   "id": "tanks",
-  "engineApi": 2,
+  "engineApi": 3,
   "version": "<hash>",                     // gameVersion (client+host+wasm content)
   "title": "VIMP Tanks",                   // for the lobby
   "entries": {
@@ -61,10 +61,10 @@ map JSON (a `maps:export` product of the game build).
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
   "roomForm": [
-    { "name": "maxPlayers", "control": "range", "label": "Max players", "min": 1, "max": 32 },
-    { "name": "roundTime", "control": "range", "label": "Round time", "unit": "s", "min": 10000, "max": 3600000 },
-    { "name": "mapTime", "control": "range", "label": "Map time", "unit": "s", "min": 10000, "max": 3600000 },
-    { "name": "friendlyFire", "control": "toggle", "label": "Friendly fire" },
+    { "name": "maxPlayers", "control": "text", "label": "Max players", "numeric": true, "regExp": "^([1-9]|[12][0-9]|3[0-2])$" },
+    { "name": "roundTime", "control": "text", "label": "Round time", "unit": "s", "numeric": true, "regExp": "^[0-9]{2,4}$" },
+    { "name": "mapTime", "control": "text", "label": "Map time", "unit": "s", "numeric": true, "regExp": "^[0-9]{2,4}$" },
+    { "name": "friendlyFire", "control": "checkbox", "label": "Friendly fire" },
     { "name": "map", "control": "select", "label": "Map", "source": "maps" }
   ]
 }
@@ -92,7 +92,8 @@ A single field-descriptor contract, shared by the room-creation form
 below) — both are rendered by the same engine module,
 `packages/engine/src/client/lib/formBuilder.js`. The engine renders **only**
 what the descriptor says; there is no inference of a control from a value's
-type.
+type. Every control is a **plain native form element** — no themed/custom
+markup — so the game plugin's form always looks like the rest of the page.
 
 Purpose split (important for the contract):
 - **Room form** (main lobby) — *server* settings: player limit, team count,
@@ -105,32 +106,49 @@ A form is an **ordered array of descriptors** — array order is field order:
 ```js
 {
   name:    'maxPlayers',      // value key
-  control: 'range',           // 'select'|'range'|'number'|'toggle'|'segmented'|'text'
+  control: 'text',            // 'select'|'text'|'checkbox'|'radio'
   label:   'Max players',     // falls back to `name` if omitted
   default: 8,                 // initial value
-  // numeric (range/number): min/max/step are in the same unit as `default`
-  // and the stored value (ms for unit:'s') — formBuilder converts them to
-  // the displayed unit itself, so a roundTime field reads min:10000 here,
-  // not min:10
-  min: 1, max: 32, step: 1,
-  unit: 's',                  // value is stored in ms, displayed/edited in seconds
-  // choices (select/segmented):
+  hidden:  true,               // field is built and submitted, but no .form-row is rendered
+  // numeric text fields (unit set, or numeric:true): the value is parsed as
+  // a Number and converted through the same unit as `default`/the stored
+  // value (ms for unit:'s') — formBuilder converts to/from the displayed
+  // unit itself. Empty/invalid input falls back to `default` instead of
+  // becoming 0 on submit
+  numeric: true,
+  unit:    's',                // value is stored in ms, displayed/edited in seconds
+  // native validation (text): sets standard HTML constraint-validation
+  // attributes — the engine calls reportValidity() on every control before
+  // submit (room form: click on "Create server"; auth form: click on
+  // "#auth-enter")
+  regExp:    '^#[0-9a-f]{6}$', // sets `pattern`
+  required:  true,
+  maxlength: 32,
+  // choices (select/radio):
   options: [{ value, label }],// or a plain array, e.g. ['a', 'b']
   source:  'maps',            // engine-catalog source of choices instead of `options` (maps only, today)
   // auth-specific (player settings):
   storage: 'playerColor',     // localStorage key to remember the choice across sessions
-  regExp:  '^#[0-9a-f]{6}$',  // sets the text input's `pattern` attribute (control:'text')
 }
 ```
 
-`control` → markup, all rendered by `formBuilder.js`:
-- `select` — `<select>` (from `options` or `source:'maps'`), themed dark.
-- `range` — `<input type=range>` plus a numeric readout next to it.
-- `number` — `<input type=number>` (`min`/`max`/`step`).
-- `toggle` — a themed checkbox (boolean settings).
-- `segmented` — a button group (backed by plain buttons, not radios) for a
-  discrete choice.
-- `text` — `<input type=text>`, `pattern` set from `regExp` when present.
+`control` → markup, all rendered by `formBuilder.js` as plain native elements:
+- `select` — `<select>` (from `options` or `source:'maps'`).
+- `text` — `<input type=text>`; numeric fields (`numeric`/`unit`) convert
+  to/from the stored unit; `pattern`/`required`/`maxlength` set from the
+  descriptor.
+- `checkbox` — `<input type=checkbox>` (boolean settings).
+- `radio` — a group of `<input type=radio>` sharing one generated `name`,
+  one per option.
+
+**Validation split.** `roomForm` travels to the client as JSON in the game
+manifest (`/games/<id>/manifest.json`) — functions don't survive JSON, so the
+room form only gets native HTML validation (`pattern`/`required`); the
+authoritative bound on room values is still enforced by the host Worker at
+room creation (the timer/limit clamps in `host.worker.js`). The auth form
+comes from plugin code (`authSchema`) instead, so it gets both native
+validation and JS validators (`authSchema.validators`, resolved by
+`validateAuth` on the host and mirrored on the client).
 
 Where each half of the contract lives:
 - **Room form**: `GameManifest.roomForm` (next to `roomDefaults`, which
@@ -139,7 +157,7 @@ Where each half of the contract lives:
   `PS_AUTH_DATA.params[].options` — see
   [network.md](network.md#authentication-port-1) — `params[i]` is
   `{ name, value, options }` where `options` carries
-  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  `control`/`label`/`unit`/`numeric`/`options`/`source`/`storage`/`regExp`/`required`/`maxlength`/`hidden`
   (plus the pre-existing `validator` key, resolved against
   `authSchema.validators`).
 
@@ -156,7 +174,7 @@ Node globals).
 ```js
 export default {
   id: 'tanks',
-  engineApi: 2,
+  engineApi: 3,
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // the game half of the former config/game.js
@@ -183,7 +201,7 @@ export default {
                          titleId:'auth-title', informsId:'auth-informs' },
                 params: [
                   { name: 'model', value: 'm1', options: {
-                      control: 'segmented', label: 'Model',
+                      control: 'select', label: 'Model',
                       options: ['m1', 'm2'], storage: 'playerModel',
                       validator: 'isValidModel' } },
                 ],
@@ -221,7 +239,7 @@ Default export of the game's client entry.
 ```js
 export default {
   id: 'tanks',
-  engineApi: 2,
+  engineApi: 3,
   async createClientCore(clientConfigJson, { wasmUrl }) { /* init(wasmUrl); return { core, memory } */ },
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
@@ -413,7 +431,7 @@ another game's.
 
 | Constant | Owner | Policy |
 | --- | --- | --- |
-| `ENGINE_API_VERSION` (=2) | engine | checked at plugin import (host worker and client); breaking Plugin API / Wasm ABI changes → +1. v2: the [Form schema](#form-schema) contract (`roomForm`, `authSchema.params[].options`) replaced type-based control inference — a required update for external game repos (e.g. `vimp-tanks`) |
+| `ENGINE_API_VERSION` (=3) | engine | checked at plugin import (host worker and client); breaking Plugin API / Wasm ABI changes → +1. v2: the [Form schema](#form-schema) contract (`roomForm`, `authSchema.params[].options`) replaced type-based control inference. v3: the `control` set was cut down to plain native elements (`select`/`text`/`checkbox`/`radio`, dropping `range`/`number`/`toggle`/`segmented`) — a required update for external game repos (e.g. `vimp-tanks`) |
 | `SNAPSHOT_FORMAT_VERSION` (=3) | engine (framing) | the block schema travels in CONFIG_DATA → always consistent within a room |
 | `HANDOFF_VERSION` (→3) | engine | v2: +`gameId`, `gameVersion` in the handoff meta; v3: the `bots` field renamed to `scripted`; mismatch → the regular `resume` |
 | `codeVersion` | master | composite: `{ engine: hash(host.worker-*.js), game: {id, version} }`; a mismatch of either part → Worker handoff (the new Worker gets a fresh `entries.host`) |

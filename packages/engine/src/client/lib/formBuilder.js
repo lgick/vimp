@@ -1,6 +1,7 @@
 // Общий билдер полей форм (room-форма и auth-форма используют один
 // контракт дескрипторов — docs/en/plugin-api.md, раздел "Form schema").
-// control: 'select'|'range'|'number'|'toggle'|'segmented'|'text'
+// control: 'select'|'text'|'checkbox'|'radio'; все контролы — нативные
+// элементы формы, без визуальной кастомизации.
 
 function normalizeOptions(list) {
   return (list || []).map(opt =>
@@ -30,7 +31,6 @@ function toStored(descriptor, value) {
 function buildSelect(descriptor, ctx) {
   const el = document.createElement('select');
 
-  el.className = 'field-select';
   el.name = descriptor.name;
 
   resolveOptions(descriptor, ctx).forEach(({ value, label }) => {
@@ -53,108 +53,67 @@ function buildSelect(descriptor, ctx) {
   };
 }
 
-function buildRangeOrNumber(descriptor, type) {
+// numeric text-поле (unit задан или numeric:true) — переиспользует
+// toDisplay/toStored, откатывается к default при пустом/невалидном вводе,
+// вместо превращения его в 0 на сабмите
+function buildText(descriptor) {
   const el = document.createElement('input');
+  const numeric = descriptor.numeric || descriptor.unit !== undefined;
 
-  el.type = type;
+  el.type = 'text';
   el.name = descriptor.name;
-  el.className = type === 'range' ? 'field-range' : 'field-number';
 
-  // границы схемы — в единицах хранения (мс для unit:'s'), как и default;
-  // конвертируем в единицы дисплея, иначе для unit:'s' min/max/step
-  // пришлось бы писать в секундах, а default — в мс (несогласованный контракт)
-  if (descriptor.min !== undefined) {
-    el.min = toDisplay(descriptor, descriptor.min);
+  if (descriptor.regExp) {
+    el.pattern = descriptor.regExp;
   }
 
-  if (descriptor.max !== undefined) {
-    el.max = toDisplay(descriptor, descriptor.max);
+  if (descriptor.required) {
+    el.required = true;
   }
 
-  if (descriptor.step !== undefined) {
-    el.step = toDisplay(descriptor, descriptor.step);
+  if (descriptor.maxlength !== undefined) {
+    el.maxLength = descriptor.maxlength;
   }
 
-  // пустой/невалидный ввод (очищенное числовое поле) не должен превращаться
-  // в 0 на сабмите — откатываемся к дефолту схемы
   const fallback = () => toDisplay(descriptor, descriptor.default ?? 0);
 
   const getValue = () => {
+    if (!numeric) {
+      return el.value;
+    }
+
     const n = Number(el.value);
     const value = el.value !== '' && Number.isFinite(n) ? n : fallback();
 
     return toStored(descriptor, value);
   };
 
-  if (type === 'number') {
-    return {
-      el,
-      getValue,
-      setValue(value) {
-        el.value = toDisplay(descriptor, value);
-      },
-      onChange(cb) {
-        el.addEventListener('change', () => cb({ name: descriptor.name, value: getValue() }));
-      },
-    };
-  }
-
-  // range — трек + числовой readout рядом (tabular-nums в CSS)
-  const wrap = document.createElement('span');
-
-  wrap.className = 'field-range-wrap';
-
-  const readout = document.createElement('output');
-
-  readout.className = 'field-range-value';
-  wrap.append(el, readout);
-
-  const setValue = value => {
-    el.value = toDisplay(descriptor, value);
-    readout.textContent = el.value;
-  };
-
-  el.addEventListener('input', () => {
-    readout.textContent = el.value;
-  });
-
   return {
-    el: wrap,
+    el,
     getValue,
-    setValue,
+    setValue(value) {
+      el.value = numeric ? toDisplay(descriptor, value) : (value ?? '');
+    },
     onChange(cb) {
       el.addEventListener('change', () => cb({ name: descriptor.name, value: getValue() }));
     },
   };
 }
 
-// уникальный id для <label for> подписи toggle-поля (несколько форм с
-// одноимённым полем могут сосуществовать в DOM — room-форма и auth-форма
-// рендерятся в разные моменты, но обе всегда присутствуют в разметке)
-let toggleIdSeq = 0;
+// уникальный id для <label for> подписи (несколько форм с одноимённым полем
+// могут сосуществовать в DOM — room-форма и auth-форма рендерятся в разные
+// моменты, но обе всегда присутствуют в разметке)
+let idSeq = 0;
 
-function buildToggle(descriptor) {
-  // field.el — сам переключатель (input+track), без текста: подпись строит
-  // buildForm как <label for=...>, поэтому toggle-строка выглядит как все
-  // остальные (подпись слева, контрол справа), а клик по тексту всё равно
-  // переключает чекбокс через нативную семантику label/for
-  const switchEl = document.createElement('span');
-
-  switchEl.className = 'field-toggle-switch';
-
+function buildCheckbox(descriptor) {
   const el = document.createElement('input');
 
   el.type = 'checkbox';
   el.name = descriptor.name;
-  el.id = `field-toggle-${++toggleIdSeq}`;
-
-  const track = document.createElement('span');
-
-  track.className = 'field-toggle-track';
-  switchEl.append(el, track);
+  el.id = `field-checkbox-${++idSeq}`;
 
   return {
-    el: switchEl,
+    el,
     labelFor: el.id,
     getValue: () => el.checked,
     setValue(value) {
@@ -166,86 +125,55 @@ function buildToggle(descriptor) {
   };
 }
 
-function buildSegmented(descriptor, ctx) {
+// группа нативных radio с общим name; подпись каждого варианта — соседний
+// <label for>, как у checkbox
+function buildRadio(descriptor, ctx) {
   const el = document.createElement('div');
-
-  el.className = 'field-segmented';
-  el.setAttribute('role', 'group');
-
-  if (descriptor.label) {
-    el.setAttribute('aria-label', descriptor.label);
-  }
-
-  const buttons = [];
-  let current;
-  let changeCb = null;
-
-  const setActive = value => {
-    current = value;
-    buttons.forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.value === String(value));
-    });
-  };
+  const groupName = `field-radio-${descriptor.name}-${++idSeq}`;
+  const inputs = [];
 
   resolveOptions(descriptor, ctx).forEach(({ value, label }) => {
-    const btn = document.createElement('button');
+    const wrap = document.createElement('span');
+    const input = document.createElement('input');
 
-    btn.type = 'button';
-    btn.className = 'field-segmented-btn';
-    btn.dataset.value = value;
-    btn.textContent = label;
+    input.type = 'radio';
+    input.name = groupName;
+    input.id = `${groupName}-${inputs.length}`;
+    input.value = value;
 
-    btn.addEventListener('click', () => {
-      setActive(value);
-      changeCb?.({ name: descriptor.name, value: current });
-    });
+    const optionLabel = document.createElement('label');
 
-    buttons.push(btn);
-    el.appendChild(btn);
+    optionLabel.htmlFor = input.id;
+    optionLabel.textContent = label;
+
+    wrap.append(input, optionLabel);
+    el.appendChild(wrap);
+    inputs.push(input);
   });
 
-  return {
-    el,
-    getValue: () => current,
-    setValue(value) {
-      setActive(value);
-    },
-    onChange(cb) {
-      changeCb = cb;
-    },
-  };
-}
-
-function buildText(descriptor) {
-  const el = document.createElement('input');
-
-  el.type = 'text';
-  el.name = descriptor.name;
-  el.className = 'field-text';
-
-  if (descriptor.regExp) {
-    el.pattern = descriptor.regExp;
-  }
+  const getValue = () => inputs.find(input => input.checked)?.value;
 
   return {
     el,
-    getValue: () => el.value,
+    getValue,
     setValue(value) {
-      el.value = value ?? '';
+      inputs.forEach(input => {
+        input.checked = input.value === String(value);
+      });
     },
     onChange(cb) {
-      el.addEventListener('change', () => cb({ name: descriptor.name, value: el.value }));
+      inputs.forEach(input => {
+        input.addEventListener('change', () => cb({ name: descriptor.name, value: getValue() }));
+      });
     },
   };
 }
 
 const builders = {
   select: buildSelect,
-  range: descriptor => buildRangeOrNumber(descriptor, 'range'),
-  number: descriptor => buildRangeOrNumber(descriptor, 'number'),
-  toggle: buildToggle,
-  segmented: buildSegmented,
   text: buildText,
+  checkbox: buildCheckbox,
+  radio: buildRadio,
 };
 
 // строит одно поле формы по дескриптору (docs/en/plugin-api.md, "Form schema")
@@ -279,7 +207,8 @@ export function mergeRoomDefaults(descriptors, roomDefaults) {
 
 // собирает форму (упорядоченный массив дескрипторов = порядок полей) в
 // контейнер: одна .form-row на дескриптор (.form-label + контрол); onChange,
-// если передан, подписывается на все поля разом
+// если передан, подписывается на все поля разом. hidden:true — поле строится
+// и участвует в сабмите (fields Map), но строка не попадает в DOM
 export function buildForm(descriptors, container, ctx = {}, onChange) {
   const fields = new Map();
 
@@ -297,12 +226,22 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
       return;
     }
 
+    if (onChange) {
+      field.onChange(onChange);
+    }
+
+    fields.set(descriptor.name, field);
+
+    if (descriptor.hidden) {
+      return;
+    }
+
     const row = document.createElement('div');
 
     row.className = 'form-row';
 
-    // toggle подписывается через <label for>, чтобы клик по тексту
-    // переключал чекбокс (a11y) и строка выглядела как у остальных полей
+    // checkbox подписывается через <label for>, чтобы клик по тексту
+    // переключал его (a11y) и строка выглядела как у остальных полей
     // (подпись слева, контрол справа)
     const label = document.createElement(field.labelFor ? 'label' : 'span');
 
@@ -314,13 +253,7 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
     }
 
     row.append(label, field.el);
-
-    if (onChange) {
-      field.onChange(onChange);
-    }
-
     container.appendChild(row);
-    fields.set(descriptor.name, field);
   });
 
   return fields;
