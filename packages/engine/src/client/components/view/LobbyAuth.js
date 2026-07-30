@@ -11,6 +11,12 @@ const NICK_ERROR_MESSAGES = {
   network: 'Network error, try again',
 };
 
+const LOGIN_ERROR_MESSAGES = {
+  tokenExpired: 'Session expired, please sign in again',
+  invalidToken: 'Session expired, please sign in again',
+  oauthFailed: 'Sign-in failed, please try again',
+};
+
 // Представление логина лобби: переключает login/nick секции lobbyAuth.pug и
 // бейдж пользователя в lobby.pug (#lobby-user), скрывает/показывает #lobby
 // целиком — до авторизации список серверов недоступен (B2)
@@ -92,7 +98,7 @@ export default class LobbyAuthView {
   }
 
   renderLoginError(code) {
-    this._loginError.textContent = NICK_ERROR_MESSAGES[code] || code || 'Sign-in failed';
+    this._loginError.textContent = LOGIN_ERROR_MESSAGES[code] || 'Sign-in failed';
   }
 
   renderNickError(code) {

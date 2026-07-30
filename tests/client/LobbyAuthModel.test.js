@@ -57,7 +57,7 @@ describe('LobbyAuthModel: boot', () => {
     expect(model.getNick()).toBe('Vanya');
   });
 
-  it('просроченный identity-токен в localStorage не восстанавливает сессию (F5)', () => {
+  it('просроченный identity-токен в localStorage не восстанавливает сессию (F5), без баннера ошибки', () => {
     store[config.tokenStorageKey] = makeToken({
       sub: 'u1',
       nick: 'Vanya',
@@ -72,6 +72,45 @@ describe('LobbyAuthModel: boot', () => {
 
     model.boot('');
 
+    expect(errors).toEqual([]);
+    expect(required).toEqual([true]);
+    expect(model.getNick()).toBeNull();
+    expect(store[config.tokenStorageKey]).toBeUndefined();
+  });
+
+  it('битый identity-токен в localStorage при тихом восстановлении — без баннера ошибки', () => {
+    store[config.tokenStorageKey] = 'not-a-jwt';
+
+    const errors = [];
+    const required = [];
+
+    model.publisher.on('login-error', e => errors.push(e));
+    model.publisher.on('login-required', () => required.push(true));
+
+    model.boot('');
+
+    expect(errors).toEqual([]);
+    expect(required).toEqual([true]);
+    expect(model.getNick()).toBeNull();
+    expect(store[config.tokenStorageKey]).toBeUndefined();
+  });
+
+  it('?token= в query с просроченным токеном — интерактивная ошибка login-error', () => {
+    const token = makeToken({
+      sub: 'u1',
+      nick: 'Vanya',
+      exp: Math.floor(Date.now() / 1000) - 10,
+    });
+
+    const errors = [];
+    const required = [];
+
+    model.publisher.on('login-error', e => errors.push(e));
+    model.publisher.on('login-required', () => required.push(true));
+
+    const hadParams = model.boot(`?token=${token}`);
+
+    expect(hadParams).toBe(true);
     expect(errors).toEqual(['tokenExpired']);
     expect(required).toEqual([true]);
     expect(model.getNick()).toBeNull();

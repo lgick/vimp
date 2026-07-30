@@ -138,10 +138,11 @@ export default class LobbyAuthModel {
     if (!payload || !payload.nick || isExpired) {
       delete localStorage[tokenStorageKey];
 
-      if (isExpired) {
-        this.publisher.emit('login-error', 'tokenExpired');
-      } else {
-        this.publisher.emit('login-error', 'invalidToken');
+      // Тихое восстановление из localStorage (persist === false): просроченный/
+      // битый токен — штатная ситуация возврата на сайт, не ошибка. login-error
+      // — только на интерактивном пути.
+      if (persist) {
+        this.publisher.emit('login-error', isExpired ? 'tokenExpired' : 'invalidToken');
       }
 
       this.publisher.emit('login-required', this._config.providers);

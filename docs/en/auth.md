@@ -202,9 +202,12 @@ authenticated. Flow:
    `409 nickTaken` / `400 invalidNick` render inline.
 5. **Restore/expiry**: on a fresh visit with no query params,
    `LobbyAuthModel._restore()` reads `localStorage['vimpAuthToken']`; if the
-   decoded `exp` has already passed, the stored token is dropped and the
-   sign-in screen shows again (`login-error: 'tokenExpired'`) instead of a
-   stuck "authenticated" state that the host would reject at join time.
+   decoded `exp` has already passed (or the token is otherwise invalid), the
+   stored token is dropped and a clean sign-in screen shows again, with no
+   error banner — a stale/expired token on a silent restore is an expected
+   return-visit case, not an error. `login-error` (`tokenExpired` /
+   `invalidToken`) is only emitted on the interactive path (OAuth redirect,
+   nick submission), not on silent restore.
 
 The auth-service origin is bundled client-side in
 [packages/engine/src/config/authClient.js](../../packages/engine/src/config/authClient.js)

@@ -144,10 +144,18 @@ describe('LobbyAuthView: события пользователя', () => {
 });
 
 describe('LobbyAuthView: ошибки', () => {
-  it('login-error рендерит сообщение', () => {
+  it('login-error рендерит человекочитаемое сообщение', () => {
     model.publisher.emit('login-error', 'oauthFailed');
 
-    expect(document.getElementById('lobby-auth-login-error').textContent).toBe('oauthFailed');
+    expect(document.getElementById('lobby-auth-login-error').textContent).toBe(
+      'Sign-in failed, please try again',
+    );
+  });
+
+  it('login-error с неизвестным кодом рендерит дружелюбный fallback', () => {
+    model.publisher.emit('login-error', 'somethingWeird');
+
+    expect(document.getElementById('lobby-auth-login-error').textContent).toBe('Sign-in failed');
   });
 
   it('nick-error nickTaken рендерит человекочитаемое сообщение', () => {
