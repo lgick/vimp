@@ -493,10 +493,10 @@
 }
 
 .lobby-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
   padding: 8px;
   margin-bottom: 4px;
   background-color: #444;
@@ -509,7 +509,7 @@
 }
 
 .lobby-card-name {
-  flex: 1;
+  grid-column: 1 / -1;
   font-weight: bold;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -517,20 +517,26 @@
 }
 
 .lobby-card-info {
+  grid-column: 1;
   color: #aaa;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .lobby-card-rating {
-  min-width: 32px;
+  grid-column: 2;
   text-align: right;
   color: #8f8;
+  font-size: 10px;
 }
 
 .lobby-card-latency {
-  min-width: 48px;
+  grid-column: 3;
   text-align: right;
   color: #ff0;
+  font-size: 10px;
 }
 
 #lobby-empty {
