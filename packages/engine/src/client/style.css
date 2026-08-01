@@ -5,6 +5,7 @@
 }
 
 #panel {
+  align-items: center;
   text-transform: uppercase;
   background-color: #fff;
   text-align: center;
@@ -15,26 +16,28 @@
   left: 0;
   right: 0;
   height: 24px;
-  padding-left: 80px;
   z-index: 4;
   overflow: hidden;
 }
 
 #logo {
-  position: absolute;
-  left: 5px;
-  top: 0;
+  flex: 0 1 auto;
+  max-width: 40%;
   font-size: 16px;
   line-height: 24px;
-  width: 70px;
   height: 24px;
   margin: 0;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
 }
 
 #panel table {
+  flex: 1 1 auto;
+  min-width: 0;
   height: 100%;
-  width: 100%;
 }
 
 #panel table td {
@@ -346,8 +349,11 @@
   color: #e00;
   font-size: 12px;
   line-height: 15px;
-  min-height: 15px;
   margin: 0 5px;
+}
+
+#auth-error:empty {
+  margin: 0;
 }
 
 #auth-enter {

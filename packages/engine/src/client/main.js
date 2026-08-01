@@ -26,7 +26,11 @@ import StatCtrl from './components/controller/Stat.js';
 import VoteModel from './components/model/Vote.js';
 import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
-import { buildForm, mergeRoomDefaults, reportFormValidity } from './lib/formBuilder.js';
+import {
+  buildForm,
+  mergeRoomDefaults,
+  reportFormValidity,
+} from './lib/formBuilder.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
@@ -229,57 +233,55 @@ socketMethods[PS_CONFIG_DATA] = async data => {
   // канвасов игры (в HTML их нет)
   const canvasesConfig = modulesConfig.canvasManager.canvases;
 
-  const initPromises = Object.keys(canvasesConfig).map(
-    async canvasId => {
-      const canvas =
-        document.getElementById(canvasId) ?? document.createElement('canvas');
+  const initPromises = Object.keys(canvasesConfig).map(async canvasId => {
+    const canvas =
+      document.getElementById(canvasId) ?? document.createElement('canvas');
 
-      if (!canvas.parentNode) {
-        canvas.setAttribute('id', canvasId);
-        canvas.width = canvasesConfig[canvasId].width;
-        canvas.height = canvasesConfig[canvasId].height;
-        document.body.appendChild(canvas);
-      }
+    if (!canvas.parentNode) {
+      canvas.setAttribute('id', canvasId);
+      canvas.width = canvasesConfig[canvasId].width;
+      canvas.height = canvasesConfig[canvasId].height;
+      document.body.appendChild(canvas);
+    }
 
-      const app = new Application();
-      const assetProvider = new BakingProvider(clientPlugin.bakers);
-      const dependencyProvider = new DependencyProvider();
-      const bakingArr = bakedAssets[canvasId];
+    const app = new Application();
+    const assetProvider = new BakingProvider(clientPlugin.bakers);
+    const dependencyProvider = new DependencyProvider();
+    const bakingArr = bakedAssets[canvasId];
 
-      await app.init({
-        canvas,
-        width: canvas.width,
-        height: canvas.height,
-        antialias: true,
-        backgroundAlpha: 0,
-        sharedTicker: true,
-        accessibilityOptions: {
-          activateOnTab: false,
-        },
-      });
+    await app.init({
+      canvas,
+      width: canvas.width,
+      height: canvas.height,
+      antialias: true,
+      backgroundAlpha: 0,
+      sharedTicker: true,
+      accessibilityOptions: {
+        activateOnTab: false,
+      },
+    });
 
-      // пул всех доступных сервисов в этом контексте
-      const availableServices = {
-        renderer: app.renderer,
-        soundManager,
-      };
+    // пул всех доступных сервисов в этом контексте
+    const availableServices = {
+      renderer: app.renderer,
+      soundManager,
+    };
 
-      // если есть данные для запекания компонентов
-      if (bakingArr) {
-        assetProvider.bakeAll(bakingArr, app);
-      }
+    // если есть данные для запекания компонентов
+    if (bakingArr) {
+      assetProvider.bakeAll(bakingArr, app);
+    }
 
-      dependencyProvider.collectAll(availableServices, componentDependencies);
+    dependencyProvider.collectAll(availableServices, componentDependencies);
 
-      CTRL[canvasId] = makeGameController(
-        assetProvider.getAssetsCollection(),
-        dependencyProvider.getDependenciesCollection(),
-        app,
-      );
+    CTRL[canvasId] = makeGameController(
+      assetProvider.getAssetsCollection(),
+      dependencyProvider.getDependenciesCollection(),
+      app,
+    );
 
-      apps[canvasId] = app;
-    },
-  );
+    apps[canvasId] = app;
+  });
 
   Promise.all(initPromises)
     .then(() => {
@@ -298,6 +300,8 @@ socketMethods[PS_AUTH_DATA] = data => {
   }
 
   const { elems, params, texts } = data;
+
+  document.getElementById('logo').textContent = texts?.title || 'VIMP';
 
   params.forEach(param => {
     const { storage } = param.options;
@@ -344,7 +348,7 @@ socketMethods[PS_AUTH_RESULT] = async err => {
       const elem = document.getElementById(id);
 
       if (elem) {
-        elem.style.display = 'block';
+        elem.style.display = id === 'panel' ? 'flex' : 'block';
       }
     }
 
@@ -597,8 +601,7 @@ function reconstructHot(hot) {
 
   const readRecord = () => {
     const { key, kind, width } = snapshotKeysById[hot[i]];
-    const id =
-      kind === 'indexedNoNull8' ? `d${hot[i + 1]}` : hot[i + 1];
+    const id = kind === 'indexedNoNull8' ? `d${hot[i + 1]}` : hot[i + 1];
 
     (game[key] ??= {})[id] = Array.from(hot.subarray(i + 2, i + width));
     i += width;
@@ -1152,7 +1155,11 @@ async function connectAsHost(room) {
       refreshHostMaps();
     }
 
-    if (msg.codeVersion && hostCodeVersion && codeVersionChanged(msg.codeVersion, hostCodeVersion)) {
+    if (
+      msg.codeVersion &&
+      hostCodeVersion &&
+      codeVersionChanged(msg.codeVersion, hostCodeVersion)
+    ) {
       refreshHostWorker();
     }
   });
@@ -1163,7 +1170,11 @@ async function connectAsHost(room) {
       refreshHostMaps();
     }
 
-    if (msg.codeVersion && hostCodeVersion && codeVersionChanged(msg.codeVersion, hostCodeVersion)) {
+    if (
+      msg.codeVersion &&
+      hostCodeVersion &&
+      codeVersionChanged(msg.codeVersion, hostCodeVersion)
+    ) {
       refreshHostWorker();
     }
   });
@@ -1184,7 +1195,9 @@ let failedCodeVersion = null;
 // сравнимый ключ составного codeVersion (Этап 6.5): движок + игра —
 // расхождение любой половины (деплой движка ИЛИ деплой игры) запускает эстафету
 function codeVersionKey(cv) {
-  return cv ? `${cv.engine ?? ''}:${cv.game?.id ?? ''}:${cv.game?.version ?? ''}` : null;
+  return cv
+    ? `${cv.engine ?? ''}:${cv.game?.id ?? ''}:${cv.game?.version ?? ''}`
+    : null;
 }
 
 function codeVersionChanged(remote, local) {
@@ -1343,7 +1356,10 @@ function populateRoomForm(manifest) {
 
   if (container) {
     if (Array.isArray(manifest.roomForm)) {
-      const descriptors = mergeRoomDefaults(manifest.roomForm, manifest.roomDefaults);
+      const descriptors = mergeRoomDefaults(
+        manifest.roomForm,
+        manifest.roomDefaults,
+      );
 
       roomFormFields = buildForm(descriptors, container, {
         sources: { maps: manifest.maps?.list },
@@ -1415,11 +1431,14 @@ function initLobby() {
     // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
     // "Form schema"); авторитетный клампинг всё равно в applyRoomOverrides.js
     // (вызывается из host.worker.js при создании комнаты)
-    if (!reportFormValidity(document.getElementById(lobbyConfig.elems.fieldsId))) {
+    if (
+      !reportFormValidity(document.getElementById(lobbyConfig.elems.fieldsId))
+    ) {
       return;
     }
 
-    const name = (nameInput?.value || '').trim() || lobbyConfig.create.defaultName;
+    const name =
+      (nameInput?.value || '').trim() || lobbyConfig.create.defaultName;
     const { roomDefaults } = activeGameManifest;
 
     // дефолты манифеста перекрываются значениями сгенерированных полей

@@ -292,7 +292,11 @@ What each component does:
   `type: 'bar' | 'value' | 'time' | 'weapon'`, not from field names — a
   `bar` field also takes `max` and `blocks`) inside the engine's `#panel`
   container; the cells' look is the game's CSS (bar blocks use the
-  engine-neutral `panel-bar-*` classes).
+  engine-neutral `panel-bar-*` classes). The `#logo` header inside `#panel`
+  shows the game's title from `authSchema.texts.title` (same value as
+  `#auth-title`, applied when `PS_AUTH_DATA` arrives, falling back to
+  `'VIMP'` before that / if absent); `#panel`/`#logo` CSS is flex-based so
+  the panel table reflows around titles of any length.
 - **Stat** — sortable scoreboard tables (`sortList`), shown on Tab.
   `StatView` **generates the header and tables from the game's schema**
   (`modules.stat.params`: `columns` — column labels, `bodies` — an
