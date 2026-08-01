@@ -20,6 +20,16 @@
   overflow: hidden;
 }
 
+@keyframes logo-shimmer {
+  0% {
+    background-position: 50% 0;
+  }
+
+  100% {
+    background-position: 50% 100%;
+  }
+}
+
 #logo {
   flex: 0 1 auto;
   max-width: 40%;
@@ -32,6 +42,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
+  text-transform: none;
+  color: transparent;
+  background-image: linear-gradient(
+    to bottom,
+    #cccccc 5%,
+    #3186ff 25%,
+    #a9a8ff 35%,
+    #a9a8ff 40%,
+    #cccccc 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-size: auto 700%;
+  will-change: background-position;
+  animation: logo-shimmer 1s cubic-bezier(0.3, 0, 1, 1) 0.1s both;
 }
 
 #panel table {
