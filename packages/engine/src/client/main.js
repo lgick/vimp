@@ -146,6 +146,7 @@ const apps = {};
 
 let gameInformer = null;
 let gameInformList = []; // массив игровых сообщений
+let panelView = null;
 
 const techInformer = document.getElementById('tech-informer');
 
@@ -156,6 +157,8 @@ let techInformList = clientDefaults.techInformList;
 
 // код 'loading' — единственный не-терминальный tech-код (см. TECH_CODES)
 const TECH_LOADING_CODE = 2;
+// код начала раунда (см. GAME_CODES в SocketManager)
+const GAME_ROUND_START_CODE = 1;
 // показан ли терминальный tech-код (кик, полная комната): причина закрытия
 // соединения важнее общего сообщения handleDisconnect
 let terminalInformShown = false;
@@ -490,6 +493,10 @@ socketMethods[PS_GAME_INFORM_DATA] = data => {
       gameInformer.textContent = '';
       gameInformer.style.display = 'none';
     }, 3000);
+
+    if (key === GAME_ROUND_START_CODE) {
+      panelView?.playRoundStart();
+    }
   }
 };
 
@@ -721,7 +728,7 @@ function runModules(data) {
   const panelModel = new PanelModel(panelData.keys, panelData.fields);
 
   // PanelView генерирует DOM по типам схемы игры ({ containerId, fields })
-  const panelView = new PanelView(panelModel, panelData);
+  panelView = new PanelView(panelModel, panelData);
 
   modules.panel = new PanelCtrl(panelModel, panelView);
 

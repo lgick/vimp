@@ -9,6 +9,8 @@ let panelView;
 const DEFAULT_BAR_BLOCKS = 30;
 const DEFAULT_BAR_MAX = 100;
 const EMPTY_BLOCK_COLOR = '#888';
+const BAR_FILL_DELAY_MS = 500;
+const BAR_FILL_DURATION_MS = 500;
 
 export default class PanelView {
   // config — { containerId (движок), fields (схема игры: массив
@@ -76,6 +78,13 @@ export default class PanelView {
       total,
       blocks: [],
       colors: [],
+      // последнее известное целевое состояние — используется для
+      // синхронизированного заполнения бара в начале раунда
+      lastBlocksToShow: 0,
+      lastBlink: false,
+      // true пока идёт заполнение слева направо в начале раунда — обычные
+      // update() в это время не должны перерисовывать бар мгновенно
+      animating: false,
     };
 
     for (let i = 0; i < total; i += 1) {
@@ -141,8 +150,28 @@ export default class PanelView {
 
   // перерисовывает бар по текущему значению
   _updateBar(name, value) {
-    const { max, total, blocks, colors } = this._bars[name];
-    const blocksToShow = Math.ceil((value / max) * total);
+    const bar = this._bars[name];
+    const blocksToShow = Math.ceil((value / bar.max) * bar.total);
+    const exactBlocks = (value / bar.max) * bar.total;
+    const blink = value > 0 && exactBlocks % 1 !== 0;
+
+    // запоминаем целевое состояние — из него в начале раунда собирается
+    // заполнение слева направо
+    bar.lastBlocksToShow = blocksToShow;
+    bar.lastBlink = blink;
+
+    // пока идёт заполнение бара в начале раунда, не перерисовываем его
+    // мгновенно — иначе повторный update() (например, эхо того же
+    // значения) перебьёт постепенное заполнение
+    if (!bar.animating) {
+      this._paintBar(name, blocksToShow, blink);
+    }
+  }
+
+  // отрисовывает бар мгновенно: blocksToShow закрашенных блоков слева,
+  // остальные — пустые; blink — мигание последнего неполного блока
+  _paintBar(name, blocksToShow, blink) {
+    const { blocks, colors } = this._bars[name];
 
     blocks.forEach((block, index) => {
       if (index < blocksToShow) {
@@ -154,16 +183,65 @@ export default class PanelView {
       }
     });
 
-    // мигание для последнего неполного блока
-    const exactBlocks = (value / max) * total;
-
-    if (value > 0 && exactBlocks % 1 !== 0) {
+    if (blink) {
       blocks[blocksToShow - 1].classList.add('panel-bar-blink');
     }
   }
 
+  // заполняет бар слева направо блок за блоком за BAR_FILL_DURATION_MS,
+  // до последнего известного целевого значения (lastBlocksToShow)
+  _animateBarFill(name) {
+    const bar = this._bars[name];
+    const { blocks, colors, lastBlocksToShow, lastBlink } = bar;
+    const step =
+      lastBlocksToShow > 0 ? BAR_FILL_DURATION_MS / lastBlocksToShow : 0;
+
+    for (let index = 0; index < lastBlocksToShow; index += 1) {
+      setTimeout(() => {
+        blocks[index].className = 'panel-bar-block';
+        blocks[index].style.backgroundColor = colors[index];
+
+        if (lastBlink && index === lastBlocksToShow - 1) {
+          blocks[index].classList.add('panel-bar-blink');
+        }
+      }, step * index);
+    }
+
+    setTimeout(() => {
+      bar.animating = false;
+    }, step * lastBlocksToShow);
+  }
+
   hidePanel(name) {
     this._panels[name].style.display = 'none';
+  }
+
+  // проигрывает shimmer-анимацию лого один раз в начале раунда и с
+  // задержкой BAR_FILL_DELAY_MS заполняет bar-поля (например, здоровье)
+  // слева направо за BAR_FILL_DURATION_MS: к этому моменту актуальное
+  // значение уже пришло через PS_PANEL_DATA (см. порядок отправки в
+  // RoundManager._startRound)
+  playRoundStart() {
+    const logo = document.getElementById('logo');
+
+    logo.classList.remove('logo-round-start');
+    void logo.offsetWidth; // reflow: перезапуск анимации при повторном добавлении класса
+    logo.classList.add('logo-round-start');
+
+    logo.addEventListener(
+      'animationend',
+      () => logo.classList.remove('logo-round-start'),
+      { once: true },
+    );
+
+    for (const name of Object.keys(this._bars)) {
+      const bar = this._bars[name];
+
+      bar.animating = true;
+      this._paintBar(name, 0, false);
+
+      setTimeout(() => this._animateBarFill(name), BAR_FILL_DELAY_MS);
+    }
   }
 
   // устанавливает активное оружие

@@ -20,16 +20,6 @@
   overflow: hidden;
 }
 
-@keyframes logo-shimmer {
-  0% {
-    background-position: 50% 0;
-  }
-
-  100% {
-    background-position: 50% 100%;
-  }
-}
-
 #logo {
   flex: 0 1 auto;
   max-width: 40%;
@@ -43,20 +33,49 @@
   text-overflow: ellipsis;
   text-align: center;
   text-transform: none;
-  color: transparent;
-  background-image: linear-gradient(
-    to bottom,
-    #cccccc 5%,
-    #3186ff 25%,
-    #a9a8ff 35%,
-    #a9a8ff 40%,
-    #cccccc 100%
-  );
+  color: #cccccc;
+  -webkit-text-fill-color: #cccccc;
   -webkit-background-clip: text;
   background-clip: text;
-  background-size: auto 700%;
-  will-change: background-position;
-  animation: logo-shimmer 1s cubic-bezier(0.3, 0, 1, 1) 0.1s both;
+
+  /* Градиент разделен на 3 зоны по 100% ширины логотипа каждая */
+  background-image: linear-gradient(
+    to right,
+    #cccccc 0%,
+    #cccccc 33.3%,
+    rgb(255, 50, 50) 38%,
+    rgb(255, 165, 0) 44%,
+    rgb(255, 255, 0) 50%,
+    rgb(50, 205, 50) 56%,
+    rgb(0, 220, 220) 62%,
+    #cccccc 66.6%,
+    #cccccc 100%
+  );
+
+  background-repeat: no-repeat;
+  /* Начинаем со 100% (видна только правая серая часть) */
+  background-position: 100% 0%;
+  /* Увеличиваем ширину фона до 300% */
+  background-size: 300% 100%;
+
+  display: inline-block;
+}
+
+@keyframes logo-wave {
+  0% {
+    background-position: 100% 0%;
+  }
+  100% {
+    /* Сдвигаем в 0% — цветная волна полностью уходит вправо за пределы логотипа */
+    background-position: 0% 0%;
+  }
+}
+
+#logo.logo-round-start {
+  animation: logo-wave 2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  /* Делаем текст прозрачным во время работы анимации */
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 #panel table {
