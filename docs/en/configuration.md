@@ -345,6 +345,10 @@ mechanics (voice limits, priorities) are engine-owned — see
   `HostPlugin.gameConfig.snapshot` (a numeric id + `kind` per key, which
   drives the block's byte layout). An unregistered key breaks frame
   packing. Details — [network.md](network.md#binary-snapshot-frame-port-5).
+- **`gameCodes.js`** — the `GAME_INFORM_DATA` (port 7) message codes
+  (`winnerTeam`/`roundStart`/`gameOver`), the source of truth shared by the
+  host (`SocketManager.sendGameInform`) and the client (`GAME_ROUND_START_CODE`
+  in `main.js`, which triggers the round-start panel/logo animation).
 
 ## Game data (models, weapons, maps)
 

@@ -122,6 +122,18 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  #logo.logo-round-start {
+    animation: none;
+    -webkit-text-fill-color: #cccccc;
+    color: #cccccc;
+  }
+
+  #panel table td div.panel-bar-blink {
+    animation: none;
+  }
+}
+
 /*stat*/
 
 #stat {

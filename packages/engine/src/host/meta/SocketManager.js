@@ -1,3 +1,5 @@
+import GAME_CODES from '../../config/gameCodes.js';
+
 const TECH_CODES = {
   fullServer: [0],
   anotherDevice: [1],
@@ -6,12 +8,6 @@ const TECH_CODES = {
   kickForMaxLatency: [4],
   kickForMissedPings: [5],
   roomFull: [6], // P2P-комната заполнена (отказ без очереди ожидания)
-};
-
-const GAME_CODES = {
-  winnerTeam: [0],
-  roundStart: [1],
-  gameOver: [2],
 };
 
 export default class SocketManager {

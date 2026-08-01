@@ -38,7 +38,7 @@
 | 4 | `FIRST_SHOT_DATA` | JSON | Первый кадр игры (одноразовый, минует буфер интерполяции): `[gameSnapshot, 0, serverTime, 0]` |
 | 5 | `SHOT_DATA` | **бинарный** | Snapshot-кадр игры (см. ниже) |
 | 6 | `SOUND_DATA` | JSON | Имя системного звука (`roundStart`, `victory`, `frag`, …) |
-| 7 | `GAME_INFORM_DATA` | JSON | Игровые сообщения на экране (`[код, параметры?]`: победа команды, старт раунда, game over) |
+| 7 | `GAME_INFORM_DATA` | JSON | Игровые сообщения на экране (`[код, параметры?]`: `0` победа команды, `1` старт раунда, `2` game over — источник истины [packages/engine/src/config/gameCodes.js](../../packages/engine/src/config/gameCodes.js), общий для хоста (`SocketManager.sendGameInform`) и клиента (`GAME_ROUND_START_CODE` в `main.js`)) |
 | 8 | `TECH_INFORM_DATA` | JSON | Технические сообщения «чёрного экрана» (`[код, параметры?]`: сервер полон, загрузка, кики); без данных — скрыть экран |
 | 9 | `MISC` | JSON | Разнообразные данные (`{key, value}`; сейчас — замена имени в localStorage) |
 | 10 | `PING` | JSON | id пинга для замера RTT |

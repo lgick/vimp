@@ -12,6 +12,12 @@ const EMPTY_BLOCK_COLOR = '#888';
 const BAR_FILL_DELAY_MS = 500;
 const BAR_FILL_DURATION_MS = 500;
 
+// системная настройка «уменьшить движение» — округление в один момент
+// времени: matchMedia недоступен в тестовой среде без happy-dom-полифилла
+const prefersReducedMotion = () =>
+  typeof matchMedia === 'function' &&
+  matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 export default class PanelView {
   // config — { containerId (движок), fields (схема игры: массив
   // { name, elem, type: 'bar'|'value'|'time'|'weapon', max?, blocks? }) }
@@ -78,13 +84,18 @@ export default class PanelView {
       total,
       blocks: [],
       colors: [],
-      // последнее известное целевое состояние — используется для
-      // синхронизированного заполнения бара в начале раунда
-      lastBlocksToShow: 0,
-      lastBlink: false,
+      // целевое состояние текущего раунда: { blocksToShow, blink } как
+      // только пришёл хотя бы один update() после playRoundStart, иначе
+      // null — этим отличаем «данные ещё не пришли» от «пришли нулевые»
+      pendingTarget: null,
       // true пока идёт заполнение слева направо в начале раунда — обычные
       // update() в это время не должны перерисовывать бар мгновенно
       animating: false,
+      // id таймеров текущего заполнения — отменяются при повторном
+      // playRoundStart, чтобы наложение двух запусков не гонялось за DOM
+      delayTimer: null,
+      fillTimer: null,
+      blockTimers: [],
     };
 
     for (let i = 0; i < total; i += 1) {
@@ -151,14 +162,13 @@ export default class PanelView {
   // перерисовывает бар по текущему значению
   _updateBar(name, value) {
     const bar = this._bars[name];
-    const blocksToShow = Math.ceil((value / bar.max) * bar.total);
     const exactBlocks = (value / bar.max) * bar.total;
+    const blocksToShow = Math.ceil(exactBlocks);
     const blink = value > 0 && exactBlocks % 1 !== 0;
 
-    // запоминаем целевое состояние — из него в начале раунда собирается
-    // заполнение слева направо
-    bar.lastBlocksToShow = blocksToShow;
-    bar.lastBlink = blink;
+    // запоминаем целевое состояние текущего раунда — из него собирается
+    // заполнение слева направо в начале раунда
+    bar.pendingTarget = { blocksToShow, blink };
 
     // пока идёт заполнение бара в начале раунда, не перерисовываем его
     // мгновенно — иначе повторный update() (например, эхо того же
@@ -188,59 +198,104 @@ export default class PanelView {
     }
   }
 
-  // заполняет бар слева направо блок за блоком за BAR_FILL_DURATION_MS,
-  // до последнего известного целевого значения (lastBlocksToShow)
-  _animateBarFill(name) {
-    const bar = this._bars[name];
-    const { blocks, colors, lastBlocksToShow, lastBlink } = bar;
-    const step =
-      lastBlocksToShow > 0 ? BAR_FILL_DURATION_MS / lastBlocksToShow : 0;
-
-    for (let index = 0; index < lastBlocksToShow; index += 1) {
-      setTimeout(() => {
-        blocks[index].className = 'panel-bar-block';
-        blocks[index].style.backgroundColor = colors[index];
-
-        if (lastBlink && index === lastBlocksToShow - 1) {
-          blocks[index].classList.add('panel-bar-blink');
-        }
-      }, step * index);
+  // отменяет все таймеры незавершённого заполнения бара — вызывается перед
+  // повторным запуском, чтобы наложение двух playRoundStart не гонялось
+  // за одним и тем же DOM
+  _cancelBarTimers(bar) {
+    if (bar.delayTimer !== null) {
+      clearTimeout(bar.delayTimer);
+      bar.delayTimer = null;
     }
 
-    setTimeout(() => {
+    if (bar.fillTimer !== null) {
+      clearTimeout(bar.fillTimer);
+      bar.fillTimer = null;
+    }
+
+    for (const timer of bar.blockTimers) {
+      clearTimeout(timer);
+    }
+
+    bar.blockTimers = [];
+  }
+
+  // заполняет бар слева направо блок за блоком за BAR_FILL_DURATION_MS, до
+  // целевого значения текущего раунда (bar.pendingTarget)
+  _animateBarFill(name) {
+    const bar = this._bars[name];
+    const { blocks, colors, pendingTarget } = bar;
+
+    if (!pendingTarget) {
+      // PS_PANEL_DATA текущего раунда ещё не пришёл — заполнение до
+      // устаревшего значения прошлого раунда хуже, чем его отсутствие;
+      // ближайший update() отрисует актуальное значение мгновенно
       bar.animating = false;
-    }, step * lastBlocksToShow);
+      return;
+    }
+
+    const { blocksToShow, blink } = pendingTarget;
+    const step =
+      blocksToShow > 0 ? BAR_FILL_DURATION_MS / blocksToShow : 0;
+
+    for (let index = 0; index < blocksToShow; index += 1) {
+      bar.blockTimers.push(
+        setTimeout(() => {
+          blocks[index].className = 'panel-bar-block';
+          blocks[index].style.backgroundColor = colors[index];
+
+          if (blink && index === blocksToShow - 1) {
+            blocks[index].classList.add('panel-bar-blink');
+          }
+        }, step * index),
+      );
+    }
+
+    bar.fillTimer = setTimeout(() => {
+      bar.fillTimer = null;
+      bar.animating = false;
+
+      // финальная сверка: если во время заполнения пришло более новое
+      // значение (например, урон), отрисовать его, а не зафиксированную
+      // в начале заполнения цель
+      const target = bar.pendingTarget;
+
+      this._paintBar(name, target.blocksToShow, target.blink);
+    }, step * blocksToShow);
   }
 
   hidePanel(name) {
     this._panels[name].style.display = 'none';
   }
 
-  // проигрывает shimmer-анимацию лого один раз в начале раунда и с
-  // задержкой BAR_FILL_DELAY_MS заполняет bar-поля (например, здоровье)
+  // с задержкой BAR_FILL_DELAY_MS заполняет bar-поля (например, здоровье)
   // слева направо за BAR_FILL_DURATION_MS: к этому моменту актуальное
-  // значение уже пришло через PS_PANEL_DATA (см. порядок отправки в
-  // RoundManager._startRound)
+  // значение обычно уже пришло через PS_PANEL_DATA (см. порядок отправки в
+  // RoundManager._startRound), а если ещё нет — заполнение просто
+  // пропускается (см. _animateBarFill). Анимация лого — забота main.js
+  // (лого вне containerId панели, см. playLogoRoundStart)
   playRoundStart() {
-    const logo = document.getElementById('logo');
-
-    logo.classList.remove('logo-round-start');
-    void logo.offsetWidth; // reflow: перезапуск анимации при повторном добавлении класса
-    logo.classList.add('logo-round-start');
-
-    logo.addEventListener(
-      'animationend',
-      () => logo.classList.remove('logo-round-start'),
-      { once: true },
-    );
+    const reducedMotion = prefersReducedMotion();
 
     for (const name of Object.keys(this._bars)) {
       const bar = this._bars[name];
 
+      this._cancelBarTimers(bar);
+      bar.pendingTarget = null;
+
+      if (reducedMotion) {
+        // без поблочного заполнения — ближайший update() отрисует
+        // значение сразу
+        bar.animating = false;
+        continue;
+      }
+
       bar.animating = true;
       this._paintBar(name, 0, false);
 
-      setTimeout(() => this._animateBarFill(name), BAR_FILL_DELAY_MS);
+      bar.delayTimer = setTimeout(() => {
+        bar.delayTimer = null;
+        this._animateBarFill(name);
+      }, BAR_FILL_DELAY_MS);
     }
   }
 

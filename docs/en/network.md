@@ -87,7 +87,7 @@ central auth service ([master.md](master.md#server-rating-likeunlike)).
 | 4 | `FIRST_SHOT_DATA` | JSON | The game's first frame (one-shot, bypasses the interpolation buffer): `[gameSnapshot, 0, serverTime, 0]` |
 | 5 | `SHOT_DATA` | **binary** | The game's snapshot frame (see below) |
 | 6 | `SOUND_DATA` | JSON | A system sound name (`roundStart`, `victory`, `frag`, …) |
-| 7 | `GAME_INFORM_DATA` | JSON | On-screen game messages (`[code, params?]`: team victory, round start, game over) |
+| 7 | `GAME_INFORM_DATA` | JSON | On-screen game messages (`[code, params?]`: `0` team victory, `1` round start, `2` game over — [packages/engine/src/config/gameCodes.js](../../packages/engine/src/config/gameCodes.js) is the source of truth shared by the host (`SocketManager.sendGameInform`) and the client (`main.js`'s `GAME_ROUND_START_CODE`)) |
 | 8 | `TECH_INFORM_DATA` | JSON | "Black screen" technical messages (`[code, params?]`: server full, loading, kicks); no data — hide the screen |
 | 9 | `MISC` | JSON | Miscellaneous data (`{key, value}`; currently — a name change in localStorage) |
 | 10 | `PING` | JSON | A ping id for RTT measurement |

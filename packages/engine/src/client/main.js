@@ -53,6 +53,7 @@ import BakingProvider from './providers/BakingProvider.js';
 import DependencyProvider from './providers/DependencyProvider.js';
 import { HOT_FLAGS } from '../config/opcodes.js';
 import wsports from '../config/wsports.js';
+import GAME_CODES from '../config/gameCodes.js';
 import {
   fetchGamesManifest,
   fetchGameManifest as fetchGamePluginManifest,
@@ -157,11 +158,14 @@ let techInformList = clientDefaults.techInformList;
 
 // код 'loading' — единственный не-терминальный tech-код (см. TECH_CODES)
 const TECH_LOADING_CODE = 2;
-// код начала раунда (см. GAME_CODES в SocketManager)
-const GAME_ROUND_START_CODE = 1;
+// код начала раунда (общий контракт с хостом — см. GAME_CODES)
+const GAME_ROUND_START_CODE = GAME_CODES.roundStart[0];
 // показан ли терминальный tech-код (кик, полная комната): причина закрытия
 // соединения важнее общего сообщения handleDisconnect
 let terminalInformShown = false;
+// снятие предыдущего animationend-листенера логотипа при повторном
+// playLogoRoundStart — иначе листенеры копятся при частых стартах раунда
+let logoAnimationEndHandler = null;
 
 const CTRL = {}; // контроллеры
 let gameSets = {}; // наборы конструкторов (id: [наборы])
@@ -495,9 +499,37 @@ socketMethods[PS_GAME_INFORM_DATA] = data => {
     }, 3000);
 
     if (key === GAME_ROUND_START_CODE) {
+      playLogoRoundStart();
       panelView?.playRoundStart();
     }
   }
+};
+
+// проигрывает shimmer-волну по логотипу в начале раунда; логотип живёт вне
+// PanelView.containerId, поэтому панель им не управляет (см. docs/en/client.md)
+const playLogoRoundStart = () => {
+  const logo = document.getElementById('logo');
+
+  if (!logo) {
+    return;
+  }
+
+  if (logoAnimationEndHandler) {
+    logo.removeEventListener('animationend', logoAnimationEndHandler);
+  }
+
+  logo.classList.remove('logo-round-start');
+  void logo.offsetWidth; // reflow: перезапуск анимации при повторном добавлении класса
+  logo.classList.add('logo-round-start');
+
+  logoAnimationEndHandler = () => {
+    logo.classList.remove('logo-round-start');
+    logoAnimationEndHandler = null;
+  };
+
+  logo.addEventListener('animationend', logoAnimationEndHandler, {
+    once: true,
+  });
 };
 
 // technical inform data

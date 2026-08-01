@@ -148,3 +148,85 @@ describe('PanelView: события модели', () => {
     ).toBe(true);
   });
 });
+
+describe('PanelView.playRoundStart: заполнение bar-поля', () => {
+  const filledCount = () =>
+    [...document.querySelectorAll('#panel-energy div div')].filter(
+      b => b.className === 'panel-bar-block',
+    ).length;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('заполняет бар слева направо до значения текущего раунда за 500+500мс', () => {
+    const view = new PanelView(makeModel(), config);
+
+    view.playRoundStart();
+    expect(filledCount()).toBe(0);
+
+    // PS_PANEL_DATA текущего раунда пришёл сразу после триггера
+    view.update({ name: 'energy', value: 100 });
+
+    vi.advanceTimersByTime(500); // BAR_FILL_DELAY_MS — старт поблочного заполнения
+    vi.advanceTimersByTime(500); // BAR_FILL_DURATION_MS — заполнение завершено
+    expect(filledCount()).toBe(30);
+  });
+
+  it('данные, пришедшие позже 500мс, не заполняются до устаревшего значения', () => {
+    const view = new PanelView(makeModel(), config);
+
+    // предыдущий раунд оставил полный бар
+    view.update({ name: 'energy', value: 100 });
+
+    view.playRoundStart();
+    expect(filledCount()).toBe(0);
+
+    // задержка PS_PANEL_DATA — данные ещё не пришли к моменту истечения
+    // BAR_FILL_DELAY_MS
+    vi.advanceTimersByTime(500);
+    expect(filledCount()).toBe(0);
+
+    // данные текущего раунда пришли позже — отрисовываются мгновенно, без
+    // поблочной анимации
+    view.update({ name: 'energy', value: 40 });
+    expect(filledCount()).toBe(12);
+  });
+
+  it('изменение значения во время заполнения — по завершении показан актуальный HP', () => {
+    const view = new PanelView(makeModel(), config);
+
+    view.playRoundStart();
+    view.update({ name: 'energy', value: 100 });
+
+    vi.advanceTimersByTime(500); // старт поблочного заполнения к 100
+
+    // урон пришёл в процессе заполнения
+    view.update({ name: 'energy', value: 50 });
+
+    vi.advanceTimersByTime(500); // BAR_FILL_DURATION_MS истекает
+    expect(filledCount()).toBe(15);
+  });
+
+  it('повторный playRoundStart не гонится со старой анимацией', () => {
+    const view = new PanelView(makeModel(), config);
+
+    view.playRoundStart();
+    view.update({ name: 'energy', value: 100 });
+    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(250); // заполнение первого раунда на середине
+
+    // новый раунд начался раньше, чем предыдущая анимация завершилась
+    view.playRoundStart();
+    expect(filledCount()).toBe(0);
+
+    view.update({ name: 'energy', value: 60 });
+    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(500);
+    expect(filledCount()).toBe(18);
+  });
+});
