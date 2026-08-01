@@ -288,20 +288,17 @@
   background-color: #333;
   border: 1px solid #eee;
   padding: 10px;
-  margin: 12px auto;
+  margin: 10px auto;
   text-shadow: 1px 1px 1px #000;
   font-size: 12px;
   line-height: 15px;
-  color: #ccc;
-  font-family: 'Lucida Grande', Helvetica, Arial, Verdana, sans-serif;
 }
 
 .card h2 {
   font-size: 21px;
   line-height: 30px;
-  margin: 0 0 12px 0;
+  margin: 0 0 10px 0;
   text-align: center;
-  color: #fff;
 }
 
 /* кнопки: провайдеры логина, Create server, Start, Load more, Sign out —
@@ -312,7 +309,6 @@
 #lobby-user-logout,
 #lobby-more,
 #auth-enter {
-  box-sizing: border-box;
   margin: 4px;
 }
 
@@ -351,7 +347,7 @@
   font-size: 12px;
   line-height: 15px;
   min-height: 15px;
-  margin: 0 8px;
+  margin: 0 5px;
 }
 
 #auth-enter {
