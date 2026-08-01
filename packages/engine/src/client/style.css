@@ -1,94 +1,7 @@
 @charset "UTF-8";
 
-:root {
-  --bg-page: #000;
-  --bg-overlay: #222;
-  --bg-card: #333;
-  --surface: #444;
-  --surface-2: #555;
-  --text: #ccc;
-  --text-strong: #fff;
-  --text-muted: #aaa;
-  --text-dim: #888;
-  --border: #eee;
-  --border-soft: #555;
-  --border-mid: #999;
-  --accent: #099;
-  --accent-soft: #7ed;
-  --link: #ff0;
-  --ok: #8f8;
-  --error: #e00;
-  --error-soft: #f56;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --font: 'Lucida Grande', Helvetica, Arial, Verdana, sans-serif;
-}
-
 * {
   user-select: none;
-  font-size: 12px;
-}
-
-/* панель-карточка форм: auth/lobby/lobby-auth используют один каркас */
-.panel {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: var(--space-3);
-  margin: var(--space-3) auto;
-  text-shadow: 1px 1px 1px #000;
-  font-size: 12px;
-  line-height: 15px;
-  color: var(--text);
-  font-family: var(--font);
-}
-
-.panel-narrow {
-  width: 256px;
-}
-
-.panel-wide {
-  width: 400px;
-  max-width: 90%;
-}
-
-.panel h2 {
-  font-size: 21px;
-  line-height: 30px;
-  margin: 0 0 var(--space-3) 0;
-  text-align: center;
-  color: var(--text-strong);
-}
-
-/* кнопки: провайдеры логина, Create server, Start, Load more, Sign out —
-   нативный вид input[type=button], без декоративных стилей, только размер */
-.lobby-auth-provider,
-#lobby-auth-nick-submit,
-#lobby-host,
-#lobby-user-logout,
-#lobby-more,
-#auth-enter {
-  box-sizing: border-box;
-  margin: var(--space-1);
-}
-
-/* один вертикальный ритм для всех строк формы (room-форма и auth-форма) */
-.form-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin: var(--space-2) 0;
-}
-
-.form-row input[type='text'] {
-  width: 50px;
-  text-align: center;
-}
-
-.form-label {
-  color: var(--text-muted);
 }
 
 #panel {
@@ -371,10 +284,64 @@
   opacity: 0.9;
 }
 
+/*form*/
+
+/* карточка форм: auth/lobby/lobby-auth используют один каркас */
+.card {
+  width: 256px;
+  background-color: #333;
+  border: 1px solid #eee;
+  padding: 12px;
+  margin: 12px auto;
+  text-shadow: 1px 1px 1px #000;
+  font-size: 12px;
+  line-height: 15px;
+  color: #ccc;
+  font-family: 'Lucida Grande', Helvetica, Arial, Verdana, sans-serif;
+}
+
+.card h2 {
+  font-size: 21px;
+  line-height: 30px;
+  margin: 0 0 12px 0;
+  text-align: center;
+  color: #fff;
+}
+
+/* кнопки: провайдеры логина, Create server, Start, Load more, Sign out —
+   нативный вид input[type=button], без декоративных стилей, только размер */
+.lobby-auth-provider,
+#lobby-auth-nick-submit,
+#lobby-host,
+#lobby-user-logout,
+#lobby-more,
+#auth-enter {
+  box-sizing: border-box;
+  margin: 4px;
+}
+
+/* один вертикальный ритм для всех строк формы (room-форма и auth-форма) */
+.form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.form-row input[type='text'] {
+  width: 50px;
+  text-align: center;
+}
+
+.form-label {
+  color: #aaa;
+}
+
 /*auth*/
 
 #auth {
-  background-color: var(--bg-overlay);
+  background-color: #222;
   position: absolute;
   width: 100%;
   min-height: 100%;
@@ -384,16 +351,16 @@
 }
 
 #auth-error {
-  color: var(--error);
+  color: #e00;
   font-size: 12px;
   line-height: 15px;
   min-height: 15px;
-  margin: 0 var(--space-2);
+  margin: 0 8px;
 }
 
 #auth-enter {
   display: block;
-  margin: var(--space-1) auto;
+  margin: 4px auto;
 }
 
 #auth-link {
@@ -411,7 +378,7 @@
 }
 
 #auth-link p a {
-  color: var(--link);
+  color: #ff0;
 }
 
 #auth-link p:nth-child(1) {
@@ -423,10 +390,10 @@
 }
 
 .auth-inform {
-  background-color: var(--surface);
-  padding: var(--space-2) var(--space-3);
-  margin: var(--space-3) 0;
-  border: 1px solid var(--border-mid);
+  background-color: #444;
+  padding: 8px 12px;
+  margin: 12px 0;
+  border: 1px solid #999;
 }
 
 .auth-inform h4 {
@@ -497,7 +464,7 @@
 /*lobby*/
 
 #lobby {
-  background-color: var(--bg-overlay);
+  background-color: #222;
   position: absolute;
   width: 100%;
   min-height: 100%;
@@ -509,16 +476,16 @@
 #lobby-create {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  gap: 8px;
+  margin-bottom: 12px;
   border-top: 1px solid;
   border-bottom: 1px solid;
-  padding: var(--space-2);
+  padding: 8px;
 }
 
 #lobby-search {
   display: block;
-  margin-bottom: var(--space-3);
+  margin-bottom: 12px;
 }
 
 #lobby-list {
@@ -533,16 +500,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  margin-bottom: var(--space-1);
-  background-color: var(--surface);
-  border: 1px solid var(--border-soft);
+  gap: 8px;
+  padding: 8px;
+  margin-bottom: 4px;
+  background-color: #444;
+  border: 1px solid #555;
   cursor: pointer;
 }
 
 .lobby-card:hover {
-  background-color: var(--surface-2);
+  background-color: #555;
 }
 
 .lobby-card-name {
@@ -554,26 +521,26 @@
 }
 
 .lobby-card-info {
-  color: var(--text-muted);
+  color: #aaa;
   white-space: nowrap;
 }
 
 .lobby-card-rating {
   min-width: 32px;
   text-align: right;
-  color: var(--ok);
+  color: #8f8;
 }
 
 .lobby-card-latency {
   min-width: 48px;
   text-align: right;
-  color: var(--link);
+  color: #ff0;
 }
 
 #lobby-empty {
   text-align: center;
-  color: var(--text-dim);
-  margin: var(--space-4) 0;
+  color: #888;
+  margin: 16px 0;
 }
 
 #lobby-more {
@@ -585,15 +552,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  color: var(--text-muted);
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #aaa;
 }
 
 /*lobby-auth (Этап B2: логин перед лобби)*/
 
 #lobby-auth {
-  background-color: var(--bg-overlay);
+  background-color: #222;
   position: absolute;
   width: 100%;
   min-height: 100%;
@@ -627,6 +594,6 @@
 
 #lobby-auth-login-error,
 #lobby-auth-nick-error {
-  color: var(--error-soft);
+  color: #f56;
   margin: 8px 0;
 }
