@@ -97,17 +97,13 @@
 }
 
 #stat .stat-head {
-  display: table;
+  display: flex;
   width: 92%;
   margin: 3% auto 1%;
   text-transform: capitalize;
   border-bottom: 1px solid #fff;
   font-size: 1.2em;
   line-height: 1.2em;
-}
-
-#stat .stat-head span {
-  display: table-cell;
 }
 
 #stat .stat-tables {
