@@ -181,10 +181,11 @@ DOM-структуры (`elems`) — движковые; тексты и схе�
 - `maps` — каталог карт мастера, per-game функции-URL: `manifestUrl: gameId => '/games/<id>/maps/manifest.json'`, `baseUrl: gameId => '/games/<id>/maps'` — комната хоста стартует на актуальных картах активной игры (fallback на бандл при недоступности);
 - `game` — манифест конкретной игры: `manifestUrl: gameId => '/games/<id>/manifest.json'` — эстафета Worker'ов перечитывает его перед свопом, чтобы новый Worker получил свежие `entries.host/wasm`;
 - `worker` — манифест worker-бандла мастера: `manifestUrl: '/worker/manifest.json'` — Worker комнаты создаётся по `url` из манифеста, расхождение `codeVersion` при re-register запускает эстафету Worker'ов (fallback на бандловый URL без обновлений кода — dev/недоступность);
+- `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`, `leaderboardLimit: 10` (lobby-page-plan) — проксируемые мастером эндпоинты рейтинга/позиции игрока (см. [master.md](master.md#get-authleaderboard-get-authplacement)) и размер топ-N для вкладки Leaderboard; тот же origin, что и у мастера — правки CSP не нужны;
 - `reconnect` — переподключение сигнального WS хоста: экспоненциальный бэкофф от `baseDelay: 1000` до `maxDelay: 30000` (мс);
 - `pageSize: 10` — размер страницы для «Загрузить ещё» (`offset`/`limit`);
 - `pingInterval: 5000` — минимальный интервал повторного `ping_host` одного сервера (защита от спама при скролле/перерисовке);
-- `elems` — id DOM-элементов лобби (из `lobby.pug`), включая `nameId`/`hostBtnId` — поле имени и кнопка «создать сервер» (браузерный хост, [host.md](host.md));
+- `elems` — id DOM-элементов лобби (из `lobby.pug`), включая `nameId`/`hostBtnId` — поле имени и кнопка «создать сервер» (браузерный хост, [host.md](host.md)) — и, с lobby-page-plan, id вкладок/leaderboard (`tabServersBtnId`, `tabLeaderboardBtnId`, `serversContentId`, `leaderboardContentId`, `leaderboardListId`, `leaderboardTitleId`, `leaderboardTotalId`, `myPlacementId`);
 - `create` — настройки создания комнаты: `defaultName`, `maxPlayers` (≤ 8), `heartbeatInterval` (период `update_host` у мастера), `hostSocketId: 'local'` — socketId loopback-соединения хоста-игрока (по нему Worker исключает хоста из kick-политик).
 
 ## Игровой конфиг авторизации

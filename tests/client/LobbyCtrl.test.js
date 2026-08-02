@@ -16,6 +16,8 @@ const makeView = () => ({
   publisher: new Publisher(),
   show: vi.fn(),
   hide: vi.fn(),
+  showTab: vi.fn(),
+  setGameTitle: vi.fn(),
 });
 
 let model;
@@ -72,5 +74,40 @@ describe('LobbyCtrl: проксирование view-событий в моде�
     view.publisher.emit('visible', 'a');
 
     expect(model.pingHost).toHaveBeenCalledWith('a', 4242);
+  });
+});
+
+describe('LobbyCtrl: вкладки и leaderboard (lobby-page-plan)', () => {
+  it('show-tab → view.showTab и первое открытие Leaderboard эмитит leaderboard-needed', () => {
+    const needed = [];
+
+    ctrl.publisher.on('leaderboard-needed', gameId => needed.push(gameId));
+    view.publisher.emit('show-tab', 'leaderboard');
+
+    expect(view.showTab).toHaveBeenCalledWith('leaderboard');
+    expect(needed).toEqual([null]); // gameChanged ещё не вызывался
+  });
+
+  it('повторное открытие Leaderboard без смены игры не эмитит повторно', () => {
+    const needed = [];
+
+    view.publisher.emit('show-tab', 'leaderboard');
+    ctrl.publisher.on('leaderboard-needed', gameId => needed.push(gameId));
+    view.publisher.emit('show-tab', 'servers');
+    view.publisher.emit('show-tab', 'leaderboard');
+
+    expect(needed).toEqual([]);
+  });
+
+  it('gameChanged всегда эмитит leaderboard-needed и обновляет заголовок', () => {
+    const needed = [];
+
+    ctrl.publisher.on('leaderboard-needed', gameId => needed.push(gameId));
+    ctrl.gameChanged('tanks', 'VIMP Tanks');
+    ctrl.gameChanged('other', 'Other Game');
+
+    expect(view.setGameTitle).toHaveBeenNthCalledWith(1, 'VIMP Tanks');
+    expect(view.setGameTitle).toHaveBeenNthCalledWith(2, 'Other Game');
+    expect(needed).toEqual(['tanks', 'other']);
   });
 });

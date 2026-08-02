@@ -7,13 +7,16 @@ export default class PlayerDataProxy {
     this._fetch = fetchImpl;
   }
 
-  async _request(path, token, { method = 'GET', game, body } = {}) {
+  async _request(path, token, { method = 'GET', game, params, body } = {}) {
+    const query = new URLSearchParams({ game, ...params });
     const res = await this._fetch(
-      `${this._url}${path}?game=${encodeURIComponent(game)}`,
+      `${this._url}${path}?${query}`,
       {
         method,
         headers: {
-          authorization: `Bearer ${token}`,
+          // lobby-page-plan: getLeaderboard — публичный эндпоинт, вызывается
+          // без Bearer-токена (как HostRatingProxy.getPublic)
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
           ...(body ? { 'content-type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -27,6 +30,16 @@ export default class PlayerDataProxy {
 
   getRank(token, game) {
     return this._request('/rank', token, { game });
+  }
+
+  // lobby-page-plan: публичный топ-N рейтинга игры — без Bearer-токена
+  getLeaderboard(game, limit) {
+    return this._request('/leaderboard', null, { game, params: { limit } });
+  }
+
+  // lobby-page-plan: позиция вызывающего в рейтинге игры
+  getPlacement(token, game) {
+    return this._request('/placement', token, { game });
   }
 
   // server-rating этап 1: /rank принимает дельту матча, не абсолют.

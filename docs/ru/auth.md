@@ -127,6 +127,10 @@ voter)`**: мнение гостя о хостере может меняться
 серверах между двумя сессиями на забаненном тоже откатывается восстановлением
 снапшота.
 
+**Индекс для рейтинга** (lobby-page-plan, `005_leaderboard_idx.sql`):
+индекс `(game_id, rank DESC)` на `ratings`, чтобы `ORDER BY rank DESC` в
+`GET /leaderboard` по игре не превращался в полный скан таблицы.
+
 ## REST API
 
 | Эндпоинт | Назначение |
@@ -142,6 +146,8 @@ voter)`**: мнение гостя о хостере может меняться
 | `GET /host-rating` (Bearer identity-токен) | `{ score, blocked }` — **собственный** рейтинг вызывающего как хостера; мастер вызывает это с токеном хостера при `register_host`, чтобы решить, отклонить ли комнату (`blocked: true`), и заодно сеет закэшированный `rating` комнаты в лобби (server-rating этап 3) |
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | голос гостя за/против `hosterUserId` (голосующий — вызывающий, из его Bearer-токена — `403 selfVote`, если совпадает с `hosterUserId`); `value` должно быть `1` или `-1` (`400 invalidVote`); пустая/отсутствующая `reason` не учитывается (возвращает текущий рейтинг с `counted: false`, без записи); иначе upsert голоса и `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (без авторизации — server-rating этап 3) | `{ score, blocked }` для произвольного `hosterUserId`; без авторизации, т.к. значение и так публично отображается в лобби (поле `rating` в `GET /servers`) — `HostRatingProxy.getPublic` мастера опрашивает этот эндпоинт по таймеру (`SignalingServer.refreshRatings()`), чтобы обновлять кэш рейтинга по комнатам, не храня Bearer-токен каждого активного хостера между запросами. `400 badRequest` для нецелого `:hosterUserId` |
+| `GET /leaderboard?game=&limit=` (без авторизации — lobby-page-plan) | `{ leaderboard: [{nick, rank}], total }` — топ-`limit` (клампится в `1..100`, дефолт `10`) по `ratings` для `game`, только `rank > 0 AND nick IS NOT NULL`, сортировка `rank DESC, nick ASC`; `total` — счётчик того же предиката. Без авторизации: показывается в лобби до логина, тот же уровень доверия, что и `GET /host-rating/:hosterUserId`. `400 gameRequired`, если `game` не передан |
+| `GET /placement?game=` (Bearer identity-токен — lobby-page-plan) | `{ placement, total, rank }` для вызывающего: `rank` — его закэшированные очки (`0`, если не ранжирован), `total` — тот же счётчик ранжированных игроков, что и в `/leaderboard`, `placement` — 1-based позиция или `null`, если `rank` равен `0` (ещё не ранжирован) |
 
 Ключ rate-limit'а — IP клиента из `X-Forwarded-For` (первый адрес) с
 фолбэком на `req.socket.remoteAddress` (`clientIp()` в `src/main.js`), а не
@@ -169,7 +175,7 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 | `src/lib/jwt.js` | подпись/проверка RS256 (identity + pending), экспорт JWKS |
 | `src/lib/oauthState.js` | подписанный stateless `state` OAuth (return URL + CSRF-nonce) |
 | `src/lib/validators.js` | regexp ника, продублирован из `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — воркспейсы не делят рантайм-зависимость |
-| `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state |
+| `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state, чтение рейтинга/позиции игрока для лобби (lobby-page-plan) |
 | `src/oauth/github.js`, `src/oauth/index.js` | реестр провайдеров; форма `getAuthorizationUrl`/`exchangeCode`, расширяема под Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, минимальный идемпотентный раннер миграций (`CREATE TABLE IF NOT EXISTS`, без таблицы версий пока) |
 

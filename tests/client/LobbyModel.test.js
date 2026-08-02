@@ -169,3 +169,41 @@ describe('LobbyModel: умный пинг', () => {
     expect(model.pingHost('a', 1001)).toBe(true); // интервал забыт
   });
 });
+
+describe('LobbyModel: leaderboard (lobby-page-plan)', () => {
+  it('setLeaderboard публикует leaderboard/total, myPlacement пока null', () => {
+    const events = [];
+
+    model.publisher.on('leaderboard', e => events.push(e));
+    model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 42 });
+
+    expect(events[0]).toEqual({
+      leaderboard: [{ nick: 'a', rank: 10 }],
+      total: 42,
+      myPlacement: null,
+    });
+  });
+
+  it('setPlacement публикует myPlacement, leaderboard/total сохраняются', () => {
+    const events = [];
+
+    model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 42 });
+    model.publisher.on('leaderboard', e => events.push(e));
+    model.setPlacement({ placement: 3, total: 42, rank: 5 });
+
+    expect(events[0]).toEqual({
+      leaderboard: [{ nick: 'a', rank: 10 }],
+      total: 42,
+      myPlacement: { placement: 3, total: 42, rank: 5 },
+    });
+  });
+
+  it('setPlacement с placement=null (не ранжирован) сохраняется как есть', () => {
+    const events = [];
+
+    model.publisher.on('leaderboard', e => events.push(e));
+    model.setPlacement({ placement: null, total: 42, rank: 0 });
+
+    expect(events[0].myPlacement).toEqual({ placement: null, total: 42, rank: 0 });
+  });
+});

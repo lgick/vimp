@@ -10,15 +10,33 @@ const elems = {
   searchId: 'lobby-search',
   moreId: 'lobby-more',
   emptyId: 'lobby-empty',
+  tabServersBtnId: 'btn-show-servers',
+  tabLeaderboardBtnId: 'btn-show-leaderboard',
+  serversContentId: 'lobby-servers-content',
+  leaderboardContentId: 'lobby-leaderboard-content',
+  leaderboardListId: 'lobby-leaderboard-list',
+  leaderboardTitleId: 'leaderboard-title',
+  leaderboardTotalId: 'leaderboard-total',
+  myPlacementId: 'lobby-my-placement',
 };
 
 const seedDom = () => {
   document.body.innerHTML = `
     <div id="lobby">
-      <input id="lobby-search" />
-      <ul id="lobby-list"></ul>
-      <p id="lobby-empty"></p>
-      <button id="lobby-more"></button>
+      <button id="btn-show-servers"></button>
+      <button id="btn-show-leaderboard"></button>
+      <div id="lobby-servers-content">
+        <input id="lobby-search" />
+        <ul id="lobby-list"></ul>
+        <p id="lobby-empty"></p>
+        <button id="lobby-more"></button>
+      </div>
+      <div id="lobby-leaderboard-content">
+        <span id="leaderboard-title"></span>
+        <span id="leaderboard-total"></span>
+        <ol id="lobby-leaderboard-list"></ol>
+        <p id="lobby-my-placement"></p>
+      </div>
     </div>
   `;
 };
@@ -48,6 +66,7 @@ const makeModel = () => ({ publisher: new Publisher() });
 
 const server = (hostId, over = {}) => ({
   hostId,
+  gameId: over.gameId || 'tanks',
   name: over.name || `room-${hostId}`,
   mapName: over.mapName || 'arena',
   currentPlayers: over.currentPlayers ?? 1,
@@ -101,7 +120,7 @@ describe('LobbyView: рендер списка', () => {
     expect(cards).toHaveLength(1);
     expect(cards[0].dataset.hostId).toBe('a');
     expect(cards[0].querySelector('.lobby-card-name').textContent).toBe(
-      'room-a',
+      'tanks/room-a',
     );
     expect(cards[0].querySelector('.lobby-card-info').textContent).toBe(
       'arena · 1/8 · EU',
@@ -265,5 +284,72 @@ describe('LobbyView: обновление пинга', () => {
     expect(() =>
       model.publisher.emit('ping-update', { hostId: 'ghost', latency: 10 }),
     ).not.toThrow();
+  });
+});
+
+describe('LobbyView: вкладки (lobby-page-plan)', () => {
+  it('клик по вкладкам эмитит show-tab и переключает active/display', () => {
+    const view = new LobbyView(makeModel(), elems, observerFactory);
+    const tabs = [];
+
+    view.publisher.on('show-tab', t => tabs.push(t));
+    document.getElementById('btn-show-leaderboard').onclick();
+
+    expect(tabs).toEqual(['leaderboard']);
+
+    view.showTab('leaderboard');
+    expect(document.getElementById('lobby-servers-content').style.display).toBe('none');
+    expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('block');
+    expect(document.getElementById('btn-show-leaderboard').classList.contains('active')).toBe(true);
+    expect(document.getElementById('btn-show-servers').classList.contains('active')).toBe(false);
+
+    view.showTab('servers');
+    expect(document.getElementById('lobby-servers-content').style.display).toBe('block');
+    expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('none');
+  });
+});
+
+describe('LobbyView: leaderboard (lobby-page-plan)', () => {
+  it('renderLeaderboard рисует топ-N, total и позицию вызывающего', () => {
+    const model = makeModel();
+    const view = new LobbyView(model, elems, observerFactory);
+
+    view.setGameTitle('VIMP Tanks');
+    model.publisher.emit('leaderboard', {
+      leaderboard: [
+        { nick: 'player3', rank: 1500 },
+        { nick: 'user203', rank: 1420 },
+      ],
+      total: 3400,
+      myPlacement: { placement: 20, total: 3400, rank: 240 },
+    });
+
+    expect(document.getElementById('leaderboard-title').textContent).toBe('VIMP TANKS TOP-2');
+    expect(document.getElementById('leaderboard-total').textContent).toBe('Total: 3400 players');
+
+    const rows = [...document.querySelectorAll('#lobby-leaderboard-list li')].map(
+      li => li.textContent,
+    );
+
+    expect(rows).toEqual(['1. player31500 pts', '2. user2031420 pts']);
+
+    const placement = document.getElementById('lobby-my-placement');
+
+    expect(placement.textContent).toBe('20. You240 pts');
+    // вне отрисованного топа (20 > 2) — разделитель показан
+    expect(placement.classList.contains('lobby-placement-gap')).toBe(true);
+  });
+
+  it('myPlacement === null (не ранжирован) показывает соответствующий текст', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('leaderboard', {
+      leaderboard: [],
+      total: 0,
+      myPlacement: { placement: null, total: 0, rank: 0 },
+    });
+
+    expect(document.getElementById('lobby-my-placement').textContent).toBe('Not ranked yet');
   });
 });

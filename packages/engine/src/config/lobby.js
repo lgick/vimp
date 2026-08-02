@@ -44,6 +44,12 @@ export default {
     stateUrl: '/auth/state',
   },
 
+  // рейтинг игры (lobby-page-plan): публичный топ-N и позиция вызывающего,
+  // проксируемые мастером под тем же origin — правки CSP не нужны
+  leaderboardUrl: '/auth/leaderboard',
+  placementUrl: '/auth/placement',
+  leaderboardLimit: 10,
+
   // переподключение сигнального WS хоста (комната без него выпадает из
   // выдачи мастера): экспоненциальный бэкофф от baseDelay до maxDelay (мс)
   reconnect: {
@@ -67,11 +73,23 @@ export default {
     emptyId: 'lobby-empty',
     nameId: 'lobby-name',
     hostBtnId: 'lobby-host',
-    // селектор игры: скрыт, пока в каталоге мастера одна игра (§6, PLAN.md)
+    // селектор игры (lobby-page-plan): заполняется всем каталогом мастера,
+    // выбор меняет активную форму/leaderboard, но не активную игру для host
+    // (граница задачи — см. plan/lobby-page-plan.md)
     gameId: 'lobby-game',
     // контейнер полей комнаты: генерируются по ключам roomDefaults
     // манифеста активной игры (Д7) — движок не знает игровых полей
     fieldsId: 'lobby-fields',
+
+    // вкладки правой панели (lobby-page-plan)
+    tabServersBtnId: 'btn-show-servers',
+    tabLeaderboardBtnId: 'btn-show-leaderboard',
+    serversContentId: 'lobby-servers-content',
+    leaderboardContentId: 'lobby-leaderboard-content',
+    leaderboardListId: 'lobby-leaderboard-list',
+    leaderboardTitleId: 'leaderboard-title',
+    leaderboardTotalId: 'leaderboard-total',
+    myPlacementId: 'lobby-my-placement',
   },
 
   // создание комнаты (хост в этой же вкладке); лимит игроков/время

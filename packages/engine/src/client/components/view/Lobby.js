@@ -24,6 +24,20 @@ export default class LobbyView {
     this._more = document.getElementById(elems.moreId);
     this._empty = document.getElementById(elems.emptyId);
 
+    // вкладки правой панели (lobby-page-plan)
+    this._tabServersBtn = document.getElementById(elems.tabServersBtnId);
+    this._tabLeaderboardBtn = document.getElementById(elems.tabLeaderboardBtnId);
+    this._serversContent = document.getElementById(elems.serversContentId);
+    this._leaderboardContent = document.getElementById(elems.leaderboardContentId);
+    this._leaderboardList = document.getElementById(elems.leaderboardListId);
+    this._leaderboardTitle = document.getElementById(elems.leaderboardTitleId);
+    this._leaderboardTotal = document.getElementById(elems.leaderboardTotalId);
+    this._myPlacement = document.getElementById(elems.myPlacementId);
+
+    // заголовок игры для "<TITLE> TOP-N" (SVG-ориентир) — задаётся controller'ом
+    // при выборе игры (сама модель не хранит title манифеста)
+    this._gameTitle = '';
+
     this._cards = new Map(); // hostId -> { card, latencyEl, latency }
 
     this.publisher = new Publisher();
@@ -44,9 +58,13 @@ export default class LobbyView {
     this._search.oninput = () => this.publisher.emit('search', this._search.value);
     this._more.onclick = () => this.publisher.emit('more');
 
+    this._tabServersBtn.onclick = () => this.publisher.emit('show-tab', 'servers');
+    this._tabLeaderboardBtn.onclick = () => this.publisher.emit('show-tab', 'leaderboard');
+
     this._mPublic = model.publisher;
     this._mPublic.on('list', 'renderList', this);
     this._mPublic.on('ping-update', 'updatePing', this);
+    this._mPublic.on('leaderboard', 'renderLeaderboard', this);
   }
 
   show() {
@@ -55,6 +73,74 @@ export default class LobbyView {
 
   hide() {
     this._lobby.style.display = 'none';
+  }
+
+  // название активной игры для заголовка Leaderboard ("<TITLE> TOP-N");
+  // применится следующим renderLeaderboard (после смены игры main.js тут же
+  // запрашивает свежий leaderboard)
+  setGameTitle(title) {
+    this._gameTitle = title || '';
+  }
+
+  // переключает вкладки Active Servers / Leaderboard (lobby-page-plan)
+  showTab(tab) {
+    const showLeaderboard = tab === 'leaderboard';
+
+    this._tabServersBtn.classList.toggle('active', !showLeaderboard);
+    this._tabLeaderboardBtn.classList.toggle('active', showLeaderboard);
+    this._serversContent.style.display = showLeaderboard ? 'none' : 'block';
+    this._leaderboardContent.style.display = showLeaderboard ? 'block' : 'none';
+  }
+
+  // рендер топ-N + позиции вызывающего (lobby-page-plan)
+  renderLeaderboard({ leaderboard, total, myPlacement }) {
+    this._leaderboardTitle.textContent = `${this._gameTitle.toUpperCase()} TOP-${leaderboard.length}`;
+    this._leaderboardTotal.textContent = `Total: ${total} players`;
+
+    this._leaderboardList.textContent = '';
+
+    leaderboard.forEach((entry, index) => {
+      const li = document.createElement('li');
+
+      const name = document.createElement('span');
+
+      name.textContent = `${index + 1}. ${entry.nick}`;
+
+      const pts = document.createElement('span');
+
+      pts.textContent = `${entry.rank} pts`;
+
+      li.append(name, pts);
+      this._leaderboardList.appendChild(li);
+    });
+
+    if (!myPlacement) {
+      this._myPlacement.textContent = '';
+      this._myPlacement.classList.remove('lobby-placement-gap');
+      return;
+    }
+
+    if (myPlacement.placement === null) {
+      this._myPlacement.textContent = 'Not ranked yet';
+      this._myPlacement.classList.remove('lobby-placement-gap');
+      return;
+    }
+
+    const name = document.createElement('span');
+
+    name.textContent = `${myPlacement.placement}. You`;
+
+    const pts = document.createElement('span');
+
+    pts.textContent = `${myPlacement.rank} pts`;
+
+    this._myPlacement.textContent = '';
+    this._myPlacement.append(name, pts);
+    // разделитель «…» только когда игрок вне отрисованного топа (SVG-ориентир)
+    this._myPlacement.classList.toggle(
+      'lobby-placement-gap',
+      myPlacement.placement > leaderboard.length,
+    );
   }
 
   // полный рендер списка серверов
@@ -92,7 +178,9 @@ export default class LobbyView {
     const name = document.createElement('span');
 
     name.className = 'lobby-card-name';
-    name.textContent = server.name;
+    // формат "gameId/name" (lobby-page-plan): готовит серверный поиск
+    // "gameId/name" к тому, чтобы искать по тому же, что видно на карточке
+    name.textContent = `${server.gameId}/${server.name}`;
 
     const info = document.createElement('span');
 
@@ -126,10 +214,12 @@ export default class LobbyView {
       card,
       latencyEl,
       latency: server.latency === null ? UNKNOWN_LATENCY : server.latency,
+      rating: server.rating,
     });
   }
 
-  // вставляет карточку перед первым соседом с большей задержкой
+  // вставляет карточку перед первым соседом с большей задержкой; при равном
+  // пинге тай-брейк по rating (убыв.) — lobby-page-plan
   _reorderCard(hostId) {
     const entry = this._cards.get(hostId);
     const { card } = entry;
@@ -143,7 +233,11 @@ export default class LobbyView {
 
       const other = this._cards.get(sibling.dataset.hostId);
 
-      if (other && other.latency > entry.latency) {
+      if (
+        other &&
+        (other.latency > entry.latency ||
+          (other.latency === entry.latency && other.rating < entry.rating))
+      ) {
         before = sibling;
         break;
       }

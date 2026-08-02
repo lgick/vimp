@@ -1,23 +1,38 @@
 //- скрыт по умолчанию: открывается из main.js только после успешного логина
 //- в #lobby-auth (Этап B2, LobbyAuthCtrl 'authenticated')
 div#lobby(style='display:none')
-  div#lobby-panel.card
-    h2= 'VIMP'
-    //- бейдж входа (Этап B2): управляется LobbyAuthView, показывается
-    //- вместе с #lobby после успешной авторизации
-    div#lobby-user
-      span= 'Signed in as '
-      b#lobby-user-nick
-      input#lobby-user-logout(type='button', value='Sign out')
-    div#lobby-create
-      input#lobby-name.field-text(type='text', placeholder='Server name…', maxlength='30')
-      //- скрыт, пока каталог мастера содержит одну игру (Этап 6.3, PLAN.md §6)
-      select#lobby-game.field-select(style='display:none')
-      //- поля настроек комнаты генерируются по явной схеме roomForm
-      //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
-      div#lobby-fields
-      input#lobby-host(type='button', value='Create server')
-    input#lobby-search.field-text(type='text', placeholder='Search servers…')
-    ul#lobby-list
-    p#lobby-empty= 'No servers available'
-    input#lobby-more(type='button', value='Load more')
+  div.lobby-grid
+    //- левая панель: профиль + форма создания комнаты (lobby-page-plan)
+    div#lobby-setup-panel.card
+      h2= 'VIMP'
+      //- бейдж входа (Этап B2): управляется LobbyAuthView, показывается
+      //- вместе с #lobby после успешной авторизации
+      div#lobby-user
+        span= 'Signed in as '
+        b#lobby-user-nick
+        input#lobby-user-logout(type='button', value='Sign out')
+      div#lobby-create
+        //- селектор игры (lobby-page-plan): рабочий с первой же игрой в
+        //- каталоге мастера, а не только когда их несколько
+        select#lobby-game.field-select
+        input#lobby-name.field-text(type='text', placeholder='Server name…', maxlength='30')
+        //- поля настроек комнаты генерируются по явной схеме roomForm
+        //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
+        div#lobby-fields
+        input#lobby-host(type='button', value='Create server')
+    //- правая панель: вкладки Active Servers / Leaderboard (lobby-page-plan)
+    div#lobby-browser-panel.card
+      div.lobby-tabs-header
+        input#btn-show-servers.lobby-tab-btn.active(type='button', value='Active Servers')
+        input#btn-show-leaderboard.lobby-tab-btn(type='button', value='Leaderboard')
+      div#lobby-servers-content
+        input#lobby-search.field-text(type='text', placeholder='Search servers…')
+        ul#lobby-list
+        p#lobby-empty= 'No servers available'
+        input#lobby-more(type='button', value='Load more')
+      div#lobby-leaderboard-content(style='display:none')
+        div.lobby-leaderboard-header
+          span#leaderboard-title
+          span#leaderboard-total
+        ol#lobby-leaderboard-list
+        p#lobby-my-placement

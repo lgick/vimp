@@ -203,12 +203,24 @@ export default class HostRegistry {
       host => host.status === 'online',
     );
 
-    // прямой поиск по имени игнорирует регионы и пагинацию
+    // прямой поиск по имени (или "gameId/name" — lobby-page-plan, формат
+    // карточки в лобби) игнорирует регионы и пагинацию
     if (typeof search === 'string' && search.trim() !== '') {
       const needle = search.trim().toLowerCase();
-      const found = online.filter(host =>
-        host.name.toLowerCase().includes(needle),
-      );
+      const slashAt = needle.indexOf('/');
+
+      const found =
+        slashAt === -1
+          ? online.filter(host => host.name.toLowerCase().includes(needle))
+          : online.filter(host => {
+              const gamePart = needle.slice(0, slashAt);
+              const namePart = needle.slice(slashAt + 1);
+
+              return (
+                (host.gameId ?? '').toLowerCase().includes(gamePart) &&
+                host.name.toLowerCase().includes(namePart)
+              );
+            });
 
       return { total: found.length, servers: found.map(this._toPublic) };
     }

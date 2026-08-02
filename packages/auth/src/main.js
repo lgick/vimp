@@ -287,6 +287,41 @@ app.get('/jwks', (req, res) => {
   res.json(jwtLib.getJwks());
 });
 
+// клампит limit в [1, 100] — образец readAttribution ниже: явная граница
+// перед SQL LIMIT, а не доверие клиентскому query-параметру
+function clampLimit(value, fallback, max) {
+  const num = Number(value);
+
+  return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
+}
+
+// GET /leaderboard — публичный (без requireAuth) топ-N рейтинга игры
+// (lobby-page-plan): показывается всем в лобби до логина, как /host-rating/:id
+app.get('/leaderboard', async (req, res) => {
+  const gameId = req.query.game;
+
+  if (!gameId) {
+    res.status(400).json({ error: 'gameRequired' });
+    return;
+  }
+
+  const limit = clampLimit(req.query.limit, 10, 100);
+
+  res.json(await userRepo.getLeaderboard(gameId, limit));
+});
+
+// GET /placement — позиция вызывающего в рейтинге игры (lobby-page-plan)
+app.get('/placement', requireAuth, async (req, res) => {
+  const gameId = req.query.game;
+
+  if (!gameId) {
+    res.status(400).json({ error: 'gameRequired' });
+    return;
+  }
+
+  res.json(await userRepo.getPlacement(req.user.id, gameId));
+});
+
 app.get('/rank', requireAuth, async (req, res) => {
   const gameId = req.query.game;
 

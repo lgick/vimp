@@ -63,16 +63,20 @@ import lobbyConfig from '../config/lobby.js';
 import authClientConfig from '../config/authClient.js';
 import clientDefaults from '../config/clientDefaults.js';
 
-// Динамическая загрузка игры по каталогу мастера (Этап 6.3): пока в каталоге
-// одна игра — активная берётся из первой записи, селектор в лобби скрыт
-// (§6 PLAN.md). ClientPlugin (parts, bakers, игровой CSS, хуки ядра) грузится
+// Динамическая загрузка игры по каталогу мастера (Этап 6.3): активная для
+// host остаётся первой записью каталога (граница lobby-page-plan — динамика
+// загрузки ClientPlugin выбранной игры откладывается до появления второй
+// игры), но сам каталог манифестов (gamesManifest) теперь используется
+// целиком — селектором игр и Leaderboard (populateGameSelect/gamesById в
+// initLobby). ClientPlugin (parts, bakers, игровой CSS, хуки ядра) грузится
 // по entries.client её манифеста — движок больше не импортирует игру статически
 let activeGameManifest;
 let clientPlugin;
 let parts;
+let gamesManifest;
 
 try {
-  const gamesManifest = await fetchGamesManifest(lobbyConfig.gamesManifestUrl);
+  gamesManifest = await fetchGamesManifest(lobbyConfig.gamesManifestUrl);
 
   activeGameManifest = gamesManifest[0];
 
@@ -1383,6 +1387,44 @@ async function fetchServers({ offset, limit, search }) {
   }
 }
 
+// топ-N рейтинга игры (lobby-page-plan) — публичный эндпоинт, доступен и до
+// логина, поэтому без Authorization
+async function fetchLeaderboard(gameId) {
+  const params = new URLSearchParams({
+    game: gameId,
+    limit: lobbyConfig.leaderboardLimit,
+  });
+
+  try {
+    const res = await fetch(`${lobbyConfig.leaderboardUrl}?${params}`);
+
+    return res.ok ? await res.json() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// позиция вызывающего в рейтинге игры (lobby-page-plan) — требует identity-
+// токена, как и остальные /auth/* запросы игрока (rank/state)
+async function fetchPlacement(gameId) {
+  const token = lobbyAuthModel.getToken();
+
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const res = await fetch(
+      `${lobbyConfig.placementUrl}?${new URLSearchParams({ game: gameId })}`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+
+    return res.ok ? await res.json() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
 let roomFormFields = new Map();
 
@@ -1391,38 +1433,54 @@ let roomFormFields = new Map();
 // значения, схема плагина полностью описывает форму
 function populateRoomForm(manifest) {
   const container = document.getElementById(lobbyConfig.elems.fieldsId);
-  const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
 
-  if (container) {
-    if (Array.isArray(manifest.roomForm)) {
-      const descriptors = mergeRoomDefaults(
-        manifest.roomForm,
-        manifest.roomDefaults,
-      );
-
-      roomFormFields = buildForm(descriptors, container, {
-        sources: { maps: manifest.maps?.list },
-      });
-    } else {
-      // без явной схемы форма комнаты пустая — не выводим контролы из типа
-      // значения (Часть 6 плана), но и не молчим об этом
-      console.warn(
-        `GameManifest "${manifest.id}" has no roomForm — room creation form will be empty`,
-      );
-      container.textContent = '';
-      roomFormFields = new Map();
-    }
+  if (!container) {
+    return;
   }
 
-  // один пункт: список игр появится с добавлением второй игры (§6 PLAN.md)
-  if (gameSelect) {
+  if (Array.isArray(manifest.roomForm)) {
+    const descriptors = mergeRoomDefaults(
+      manifest.roomForm,
+      manifest.roomDefaults,
+    );
+
+    roomFormFields = buildForm(descriptors, container, {
+      sources: { maps: manifest.maps?.list },
+    });
+  } else {
+    // без явной схемы форма комнаты пустая — не выводим контролы из типа
+    // значения (Часть 6 плана), но и не молчим об этом
+    console.warn(
+      `GameManifest "${manifest.id}" has no roomForm — room creation form will be empty`,
+    );
+    container.textContent = '';
+    roomFormFields = new Map();
+  }
+}
+
+// каталог манифестов по id (lobby-page-plan): достаточно для формы и
+// leaderboard селектора игр — активная игра для host остаётся
+// gamesManifest[0] (граница задачи, plan/lobby-page-plan.md)
+const gamesById = new Map(gamesManifest.map(manifest => [manifest.id, manifest]));
+
+// заполняет #lobby-game всем каталогом манифестов мастера (lobby-page-plan) —
+// раньше туда попадал только gamesManifest[0], теперь селектор рабочий
+function populateGameSelect() {
+  const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
+
+  if (!gameSelect) {
+    return;
+  }
+
+  gamesManifest.forEach(manifest => {
     const option = document.createElement('option');
 
     option.value = manifest.id;
     option.textContent = manifest.title;
     gameSelect.appendChild(option);
-    gameSelect.value = manifest.id;
-  }
+  });
+
+  gameSelect.value = activeGameManifest.id;
 }
 
 // поднимает лобби после welcome от мастера (iceServers уже получены);
@@ -1458,8 +1516,43 @@ function initLobby() {
   // выбор сервера → установка P2P
   lobbyModel.publisher.on('join', connectToHost);
 
+  // Leaderboard (lobby-page-plan): контроллер сигнализирует, для какой игры
+  // нужны свежие данные (смена #lobby-game или первое открытие вкладки)
+  lobby.publisher.on('leaderboard-needed', async gameId => {
+    const [leaderboard, placement] = await Promise.all([
+      fetchLeaderboard(gameId),
+      fetchPlacement(gameId),
+    ]);
+
+    if (leaderboard) {
+      lobbyModel.setLeaderboard(leaderboard);
+    }
+
+    if (placement) {
+      lobbyModel.setPlacement(placement);
+    }
+  });
+
   // создание комнаты в этой же вкладке (хост-игрок через loopback)
+  populateGameSelect();
   populateRoomForm(activeGameManifest);
+  lobby.gameChanged(activeGameManifest.id, activeGameManifest.title);
+
+  // селектор игр (lobby-page-plan): работает с каталогом манифестов — меняет
+  // форму создания комнаты и Leaderboard, но НЕ активную игру для host
+  // (граница задачи, см. plan/lobby-page-plan.md)
+  const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
+
+  gameSelect?.addEventListener('change', () => {
+    const manifest = gamesById.get(gameSelect.value);
+
+    if (!manifest) {
+      return;
+    }
+
+    populateRoomForm(manifest);
+    lobby.gameChanged(manifest.id, manifest.title);
+  });
 
   const hostBtn = document.getElementById(lobbyConfig.elems.hostBtnId);
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);

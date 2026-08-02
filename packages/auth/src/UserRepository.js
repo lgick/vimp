@@ -119,6 +119,60 @@ export default class UserRepository {
     return this.recomputeRank(userId, gameId);
   }
 
+  // топ-N игроков игры (lobby-page-plan): только ранжированные (rank > 0) и
+  // с установленным ником — незалогиненные/нулевые не засоряют выдачу
+  async getLeaderboard(gameId, limit) {
+    const rows = await this._db.query(
+      `SELECT u.nick, r.rank
+       FROM ratings r JOIN users u ON u.id = r.user_id
+       WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL
+       ORDER BY r.rank DESC, u.nick ASC
+       LIMIT $2`,
+      [gameId, limit],
+    );
+
+    const total = await this._db.query(
+      `SELECT COUNT(*) AS total
+       FROM ratings r JOIN users u ON u.id = r.user_id
+       WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL`,
+      [gameId],
+    );
+
+    return {
+      leaderboard: rows.rows.map(row => ({ nick: row.nick, rank: row.rank })),
+      total: Number(total.rows[0].total),
+    };
+  }
+
+  // позиция игрока в рейтинге игры (lobby-page-plan): placement === null,
+  // если игрок ещё не ранжирован (rank === 0, т.е. записи в ratings нет или
+  // rank оказался 0 после клампа/аннулирования)
+  async getPlacement(userId, gameId) {
+    const result = await this._db.query(
+      `WITH me AS (
+         SELECT COALESCE(
+           (SELECT rank FROM ratings WHERE user_id = $1 AND game_id = $2), 0) AS rank)
+       SELECT
+         (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
+            WHERE r.game_id = $2 AND r.rank > 0 AND u.nick IS NOT NULL) AS total,
+         me.rank AS rank,
+         CASE WHEN me.rank > 0 THEN
+           (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
+              WHERE r.game_id = $2 AND u.nick IS NOT NULL AND r.rank > me.rank) + 1
+         END AS placement
+       FROM me`,
+      [userId, gameId],
+    );
+
+    const row = result.rows[0];
+
+    return {
+      placement: row.placement === null ? null : Number(row.placement),
+      total: Number(row.total),
+      rank: Number(row.rank),
+    };
+  }
+
   async getState(userId, gameId) {
     const result = await this._db.query(
       'SELECT state FROM states WHERE user_id = $1 AND game_id = $2',

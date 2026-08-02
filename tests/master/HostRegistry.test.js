@@ -219,6 +219,38 @@ describe('HostRegistry.getList', () => {
     expect(result.servers.find(s => s.hostId === banned.hostId)).toBeUndefined();
   });
 
+  // lobby-page-plan: серверный поиск "gameId/name" — формат совпадает с
+  // видом карточки в лобби ("tanks/room 0")
+  it('поиск "gameId/name" фильтрует по игре И имени', () => {
+    registry.add({ name: 'test', ip: '1.1.1.1', gameId: 'tanks' });
+    registry.add({ name: 'classic', ip: '2.2.2.2', gameId: 'tanks' });
+    registry.add({ name: 'test', ip: '3.3.3.3', gameId: 'other' });
+
+    const result = registry.getList({ search: 'tanks/test' });
+
+    expect(result.total).toBe(1);
+    expect(result.servers[0]).toMatchObject({ gameId: 'tanks', name: 'test' });
+  });
+
+  it('поиск "gameId/" (пустой namePart) фильтрует только по игре', () => {
+    registry.add({ name: 'a', ip: '1.1.1.1', gameId: 'tanks' });
+    registry.add({ name: 'b', ip: '2.2.2.2', gameId: 'tanks' });
+    registry.add({ name: 'c', ip: '3.3.3.3', gameId: 'other' });
+
+    const result = registry.getList({ search: 'tanks/' });
+
+    expect(result.total).toBe(2);
+    expect(result.servers.every(s => s.gameId === 'tanks')).toBe(true);
+  });
+
+  it('поиск "gameId/name" без совпадений возвращает пустой список', () => {
+    registry.add({ name: 'test server', ip: '1.1.1.1', gameId: 'tanks' });
+
+    const result = registry.getList({ search: 'other/test' });
+
+    expect(result).toEqual({ total: 0, servers: [] });
+  });
+
   it('не раскрывает IP и служебные поля в публичном списке', () => {
     addHosts(1, 'EU');
 

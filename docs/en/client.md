@@ -53,10 +53,16 @@ plugin's `peerDependencies` range reintroduces the dual-instance crash.
   (`GET /games/manifest.json`, `GameCatalog` — see [master.md](master.md))
   and dynamically loads the active game's `ClientPlugin` by its manifest's
   `entries.client` (`packages/engine/src/lib/gamePlugin.js`,
-  `loadClientPlugin`), rejecting a mismatched `engineApi`. With one game in
-  the catalog, the first manifest entry is used and the lobby's game picker
-  stays hidden (see [plugin-api.md](plugin-api.md)). It also brings up the
-  **LobbyAuth** login gate independently of the signaling socket (see below)
+  `loadClientPlugin`), rejecting a mismatched `engineApi`. The **active game
+  for hosting** is always the catalog's first manifest entry
+  (`activeGameManifest = gamesManifest[0]`) — dynamically loading a
+  different game's `ClientPlugin` on host/join is out of scope until a
+  second game actually ships (see [plugin-api.md](plugin-api.md)). The
+  lobby's game picker (`#lobby-game`, `populateGameSelect`) is populated
+  with the **whole** catalog (lobby page plan) and is functional: changing
+  it swaps the room-creation form and the Leaderboard tab's game to match,
+  but does **not** change which game is actually hosted. It also brings up
+  the **LobbyAuth** login gate independently of the signaling socket (see below)
   and connects `SignalingClient`. The lobby (`initLobby`) opens only once
   both `welcome` (from the master) and `authenticated` (from LobbyAuth) have
   fired — `#lobby` stays hidden until the player is signed in. Picking a
@@ -210,25 +216,49 @@ real auth-service domain per deployment; the master's CSP `connect-src`
 production. `GET /oauth/:provider/start` and the callback redirect are
 top-level navigation and unaffected by CSP either way).
 
-**Lobby** — the server-selection screen BEFORE connecting to a host:
+**Lobby** — the server-selection screen BEFORE connecting to a host. The
+panel is split into two columns (lobby page plan — `#lobby-setup-panel` /
+`#lobby-browser-panel`, `.lobby-grid` in `style.css`, single column below
+800px): setup/create on the left, a tabbed browser (Active Servers /
+Leaderboard) on the right.
 
 - **model** — the server registry (responses from the master's
-  `GET /servers`), pagination, search, smart pinging. Does no I/O of its
-  own: it publishes `fetch` (request the REST endpoint), `ping-request` (a
-  signaling ping), `join` (a server was picked), `list`/`ping-update` (for
-  the view). `latency` lives separately from the list and survives a
-  refresh/pagination.
-- **view** — renders cards, search, "Load more"; **smart pinging** through
-  `IntersectionObserver`: a card entering the visible area → `visible` →
-  the controller sends `ping_host`; `pong` updates latency and re-sorts
-  cards ascending. `IntersectionObserver` is injected for tests. Each card
-  also shows the hoster's cached rating (server-rating stage 3 —
-  `.lobby-card-rating`, straight from the server object's `rating` field,
-  signed for positive values (`+7`/`-3`/`0`); this is engine-level lobby UI,
-  not something a game plugin renders.
+  `GET /servers`), pagination, search, smart pinging, and the selected
+  game's Leaderboard state (`setLeaderboard`/`setPlacement`, lobby page
+  plan). Does no I/O of its own: it publishes `fetch` (request the REST
+  endpoint), `ping-request` (a signaling ping), `join` (a server was
+  picked), `list`/`ping-update` (for the view), and `leaderboard`
+  (leaderboard/total/myPlacement, re-emitted whenever either
+  `setLeaderboard` or `setPlacement` is called). `latency` lives separately
+  from the list and survives a refresh/pagination.
+- **view** — renders cards, search, "Load more", the Active
+  Servers/Leaderboard tab switch (`showTab`, toggles `.lobby-tab-btn.active`
+  and the two content containers) and the Leaderboard list itself
+  (`renderLeaderboard`: numbered rows, `"<GAME TITLE> TOP-N"` header, total
+  player count, and the caller's own placement row — "Not ranked yet" if
+  `myPlacement.placement` is `null`, a `…` gap marker
+  (`.lobby-placement-gap`) when the caller's placement falls outside the
+  rendered top). **Smart pinging** through `IntersectionObserver`: a card
+  entering the visible area → `visible` → the controller sends `ping_host`;
+  `pong` updates latency and re-sorts cards ascending, tied-latency cards
+  breaking by `rating` descending (lobby page plan). `IntersectionObserver`
+  is injected for tests. Each card's name is `"<gameId>/<name>"` (lobby page
+  plan — matches the `gameId/name` search syntax on `GET /servers`, see
+  [master.md](master.md#get-servers)) and also shows the hoster's cached
+  rating (server-rating stage 3 — `.lobby-card-rating`, straight from the
+  server object's `rating` field, signed for positive values (`+7`/`-3`/`0`);
+  this is engine-level lobby UI, not something a game plugin renders.
 - **controller** — proxies view events to the model; ping throttling lives
   in the model (`pingHost` returns `false` if the server was pinged
-  recently, interval `pingInterval`).
+  recently, interval `pingInterval`). It does no fetching itself (lobby page
+  plan): `showTab('leaderboard')` on its first call and every `gameChanged(gameId,
+  title)` call (invoked by `main.js` on `#lobby-game`'s `change`, and once at
+  lobby open for the default game) emit `leaderboard-needed` on the
+  controller's own `publisher` with the target `gameId`; `main.js` listens
+  for it, calls `fetchLeaderboard`/`fetchPlacement`
+  (`GET /auth/leaderboard`/`GET /auth/placement`, proxied by the master —
+  see [master.md](master.md#get-authleaderboard-get-authplacement)) and
+  feeds the results back into `model.setLeaderboard`/`setPlacement`.
 
 Config — [packages/engine/src/config/lobby.js](../../packages/engine/src/config/lobby.js) (bundled into the
 build, since the lobby happens before connecting to a host). The ping
@@ -241,8 +271,13 @@ The "Create server" form is **generated** from the active game manifest's
 [plugin-api.md](plugin-api.md#form-schema). The engine no longer infers a
 control from the default value's type; a manifest without `roomForm` logs a
 warning and renders an empty field list rather than guessing. The game
-picker (`#lobby-game`) stays hidden while the master's catalog has a single
-game. On submit, each built field's `getValue()` (already unit-converted,
+picker (`#lobby-game`, `populateGameSelect`) is always populated with the
+**whole** master catalog (lobby page plan — it used to hold only the
+active game and stay hidden with a single-game catalog); picking a
+different entry rebuilds the room form from that manifest's `roomForm` and
+triggers a Leaderboard refresh via `gameChanged`, but the *active game for
+hosting* stays `gamesManifest[0]` regardless (see the Bootstrap note
+above). On submit, each built field's `getValue()` (already unit-converted,
 e.g. `unit:'s'` seconds→ms) overrides the matching `roomDefaults` key, and
 the result is sent as the room object to `connectAsHost` → `HostController`
 → the Worker, where `applyRoomOverrides`
@@ -257,6 +292,12 @@ The Publisher pattern within a triplet:
   ([packages/engine/src/lib/Publisher.js](../../packages/engine/src/lib/Publisher.js)): the model publishes
   an event, the view is subscribed; external subscribers can listen to a
   model too.
+
+**LobbyCtrl** (lobby page plan) is the one controller that also owns a
+`Publisher` of its own, for the same reason a model does: `main.js` needs to
+react to a UI-only event (the game selector changing, the Leaderboard tab
+opening for the first time) without the controller doing network I/O
+itself — see `leaderboard-needed` above.
 
 What each component does:
 

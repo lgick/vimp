@@ -297,6 +297,12 @@ host: the lobby happens before connecting to a host.
   from the `url` in the manifest, a `codeVersion` mismatch on re-register
   triggers a Worker handoff (falls back to the bundled URL with no code
   updates — dev/unavailability);
+- `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`,
+  `leaderboardLimit: 10` (lobby page plan) — the master's proxied game
+  leaderboard/placement endpoints (see
+  [master.md](master.md#get-authleaderboard-get-authplacement)) and the
+  top-N size requested for the Leaderboard tab; same origin as the master,
+  so no CSP changes are needed;
 - `reconnect` — the host's signaling WS reconnect: exponential backoff
   from `baseDelay: 1000` to `maxDelay: 30000` (ms);
 - `pageSize: 10` — the page size for "Load more" (`offset`/`limit`);
@@ -304,7 +310,10 @@ host: the lobby happens before connecting to a host.
   `ping_host` calls for one server (anti-spam while scrolling/redrawing);
 - `elems` — lobby DOM element ids (from `lobby.pug`), including
   `nameId`/`hostBtnId` — the name field and the "create server" button
-  (the browser host, [host.md](host.md));
+  (the browser host, [host.md](host.md)) — and, since the lobby page plan,
+  the tab/leaderboard ids (`tabServersBtnId`, `tabLeaderboardBtnId`,
+  `serversContentId`, `leaderboardContentId`, `leaderboardListId`,
+  `leaderboardTitleId`, `leaderboardTotalId`, `myPlacementId`);
 - `create` — room creation settings: `defaultName`, `maxPlayers` (≤ 8),
   `heartbeatInterval` (the master's `update_host` period),
   `hostSocketId: 'local'` — the loopback socketId of the host player (the

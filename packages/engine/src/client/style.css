@@ -618,6 +618,108 @@
   color: #aaa;
 }
 
+/* два столбца лобби (lobby-page-plan): настройки/создание слева, вкладки
+   Active Servers / Leaderboard справа; собственная ширина панелей
+   переопределяет фиксированный .card { width:256px } (id сильнее класса) */
+.lobby-grid {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+#lobby-setup-panel {
+  width: 410px;
+}
+
+#lobby-browser-panel {
+  width: 430px;
+}
+
+@media (max-width: 800px) {
+  .lobby-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #lobby-setup-panel,
+  #lobby-browser-panel {
+    width: auto;
+  }
+}
+
+.lobby-tabs-header {
+  display: flex;
+  gap: 12px;
+  border-bottom: 1px solid #444;
+  margin-bottom: 12px;
+}
+
+.lobby-tab-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-weight: bold;
+  padding: 6px 4px 8px;
+  margin: 0;
+  text-shadow: none;
+}
+
+.lobby-tab-btn.active {
+  color: #fff;
+  border-bottom: 2px solid #fff;
+}
+
+.lobby-leaderboard-header {
+  display: flex;
+  justify-content: space-between;
+  color: #ccc;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.lobby-leaderboard-header span:last-child {
+  color: #888;
+}
+
+#lobby-leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#lobby-leaderboard-list li,
+#lobby-my-placement {
+  display: flex;
+  justify-content: space-between;
+  background-color: #363636;
+  border: 1px solid #444;
+  font-family: monospace;
+  color: #ccc;
+  font-size: 12px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+}
+
+#lobby-my-placement {
+  position: relative;
+  margin-top: 16px;
+}
+
+/* разделитель «…» перед позицией игрока, когда он вне топа (SVG-ориентир) */
+#lobby-my-placement.lobby-placement-gap::before {
+  content: '…';
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  color: #666;
+  font-weight: bold;
+}
+
+#lobby-my-placement:empty {
+  display: none;
+}
+
 /*lobby-auth (Этап B2: логин перед лобби)*/
 
 #lobby-auth {

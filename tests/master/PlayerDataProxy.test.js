@@ -79,4 +79,43 @@ describe('PlayerDataProxy', () => {
 
     expect(result).toEqual({ status: 401, json: { error: 'unauthorized' } });
   });
+
+  // lobby-page-plan: getLeaderboard — публичный эндпоинт, без Bearer-токена
+  // (как HostRatingProxy.getPublic), несёт limit доп. query-параметром
+  it('getLeaderboard запрашивает без authorization-заголовка и с limit в URL', async () => {
+    const fetchImpl = makeFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ leaderboard: [{ nick: 'a', rank: 10 }], total: 1 }),
+    }));
+    const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
+
+    const result = await proxy.getLeaderboard('tanks', 10);
+
+    expect(result.json).toEqual({ leaderboard: [{ nick: 'a', rank: 10 }], total: 1 });
+    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/leaderboard?game=tanks&limit=10', {
+      method: 'GET',
+      headers: {},
+      body: undefined,
+    });
+  });
+
+  // lobby-page-plan: getPlacement несёт Bearer-токен вызывающего игрока
+  it('getPlacement запрашивает с Bearer-токеном', async () => {
+    const fetchImpl = makeFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ placement: 3, total: 10, rank: 100 }),
+    }));
+    const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
+
+    const result = await proxy.getPlacement('tok', 'tanks');
+
+    expect(result.json).toEqual({ placement: 3, total: 10, rank: 100 });
+    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/placement?game=tanks', {
+      method: 'GET',
+      headers: { authorization: 'Bearer tok' },
+      body: undefined,
+    });
+  });
 });

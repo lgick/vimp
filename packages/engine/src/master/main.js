@@ -250,6 +250,44 @@ app.put('/auth/state', (req, res) =>
   ),
 );
 
+app.get('/auth/placement', (req, res) =>
+  forwardPlayerData(req, res, (token, game) => playerDataProxy.getPlacement(token, game)),
+);
+
+// клампит limit в [1, 100] — тот же приём, что и на самом auth-сервисе
+// (защита от произвольного query-значения ещё на прокси-слое)
+function clampLimit(value, fallback, max) {
+  const num = Number(value);
+
+  return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
+}
+
+// REST API: публичный (без Bearer-токена) топ-N рейтинга игры, проксированный
+// под origin мастера — лобби показывает leaderboard до логина, как GET /servers
+app.get('/auth/leaderboard', (req, res) => {
+  const game = req.query.game;
+
+  if (!game) {
+    res.status(400).json({ error: 'gameRequired' });
+    return;
+  }
+
+  if (!gameCatalog.ids.includes(game)) {
+    res.status(404).json({ error: 'unknownGame' });
+    return;
+  }
+
+  const limit = clampLimit(req.query.limit, 10, 100);
+
+  playerDataProxy
+    .getLeaderboard(game, limit)
+    .then(({ status, json }) => res.status(status).json(json))
+    .catch(err => {
+      console.error('[auth] leaderboard proxy failed:', err.message);
+      res.status(502).json({ error: 'authServiceUnavailable' });
+    });
+});
+
 // REST API: манифест worker-бандла (Этап 5.2 — эстафета Worker'ов).
 // По нему вкладка хоста создаёт Worker (хешированное имя бандла страница
 // старой сборки знать не может) и обнаруживает новую версию кода

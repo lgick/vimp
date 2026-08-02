@@ -126,6 +126,10 @@ substitutes for atomicity. Known limitation carried over from stage 1: clean
 progress made on other servers between two sessions on the banned one is
 also reverted by the snapshot restore.
 
+**Leaderboard index** (lobby page plan, `005_leaderboard_idx.sql`): a
+`(game_id, rank DESC)` index on `ratings`, so `GET /leaderboard`'s
+`ORDER BY rank DESC` per game doesn't fall back to a full table scan.
+
 ## REST API
 
 | Endpoint | Purpose |
@@ -141,6 +145,8 @@ also reverted by the snapshot restore.
 | `GET /host-rating` (Bearer identity token) | `{ score, blocked }` — the caller's **own** rating, as a hoster; the master calls this with the hoster's token on `register_host` to decide whether to reject the room (`blocked: true`), and to seed the room's cached lobby `rating` (server-rating stage 3) |
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | a guest's vote for/against `hosterUserId` (the caller is the voter, taken from their Bearer token — `403 selfVote` if it equals `hosterUserId`); `value` must be `1` or `-1` (`400 invalidVote`); an empty/missing `reason` isn't counted (returns the current rating with `counted: false`, no write); otherwise upserts the vote and returns `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (no auth — server-rating stage 3) | `{ score, blocked }` for an arbitrary `hosterUserId`; unauthenticated because the value is already public lobby data (`GET /servers`' `rating` field) — the master's `HostRatingProxy.getPublic` polls this on a timer (`SignalingServer.refreshRatings()`) to refresh its per-room rating cache without holding a Bearer token for every active hoster between requests. `400 badRequest` for a non-integer `:hosterUserId` |
+| `GET /leaderboard?game=&limit=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`; `total` counts the same predicate. Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing |
+| `GET /placement?game=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is their 1-based rank position or `null` if `rank` is `0` (not yet ranked) |
 
 Rate limiting keys on the client IP taken from `X-Forwarded-For` (first hop)
 with a `req.socket.remoteAddress` fallback (`clientIp()` in `src/main.js`) —
@@ -168,7 +174,7 @@ the opposite case (an identity token, i.e. `pending` missing).
 | `src/lib/jwt.js` | RS256 sign/verify (identity + pending tokens), JWKS export |
 | `src/lib/oauthState.js` | signed stateless OAuth `state` param (return URL + CSRF nonce) |
 | `src/lib/validators.js` | nick regexp, duplicated from `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — the two workspaces don't share a runtime dependency |
-| `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions |
+| `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions, read the leaderboard/placement for a game (lobby page plan) |
 | `src/oauth/github.js`, `src/oauth/index.js` | provider registry; `getAuthorizationUrl`/`exchangeCode` shape, extensible for Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, a minimal idempotent migration runner (`CREATE TABLE IF NOT EXISTS`, no version table yet) |
 

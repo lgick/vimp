@@ -29,6 +29,12 @@ export default class LobbyModel {
     this._lastPing = new Map(); // hostId -> time последнего пинга
     this._latencies = new Map(); // hostId -> latency (переживает refresh)
 
+    // Leaderboard выбранной игры (lobby-page-plan) — сетевого I/O не делает,
+    // как и остальная модель; fetch живёт в main.js (fetchLeaderboard/fetchPlacement)
+    this._leaderboard = [];
+    this._leaderboardTotal = 0;
+    this._myPlacement = null;
+
     this.publisher = new Publisher();
   }
 
@@ -130,6 +136,22 @@ export default class LobbyModel {
     });
   }
 
+  // топ-N рейтинга игры, применяется ответом GET /auth/leaderboard
+  setLeaderboard({ leaderboard, total } = {}) {
+    this._leaderboard = leaderboard || [];
+    this._leaderboardTotal = total || 0;
+
+    this._emitLeaderboard();
+  }
+
+  // позиция вызывающего, применяется ответом GET /auth/placement;
+  // placement === null — игрок ещё не ранжирован в этой игре
+  setPlacement({ placement, total, rank } = {}) {
+    this._myPlacement = { placement: placement ?? null, total: total || 0, rank: rank || 0 };
+
+    this._emitLeaderboard();
+  }
+
   reset() {
     this._servers.clear();
     this._order = [];
@@ -154,6 +176,14 @@ export default class LobbyModel {
     this.publisher.emit('list', {
       servers: this._order.map(id => this._servers.get(id)),
       hasMore: this._order.length < this._total,
+    });
+  }
+
+  _emitLeaderboard() {
+    this.publisher.emit('leaderboard', {
+      leaderboard: this._leaderboard,
+      total: this._leaderboardTotal,
+      myPlacement: this._myPlacement,
     });
   }
 }
