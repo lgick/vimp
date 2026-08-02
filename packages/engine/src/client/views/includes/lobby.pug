@@ -11,11 +11,17 @@ div#lobby(style='display:none')
         span= 'Signed in as '
         b#lobby-user-nick
         input#lobby-user-logout(type='button', value='Sign out')
+      hr.lobby-divider
+      h3.lobby-section-title= 'HOST A GAME'
       div#lobby-create
         //- селектор игры (lobby-page-plan): рабочий с первой же игрой в
         //- каталоге мастера, а не только когда их несколько
-        select#lobby-game.field-select
-        input#lobby-name.field-text(type='text', placeholder='Server name…', maxlength='30')
+        div.form-row
+          label.form-label(for='lobby-game')= 'Select Game'
+          select#lobby-game.field-select
+        div.form-row
+          label.form-label(for='lobby-name')= 'Server name'
+          input#lobby-name.field-text(type='text', maxlength='30')
         //- поля настроек комнаты генерируются по явной схеме roomForm
         //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
         div#lobby-fields

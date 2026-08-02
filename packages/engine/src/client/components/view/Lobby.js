@@ -38,6 +38,12 @@ export default class LobbyView {
     // при выборе игры (сама модель не хранит title манифеста)
     this._gameTitle = '';
 
+    // N в "TOP-N" (code review lobby-page: настроенный лимит, а не
+    // leaderboard.length — иначе заголовок мелькал бы TOP-0 до первого
+    // ответа и показывал бы TOP-2 вместо TOP-10, когда ранжировано меньше
+    // игроков, чем лимит)
+    this._leaderboardLimit = 0;
+
     // ник вызывающего (lobby-page-plan, code review M4-остаток) — задаётся
     // main.js один раз при открытии лобби; используется, чтобы решить,
     // виден ли вызывающий уже в отрисованном топе (по нику, не по числу
@@ -89,6 +95,11 @@ export default class LobbyView {
     this._gameTitle = title || '';
   }
 
+  // N в "TOP-N" (main.js вызывает один раз из lobbyConfig.leaderboardLimit)
+  setLeaderboardLimit(limit) {
+    this._leaderboardLimit = limit || 0;
+  }
+
   // ник вызывающего (main.js вызывает один раз при открытии лобби) — по
   // нему решается видимость плашки "You" в renderLeaderboard
   setSelfNick(nick) {
@@ -107,7 +118,7 @@ export default class LobbyView {
 
   // рендер топ-N + позиции вызывающего (lobby-page-plan)
   renderLeaderboard({ leaderboard, total, myPlacement, loaded = true }) {
-    this._leaderboardTitle.textContent = `${this._gameTitle.toUpperCase()} TOP-${leaderboard.length}`;
+    this._leaderboardTitle.textContent = `${this._gameTitle.toUpperCase()} TOP-${this._leaderboardLimit}`;
     this._leaderboardTotal.textContent = `Total: ${total} players`;
 
     this._leaderboardList.textContent = '';
@@ -235,6 +246,7 @@ export default class LobbyView {
     const ratingEl = document.createElement('span');
 
     ratingEl.className = 'lobby-card-rating';
+    ratingEl.classList.toggle('is-negative', server.rating < 0);
     ratingEl.textContent = server.rating > 0 ? `+${server.rating}` : `${server.rating}`;
 
     const latencyEl = document.createElement('span');

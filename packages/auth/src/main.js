@@ -293,7 +293,9 @@ app.get('/jwks', (req, res) => {
 app.get('/leaderboard', async (req, res) => {
   const gameId = req.query.game;
 
-  if (!gameId) {
+  // ?game=a&game=b даёт массив (code review) — без этой проверки запрос
+  // к pg падает в необёрнутом async-роуте и виснет без ответа
+  if (!gameId || typeof gameId !== 'string') {
     res.status(400).json({ error: 'gameRequired' });
     return;
   }
@@ -307,7 +309,7 @@ app.get('/leaderboard', async (req, res) => {
 app.get('/placement', requireAuth, async (req, res) => {
   const gameId = req.query.game;
 
-  if (!gameId) {
+  if (!gameId || typeof gameId !== 'string') {
     res.status(400).json({ error: 'gameRequired' });
     return;
   }

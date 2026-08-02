@@ -315,6 +315,7 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
     const view = new LobbyView(model, elems, observerFactory);
 
     view.setGameTitle('VIMP Tanks');
+    view.setLeaderboardLimit(2);
     model.publisher.emit('leaderboard', {
       leaderboard: [
         { nick: 'player3', rank: 1500, place: 1 },

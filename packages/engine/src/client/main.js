@@ -1498,6 +1498,8 @@ function initLobby() {
   const lobbyModel = new LobbyModel(lobbyConfig);
   const lobbyView = new LobbyView(lobbyModel, lobbyConfig.elems);
 
+  lobbyView.setLeaderboardLimit(lobbyConfig.leaderboardLimit);
+
   lobby = new LobbyCtrl(lobbyModel, lobbyView);
 
   // список серверов — REST-запросом к мастеру
@@ -1566,6 +1568,8 @@ function initLobby() {
   // (граница задачи, см. plan/lobby-page-plan.md)
   const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
 
+  const hostBtn = document.getElementById(lobbyConfig.elems.hostBtnId);
+
   gameSelect?.addEventListener('change', () => {
     const manifest = gamesById.get(gameSelect.value);
 
@@ -1575,9 +1579,20 @@ function initLobby() {
 
     populateRoomForm(manifest);
     lobby.gameChanged(manifest.id, manifest.title);
+
+    // code review lobby-page 2.1: до загрузки ClientPlugin по требованию
+    // (граница задачи, plan/lobby-page-plan.md) хост всегда поднимает
+    // activeGameManifest — не дать создать комнату с полями формы чужой игры
+    if (hostBtn) {
+      const mismatch = manifest.id !== activeGameManifest.id;
+
+      hostBtn.disabled = mismatch;
+      hostBtn.title = mismatch
+        ? `Hosting ${activeGameManifest.title} — switch back to create a server`
+        : '';
+    }
   });
 
-  const hostBtn = document.getElementById(lobbyConfig.elems.hostBtnId);
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);
 
   hostBtn?.addEventListener('click', () => {

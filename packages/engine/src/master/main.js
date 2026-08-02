@@ -288,8 +288,11 @@ app.get('/auth/leaderboard', (req, res) => {
     .get(game, limit)
     .then(({ status, json }) => {
       // браузерный кэш для повторных открытий той же вкладкой (защита в
-      // глубину поверх серверного TTL-кэша)
-      res.set('Cache-Control', 'public, max-age=15');
+      // глубину поверх серверного TTL-кэша) — только на успешный ответ,
+      // иначе браузер 15с держал бы протухшую ошибку auth-сервиса (code review)
+      if (status === 200) {
+        res.set('Cache-Control', 'public, max-age=15');
+      }
       res.status(status).json(json);
     })
     .catch(err => {

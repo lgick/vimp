@@ -389,6 +389,20 @@
   color: #aaa;
 }
 
+.lobby-divider {
+  border: 0;
+  border-top: 1px solid #3d3d3d;
+  margin: 12px 0;
+}
+
+.lobby-section-title {
+  color: #ccc;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px;
+}
+
 /*auth*/
 
 #auth {
@@ -533,9 +547,15 @@
   flex-direction: column;
   gap: 8px;
   margin-bottom: 12px;
-  border-top: 1px solid;
   border-bottom: 1px solid;
   padding: 8px;
+}
+
+/* поле имени сервера — строка формы, а не узкий числовой инпут
+   (.form-row input[type='text'] рассчитан на счётчики вроде max players) */
+#lobby-name {
+  width: 200px;
+  text-align: left;
 }
 
 #lobby-search {
@@ -587,8 +607,12 @@
 .lobby-card-rating {
   grid-column: 2;
   text-align: right;
-  color: #8f8;
+  color: #4caf50;
   font-size: 10px;
+}
+
+.lobby-card-rating.is-negative {
+  color: #e57373;
 }
 
 .lobby-card-latency {
@@ -699,6 +723,11 @@
   font-size: 12px;
   padding: 6px 10px;
   margin-bottom: 4px;
+}
+
+#lobby-leaderboard-list li span:last-child,
+#lobby-my-placement span:last-child {
+  color: #aaa;
 }
 
 #lobby-my-placement {
