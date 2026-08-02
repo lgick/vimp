@@ -31,6 +31,7 @@ import {
   mergeRoomDefaults,
   reportFormValidity,
 } from './lib/formBuilder.js';
+import { getHostGateState } from './lib/hostGate.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
@@ -1580,22 +1581,24 @@ function initLobby() {
     populateRoomForm(manifest);
     lobby.gameChanged(manifest.id, manifest.title);
 
-    // code review lobby-page 2.1: до загрузки ClientPlugin по требованию
-    // (граница задачи, plan/lobby-page-plan.md) хост всегда поднимает
-    // activeGameManifest — не дать создать комнату с полями формы чужой игры
     if (hostBtn) {
-      const mismatch = manifest.id !== activeGameManifest.id;
+      const { disabled, title } = getHostGateState(manifest.id, activeGameManifest);
 
-      hostBtn.disabled = mismatch;
-      hostBtn.title = mismatch
-        ? `Hosting ${activeGameManifest.title} — switch back to create a server`
-        : '';
+      hostBtn.disabled = disabled;
+      hostBtn.title = title;
     }
   });
 
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);
 
   hostBtn?.addEventListener('click', () => {
+    // защита в глубину поверх hostBtn.disabled (code review lobby-page): клик
+    // не должен создать комнату с полями формы чужой игры, даже если
+    // disabled почему-то не выставился/был обойдён
+    if (gameSelect && getHostGateState(gameSelect.value, activeGameManifest).disabled) {
+      return;
+    }
+
     // нативная валидация (pattern/required) — единственная граница
     // room-формы: она едет клиенту как JSON манифеста, JS-валидаторы
     // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
