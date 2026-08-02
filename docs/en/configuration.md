@@ -249,6 +249,12 @@ The master server's config (see [master.md](master.md)); read by
 - `servers` — `GET /servers` parameters: `regionThreshold: 15` (at or
   below this many rooms, the regional filter and pagination are disabled),
   `defaultLimit: 10`, `maxLimit: 50`;
+- `leaderboard` — `GET /auth/leaderboard` parameters (code review L2, see
+  [master.md](master.md#get-authleaderboard-get-authplacement)):
+  `cacheTtl: 15000` (`LeaderboardCache`'s in-memory TTL, ms — this is the
+  most frequent anonymous lobby request, and the underlying ranking changes
+  slowly), `maxLimit: 100` (upper bound clamp for `?limit=`, replacing what
+  used to be a hardcoded `100`);
 - `host` — room constraints: `maxNameLength: 30`, `maxPlayersLimit: 8`,
   `heartbeatTimeout: 30000` (a room without a heartbeat for longer is
   removed), `sweepInterval: 10000`;

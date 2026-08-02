@@ -78,24 +78,18 @@ describe('LobbyCtrl: проксирование view-событий в моде�
 });
 
 describe('LobbyCtrl: вкладки и leaderboard (lobby-page-plan)', () => {
-  it('show-tab → view.showTab и первое открытие Leaderboard эмитит leaderboard-needed', () => {
+  it('show-tab → view.showTab, само по себе не эмитит leaderboard-needed', () => {
     const needed = [];
 
     ctrl.publisher.on('leaderboard-needed', gameId => needed.push(gameId));
     view.publisher.emit('show-tab', 'leaderboard');
-
-    expect(view.showTab).toHaveBeenCalledWith('leaderboard');
-    expect(needed).toEqual([null]); // gameChanged ещё не вызывался
-  });
-
-  it('повторное открытие Leaderboard без смены игры не эмитит повторно', () => {
-    const needed = [];
-
-    view.publisher.emit('show-tab', 'leaderboard');
-    ctrl.publisher.on('leaderboard-needed', gameId => needed.push(gameId));
     view.publisher.emit('show-tab', 'servers');
-    view.publisher.emit('show-tab', 'leaderboard');
 
+    // code review L4/L5: единственный источник fetch'а — gameChanged(),
+    // а не открытие вкладки — иначе до первого gameChanged() ушёл бы
+    // запрос с gameId=null
+    expect(view.showTab).toHaveBeenCalledWith('leaderboard');
+    expect(view.showTab).toHaveBeenCalledWith('servers');
     expect(needed).toEqual([]);
   });
 

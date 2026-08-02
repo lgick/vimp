@@ -310,15 +310,15 @@ describe('LobbyView: вкладки (lobby-page-plan)', () => {
 });
 
 describe('LobbyView: leaderboard (lobby-page-plan)', () => {
-  it('renderLeaderboard рисует топ-N, total и позицию вызывающего', () => {
+  it('renderLeaderboard рисует топ-N по серверному place, total и позицию вызывающего', () => {
     const model = makeModel();
     const view = new LobbyView(model, elems, observerFactory);
 
     view.setGameTitle('VIMP Tanks');
     model.publisher.emit('leaderboard', {
       leaderboard: [
-        { nick: 'player3', rank: 1500 },
-        { nick: 'user203', rank: 1420 },
+        { nick: 'player3', rank: 1500, place: 1 },
+        { nick: 'user203', rank: 1420, place: 2 },
       ],
       total: 3400,
       myPlacement: { placement: 20, total: 3400, rank: 240 },
@@ -340,6 +340,95 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
     expect(placement.classList.contains('lobby-placement-gap')).toBe(true);
   });
 
+  // code review M3: номер строки — серверный competition-ranking `place`,
+  // а не index+1 — ничьи по rank должны делить место
+  it('renderLeaderboard использует entry.place, а не порядковый индекс, при ничьих', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('leaderboard', {
+      leaderboard: [
+        { nick: 'a', rank: 100, place: 1 },
+        { nick: 'b', rank: 100, place: 1 },
+        { nick: 'c', rank: 50, place: 3 },
+      ],
+      total: 3,
+      myPlacement: null,
+    });
+
+    const rows = [...document.querySelectorAll('#lobby-leaderboard-list li')].map(
+      li => li.textContent,
+    );
+
+    expect(rows).toEqual(['1. a100 pts', '1. b100 pts', '3. c50 pts']);
+  });
+
+  // code review M4 (доработка): видимость плашки решается членством ника в
+  // отрисованном списке, а не сравнением чисел placement/leaderboard.length
+  // (разные шкалы — расходятся при ничьих на границе LIMIT)
+  it('плашка "You" не рендерится, если собственный ник уже виден в топе', () => {
+    const model = makeModel();
+    const view = new LobbyView(model, elems, observerFactory);
+
+    view.setSelfNick('user203');
+    model.publisher.emit('leaderboard', {
+      leaderboard: [
+        { nick: 'player3', rank: 1500, place: 1 },
+        { nick: 'user203', rank: 1420, place: 2 },
+      ],
+      total: 2,
+      myPlacement: { placement: 2, total: 2, rank: 1420 },
+    });
+
+    const placement = document.getElementById('lobby-my-placement');
+
+    expect(placement.textContent).toBe('');
+    expect(placement.classList.contains('lobby-placement-gap')).toBe(false);
+  });
+
+  // без setSelfNick (main.js ещё не проставил ник) плашка не должна молчать —
+  // лучше показать её (как раньше), чем спрятать без уверенности в членстве
+  it('без setSelfNick плашка рендерится, даже если place совпадает с числом строк', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('leaderboard', {
+      leaderboard: [
+        { nick: 'player3', rank: 1500, place: 1 },
+        { nick: 'user203', rank: 1420, place: 2 },
+      ],
+      total: 2,
+      myPlacement: { placement: 2, total: 2, rank: 1420 },
+    });
+
+    expect(document.getElementById('lobby-my-placement').textContent).toBe('2. You1420 pts');
+  });
+
+  // граница LIMIT с ничьими: несколько игроков делят одно competition-place,
+  // но по LIMIT в список попала лишь часть — сравнение чисел placement/length
+  // раньше могло спрятать плашку у игрока, которого нет в отрисованном топе;
+  // membership по нику этого не допускает
+  it('ничьи на границе LIMIT: игрок с малым placement, но вне топа по LIMIT — плашка показана', () => {
+    const model = makeModel();
+    const view = new LobbyView(model, elems, observerFactory);
+
+    view.setSelfNick('outsider');
+    model.publisher.emit('leaderboard', {
+      leaderboard: [
+        { nick: 'a', rank: 100, place: 1 },
+        { nick: 'b', rank: 100, place: 1 },
+      ],
+      total: 15,
+      // outsider делит то же place=1 (та же ничья), но не попал в LIMIT=2
+      myPlacement: { placement: 1, total: 15, rank: 100 },
+    });
+
+    const placement = document.getElementById('lobby-my-placement');
+
+    expect(placement.textContent).toBe('1. You100 pts');
+    expect(placement.classList.contains('lobby-placement-gap')).toBe(true);
+  });
+
   it('myPlacement === null (не ранжирован) показывает соответствующий текст', () => {
     const model = makeModel();
 
@@ -351,5 +440,35 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
     });
 
     expect(document.getElementById('lobby-my-placement').textContent).toBe('Not ranked yet');
+  });
+
+  // code review L7: пустой топ показывает заглушку, а не голый "TOP-0"
+  it('пустой leaderboard показывает заглушку "No ranked players yet"', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('leaderboard', { leaderboard: [], total: 0, myPlacement: null });
+
+    expect(document.getElementById('leaderboard-title').textContent).toBe(' TOP-0');
+    expect(document.querySelector('#lobby-leaderboard-list li').textContent).toBe(
+      'No ranked players yet',
+    );
+  });
+
+  // code review мелочь (lobby-page-review-status): пока ответ не пришёл
+  // (loaded=false — clearLeaderboard уже обнулила список), заглушка должна
+  // отличаться от "ответ пришёл, пусто"
+  it('пустой leaderboard с loaded=false показывает "Loading…", а не "No ranked players yet"', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('leaderboard', {
+      leaderboard: [],
+      total: 0,
+      myPlacement: null,
+      loaded: false,
+    });
+
+    expect(document.querySelector('#lobby-leaderboard-list li').textContent).toBe('Loading…');
   });
 });

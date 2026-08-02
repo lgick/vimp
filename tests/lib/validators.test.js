@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidName, validateAuth } from '../../packages/engine/src/lib/validators.js';
+import { isValidName, validateAuth, clampLimit } from '../../packages/engine/src/lib/validators.js';
 
 describe('isValidName', () => {
   it('принимает корректные имена', () => {
@@ -89,5 +89,21 @@ describe('validateAuth', () => {
     // validators не передан — isValidModel не найден в rules
     expect(() => validateAuth({ model: 'm1' }, params)).not.toThrow();
     expect(validateAuth({ model: 'm1' }, params)).toBeUndefined();
+  });
+});
+
+// code review L3: клампинг GET /auth/leaderboard?limit= вынесен из
+// master/main.js сюда, чтобы быть покрытым юнит-тестом независимо от роута
+describe('clampLimit', () => {
+  it('клампит в диапазон [1, max]', () => {
+    expect(clampLimit(50, 10, 100)).toBe(50);
+    expect(clampLimit(0, 10, 100)).toBe(1);
+    expect(clampLimit(9999, 10, 100)).toBe(100);
+  });
+
+  it('невалидное значение (не целое/отсутствует) — fallback', () => {
+    expect(clampLimit(undefined, 10, 100)).toBe(10);
+    expect(clampLimit('junk', 10, 100)).toBe(10);
+    expect(clampLimit(1.5, 10, 100)).toBe(10);
   });
 });

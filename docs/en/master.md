@@ -35,6 +35,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/GameCatalog.js` | game-plugin catalog: resolves the `master:games` config list (`{id, package}[]`) to packages under `node_modules/` and reads `<package>/dist/manifest.json` (built by `npm run build` in the game repository) plus a per-game `MapCatalog` from `<package>/dist/maps/*.json`; in dev, `entries.client/host/wasm` are swapped for Vite `/@fs/` source URLs (HMR) — see [plugin-api.md](plugin-api.md#gamemanifest) |
 | `packages/engine/src/master/JwksProxy.js` | proxies `GET /jwks` of the central auth service under the master's own origin, cached (TTL) — see [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | proxies per-user `GET`/`PUT /rank` and `/state` of the central auth service, **not cached** (Stage B4) — see [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); also the public `GET /leaderboard` and the per-user `GET /placement` (lobby page plan) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
+| `packages/engine/src/master/LeaderboardCache.js` | keyed TTL cache (`game:limit`) in front of `PlayerDataProxy.getLeaderboard` (code review L2) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/HostRatingProxy.js` | proxies the central auth service's host-rating endpoints: `getRating` (own rating, Bearer) for the `register_host` block check, `vote` (Bearer) for `like_host`/`unlike_host`, `getPublic` (no token — `GET /host-rating/:hosterUserId` is unauthenticated, the value is public lobby data) for `refreshRatings`'s periodic poll |
 | `packages/engine/src/lib/rateLimiter.js` | a shared fixed-window rate limiter (event limit per key per interval) |
 
@@ -208,20 +209,37 @@ Proxies the central auth service's `GET /leaderboard` and `GET /placement`
 (lobby page plan, see [auth.md](auth.md#rest-api)) under the master's own
 origin:
 
-- `GET /auth/leaderboard?game=&limit=` — public (no Bearer token), forwards
-  to `PlayerDataProxy.getLeaderboard(game, limit)`. `400 gameRequired` if
-  `game` is missing, `404 unknownGame` if it isn't in `gameCatalog.ids`,
-  `limit` is clamped to `1..100` (default `10`) before it reaches the proxy,
-  `502 authServiceUnavailable` on upstream failure.
+- `GET /auth/leaderboard?game=&limit=` — public (no Bearer token), goes
+  through `LeaderboardCache` (`packages/engine/src/master/LeaderboardCache.js`,
+  code review L2) in front of `PlayerDataProxy.getLeaderboard(game, limit)`.
+  `400 gameRequired` if `game` is missing, `404 unknownGame` if it isn't in
+  `gameCatalog.ids`, `limit` is clamped to `1..leaderboard.maxLimit` (default
+  `10`, `maxLimit` from config, default `100`) before it reaches the cache,
+  `502 authServiceUnavailable` on upstream failure. The response carries
+  `Cache-Control: public, max-age=15` (browser-side reinforcement of the
+  server-side TTL).
 - `GET /auth/placement` — goes through the same `forwardPlayerData` helper as
   `/auth/rank`/`/auth/state` (Bearer token + `?game=` required, same
   `400`/`404`/`502` cases), forwarding to `PlayerDataProxy.getPlacement(token, game)`.
+  Per-user data, never cached — `forwardPlayerData` sends
+  `Cache-Control: no-store` on every response.
 
 `PlayerDataProxy._request` omits the `Authorization` header when called with
 a `null` token (as `HostRatingProxy.getPublic` already does for
 `GET /host-rating/:hosterUserId`) — `getLeaderboard` uses this to stay
 unauthenticated while `getRank`/`getState`/`getPlacement` keep passing the
 caller's Bearer token through unchanged.
+
+`LeaderboardCache` wraps `PlayerDataProxy.getLeaderboard` with an in-memory,
+keyed TTL cache (`` `${game}:${limit}` `` → `{ at, result }`, same pattern as
+`JwksProxy`'s single-entry TTL cache): `/auth/leaderboard` is the lobby's
+most frequent anonymous request (every open + game/tab switch), and the
+underlying ranking changes slowly. Only `status === 200` responses are
+cached — an upstream `5xx` would otherwise stick around for the whole TTL.
+`placement` (per-user, Bearer token) never goes through this cache. TTL
+(`leaderboard.cacheTtl`, default 15000 ms) and clock (`now`, injected for
+deterministic tests) are configurable; the map isn't unbounded since `limit`
+is clamped and the key space is effectively `O(number of games)`.
 
 ### Composite `codeVersion`
 
@@ -324,7 +342,7 @@ exposed, they only exist as an audit trail in the auth service's
 
 ## Tests
 
-`tests/master/` (a node Vitest project): `HostRegistry.test.js` (registration and `hosterUserId` attribution, per-IP limit, heartbeat/cleanup, all `GET /servers` selection logic including `gameId/name` search — lobby page plan, `gameId`/`gameVersion` storage, cached `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — stage 3), `SignalingServer.test.js` (connection lifecycle, routing of every signaling message on fake ws sockets, identity-token verification against a real RSA-signed JWKS, rate limiting, rating-vote membership checks and blocking, stale-host cleanup, `mapsVersion`/`codeVersion` in `host_registered`, per-game `mapsVersion` via a `gameCatalog` stub, `rating` cached on register/vote and `refreshRatings()`'s periodic poll — stage 3), `MapCatalog.test.js` (manifest, map serving, version stability), `WorkerCatalog.test.js` (bundle version hash and URL, empty catalog in dev, picking the newest of several), `GameCatalog.test.js` (resolving configured `{id, package}` entries to `node_modules/<package>/dist/manifest.json`, per-game map catalogs, unbuilt/unknown games, dev `/@fs/` entry rewriting), `JwksProxy.test.js` (proxying, TTL caching/expiry, upstream failure — injected `fetchImpl`), `PlayerDataProxy.test.js` (proxying GET/PUT `/rank`+`/state`, the public `getLeaderboard` (no `Authorization` header, `limit` in the query) and the per-user `getPlacement` — lobby page plan, no caching, upstream failure — injected `fetchImpl`), `HostRatingProxy.test.js` (proxying GET `/host-rating` + PUT `/host-rating/:hosterUserId` with a Bearer token, `getPublic`'s unauthenticated `GET /host-rating/:hosterUserId`, no caching, upstream failure — injected `fetchImpl`). Rate limiter — `tests/lib/rateLimiter.test.js`.
+`tests/master/` (a node Vitest project): `HostRegistry.test.js` (registration and `hosterUserId` attribution, per-IP limit, heartbeat/cleanup, all `GET /servers` selection logic including `gameId/name` search — lobby page plan, `gameId`/`gameVersion` storage, cached `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — stage 3), `SignalingServer.test.js` (connection lifecycle, routing of every signaling message on fake ws sockets, identity-token verification against a real RSA-signed JWKS, rate limiting, rating-vote membership checks and blocking, stale-host cleanup, `mapsVersion`/`codeVersion` in `host_registered`, per-game `mapsVersion` via a `gameCatalog` stub, `rating` cached on register/vote and `refreshRatings()`'s periodic poll — stage 3), `MapCatalog.test.js` (manifest, map serving, version stability), `WorkerCatalog.test.js` (bundle version hash and URL, empty catalog in dev, picking the newest of several), `GameCatalog.test.js` (resolving configured `{id, package}` entries to `node_modules/<package>/dist/manifest.json`, per-game map catalogs, unbuilt/unknown games, dev `/@fs/` entry rewriting), `JwksProxy.test.js` (proxying, TTL caching/expiry, upstream failure — injected `fetchImpl`), `PlayerDataProxy.test.js` (proxying GET/PUT `/rank`+`/state`, the public `getLeaderboard` (no `Authorization` header, `limit` in the query) and the per-user `getPlacement` — lobby page plan, no caching, upstream failure — injected `fetchImpl`), `LeaderboardCache.test.js` (miss calls the proxy, hit within TTL doesn't, refetch after TTL expiry, non-200 responses aren't cached, `game`/`limit` are separate cache keys — injected `now`, code review L2), `HostRatingProxy.test.js` (proxying GET `/host-rating` + PUT `/host-rating/:hosterUserId` with a Bearer token, `getPublic`'s unauthenticated `GET /host-rating/:hosterUserId`, no caching, upstream failure — injected `fetchImpl`). Rate limiter — `tests/lib/rateLimiter.test.js`.
 
 ---
 

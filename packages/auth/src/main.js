@@ -12,6 +12,7 @@ import {
   isValidStateSize,
   isValidVoteValue,
   isValidVoteReason,
+  clampLimit,
 } from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
 
@@ -286,14 +287,6 @@ app.post('/nick', rateLimit(nickLimiter), async (req, res) => {
 app.get('/jwks', (req, res) => {
   res.json(jwtLib.getJwks());
 });
-
-// клампит limit в [1, 100] — образец readAttribution ниже: явная граница
-// перед SQL LIMIT, а не доверие клиентскому query-параметру
-function clampLimit(value, fallback, max) {
-  const num = Number(value);
-
-  return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
-}
 
 // GET /leaderboard — публичный (без requireAuth) топ-N рейтинга игры
 // (lobby-page-plan): показывается всем в лобби до логина, как /host-rating/:id

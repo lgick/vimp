@@ -1399,7 +1399,7 @@ async function fetchLeaderboard(gameId) {
     const res = await fetch(`${lobbyConfig.leaderboardUrl}?${params}`);
 
     return res.ok ? await res.json() : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -1420,10 +1420,15 @@ async function fetchPlacement(gameId) {
     );
 
     return res.ok ? await res.json() : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
+
+// code review M1: токен актуальности запроса — переключение игры быстрее
+// сетевого ответа не должно дать устаревшему ответу (например, от игры A)
+// затереть уже выбранную игру B, если её собственный ответ пришёл раньше
+let leaderboardReqId = 0;
 
 // поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
 let roomFormFields = new Map();
@@ -1517,12 +1522,23 @@ function initLobby() {
   lobbyModel.publisher.on('join', connectToHost);
 
   // Leaderboard (lobby-page-plan): контроллер сигнализирует, для какой игры
-  // нужны свежие данные (смена #lobby-game или первое открытие вкладки)
+  // нужны свежие данные (смена #lobby-game или первое открытие вкладки).
+  // code review M1: сброс до fetch'а — иначе данные предыдущей игры видны
+  // под заголовком новой, пока не пришёл ответ (и остаются навсегда при
+  // сетевом сбое); reqId отбрасывает ответ устаревшего запроса, если игру
+  // переключили быстрее, чем пришёл ответ (latest-wins)
   lobby.publisher.on('leaderboard-needed', async gameId => {
+    lobbyModel.clearLeaderboard();
+
+    const reqId = ++leaderboardReqId;
     const [leaderboard, placement] = await Promise.all([
       fetchLeaderboard(gameId),
       fetchPlacement(gameId),
     ]);
+
+    if (reqId !== leaderboardReqId) {
+      return; // игру уже переключили ещё раз — этот ответ устарел
+    }
 
     if (leaderboard) {
       lobbyModel.setLeaderboard(leaderboard);
@@ -1532,6 +1548,13 @@ function initLobby() {
       lobbyModel.setPlacement(placement);
     }
   });
+
+  // ник вызывающего (code review M4-остаток): нужен view, чтобы решить,
+  // виден ли вызывающий уже в отрисованном топе Leaderboard, по членству в
+  // списке, а не по числу placement (расходится с leaderboard.length при
+  // ничьих на границе LIMIT). Ник неизменен на сессию — один вызов до
+  // первого gameChanged/рендера Leaderboard
+  lobbyView.setSelfNick(lobbyAuthModel.getNick());
 
   // создание комнаты в этой же вкладке (хост-игрок через loopback)
   populateGameSelect();

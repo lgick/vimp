@@ -171,39 +171,96 @@ describe('LobbyModel: умный пинг', () => {
 });
 
 describe('LobbyModel: leaderboard (lobby-page-plan)', () => {
-  it('setLeaderboard публикует leaderboard/total, myPlacement пока null', () => {
+  // code review M2: эмит 'leaderboard' схлопывается в один микротаск —
+  // события нужно ждать через await, а не проверять синхронно
+  it('setLeaderboard публикует leaderboard/total, myPlacement пока null', async () => {
     const events = [];
 
     model.publisher.on('leaderboard', e => events.push(e));
     model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 42 });
+    await null;
 
-    expect(events[0]).toEqual({
-      leaderboard: [{ nick: 'a', rank: 10 }],
-      total: 42,
-      myPlacement: null,
-    });
+    expect(events).toEqual([
+      { leaderboard: [{ nick: 'a', rank: 10 }], total: 42, myPlacement: null, loaded: true },
+    ]);
   });
 
-  it('setPlacement публикует myPlacement, leaderboard/total сохраняются', () => {
+  it('setPlacement публикует myPlacement, leaderboard/total сохраняются', async () => {
     const events = [];
 
     model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 42 });
+    await null;
     model.publisher.on('leaderboard', e => events.push(e));
     model.setPlacement({ placement: 3, total: 42, rank: 5 });
+    await null;
 
-    expect(events[0]).toEqual({
-      leaderboard: [{ nick: 'a', rank: 10 }],
-      total: 42,
-      myPlacement: { placement: 3, total: 42, rank: 5 },
-    });
+    expect(events).toEqual([
+      {
+        leaderboard: [{ nick: 'a', rank: 10 }],
+        total: 42,
+        myPlacement: { placement: 3, total: 42, rank: 5 },
+        loaded: true,
+      },
+    ]);
   });
 
-  it('setPlacement с placement=null (не ранжирован) сохраняется как есть', () => {
+  it('setPlacement с placement=null (не ранжирован) сохраняется как есть', async () => {
     const events = [];
 
     model.publisher.on('leaderboard', e => events.push(e));
     model.setPlacement({ placement: null, total: 42, rank: 0 });
+    await null;
 
     expect(events[0].myPlacement).toEqual({ placement: null, total: 42, rank: 0 });
+  });
+
+  // code review M1: main.js вызывает это перед fetch'ем новой игры, чтобы
+  // данные прошлой игры не «залипали» на экране
+  it('clearLeaderboard сбрасывает leaderboard/total/myPlacement', async () => {
+    model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 42 });
+    model.setPlacement({ placement: 3, total: 42, rank: 5 });
+    await null;
+
+    const events = [];
+
+    model.publisher.on('leaderboard', e => events.push(e));
+    model.clearLeaderboard();
+    await null;
+
+    expect(events).toEqual([{ leaderboard: [], total: 0, myPlacement: null, loaded: false }]);
+  });
+
+  // code review мелочь (lobby-page-review-status): clearLeaderboard обнуляет
+  // список до fetch'а (M1) — loaded=false отличает это от "ответ пришёл,
+  // список пуст", иначе view на миг рисует "No ranked players yet" вместо
+  // состояния загрузки
+  it('clearLeaderboard сбрасывает loaded в false, setLeaderboard — обратно в true', async () => {
+    model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 42 });
+    await null;
+
+    const events = [];
+
+    model.publisher.on('leaderboard', e => events.push(e));
+    model.clearLeaderboard();
+    await null;
+    model.setLeaderboard({ leaderboard: [], total: 0 });
+    await null;
+
+    expect(events.map(e => e.loaded)).toEqual([false, true]);
+  });
+
+  // code review M2: несколько синхронных вызовов в одном такте (как
+  // Promise.all в main.js обычно резолвит fetchLeaderboard/fetchPlacement)
+  // должны дать один эмит, а не кадр с рассинхронизированным myPlacement
+  it('setLeaderboard + setPlacement в одном такте дают один эмит', async () => {
+    const events = [];
+
+    model.publisher.on('leaderboard', e => events.push(e));
+    model.setLeaderboard({ leaderboard: [{ nick: 'a', rank: 10 }], total: 1 });
+    model.setPlacement({ placement: 1, total: 1, rank: 10 });
+    await null;
+
+    expect(events).toHaveLength(1);
+    expect(events[0].myPlacement).toEqual({ placement: 1, total: 1, rank: 10 });
   });
 });

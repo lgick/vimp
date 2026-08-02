@@ -145,8 +145,8 @@ also reverted by the snapshot restore.
 | `GET /host-rating` (Bearer identity token) | `{ score, blocked }` — the caller's **own** rating, as a hoster; the master calls this with the hoster's token on `register_host` to decide whether to reject the room (`blocked: true`), and to seed the room's cached lobby `rating` (server-rating stage 3) |
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | a guest's vote for/against `hosterUserId` (the caller is the voter, taken from their Bearer token — `403 selfVote` if it equals `hosterUserId`); `value` must be `1` or `-1` (`400 invalidVote`); an empty/missing `reason` isn't counted (returns the current rating with `counted: false`, no write); otherwise upserts the vote and returns `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (no auth — server-rating stage 3) | `{ score, blocked }` for an arbitrary `hosterUserId`; unauthenticated because the value is already public lobby data (`GET /servers`' `rating` field) — the master's `HostRatingProxy.getPublic` polls this on a timer (`SignalingServer.refreshRatings()`) to refresh its per-room rating cache without holding a Bearer token for every active hoster between requests. `400 badRequest` for a non-integer `:hosterUserId` |
-| `GET /leaderboard?game=&limit=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`; `total` counts the same predicate. Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing |
-| `GET /placement?game=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is their 1-based rank position or `null` if `rank` is `0` (not yet ranked) |
+| `GET /leaderboard?game=&limit=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank, place}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`. `place` is a competition ranking (`RANK() OVER (ORDER BY rank DESC)`) — tied `rank` values share a `place`, the next distinct value skips ahead by the tie's size — matching `GET /placement`'s definition below, not the row's plain 1-based index (code review M3: the two must agree, since the client shows the caller's own placement next to this same list). `total` and `place` both come from window functions computed over the whole `WHERE`-matched set before `LIMIT`, in the same query as the page (code review L1 — one round trip instead of a separate `COUNT(*)`). Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing |
+| `GET /placement?game=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is the same competition-ranking position as `/leaderboard`'s `place` (`(COUNT(*) WHERE rank > mine) + 1`) or `null` if `rank` is `0` (not yet ranked) |
 
 Rate limiting keys on the client IP taken from `X-Forwarded-For` (first hop)
 with a `req.socket.remoteAddress` fallback (`clientIp()` in `src/main.js`) —
@@ -316,7 +316,9 @@ mocks `config/auth.js`), `github.test.js` (mocks `fetch`), `oauthState.test.js`
 `UserRepository.test.js` (a stub `{ query() }` object — no real PostgreSQL
 needed for unit tests, incl. the `nick IS NULL` rename guard, and the
 `voteHost`/`getHostRating` cases: first vote, unchanged repeat vote as a
-no-op, an opinion flip, clamping into `config.rating` and setting `blocked`).
+no-op, an opinion flip, clamping into `config.rating` and setting `blocked`;
+`getLeaderboard`/`getPlacement` — single-query SQL shape, tied-`rank`
+competition ranking, an empty game).
 
 Host-side verification (B3) and rank/state sync (B4) are tested in the
 engine tree instead: `tests/lib/jwt.test.js` (`verifyIdentityToken` — valid

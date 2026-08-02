@@ -19,7 +19,9 @@
 рабочий селектор игр (каталог манифестов, без динамической загрузки
 `ClientPlugin` — отложено до второй игры), две колонки лобби, вкладка
 Leaderboard (`GET /auth/leaderboard`·`/auth/placement`), серверный поиск
-`gameId/name`, формат карточки `gameId/name`.
+`gameId/name`, формат карточки `gameId/name`. Статус пост-ревью (все
+замечания M1–M4/L1–L9 закрыты, включая TTL-кэш `/auth/leaderboard`) —
+[lobby-page-review-status.md](lobby-page-review-status.md).
 
 **Зафиксированные решения:**
 

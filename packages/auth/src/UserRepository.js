@@ -120,10 +120,19 @@ export default class UserRepository {
   }
 
   // топ-N игроков игры (lobby-page-plan): только ранжированные (rank > 0) и
-  // с установленным ником — незалогиненные/нулевые не засоряют выдачу
+  // с установленным ником — незалогиненные/нулевые не засоряют выдачу.
+  // Один запрос вместо отдельного COUNT(*) (code review L1): оконные функции
+  // считаются над всем набором, прошедшим WHERE, ДО того как ORDER BY/LIMIT
+  // урезают вывод — так `total`/`place` в каждой строке верны для всей игры,
+  // а не только для отданной страницы. `place` — competition ranking (как
+  // и getPlacement ниже: игроки с одинаковым rank делят место, следующее
+  // отличное значение перескакивает на число разделивших) — согласовано с
+  // тем, что показывает плашка позиции вызывающего (code review M3)
   async getLeaderboard(gameId, limit) {
-    const rows = await this._db.query(
-      `SELECT u.nick, r.rank
+    const result = await this._db.query(
+      `SELECT u.nick, r.rank,
+              COUNT(*) OVER() AS total,
+              RANK() OVER (ORDER BY r.rank DESC) AS place
        FROM ratings r JOIN users u ON u.id = r.user_id
        WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL
        ORDER BY r.rank DESC, u.nick ASC
@@ -131,16 +140,13 @@ export default class UserRepository {
       [gameId, limit],
     );
 
-    const total = await this._db.query(
-      `SELECT COUNT(*) AS total
-       FROM ratings r JOIN users u ON u.id = r.user_id
-       WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL`,
-      [gameId],
-    );
-
     return {
-      leaderboard: rows.rows.map(row => ({ nick: row.nick, rank: row.rank })),
-      total: Number(total.rows[0].total),
+      leaderboard: result.rows.map(row => ({
+        nick: row.nick,
+        rank: row.rank,
+        place: Number(row.place),
+      })),
+      total: Number(result.rows[0]?.total ?? 0),
     };
   }
 

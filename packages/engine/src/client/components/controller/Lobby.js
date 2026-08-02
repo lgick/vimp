@@ -7,9 +7,15 @@ let lobbyCtrl;
 // Контроллер лобби: связывает view-события с моделью. Пинг видимых карточек
 // дросселирует модель (pingHost возвращает false, если пинговали недавно).
 // Leaderboard (lobby-page-plan): контроллер сам fetch не делает (как и модель) —
-// пробрасывает смену активной игры и первое открытие вкладки Leaderboard
-// через собственный publisher, который main.js слушает, чтобы вызвать
-// fetchLeaderboard/fetchPlacement и вернуть результат в model.setLeaderboard/setPlacement
+// пробрасывает смену активной игры через собственный publisher, который
+// main.js слушает, чтобы вызвать fetchLeaderboard/fetchPlacement и вернуть
+// результат в model.setLeaderboard/setPlacement. Единственный источник
+// 'leaderboard-needed' — gameChanged() (main.js вызывает его один раз при
+// открытии лобби для игры по умолчанию и на каждый change #lobby-game), не
+// открытие вкладки — так пока в контроллере не завёлся второй, дублирующий
+// путь загрузки (code review L4/L5: ветка "первое открытие вкладки" не могла
+// сработать раньше gameChanged() при старте и рисковала уйти в fetch с
+// gameId=null)
 export default class LobbyCtrl {
   constructor(model, view, clock = () => performance.now()) {
     if (lobbyCtrl) {
@@ -21,8 +27,6 @@ export default class LobbyCtrl {
     this._model = model;
     this._view = view;
     this._clock = clock;
-    this._leaderboardLoaded = false;
-    this._currentGameId = null;
 
     this.publisher = new Publisher();
 
@@ -63,23 +67,13 @@ export default class LobbyCtrl {
 
   showTab(tab) {
     this._view.showTab(tab);
-
-    // ленивая загрузка: данные для текущей игры запрашиваются не раньше
-    // первого показа вкладки Leaderboard, дальше их держит свежими
-    // gameChanged() (main.js вызывает его при смене #lobby-game)
-    if (tab === 'leaderboard' && !this._leaderboardLoaded) {
-      this._leaderboardLoaded = true;
-      this.publisher.emit('leaderboard-needed', this._currentGameId);
-    }
   }
 
   // вызывается main.js при смене #lobby-game (селектор игры вне этого MVC),
   // а также один раз при открытии лобби для активной по умолчанию игры —
-  // всегда фетчит заново (не только при первом открытии вкладки), чтобы
-  // Leaderboard был готов, если пользователь откроет вкладку позже
+  // Leaderboard всегда готов заранее, до того как пользователь откроет
+  // вкладку (см. класс-комментарий выше)
   gameChanged(gameId, title) {
-    this._currentGameId = gameId;
-    this._leaderboardLoaded = true;
     this._view.setGameTitle(title);
 
     this.publisher.emit('leaderboard-needed', gameId);

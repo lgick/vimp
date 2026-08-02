@@ -146,8 +146,8 @@ voter)`**: мнение гостя о хостере может меняться
 | `GET /host-rating` (Bearer identity-токен) | `{ score, blocked }` — **собственный** рейтинг вызывающего как хостера; мастер вызывает это с токеном хостера при `register_host`, чтобы решить, отклонить ли комнату (`blocked: true`), и заодно сеет закэшированный `rating` комнаты в лобби (server-rating этап 3) |
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | голос гостя за/против `hosterUserId` (голосующий — вызывающий, из его Bearer-токена — `403 selfVote`, если совпадает с `hosterUserId`); `value` должно быть `1` или `-1` (`400 invalidVote`); пустая/отсутствующая `reason` не учитывается (возвращает текущий рейтинг с `counted: false`, без записи); иначе upsert голоса и `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (без авторизации — server-rating этап 3) | `{ score, blocked }` для произвольного `hosterUserId`; без авторизации, т.к. значение и так публично отображается в лобби (поле `rating` в `GET /servers`) — `HostRatingProxy.getPublic` мастера опрашивает этот эндпоинт по таймеру (`SignalingServer.refreshRatings()`), чтобы обновлять кэш рейтинга по комнатам, не храня Bearer-токен каждого активного хостера между запросами. `400 badRequest` для нецелого `:hosterUserId` |
-| `GET /leaderboard?game=&limit=` (без авторизации — lobby-page-plan) | `{ leaderboard: [{nick, rank}], total }` — топ-`limit` (клампится в `1..100`, дефолт `10`) по `ratings` для `game`, только `rank > 0 AND nick IS NOT NULL`, сортировка `rank DESC, nick ASC`; `total` — счётчик того же предиката. Без авторизации: показывается в лобби до логина, тот же уровень доверия, что и `GET /host-rating/:hosterUserId`. `400 gameRequired`, если `game` не передан |
-| `GET /placement?game=` (Bearer identity-токен — lobby-page-plan) | `{ placement, total, rank }` для вызывающего: `rank` — его закэшированные очки (`0`, если не ранжирован), `total` — тот же счётчик ранжированных игроков, что и в `/leaderboard`, `placement` — 1-based позиция или `null`, если `rank` равен `0` (ещё не ранжирован) |
+| `GET /leaderboard?game=&limit=` (без авторизации — lobby-page-plan) | `{ leaderboard: [{nick, rank, place}], total }` — топ-`limit` (клампится в `1..100`, дефолт `10`) по `ratings` для `game`, только `rank > 0 AND nick IS NOT NULL`, сортировка `rank DESC, nick ASC`. `place` — competition ranking (`RANK() OVER (ORDER BY rank DESC)`): игроки с одинаковым `rank` делят `place`, следующее отличное значение перескакивает на размер группы — согласовано с определением `GET /placement` ниже, а не плоский порядковый номер строки (code review M3: список и плашка позиции вызывающего должны совпадать). `total` и `place` считаются оконными функциями над всем набором, прошедшим `WHERE`, ещё до `LIMIT`, в том же запросе, что и страница (code review L1 — один round-trip вместо отдельного `COUNT(*)`). Без авторизации: показывается в лобби до логина, тот же уровень доверия, что и `GET /host-rating/:hosterUserId`. `400 gameRequired`, если `game` не передан |
+| `GET /placement?game=` (Bearer identity-токен — lobby-page-plan) | `{ placement, total, rank }` для вызывающего: `rank` — его закэшированные очки (`0`, если не ранжирован), `total` — тот же счётчик ранжированных игроков, что и в `/leaderboard`, `placement` — та же competition-ranking позиция, что и `place` в `/leaderboard` (`(COUNT(*) WHERE rank > мой) + 1`), либо `null`, если `rank` равен `0` (ещё не ранжирован) |
 
 Ключ rate-limit'а — IP клиента из `X-Forwarded-For` (первый адрес) с
 фолбэком на `req.socket.remoteAddress` (`clientIp()` в `src/main.js`), а не
@@ -317,7 +317,9 @@ RSA-парой, мокает `config/auth.js`), `github.test.js` (мокает `
 `{ query() }` — для юнит-тестов реальный PostgreSQL не нужен, включая
 защиту `nick IS NULL` от переименования, а также кейсы `voteHost`/
 `getHostRating`: первый голос, повторный неизменный голос как no-op, смена
-мнения, кламп в `config.rating` и выставление `blocked`).
+мнения, клампинг в `config.rating` и выставление `blocked`;
+`getLeaderboard`/`getPlacement` — форма SQL одним запросом, competition
+ranking при равном `rank`, пустая игра).
 
 Проверка на стороне хоста (B3) и синхронизация rank/state (B4) тестируются
 в дереве движка: `tests/lib/jwt.test.js` (`verifyIdentityToken` — валидная

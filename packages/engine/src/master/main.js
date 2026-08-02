@@ -10,10 +10,12 @@ import authClientConfig from '../config/authClient.js';
 import config from '../lib/config.js';
 import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
+import { clampLimit } from '../lib/validators.js';
 import GameCatalog from './GameCatalog.js';
 import HostRatingProxy from './HostRatingProxy.js';
 import HostRegistry from './HostRegistry.js';
 import JwksProxy from './JwksProxy.js';
+import LeaderboardCache from './LeaderboardCache.js';
 import PlayerDataProxy from './PlayerDataProxy.js';
 import WorkerCatalog from './WorkerCatalog.js';
 import SignalingServer from './SignalingServer.js';
@@ -71,6 +73,13 @@ const jwksProxy = new JwksProxy(config.get('master:security:authServiceUrl'));
 const playerDataProxy = new PlayerDataProxy(
   config.get('master:security:authServiceUrl'),
 );
+
+// TTL-кэш публичного топ-N рейтинга (code review L2) — GET /auth/leaderboard
+// самый частый анонимный запрос лобби, выборка меняется медленно; placement
+// (per-user) через этот кэш не идёт, см. LeaderboardCache.js
+const leaderboardCache = new LeaderboardCache(playerDataProxy, {
+  ttlMs: config.get('master:leaderboard:cacheTtl'),
+});
 
 // проксирует GET/PUT /host-rating central auth-сервиса (server-rating этап 2,
 // plan/server-rating/stage_2.md) — рейтинг хостера/голоса гостей персистентны
@@ -208,7 +217,11 @@ function forwardPlayerData(req, res, call) {
   }
 
   call(token, game)
-    .then(({ status, json }) => res.status(status).json(json))
+    .then(({ status, json }) => {
+      // per-user данные (Bearer-токен) — не кэшируются нигде между запросами
+      res.set('Cache-Control', 'no-store');
+      res.status(status).json(json);
+    })
     .catch(err => {
       console.error('[auth] player-data proxy failed:', err.message);
       res.status(502).json({ error: 'authServiceUnavailable' });
@@ -254,14 +267,6 @@ app.get('/auth/placement', (req, res) =>
   forwardPlayerData(req, res, (token, game) => playerDataProxy.getPlacement(token, game)),
 );
 
-// клампит limit в [1, 100] — тот же приём, что и на самом auth-сервисе
-// (защита от произвольного query-значения ещё на прокси-слое)
-function clampLimit(value, fallback, max) {
-  const num = Number(value);
-
-  return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
-}
-
 // REST API: публичный (без Bearer-токена) топ-N рейтинга игры, проксированный
 // под origin мастера — лобби показывает leaderboard до логина, как GET /servers
 app.get('/auth/leaderboard', (req, res) => {
@@ -277,11 +282,16 @@ app.get('/auth/leaderboard', (req, res) => {
     return;
   }
 
-  const limit = clampLimit(req.query.limit, 10, 100);
+  const limit = clampLimit(req.query.limit, 10, config.get('master:leaderboard:maxLimit'));
 
-  playerDataProxy
-    .getLeaderboard(game, limit)
-    .then(({ status, json }) => res.status(status).json(json))
+  leaderboardCache
+    .get(game, limit)
+    .then(({ status, json }) => {
+      // браузерный кэш для повторных открытий той же вкладкой (защита в
+      // глубину поверх серверного TTL-кэша)
+      res.set('Cache-Control', 'public, max-age=15');
+      res.status(status).json(json);
+    })
     .catch(err => {
       console.error('[auth] leaderboard proxy failed:', err.message);
       res.status(502).json({ error: 'authServiceUnavailable' });

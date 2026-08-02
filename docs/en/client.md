@@ -224,41 +224,74 @@ Leaderboard) on the right.
 
 - **model** — the server registry (responses from the master's
   `GET /servers`), pagination, search, smart pinging, and the selected
-  game's Leaderboard state (`setLeaderboard`/`setPlacement`, lobby page
-  plan). Does no I/O of its own: it publishes `fetch` (request the REST
-  endpoint), `ping-request` (a signaling ping), `join` (a server was
-  picked), `list`/`ping-update` (for the view), and `leaderboard`
-  (leaderboard/total/myPlacement, re-emitted whenever either
-  `setLeaderboard` or `setPlacement` is called). `latency` lives separately
-  from the list and survives a refresh/pagination.
+  game's Leaderboard state (`setLeaderboard`/`setPlacement`/
+  `clearLeaderboard`, lobby page plan). Does no I/O of its own: it publishes
+  `fetch` (request the REST endpoint), `ping-request` (a signaling ping),
+  `join` (a server was picked), `list`/`ping-update` (for the view), and
+  `leaderboard` (leaderboard/total/myPlacement/loaded — `loaded` distinguishes
+  "still fetching" from "fetch resolved, genuinely empty" for the view's
+  empty-state placeholder). `setLeaderboard`/
+  `setPlacement`/`clearLeaderboard` coalesce into a single `leaderboard`
+  emit via `queueMicrotask` (code review M2 — `main.js`'s `Promise.all`
+  normally resolves both calls back-to-back; without coalescing, the first
+  emit would render the new leaderboard list next to the *previous* game's
+  `myPlacement` for one frame). `latency` lives separately from the list and
+  survives a refresh/pagination.
 - **view** — renders cards, search, "Load more", the Active
   Servers/Leaderboard tab switch (`showTab`, toggles `.lobby-tab-btn.active`
-  and the two content containers) and the Leaderboard list itself
-  (`renderLeaderboard`: numbered rows, `"<GAME TITLE> TOP-N"` header, total
-  player count, and the caller's own placement row — "Not ranked yet" if
-  `myPlacement.placement` is `null`, a `…` gap marker
-  (`.lobby-placement-gap`) when the caller's placement falls outside the
-  rendered top). **Smart pinging** through `IntersectionObserver`: a card
-  entering the visible area → `visible` → the controller sends `ping_host`;
-  `pong` updates latency and re-sorts cards ascending, tied-latency cards
-  breaking by `rating` descending (lobby page plan). `IntersectionObserver`
-  is injected for tests. Each card's name is `"<gameId>/<name>"` (lobby page
-  plan — matches the `gameId/name` search syntax on `GET /servers`, see
-  [master.md](master.md#get-servers)) and also shows the hoster's cached
-  rating (server-rating stage 3 — `.lobby-card-rating`, straight from the
-  server object's `rating` field, signed for positive values (`+7`/`-3`/`0`);
-  this is engine-level lobby UI, not something a game plugin renders.
+  and the two content containers, UI-only — it does not trigger a fetch) and
+  the Leaderboard list itself (`renderLeaderboard`: numbered rows using the
+  server's competition-ranking `place` — not the row index, so ties don't
+  drift out of sync with the caller's own placement (code review M3, see
+  `GET /leaderboard` below) — `"<GAME TITLE> TOP-N"` header, total player
+  count, an "No ranked players yet" placeholder when the list is empty and
+  the model's `loaded` flag is `true`, or "Loading…" while it's still `false`
+  (`clearLeaderboard` sets it to `false`, `setLeaderboard` back to `true` —
+  distinguishes "still fetching" from "fetch resolved, genuinely empty" so
+  the empty-state placeholder doesn't flash during the request), and the
+  caller's own placement row: "Not ranked yet" if
+  `myPlacement.placement` is `null`, hidden entirely if the caller's own
+  nick (`setSelfNick`, set once by `main.js` at lobby open from
+  `LobbyAuthModel.getNick()`) is already present in the rendered top —
+  otherwise a `…` gap marker (`.lobby-placement-gap`). Visibility is decided
+  by **nick membership** in the rendered list, not by comparing
+  `myPlacement.placement` to `leaderboard.length` (code review M4: those are
+  different scales — `placement` is a competition ranking with gaps on ties,
+  `leaderboard.length` is just the page size — and could disagree exactly at
+  a tie straddling the `LIMIT` boundary, making a tied player vanish from
+  both the list and the placement row; nicks are globally unique, so
+  membership is unambiguous). **Smart pinging** through `IntersectionObserver`:
+  a card entering the visible area → `visible` → the controller sends
+  `ping_host`; `pong` updates latency and re-sorts cards ascending,
+  tied-latency cards breaking by `rating` descending (lobby page plan).
+  `IntersectionObserver` is injected for tests. Each card's name is
+  `"<gameId>/<name>"` (lobby page plan — matches the `gameId/name` search
+  syntax on `GET /servers`, see [master.md](master.md#get-servers)) and also
+  shows the hoster's cached rating (server-rating stage 3 —
+  `.lobby-card-rating`, straight from the server object's `rating` field,
+  signed for positive values (`+7`/`-3`/`0`); this is engine-level lobby UI,
+  not something a game plugin renders.
 - **controller** — proxies view events to the model; ping throttling lives
   in the model (`pingHost` returns `false` if the server was pinged
   recently, interval `pingInterval`). It does no fetching itself (lobby page
-  plan): `showTab('leaderboard')` on its first call and every `gameChanged(gameId,
-  title)` call (invoked by `main.js` on `#lobby-game`'s `change`, and once at
-  lobby open for the default game) emit `leaderboard-needed` on the
-  controller's own `publisher` with the target `gameId`; `main.js` listens
-  for it, calls `fetchLeaderboard`/`fetchPlacement`
-  (`GET /auth/leaderboard`/`GET /auth/placement`, proxied by the master —
-  see [master.md](master.md#get-authleaderboard-get-authplacement)) and
-  feeds the results back into `model.setLeaderboard`/`setPlacement`.
+  plan): `gameChanged(gameId, title)` (invoked by `main.js` on
+  `#lobby-game`'s `change`, and once at lobby open for the default game) is
+  the **only** trigger — it's the sole source of the controller's own
+  `leaderboard-needed` event, carrying the target `gameId`. Switching tabs
+  (`showTab`) is UI-only and never triggers a fetch on its own (code review
+  L4/L5 — an earlier "fetch lazily on first tab open" branch could fire
+  before `gameChanged` ever ran, sending a `gameId: null` request); Leaderboard
+  data is always fetched ahead of the tab being opened. `main.js` listens for
+  `leaderboard-needed`, clears the model's stale leaderboard/placement first
+  (code review M1 — otherwise the previous game's rows stay visible under
+  the new game's title until the fetch resolves, or forever on a network
+  failure), tags the request with a monotonically increasing id so a
+  slower, now-stale response can't overwrite a faster one from a game
+  switched to afterwards (latest-wins), then calls
+  `fetchLeaderboard`/`fetchPlacement` (`GET /auth/leaderboard`/
+  `GET /auth/placement`, proxied by the master — see
+  [master.md](master.md#get-authleaderboard-get-authplacement)) and feeds
+  the results back into `model.setLeaderboard`/`setPlacement`.
 
 Config — [packages/engine/src/config/lobby.js](../../packages/engine/src/config/lobby.js) (bundled into the
 build, since the lobby happens before connecting to a host). The ping

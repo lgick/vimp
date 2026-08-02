@@ -34,6 +34,11 @@ export default class LobbyModel {
     this._leaderboard = [];
     this._leaderboardTotal = 0;
     this._myPlacement = null;
+    // отличает "ещё грузится" от "пусто, но ответ уже пришёл" (code review
+    // мелочь) — clearLeaderboard сбрасывает список ДО fetch'а (M1), без
+    // этого флага view на доли секунды рисует заглушку "No ranked players
+    // yet" вместо состояния загрузки
+    this._leaderboardLoaded = false;
 
     this.publisher = new Publisher();
   }
@@ -140,8 +145,9 @@ export default class LobbyModel {
   setLeaderboard({ leaderboard, total } = {}) {
     this._leaderboard = leaderboard || [];
     this._leaderboardTotal = total || 0;
+    this._leaderboardLoaded = true;
 
-    this._emitLeaderboard();
+    this._scheduleLeaderboardEmit();
   }
 
   // позиция вызывающего, применяется ответом GET /auth/placement;
@@ -149,7 +155,20 @@ export default class LobbyModel {
   setPlacement({ placement, total, rank } = {}) {
     this._myPlacement = { placement: placement ?? null, total: total || 0, rank: rank || 0 };
 
-    this._emitLeaderboard();
+    this._scheduleLeaderboardEmit();
+  }
+
+  // сбрасывает leaderboard/placement (main.js вызывает это перед fetch'ем
+  // новой игры — code review M1: иначе данные предыдущей игры «залипают»
+  // под заголовком новой, пока не придёт ответ, а при сетевом сбое остаются
+  // навсегда)
+  clearLeaderboard() {
+    this._leaderboard = [];
+    this._leaderboardTotal = 0;
+    this._myPlacement = null;
+    this._leaderboardLoaded = false;
+
+    this._scheduleLeaderboardEmit();
   }
 
   reset() {
@@ -179,11 +198,29 @@ export default class LobbyModel {
     });
   }
 
+  // code review M2: setLeaderboard/setPlacement обычно приходят из одного
+  // Promise.all в main.js — без коалесинга каждый эмитил бы 'leaderboard'
+  // отдельно, и первый рендер уходил бы с новым списком, но ещё старым
+  // myPlacement. queueMicrotask (изоморфное API, разрешено в этом модуле)
+  // схлопывает оба вызова в один эмит на конец текущего таска
+  _scheduleLeaderboardEmit() {
+    if (this._leaderboardEmitScheduled) {
+      return;
+    }
+
+    this._leaderboardEmitScheduled = true;
+    queueMicrotask(() => {
+      this._leaderboardEmitScheduled = false;
+      this._emitLeaderboard();
+    });
+  }
+
   _emitLeaderboard() {
     this.publisher.emit('leaderboard', {
       leaderboard: this._leaderboard,
       total: this._leaderboardTotal,
       myPlacement: this._myPlacement,
+      loaded: this._leaderboardLoaded,
     });
   }
 }

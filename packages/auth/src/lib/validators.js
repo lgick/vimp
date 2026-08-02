@@ -27,3 +27,12 @@ export const isValidVoteValue = value => value === 1 || value === -1;
 // голос не учитывается
 export const isValidVoteReason = reason =>
   typeof reason === 'string' && reason.trim().length > 0;
+
+// клампит query-параметр в целое [1, max]; невалидное значение — fallback
+// (lobby-page-plan: GET /leaderboard?limit=). Вынесено из main.js (code
+// review L3), чтобы клампинг был покрыт юнит-тестом отдельно от роута
+export const clampLimit = (value, fallback, max) => {
+  const num = Number(value);
+
+  return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
+};

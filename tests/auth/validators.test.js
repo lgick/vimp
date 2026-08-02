@@ -4,6 +4,7 @@ import {
   isValidStateSize,
   isValidVoteValue,
   isValidVoteReason,
+  clampLimit,
 } from '../../packages/auth/src/lib/validators.js';
 
 describe('validators (auth)', () => {
@@ -89,5 +90,21 @@ describe('isValidVoteReason', () => {
     expect(isValidVoteReason('   ')).toBe(false);
     expect(isValidVoteReason(undefined)).toBe(false);
     expect(isValidVoteReason(null)).toBe(false);
+  });
+});
+
+// code review L3: клампинг GET /leaderboard?limit= вынесен из main.js сюда,
+// чтобы быть покрытым юнит-тестом независимо от роута
+describe('clampLimit', () => {
+  it('клампит в диапазон [1, max]', () => {
+    expect(clampLimit(50, 10, 100)).toBe(50);
+    expect(clampLimit(0, 10, 100)).toBe(1);
+    expect(clampLimit(9999, 10, 100)).toBe(100);
+  });
+
+  it('невалидное значение (не целое/отсутствует) — fallback', () => {
+    expect(clampLimit(undefined, 10, 100)).toBe(10);
+    expect(clampLimit('junk', 10, 100)).toBe(10);
+    expect(clampLimit(1.5, 10, 100)).toBe(10);
   });
 });

@@ -487,29 +487,60 @@ describe('UserRepository', () => {
   });
 
   // lobby-page-plan: топ-N рейтинга игры и позиция вызывающего
-  it('getLeaderboard возвращает топ-N и total, только rank>0 и с ником (проверка SQL/параметров)', async () => {
-    const calls = [];
+  it('getLeaderboard возвращает топ-N, total и place одним запросом (проверка SQL/параметров)', async () => {
     const db = createDbStub((text, values) => {
-      calls.push([text, values]);
-
-      if (text.includes('COUNT(*)')) {
-        expect(values).toEqual(['tanks']);
-        return { rows: [{ total: '2' }] };
-      }
-
       expect(text).toMatch(/r\.rank > 0 AND u\.nick IS NOT NULL/);
       expect(text).toMatch(/ORDER BY r\.rank DESC, u\.nick ASC/);
+      expect(text).toMatch(/COUNT\(\*\) OVER\(\)/);
+      expect(text).toMatch(/RANK\(\) OVER \(ORDER BY r\.rank DESC\)/);
       expect(values).toEqual(['tanks', 10]);
-      return { rows: [{ nick: 'player3', rank: 1500 }, { nick: 'user203', rank: 1420 }] };
+
+      return {
+        rows: [
+          { nick: 'player3', rank: 1500, total: '2', place: '1' },
+          { nick: 'user203', rank: 1420, total: '2', place: '2' },
+        ],
+      };
     });
 
     const repo = new UserRepository(db);
     const result = await repo.getLeaderboard('tanks', 10);
 
+    expect(db.query).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      leaderboard: [{ nick: 'player3', rank: 1500 }, { nick: 'user203', rank: 1420 }],
+      leaderboard: [
+        { nick: 'player3', rank: 1500, place: 1 },
+        { nick: 'user203', rank: 1420, place: 2 },
+      ],
       total: 2,
     });
+  });
+
+  // code review M3: игроки с равным rank делят место (competition ranking) —
+  // то же, что RANK() OVER(ORDER BY rank DESC), совпадает с семантикой
+  // placement в getPlacement
+  it('getLeaderboard: равный rank даёт одинаковый place, следующий перескакивает', async () => {
+    const db = createDbStub(() => ({
+      rows: [
+        { nick: 'a', rank: 100, total: '3', place: '1' },
+        { nick: 'b', rank: 100, total: '3', place: '1' },
+        { nick: 'c', rank: 50, total: '3', place: '3' },
+      ],
+    }));
+
+    const repo = new UserRepository(db);
+    const result = await repo.getLeaderboard('tanks', 10);
+
+    expect(result.leaderboard.map(row => row.place)).toEqual([1, 1, 3]);
+  });
+
+  it('getLeaderboard: пустая игра → total 0, leaderboard []', async () => {
+    const db = createDbStub(() => ({ rows: [] }));
+
+    const repo = new UserRepository(db);
+    const result = await repo.getLeaderboard('tanks', 10);
+
+    expect(result).toEqual({ leaderboard: [], total: 0 });
   });
 
   it('getPlacement возвращает placement/total/rank по CTE (проверка SQL/параметров)', async () => {
