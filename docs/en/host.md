@@ -138,7 +138,7 @@ to still being the join-time default:
   JWKS, see [auth.md](auth.md#joining-a-room-host-verification) and
   [master.md](master.md#getput-authrank-getput-authstate)) using the
   participant's own token. On any failure (auth service down, network
-  error) it silently keeps the defaults — rank `0` and the game's declared
+  error) it keeps the defaults — rank `0` and the game's declared
   `playerState.defaultState` (`HostGame` reads it from
   `data.playerState?.defaultState`, e.g. the game plugin's
   `src/config/game.js`, `vimp-tanks`'s,
@@ -153,8 +153,9 @@ to still being the join-time default:
   win/team-kill branching as the score update.
 - **Sync back**: `flush(participantId)` `PUT`s the participant's current
   state and *rank delta* to the master (`Promise.allSettled`, best-effort —
-  errors are swallowed and a later flush retries with whatever's accumulated
-  by then). Since server-rating stage 1, auth's `/rank` is an append-only
+  a failure never propagates into the round, and a later flush retries with
+  whatever's accumulated by then; it is logged, not swallowed, see
+  "Diagnosing rank/state sync" below). Since server-rating stage 1, auth's `/rank` is an append-only
   ledger, not an absolute value — `PlayerDataSync` tracks `pendingRankDelta`
   (everything `addRank` has added since the last successful flush) and
   `PUT`s that instead of the locally accumulated total; on a `200`, exactly
@@ -171,6 +172,19 @@ to still being the join-time default:
   `Stat.reset()`/`Stat.updateHead()` calls at those same boundaries.
   `HostGame.removeUser()` does one more best-effort `flush()` for the
   leaving participant before deleting its `PlayerDataSync` entry.
+- **Diagnosing rank/state sync**: because none of the above is allowed to
+  break a round, every failure path is tolerated — so each one logs a
+  `[playerData]` warning in the Worker's console instead of passing
+  unnoticed: a non-`ok` `GET` on join (which leaves `rankLoaded`/`stateLoaded`
+  `false` and thereby gates off *all* later `PUT`s), a non-`ok` `PUT` on
+  flush, and any rejected request. Silence across a whole match means the
+  requests were never issued at all, which points at `createUser` rather than
+  at the sync. Related invariant: the module takes `fetchImpl` and must keep
+  calling it as a standalone function — the constructor's default wraps the
+  global `fetch` in an arrow for that reason. Storing bare `fetch` in a field
+  and calling it as `this._fetch(...)` passes the instance as the receiver,
+  which is a `TypeError` in a browser/Worker before any request goes out, and
+  tests injecting a plain-function `fetchImpl` never see it.
 - **Attribution** (code-review fix, `plan/server-rating/review.md` finding
   №1): every `PUT` body also carries `hostId` **and its per-room
   `hostSecret`**, so the master can stamp the event with this room's verified

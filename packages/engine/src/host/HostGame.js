@@ -717,7 +717,7 @@ export default class HostGame {
     // финальная синхронизация rank/state перед уходом участника (Этап B4)
     this._playerDataSync
       .flush(gameId)
-      .catch(() => {})
+      .catch(err => console.warn('[playerData] final flush failed:', err.message))
       .finally(() => this._playerDataSync.removeUser(gameId));
 
     // если не наблюдатель — удалить танк из ядра (null-маркер ставит ядро)

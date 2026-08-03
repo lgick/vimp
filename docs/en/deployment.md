@@ -203,9 +203,21 @@ shared instance that every master domain points at.
     image` (keep the DB, RS256 keys and secrets, just re-pull and restart)
     or `2) recreate` (`docker compose down -v` — wipes the DB and keys,
     requires typing `yes` to confirm).
-- **Migrations** run automatically as part of the above. To re-run by hand
+- **Migrations** run automatically as part of the above, and on every push
+  to `main`: `deploy.yml`'s `deploy_auth` job pulls the new auth image,
+  restarts the stack and runs `node src/db/migrate.js` (idempotent —
+  `CREATE TABLE/INDEX IF NOT EXISTS`). It derives the project directory from
+  `AUTH_SERVICE_URL` and connects with the same `SERVER_USER`/`SERVER_SSH_KEY`
+  secrets as the master `deploy` job, but runs independently of it (masters
+  are not blocked when the auth domain isn't configured). To re-run by hand
   (e.g. after a manual schema change): `docker compose exec auth node
   src/db/migrate.js` from `~/vimp_projects/<domain>/`.
+- **`AUTH_SERVER_IP`** (Settings → Secrets and variables → Actions →
+  Variables) is the auth VPS's IP address, and it gates `deploy_auth`: with
+  the variable unset the job is skipped and the auth service is never
+  updated by CI, so a new migration reaches production only together with a
+  manual `add-server.sh` re-run — and nothing signals the omission. Set it
+  once, right after the auth domain is deployed.
 - **Adding a master later.** `VIMP_AUTH_ALLOWED_ORIGINS` is only set from
   what you entered when the auth stack was created/recreated — adding a
   new master domain afterwards means editing it by hand in

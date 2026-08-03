@@ -90,6 +90,76 @@ jobs:
           cache-to: type=gha,mode=max,scope=auth
 
   # ====================================================
+  # 1c. ДЕПЛОЙ AUTH-СЕРВИСА + МИГРАЦИИ БД
+  # ====================================================
+  # Раньше образ auth только публиковался в GHCR: на VPS его никто не
+  # подтягивал, а миграции гонялись лишь внутри add-server.sh — новая
+  # миграция доезжала до прода только вместе с реконфигурацией домена, и
+  # пропуск этого шага ничем не сигналился. Джоб пропускается, если
+  # AUTH_SERVER_IP не задан (auth-домен ещё не развёрнут).
+  deploy_auth:
+    needs: [build_and_push_auth]
+    if: vars.AUTH_SERVER_IP != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy auth service
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.AUTH_SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: AUTH_SERVICE_URL,GITHUB_ACTOR,GITHUB_TOKEN
+          script: |
+            set -e
+
+            # каталог домена создаёт add-server.sh; имя = хост из URL сервиса
+            AUTH_DOMAIN="${AUTH_SERVICE_URL#*://}"
+            AUTH_DOMAIN="${AUTH_DOMAIN%%/*}"
+            PROJECT_DIR="$HOME/vimp_projects/${AUTH_DOMAIN}"
+
+            if [ ! -d "$PROJECT_DIR" ]; then
+              echo "========================================================"
+              echo "❌ ERROR: '$PROJECT_DIR' не найден."
+              echo "   Запустите './add-server.sh' для auth-домена на сервере."
+              echo "========================================================"
+              exit 1
+            fi
+
+            cd "$PROJECT_DIR"
+
+            echo "🔐 Logging into GHCR..."
+            echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+            echo "🚀 Pulling and Restarting..."
+            docker compose pull
+            docker compose up -d
+
+            # миграции идемпотентны (CREATE TABLE/INDEX IF NOT EXISTS), поэтому
+            # гоняются на каждом деплое; ретраи — на прогрев контейнера auth
+            echo "🗃️  Applying migrations..."
+            MIGRATED=0
+            for attempt in $(seq 1 10); do
+              if docker compose exec -T auth node src/db/migrate.js; then
+                MIGRATED=1
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$MIGRATED" -ne 1 ]; then
+              echo "❌ ERROR: миграции не прошли. Логи: docker compose logs auth"
+              exit 1
+            fi
+
+            docker image prune -f || true
+
+            echo "✅ Auth service deployed for ${AUTH_DOMAIN}"
+
+  # ====================================================
   # 2. ПОДГОТОВКА СПИСКА СЕРВЕРОВ
   # ====================================================
   prepare-matrix:

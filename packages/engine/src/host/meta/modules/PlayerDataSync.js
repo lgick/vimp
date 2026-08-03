@@ -7,7 +7,11 @@ import lobbyConfig from '../../../config/lobby.js';
 // (RoundManager: смена карты, конец раунда). Схему/дефолты state объявляет
 // игра — здесь это чёрный ящик.
 export default class PlayerDataSync {
-  constructor(gameId, { fetchImpl = fetch, defaultState = {} } = {}) {
+  // дефолт fetchImpl обёрнут стрелкой, а не взят как голый `fetch`: из поля
+  // объекта он вызывался бы с `this` экземпляра, а в браузере/воркере у
+  // fetch brand-check на глобальный scope — это синхронный TypeError ещё до
+  // обращения к сети (тесты подставляют обычную функцию и мимо этого ходят)
+  constructor(gameId, { fetchImpl = (...args) => fetch(...args), defaultState = {} } = {}) {
     this._gameId = gameId;
     this._fetch = fetchImpl;
     this._defaultState = defaultState;
@@ -67,23 +71,31 @@ export default class PlayerDataSync {
         this._authedFetch(lobbyConfig.auth.stateUrl, token),
       ]);
 
-      if (rankRes.ok && !entry.rankLoaded) {
+      // неуспешный ответ логируется: rankLoaded/stateLoaded гейтят весь
+      // последующий flush, поэтому молчаливый 401/404 здесь навсегда
+      // выключает синхронизацию и выглядит снаружи как «данных просто нет»
+      if (!rankRes.ok) {
+        console.warn(`[playerData] GET rank ${rankRes.status} for ${participantId}`);
+      } else if (!entry.rankLoaded) {
         // F9: во время await мог накопиться addRank-дельта поверх
         // стартового 0 — прибавляем, а не перетираем серверным значением
         entry.rank += (await rankRes.json()).rank ?? 0;
         entry.rankLoaded = true;
       }
 
-      if (stateRes.ok && !entry.stateLoaded) {
+      if (!stateRes.ok) {
+        console.warn(`[playerData] GET state ${stateRes.status} for ${participantId}`);
+      } else if (!entry.stateLoaded) {
         const { state } = await stateRes.json();
 
         entry.state =
           state && Object.keys(state).length ? state : structuredClone(this._defaultState);
         entry.stateLoaded = true;
       }
-    } catch {
+    } catch (err) {
       // недоступность auth-сервиса — остаёмся на дефолтах, следующий
       // flush повторит load() перед синхронизацией (см. flush)
+      console.warn(`[playerData] load failed for ${participantId}:`, err.message);
     }
 
     return entry;
@@ -152,6 +164,8 @@ export default class PlayerDataSync {
         }).then(res => {
           if (res.ok) {
             entry.pendingRankDelta -= delta;
+          } else {
+            console.warn(`[playerData] PUT rank ${res.status} for ${participantId}`);
           }
         }),
       );
@@ -161,10 +175,20 @@ export default class PlayerDataSync {
       requests.push(this._authedFetch(lobbyConfig.auth.stateUrl, token, {
         method: 'PUT',
         body: { state, hostId: this._hostId, hostSecret: this._hostSecret },
+      }).then(res => {
+        if (!res.ok) {
+          console.warn(`[playerData] PUT state ${res.status} for ${participantId}`);
+        }
       }));
     }
 
-    await Promise.allSettled(requests);
+    // allSettled глушит отказы по замыслу (сбой не должен ронять раунд), но
+    // не должен глушить их след — иначе потеря синхронизации не диагностируема
+    for (const result of await Promise.allSettled(requests)) {
+      if (result.status === 'rejected') {
+        console.warn(`[playerData] flush failed for ${participantId}:`, result.reason?.message);
+      }
+    }
   }
 
   // синхронизирует всех текущих участников (границы раунда/карты)

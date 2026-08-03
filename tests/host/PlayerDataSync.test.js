@@ -25,6 +25,31 @@ describe('PlayerDataSync', () => {
     });
   });
 
+  // регрессия: голый `fetch` в поле объекта вызывался как this._fetch(...), то
+  // есть с получателем-экземпляром — в браузере/воркере это TypeError до сети,
+  // и весь rank/state-обмен молча отключался. Тесты этого не ловили, потому
+  // что всегда подставляли fetchImpl (обычную функцию без brand-check)
+  it('дефолтный fetch вызывается без привязки к экземпляру', async () => {
+    const receivers = [];
+    const original = globalThis.fetch;
+
+    globalThis.fetch = function (...args) {
+      receivers.push(this);
+
+      return Promise.resolve({ ok: true, json: async () => ({ rank: 0, state: {} }) });
+    };
+
+    try {
+      // без fetchImpl — ровно так модуль создаётся в HostGame
+      await new PlayerDataSync('tanks').load('p1', 'tok');
+    } finally {
+      globalThis.fetch = original;
+    }
+
+    expect(receivers).toHaveLength(2);
+    receivers.forEach(receiver => expect(receiver).not.toBeInstanceOf(PlayerDataSync));
+  });
+
   it('load оставляет дефолты при сбое auth-сервиса', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('network down');
