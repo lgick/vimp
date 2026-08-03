@@ -592,7 +592,8 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 60vh;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -684,8 +685,45 @@
   width: 410px;
 }
 
+/* высоту правой .card задаёт форма слева: обе панели тянутся до высоты
+   более высокой через stretch у .lobby-grid, а список скроллится внутри и
+   не влияет на высоту. Чтобы контент правой панели не раздувал строку, он
+   вынесен в абсолютный слой .lobby-browser-inner (его высота не участвует в
+   расчёте высоты строки) */
 #lobby-browser-panel {
   width: 430px;
+  position: relative;
+  padding: 0;
+}
+
+.lobby-browser-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+/* активная вкладка (servers/leaderboard) заполняет слой по высоте и
+   является flex-колонкой, внутри которой скроллится только список */
+#lobby-servers-content,
+#lobby-leaderboard-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* фиксированные элементы вкладок не сжимаются при переполнении списка;
+   это же держит #lobby-my-placement сразу за списком, а не внизу карточки */
+.lobby-tabs-header,
+#lobby-search,
+#lobby-empty,
+#lobby-more,
+.lobby-leaderboard-header,
+#lobby-my-placement {
+  flex-shrink: 0;
 }
 
 @media (max-width: 800px) {
@@ -697,6 +735,12 @@
   #lobby-setup-panel,
   #lobby-browser-panel {
     width: auto;
+  }
+
+  /* в столбик высоту строкой никто не задаёт — возвращаем слой в поток,
+     иначе absolute-слой схлопнулся бы в 0 */
+  .lobby-browser-inner {
+    position: static;
   }
 }
 
@@ -738,6 +782,9 @@
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 #lobby-leaderboard-list li,

@@ -29,17 +29,20 @@ div#lobby(style='display:none')
         input#lobby-host(type='button', value='Create server')
     //- правая панель: вкладки Active Servers / Leaderboard (lobby-page-plan)
     div#lobby-browser-panel.card
-      div.lobby-tabs-header
-        input#btn-show-servers.lobby-tab-btn.active(type='button', value='Active Servers')
-        input#btn-show-leaderboard.lobby-tab-btn(type='button', value='Leaderboard')
-      div#lobby-servers-content
-        input#lobby-search.field-text(type='text', placeholder='Search servers…')
-        ul#lobby-list
-        p#lobby-empty= 'No servers available'
-        input#lobby-more(type='button', value='Load more')
-      div#lobby-leaderboard-content(style='display:none')
-        div.lobby-leaderboard-header
-          span#leaderboard-title
-          span#leaderboard-total
-        ol#lobby-leaderboard-list
-        p#lobby-my-placement
+      //- абсолютный слой: высоту .card задаёт форма слева (stretch), а
+      //- список внутри скроллится, не раздувая карточку (lobby-page-plan)
+      div.lobby-browser-inner
+        div.lobby-tabs-header
+          input#btn-show-servers.lobby-tab-btn.active(type='button', value='Active Servers')
+          input#btn-show-leaderboard.lobby-tab-btn(type='button', value='Leaderboard')
+        div#lobby-servers-content
+          input#lobby-search.field-text(type='text', placeholder='Search servers…')
+          ul#lobby-list
+          p#lobby-empty= 'No servers available'
+          input#lobby-more(type='button', value='Load more')
+        div#lobby-leaderboard-content(style='display:none')
+          div.lobby-leaderboard-header
+            span#leaderboard-title
+            span#leaderboard-total
+          ol#lobby-leaderboard-list
+          p#lobby-my-placement

@@ -112,8 +112,8 @@ export default class LobbyView {
 
     this._tabServersBtn.classList.toggle('active', !showLeaderboard);
     this._tabLeaderboardBtn.classList.toggle('active', showLeaderboard);
-    this._serversContent.style.display = showLeaderboard ? 'none' : 'block';
-    this._leaderboardContent.style.display = showLeaderboard ? 'block' : 'none';
+    this._serversContent.style.display = showLeaderboard ? 'none' : 'flex';
+    this._leaderboardContent.style.display = showLeaderboard ? 'flex' : 'none';
   }
 
   // рендер топ-N + позиции вызывающего (lobby-page-plan)

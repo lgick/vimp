@@ -299,12 +299,12 @@ describe('LobbyView: вкладки (lobby-page-plan)', () => {
 
     view.showTab('leaderboard');
     expect(document.getElementById('lobby-servers-content').style.display).toBe('none');
-    expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('block');
+    expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('flex');
     expect(document.getElementById('btn-show-leaderboard').classList.contains('active')).toBe(true);
     expect(document.getElementById('btn-show-servers').classList.contains('active')).toBe(false);
 
     view.showTab('servers');
-    expect(document.getElementById('lobby-servers-content').style.display).toBe('block');
+    expect(document.getElementById('lobby-servers-content').style.display).toBe('flex');
     expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('none');
   });
 });
