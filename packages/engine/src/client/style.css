@@ -540,6 +540,11 @@
   top: 0;
   left: 0;
   z-index: 8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10px 0 0;
+  box-sizing: border-box;
 }
 
 #lobby-create {
@@ -547,7 +552,6 @@
   flex-direction: column;
   gap: 8px;
   margin-bottom: 12px;
-  border-bottom: 1px solid;
   padding: 8px;
 }
 
@@ -558,9 +562,30 @@
   text-align: left;
 }
 
+#lobby input[type='text'],
+#lobby select {
+  box-sizing: border-box;
+}
+
+#lobby select {
+  width: 200px;
+  padding: 1px 2px;
+  appearance: auto;
+}
+
+#lobby input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+#lobby-host {
+  margin: 16px auto 0;
+}
+
 #lobby-search {
   display: block;
-  margin-bottom: 12px;
+  width: 100%;
 }
 
 #lobby-list {
@@ -576,15 +601,16 @@
   grid-template-columns: 1fr auto auto;
   column-gap: 8px;
   row-gap: 2px;
-  padding: 8px;
-  margin-bottom: 4px;
-  background-color: #444;
-  border: 1px solid #555;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background-color: #363636;
+  border: 1px solid #444;
   cursor: pointer;
+  align-items: center;
 }
 
 .lobby-card:hover {
-  background-color: #555;
+  background-color: #444;
 }
 
 .lobby-card-name {
@@ -606,13 +632,33 @@
 
 .lobby-card-rating {
   grid-column: 2;
-  text-align: right;
-  color: #4caf50;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  font-size: 0 !important;
+  color: transparent !important;
+  position: relative;
 }
 
-.lobby-card-rating.is-negative {
-  color: #e57373;
+.lobby-card-rating::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  background-color: #4caf50;
+}
+
+.lobby-card-rating.is-negative::before {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #e57373;
+  background-color: transparent;
 }
 
 .lobby-card-latency {
@@ -620,6 +666,7 @@
   text-align: right;
   color: #ff0;
   font-size: 10px;
+  font-weight: bold;
 }
 
 #lobby-empty {
@@ -636,7 +683,7 @@
 #lobby-user {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 8px;
   margin-bottom: 12px;
   color: #aaa;
@@ -644,11 +691,12 @@
 
 /* два столбца лобби (lobby-page-plan): настройки/создание слева, вкладки
    Active Servers / Leaderboard справа; собственная ширина панелей
-   переопределяет фиксированный .card { width:256px } (id сильнее класса) */
+   переопределяет фиксированный .card { width:256px } (id сильнее класса);
+   align-items не задан — обе .card тянутся по умолчанию (stretch) до
+   высоты более высокой панели */
 .lobby-grid {
   display: flex;
   gap: 20px;
-  align-items: flex-start;
   justify-content: center;
 }
 
@@ -718,7 +766,6 @@
   justify-content: space-between;
   background-color: #363636;
   border: 1px solid #444;
-  font-family: monospace;
   color: #ccc;
   font-size: 12px;
   padding: 6px 10px;
@@ -741,6 +788,7 @@
   position: absolute;
   top: -14px;
   left: 50%;
+  transform: translateX(-50%);
   color: #666;
   font-weight: bold;
 }

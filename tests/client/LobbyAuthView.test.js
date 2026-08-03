@@ -94,8 +94,8 @@ describe('LobbyAuthView: переключение секций', () => {
     model.publisher.emit('authenticated', { nick: 'Vanya' });
 
     expect(document.getElementById('lobby-auth').style.display).toBe('none');
-    expect(document.getElementById('lobby').style.display).toBe('block');
-    expect(document.getElementById('lobby-user').style.display).toBe('block');
+    expect(document.getElementById('lobby').style.display).toBe('flex');
+    expect(document.getElementById('lobby-user').style.display).toBe('flex');
     expect(document.getElementById('lobby-user-nick').textContent).toBe('Vanya');
   });
 });

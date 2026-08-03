@@ -81,7 +81,7 @@ export default class LobbyView {
   }
 
   show() {
-    this._lobby.style.display = 'block';
+    this._lobby.style.display = 'flex';
   }
 
   hide() {

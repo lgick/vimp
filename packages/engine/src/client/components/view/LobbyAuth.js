@@ -92,8 +92,8 @@ export default class LobbyAuthView {
 
   showLobby({ nick }) {
     this._container.style.display = 'none';
-    this._lobby.style.display = 'block';
-    this._user.style.display = 'block';
+    this._lobby.style.display = 'flex';
+    this._user.style.display = 'flex';
     this._userNick.textContent = nick;
   }
 

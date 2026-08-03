@@ -8,8 +8,9 @@ div#lobby(style='display:none')
       //- бейдж входа (Этап B2): управляется LobbyAuthView, показывается
       //- вместе с #lobby после успешной авторизации
       div#lobby-user
-        span= 'Signed in as '
-        b#lobby-user-nick
+        div
+          span= 'Signed in as '
+          b#lobby-user-nick
         input#lobby-user-logout(type='button', value='Sign out')
       hr.lobby-divider
       h3.lobby-section-title= 'HOST A GAME'

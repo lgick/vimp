@@ -97,7 +97,7 @@ describe('LobbyView: показ/скрытие', () => {
     const view = new LobbyView(makeModel(), elems, observerFactory);
 
     view.show();
-    expect(document.getElementById('lobby').style.display).toBe('block');
+    expect(document.getElementById('lobby').style.display).toBe('flex');
 
     view.hide();
     expect(document.getElementById('lobby').style.display).toBe('none');
