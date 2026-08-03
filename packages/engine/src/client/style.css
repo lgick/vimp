@@ -730,11 +730,7 @@
   .lobby-grid {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  #lobby-setup-panel,
-  #lobby-browser-panel {
-    width: auto;
+    gap: unset;
   }
 
   /* в столбик высоту строкой никто не задаёт — возвращаем слой в поток,
