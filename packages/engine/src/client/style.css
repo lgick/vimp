@@ -637,8 +637,6 @@
   justify-content: center;
   width: 12px;
   height: 12px;
-  font-size: 0 !important;
-  color: transparent !important;
   position: relative;
 }
 
