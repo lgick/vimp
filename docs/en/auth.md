@@ -33,6 +33,11 @@ npm run start:auth        # production, reads .env
 npm run auth:db:migrate   # apply packages/auth/src/db/migrations/*.sql
 ```
 
+`dev:auth` and `auth:db:migrate` load the repository-root `.env` too
+(`node --env-file-if-exists`), so OAuth credentials and
+`VIMP_AUTH_DATABASE_URL` don't have to be exported into the shell by hand;
+unlike `start:auth`, they don't fail when the file is absent.
+
 Config file — [packages/auth/src/config/auth.js](../../packages/auth/src/config/auth.js).
 Requires a PostgreSQL database (`VIMP_AUTH_DATABASE_URL`, defaults to
 `postgres://localhost:5432/vimp_auth`) and an RS256 key pair under `.keys/`:
@@ -136,6 +141,7 @@ also reverted by the snapshot restore.
 | --- | --- |
 | `GET /oauth/:provider/start?returnUrl=` | redirects to the provider's authorize page; `returnUrl`'s origin must be in `VIMP_AUTH_ALLOWED_ORIGINS` (`400 returnUrlNotAllowed` otherwise) and a CSRF nonce are packed into a signed, stateless `state` param (`src/lib/oauthState.js` — HMAC, no server-side session), rate-limited per IP (`rateLimit(oauthStartLimiter)`) |
 | `GET /oauth/:provider/callback` | exchanges `code`, finds/creates the user by `(provider, providerUid)`, re-checks the decoded `returnUrl` origin, then redirects to it with either `?token=` (nick already set — full identity JWT) or `?pendingToken=` (first login — nick not chosen yet) |
+| `GET /dev/login?nick=&returnUrl=` **(dev only)** | skips OAuth entirely: finds/creates the user as `('dev', nick)`, sets the nick on first login (`setNick`'s `nick IS NULL` guard makes repeats a no-op) and redirects to `returnUrl` with `?token=` — exactly the shape `/oauth/:provider/callback` produces, so the client path is unchanged. The nick goes through the same `isValidNick`, the return URL through the same allow-list check as OAuth (no open redirect with a valid token). Registered **only** when `NODE_ENV !== 'production'`; in production the route does not exist (`404`). Handler — `src/devLogin.js`, see [getting-started.md](getting-started.md#central-auth-service-needed-to-reach-the-lobby) |
 | `POST /nick` (Bearer pending token, `{ nick }`) | CORS-enabled for `VIMP_AUTH_ALLOWED_ORIGINS` origins (preflight `OPTIONS` too — the only endpoint called directly from the browser lobby, not proxied by a master), rate-limited per IP; rejects an identity token (`403 nickAlreadySet` — a pending token is required, so `/nick` can't rename an existing user); validates the nick against `NAME_REGEXP` (case-insensitively unique — see Schema) and sets it, returns `{ token }` (full identity JWT). `409 { error: 'nickTaken' }` on a race |
 | `GET /jwks` | RS256 public key as a JWK — a host verifies `token`'s signature against this before trusting its `nick` |
 | `GET /rank?game=` (Bearer identity token) | `{ rank }` — the cached, clamped sum of the caller's non-voided `rank_events` for that game |
@@ -173,6 +179,7 @@ the opposite case (an identity token, i.e. `pending` missing).
 | `src/config/auth.js` | port/domain, JWT key paths, DB connection string, OAuth provider config |
 | `src/lib/jwt.js` | RS256 sign/verify (identity + pending tokens), JWKS export |
 | `src/lib/oauthState.js` | signed stateless OAuth `state` param (return URL + CSRF nonce) |
+| `src/devLogin.js` | dev-only login handler factory (`createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick })`) — dependencies injected so it is unit-testable without Express or a live database; wired in `main.js` behind `if (!isProduction)` |
 | `src/lib/validators.js` | nick regexp, duplicated from `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — the two workspaces don't share a runtime dependency |
 | `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions, read the leaderboard/placement for a game (lobby page plan) |
 | `src/oauth/github.js`, `src/oauth/index.js` | provider registry; `getAuthorizationUrl`/`exchangeCode` shape, extensible for Google/Apple |
@@ -318,7 +325,10 @@ needed for unit tests, incl. the `nick IS NULL` rename guard, and the
 `voteHost`/`getHostRating` cases: first vote, unchanged repeat vote as a
 no-op, an opinion flip, clamping into `config.rating` and setting `blocked`;
 `getLeaderboard`/`getPlacement` — single-query SQL shape, tied-`rank`
-competition ranking, an empty game).
+competition ranking, an empty game), `devLogin.test.js` (redirect carries a
+token that verifies against a throwaway RSA key pair, the nick is set only on
+the first login, an invalid nick and a foreign-origin `returnUrl` are both
+rejected before any write).
 
 Host-side verification (B3) and rank/state sync (B4) are tested in the
 engine tree instead: `tests/lib/jwt.test.js` (`verifyIdentityToken` — valid

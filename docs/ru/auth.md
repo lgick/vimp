@@ -33,6 +33,11 @@ npm run start:auth        # продакшн, читает .env
 npm run auth:db:migrate   # применить packages/auth/src/db/migrations/*.sql
 ```
 
+`dev:auth` и `auth:db:migrate` тоже читают `.env` из корня репозитория
+(`node --env-file-if-exists`), поэтому OAuth-креды и
+`VIMP_AUTH_DATABASE_URL` не нужно вручную экспортировать в шелл; в отличие
+от `start:auth`, они не падают, если файла нет.
+
 Конфиг — [packages/auth/src/config/auth.js](../../packages/auth/src/config/auth.js).
 Нужна база PostgreSQL (`VIMP_AUTH_DATABASE_URL`, по умолчанию
 `postgres://localhost:5432/vimp_auth`) и пара RS256-ключей в `.keys/`:
@@ -137,6 +142,7 @@ voter)`**: мнение гостя о хостере может меняться
 | --- | --- |
 | `GET /oauth/:provider/start?returnUrl=` | редирект на страницу провайдера; origin `returnUrl` обязан быть в `VIMP_AUTH_ALLOWED_ORIGINS` (иначе `400 returnUrlNotAllowed`), сам `returnUrl` и CSRF-nonce упакованы в подписанный stateless `state` (`src/lib/oauthState.js` — HMAC, без серверной сессии); rate-limit по IP (`rateLimit(oauthStartLimiter)`) |
 | `GET /oauth/:provider/callback` | обменивает `code`, находит/создаёт пользователя по `(provider, providerUid)`, повторно проверяет origin декодированного `returnUrl`, редиректит на него с `?token=` (ник уже есть — полноценный identity JWT) либо `?pendingToken=` (первый вход, ник не выбран) |
+| `GET /dev/login?nick=&returnUrl=` **(только dev)** | вход мимо OAuth: находит/создаёт пользователя как `('dev', nick)`, при первом входе задаёт ник (`setNick` с guard'ом `nick IS NULL` делает повтор no-op) и редиректит на `returnUrl` с `?token=` — ровно в той форме, что выдаёт `/oauth/:provider/callback`, поэтому клиентский путь не меняется. Ник проходит через тот же `isValidNick`, return URL — через ту же проверку allowlist, что и OAuth (открытого редиректа с валидным токеном не появляется). Регистрируется **только** при `NODE_ENV !== 'production'`; в проде маршрута не существует (`404`). Хендлер — `src/devLogin.js`, см. [getting-started.md](getting-started.md#центральный-auth-сервис-нужен-для-входа-в-лобби) |
 | `POST /nick` (Bearer pending-токен, `{ nick }`) | CORS для origin'ов из `VIMP_AUTH_ALLOWED_ORIGINS` (включая preflight `OPTIONS` — единственный эндпоинт, вызываемый напрямую браузером лобби, не проксируется мастером), rate-limit по IP; отклоняет identity-токен (`403 nickAlreadySet` — нужен именно pending-токен, иначе `/nick` мог бы переименовывать существующего пользователя); проверяет ник по `NAME_REGEXP` (уникальность регистронезависимая — см. «Схема БД») и сохраняет, возвращает `{ token }` (полный identity JWT). `409 { error: 'nickTaken' }` при гонке |
 | `GET /jwks` | публичный RS256-ключ в формате JWK — хост проверяет подпись `token` перед тем, как довериться его `nick` |
 | `GET /rank?game=` (Bearer identity-токен) | `{ rank }` — закэшированная, клампленная сумма непогашенных `rank_events` вызывающего для игры |
@@ -174,6 +180,7 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 | `src/config/auth.js` | порт/домен, пути к ключам JWT, строка подключения к БД, конфиг OAuth-провайдеров |
 | `src/lib/jwt.js` | подпись/проверка RS256 (identity + pending), экспорт JWKS |
 | `src/lib/oauthState.js` | подписанный stateless `state` OAuth (return URL + CSRF-nonce) |
+| `src/devLogin.js` | фабрика хендлера dev-входа (`createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick })`) — зависимости инжектируются, поэтому тестируется без Express и живой БД; подключается в `main.js` под `if (!isProduction)` |
 | `src/lib/validators.js` | regexp ника, продублирован из `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — воркспейсы не делят рантайм-зависимость |
 | `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state, чтение рейтинга/позиции игрока для лобби (lobby-page-plan) |
 | `src/oauth/github.js`, `src/oauth/index.js` | реестр провайдеров; форма `getAuthorizationUrl`/`exchangeCode`, расширяема под Google/Apple |
@@ -319,7 +326,10 @@ RSA-парой, мокает `config/auth.js`), `github.test.js` (мокает `
 `getHostRating`: первый голос, повторный неизменный голос как no-op, смена
 мнения, клампинг в `config.rating` и выставление `blocked`;
 `getLeaderboard`/`getPlacement` — форма SQL одним запросом, competition
-ranking при равном `rank`, пустая игра).
+ranking при равном `rank`, пустая игра), `devLogin.test.js` (редирект несёт
+токен, проверяемый одноразовой парой RSA-ключей; ник задаётся только при
+первом входе; невалидный ник и `returnUrl` с чужого origin отклоняются до
+любой записи).
 
 Проверка на стороне хоста (B3) и синхронизация rank/state (B4) тестируются
 в дереве движка: `tests/lib/jwt.test.js` (`verifyIdentityToken` — валидная

@@ -9,7 +9,7 @@ and signaling.
 
 | Page | Covers |
 | --- | --- |
-| [getting-started.md](getting-started.md) | Local setup: install, Rust toolchain, HTTPS certificates, running, tests, local multiplayer |
+| [getting-started.md](getting-started.md) | Local setup: install, linking a local game plugin, HTTPS certificates, auth service, running, development loop, tests, local multiplayer |
 | [architecture.md](architecture.md) | Overall architecture: master/host/client, game loop, connection lifecycle, key invariants |
 | [master.md](master.md) | Master server (entry point): room registry, `GET /servers`, map catalog, WebRTC signaling, `/like`·`/unlike` server rating |
 | [auth.md](auth.md) | Central auth service (`packages/auth/`): OAuth login, global nick, JWT/JWKS, per-game rank/state |

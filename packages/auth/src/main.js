@@ -4,6 +4,7 @@ import config from './config/auth.js';
 import jwtLib from './lib/jwt.js';
 import oauthState from './lib/oauthState.js';
 import { getProvider } from './oauth/index.js';
+import createDevLoginHandler from './devLogin.js';
 import dbPool from './db/pool.js';
 import UserRepository, { NickTakenError, NickAlreadySetError } from './UserRepository.js';
 import {
@@ -158,6 +159,16 @@ app.use('/nick', (req, res, next) => {
 
   next();
 });
+
+// GET /dev/login?nick=&returnUrl=... — вход без OAuth-провайдера. Только вне
+// прода: в проде маршрут не регистрируется вообще (404), иначе это была бы
+// выдача личности по одному GET-запросу
+if (!isProduction) {
+  app.get(
+    '/dev/login',
+    createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick }),
+  );
+}
 
 // GET /oauth/:provider/start?returnUrl=... — редирект на страницу провайдера
 app.get('/oauth/:provider/start', rateLimit(oauthStartLimiter), (req, res) => {
@@ -459,6 +470,13 @@ server.listen(config.port, () => {
     Auth service is running for ${env.NODE_ENV || 'development'} mode.
     Listening on http://localhost:${config.port}
   `);
+
+  if (!isProduction) {
+    console.warn(
+      `    DEV login enabled: http://localhost:${config.port}` +
+        `/dev/login?nick=Player1&returnUrl=${config.allowedOrigins[0]}/\n`,
+    );
+  }
 });
 
 export default app;
