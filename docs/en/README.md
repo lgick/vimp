@@ -25,6 +25,11 @@ Game rules and content-authoring docs (gameplay, extending, game-specific
 configuration/core) live in the active game plugin's own repository, e.g.
 [vimp-tanks/docs/en/](https://github.com/lgick/vimp-tanks/blob/main/docs/en/README.md).
 
+Writing a game plugin with an LLM? [docs/ai/](../ai/README.md) is a separate,
+self-contained specification of the whole plugin contract (plus an authoring
+workflow and an interview questionnaire) aimed at language models — not part
+of this bilingual set.
+
 ## Where to start
 
 - **I want to run it locally** → [getting-started.md](getting-started.md)

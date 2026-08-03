@@ -33,6 +33,11 @@ Bilingual user docs live in `docs/en/` (canonical, ToC at
 | plugin contract, game-package loading (`GameManifest`, `GameCatalog`, Wasm ABI) | `plugin-api.md` |
 | deploy scripts, workflows, npm scripts | `deployment.md`, `getting-started.md` |
 
+`docs/ai/` is a separate English-only, self-contained spec of the plugin
+contract for LLMs authoring a game plugin (index: `docs/ai/README.md`); the
+bilingual rule does not apply to it, but plugin-contract changes must be
+reflected there too.
+
 Game rules (gameplay), content-authoring (extending), and the game-specific
 halves of configuration/core live in the active game plugin's own repo docs
 (e.g. `vimp-tanks`'s `docs/en/`), not here — this repo only documents the
