@@ -1,3 +1,5 @@
+import clock from './clock.js';
+
 /**
  * @class AbstractTimer
  * @description Базовый класс для управления таймерами (setTimeout, setInterval)
@@ -25,7 +27,7 @@ class AbstractTimer {
 
     if (isInterval) {
       // setInterval живёт, пока его не остановят
-      const timerId = setInterval(callback, duration);
+      const timerId = clock.setInterval(callback, duration);
       this._timers.set(key, { timerId, isInterval });
     } else {
       // setTimeout удаляется сразу после выполнения
@@ -34,7 +36,7 @@ class AbstractTimer {
         callback();
       };
 
-      const timerId = setTimeout(wrappedCallback, duration);
+      const timerId = clock.setTimeout(wrappedCallback, duration);
       this._timers.set(key, { timerId, isInterval });
     }
   }
@@ -47,7 +49,7 @@ class AbstractTimer {
   _stopTimer(key) {
     if (this._timers.has(key)) {
       const { timerId, isInterval } = this._timers.get(key);
-      const handler = isInterval ? clearInterval : clearTimeout;
+      const handler = isInterval ? clock.clearInterval : clock.clearTimeout;
 
       handler(timerId);
 
@@ -72,7 +74,7 @@ class AbstractTimer {
   _clearAllTimers() {
     for (const timerData of this._timers.values()) {
       const { timerId, isInterval } = timerData;
-      const handler = isInterval ? clearInterval : clearTimeout;
+      const handler = isInterval ? clock.clearInterval : clock.clearTimeout;
 
       handler(timerId);
     }

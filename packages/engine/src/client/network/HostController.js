@@ -50,6 +50,11 @@ export default class HostController {
 
     this._swap = null; // состояние эстафеты (Этап 5.2)
 
+    // отладочные запросы в Worker (этап 6 плана plan/ai-debug):
+    // requestId → { resolve, reject }
+    this._debugRequests = new Map();
+    this._debugRequestId = 0;
+
     this._worker.onmessage = e => this._onWorkerMessage(e.data);
 
     // старт авторитетной части в Worker'е
@@ -177,8 +182,62 @@ export default class HostController {
     });
   }
 
+  /**
+   * Отладочный контур (этап 6 плана plan/ai-debug): начинает запись живого
+   * матча в формат сценария headless-runner'а.
+   * @returns {Promise<boolean>} false — dev-режим в комнате выключен.
+   */
+  startRecording() {
+    return this._debug('startRecording');
+  }
+
+  /**
+   * Останавливает запись и отдаёт сценарий (`npm run sim:replay`).
+   * @returns {Promise<Object|null>}
+   */
+  stopRecording() {
+    return this._debug('stopRecording');
+  }
+
+  /**
+   * Дамп авторитетной половины: мета хоста + мир ядра (этап 4).
+   * @returns {Promise<Object>}
+   */
+  dump() {
+    return this._debug('dump');
+  }
+
+  // запрос/ответ с Worker'ом по requestId: postMessage односторонний, а
+  // отладке нужен именно результат, а не факт отправки
+  _debug(action) {
+    if (this._swap?.paused) {
+      return Promise.reject(new Error('worker swap in progress'));
+    }
+
+    this._debugRequestId += 1;
+
+    const requestId = this._debugRequestId;
+
+    return new Promise((resolve, reject) => {
+      this._debugRequests.set(requestId, { resolve, reject });
+      this._worker.postMessage({ type: 'debug', action, requestId });
+    });
+  }
+
+  // ответы приходят от конкретного Worker'а: его смерть (destroy, эстафета)
+  // означает, что ждать нечего — висящий промис хуже честной ошибки
+  _rejectDebugRequests(reason) {
+    for (const { reject } of this._debugRequests.values()) {
+      reject(new Error(reason));
+    }
+
+    this._debugRequests.clear();
+  }
+
   // останавливает Worker (закрытие комнаты)
   destroy() {
+    this._rejectDebugRequests('host destroyed');
+
     if (this._swap) {
       this._swap.next?.terminate();
       this._clearSwapTimeout();
@@ -210,6 +269,9 @@ export default class HostController {
     }
 
     this._swap.paused = true;
+
+    // запись/дамп относятся к останавливаемому Worker'у — новый их не знает
+    this._rejectDebugRequests('worker swap in progress');
 
     // Этап 6.5: своп несёт свежий манифест игры — новый Worker должен
     // грузить актуальный hostEntryUrl/wasmUrl, а не тот, с которым комната
@@ -309,6 +371,22 @@ export default class HostController {
       case 'handoff_state':
         this._onHandoffState(msg.state);
         break;
+
+      case 'debug_result': {
+        const pending = this._debugRequests.get(msg.requestId);
+
+        if (pending) {
+          this._debugRequests.delete(msg.requestId);
+
+          if (msg.error) {
+            pending.reject(new Error(msg.error));
+          } else {
+            pending.resolve(msg.result);
+          }
+        }
+
+        break;
+      }
 
       case 'to_client':
         this._deliveries.get(msg.socketId)?.onMessage(msg.payload, msg.reliable);

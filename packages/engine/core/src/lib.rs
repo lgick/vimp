@@ -10,6 +10,7 @@
 pub mod abi;
 pub mod client;
 pub mod config;
+pub mod debug;
 pub mod events;
 pub mod game;
 pub mod map;

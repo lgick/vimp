@@ -1,4 +1,5 @@
 import GAME_CODES from '../../config/gameCodes.js';
+import clock from '../../lib/clock.js';
 
 const TECH_CODES = {
   fullServer: [0],
@@ -278,7 +279,7 @@ export default class SocketManager {
     this._send(socketId, this._PORT_FIRST_SHOT_DATA, [
       this._game.getPlayersData(), // gameSnapshot
       0, // camera
-      Date.now(), // serverTime
+      clock.now(), // serverTime
       0, // seq
     ]);
     this.sendStat(socketId, this._stat.getFull());
@@ -305,6 +306,17 @@ export default class SocketManager {
    */
   sendShot(socketId, frameBuffer, reliable) {
     this._sendBinary(socketId, frameBuffer, reliable);
+  }
+
+  /**
+   * Отправка отладочного лога хоста в консоль клиента (порт CONSOLE,
+   * этап 6 плана plan/ai-debug). Worker изолирован от DevTools вкладки —
+   * без этого канала его события в браузере не видны вовсе.
+   * @param {string} socketId
+   * @param {*} data
+   */
+  sendConsole(socketId, data) {
+    this._send(socketId, this._PORT_CONSOLE, data);
   }
 
   /**

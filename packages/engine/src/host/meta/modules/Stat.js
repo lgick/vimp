@@ -291,4 +291,11 @@ class Stat {
   }
 }
 
+// Сброс синглтона. Нужен только тем, кто крутит больше одного матча в
+// процессе — headless-runner (devtools/resetHostSingletons.js) и тесты;
+// в браузерной вкладке матч всегда один, поэтому прод его не зовёт.
+export const resetStat = () => {
+  stat = null;
+};
+
 export default Stat;

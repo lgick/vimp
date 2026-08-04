@@ -26,6 +26,7 @@
 - **Разрыв P2P** (`handleDisconnect`): выход хоста = смерть комнаты (host-migration нет) — останавливает рендер-тик и `Application`-ы, показывает заглушку и возвращает в лобби перезагрузкой. Терминальная причина закрытия, уже показанная tech-informer'ом (кик, полная комната — любые коды, кроме `loading`), общим сообщением «Host left…» не затирается; причину Worker хоста доставляет `TECH_INFORM_DATA`-сообщением непосредственно перед закрытием канала (см. [network.md](network.md#rtt-pingpong-и-кики)). `techInformList` имеет дефолт из бандла (`packages/engine/src/config/clientDefaults.js`) — отказ полной комнаты приходит до `CONFIG_DATA`.
 - **Отсутствие WebRTC** (`ensureWebRtcAvailable`): если `RTCPeerConnection` недоступен (Firefox с `media.peerconnection.enabled = false`, resistFingerprinting и т.п.), `connectToHost`/`connectAsHost` показывают честное сообщение и не покидают лобби вместо падения с чёрным экраном.
 - **Роль хоста**: `connectAsHost` перед стартом Worker'а фетчит каталог карт мастера (fallback на бандл), после `ready` регистрирует комнату и держит heartbeat; сигнальный WS хоста при разрыве переподключается с бэкоффом (`lobbyConfig.reconnect`) и заново регистрирует комнату (повторный `welcome` лобби не пересоздаёт — guard в `initLobby`). Сбой инициализации Worker'а (`error`) гасит комнату с сообщением и возвращает в лобби.
+- **Отладочный API (только dev-сборка)**: `window.__vimpDebug` (`packages/engine/src/client/debug.js`) — `dump()`, `startRecording()`, `stopRecording()`, `divergence()`, `save()`. Ветка стоит под `import.meta.env.DEV`, поэтому прод-бандл её вырезает; тот же флаг уезжает в `room.isDevMode` и включает рекордер хоста. Порт 12 (`CONSOLE`) приносит отладочный лог хоста в консоль этой вкладки как `[vimp:debug][host] …`. См. [debugging.md](debugging.md#браузерная-половина).
 
 ## Сетевой слой (packages/engine/src/client/network/)
 
@@ -119,7 +120,11 @@ wasm-bindgen класс `ClientCore` из того же WASM-бинаря,
   (view пересоздаётся каждый тик: рост памяти WASM детачит buffer). Буфер несёт
   флаги, камеру (уже разрешённую: предсказанная позиция либо интерполированная),
   интерполированные записи акторов/динамики и predicted-запись своего актора
-  последней. Адаптер `reconstructHot` (~40 строк в `main.js`) собирает из него
+  последней. Адаптер `reconstructHot`
+  (`packages/engine/src/lib/reconstructHot.js`: `buildSnapshotKeysById` —
+  обратный индекс схемы, `reconstructHot(hot, keysById)` — обход буфера;
+  общий с headless-runner'ом, который разбирает кадры тем же кодом) собирает
+  из него
   объект прежней формы `{ m1: { id: [...] }, c1: {...} }` и отдаёт в
   существующий `applyGameData` — GameCtrl/parts не менялись; predicted-запись
   перекрывает свой актор тем же конвейером.

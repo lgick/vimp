@@ -271,4 +271,16 @@ describe('GameCoreAdapter', () => {
       -1,
     ]);
   });
+
+  it('debugJson парсит дамп ядра, а без метода в ядре — null', () => {
+    const adapter = new GameCoreAdapter(core, {
+      participants: makeParticipants(),
+    });
+
+    expect(adapter.debugJson()).toBeNull();
+
+    core.debug_json = () => JSON.stringify({ bodies: [{ handle: 1 }] });
+
+    expect(adapter.debugJson()).toEqual({ bodies: [{ handle: 1 }] });
+  });
 });

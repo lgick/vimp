@@ -107,6 +107,20 @@ impl NavigationSystem {
         !self.nodes.is_empty()
     }
 
+    // ***** отладочный дамп (crate::debug) ***** //
+
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.edges.iter().map(|edges| edges.len()).sum()
+    }
+
+    pub fn grid_step(&self) -> f32 {
+        self.grid_step
+    }
+
     /// Случайный узел графа (цель патрулирования).
     pub fn random_node(&self, rng: &mut Rng) -> Option<[f32; 2]> {
         if self.nodes.is_empty() {

@@ -50,7 +50,15 @@
   `roomTimeMin…roomTimeMax`)/friendly fire; карты —
   из `room.maps`, если главный поток скачал каталог мастера), инициализирует
   ядро через `HostPlugin.createCore(coreConfigJson, { wasmUrl:
-  room.game.wasmUrl })`, создаёт `HostGame`, отвечает `ready`; `handoff` —
+  room.game.wasmUrl })`, создаёт `HostGame`, отвечает
+  `ready { mapName, seed }`. Всё, кроме postMessage-обвязки, — это
+  `packages/engine/src/lib/createHostRuntime.js`, та же функция, которой
+  поднимает матч headless-runner, так что разъехаться они не могут (её точки
+  расширения — `loadHostPlugin`, `createSocketManager`, `hostOptions`,
+  `overrideGameConfig` — в проде не задаются и дают поведение выше). `seed`
+  в `ready` — тот PRNG-сид, на котором реально идёт матч: `room.seed`, если
+  задан, иначе розыгрыш через `clock`; именно он делает запись
+  воспроизводимой, см. [debugging.md](debugging.md); `handoff` —
   состояние эстафеты Worker'ов: комната восстанавливается вместо холодного
   старта. Сбой (импорт игры/WASM/конфиг/handoff-мета) — сообщение
   `error { message }`: при холодном старте главный поток гасит комнату и
@@ -69,13 +77,17 @@
 - `update_maps(maps)` — обновлённый каталог карт мастера →
   `HostGame.updateMaps`;
 - `prepare_handoff` / `resume` / `handoff_complete` — протокол эстафеты
-  Worker'ов (см. одноимённый раздел ниже).
+  Worker'ов (см. одноимённый раздел ниже);
+- `debug { action, requestId }` — отладочные запросы, только в dev
+  (`startRecording`/`stopRecording`/`dump`), ответ — `debug_result` с тем же
+  `requestId`; см. [debugging.md](debugging.md).
 
 Обратно в главный поток Worker шлёт `to_client` (wire-кадр: JSON-строка или
-бинарный `ArrayBuffer` через Transferable), `close_client`, `ready`,
-`error` (сбой инициализации), `map_changed { mapName }` (смена карты
-голосованием/таймером — главный поток актуализирует комнату у мастера) и
-`handoff_state { state }` (эстафета: состояние комнаты на границе раунда).
+бинарный `ArrayBuffer` через Transferable), `close_client`,
+`ready { mapName, seed }`, `error` (сбой инициализации),
+`map_changed { mapName }` (смена карты голосованием/таймером — главный поток
+актуализирует комнату у мастера), `handoff_state { state }` (эстафета:
+состояние комнаты на границе раунда) и `debug_result { requestId, … }`.
 Per-user **wire-сокет** (`makeWorkerSocket`) реализует контракт `SocketManager`
 (`send`/`sendBinary`/`close`) поверх `postMessage`. Особенности транспорта:
 
@@ -246,6 +258,23 @@ Host-фасад — wiring модулей + жизненный цикл учас
 
 Клиентский `CONFIG_DATA` (порт 0: базовый конфиг + время голосования + данные
 prediction) собирает `packages/engine/src/lib/buildClientConfig.js`.
+
+### Отладочный рекордер (только dev)
+
+При включённом `gameConfig.isDevMode` (`room.isDevMode`, который
+`client/main.js` берёт из `import.meta.env.DEV`) `HostGame` держит
+`DebugRecorder` (`packages/engine/src/host/DebugRecorder.js`, Worker-safe —
+только `clock`): он пишет живой матч в формат сценария headless-runner'а —
+seed, входы и каждый `updateKeys`/`pushMessage`/`parseVote` с номером тика.
+В проде рекордер `null`, и все точки записи вырождаются в `?.`.
+
+Публичная поверхность: `startRecording()`, `stopRecording()`, `isRecording`,
+`debugSnapshot()` (мета хоста — seed, seq, тик, участники, текущая карта —
+плюс `debug_json` ядра). До вкладки это доезжает парой сообщений Worker'а
+`debug`/`debug_result` и методами `HostController.startRecording/
+stopRecording/dump()`; события самого рекордера дополнительно уходят в
+консоли клиентов портом `CONSOLE`. Контур целиком:
+[debugging.md](debugging.md#браузерная-половина).
 
 ## GameCoreAdapter (`packages/engine/src/host/GameCoreAdapter.js`)
 

@@ -1,3 +1,5 @@
+import clock from '../../../lib/clock.js';
+
 /**
  * @class RTTManager
  * @description Управляет расчетом Round Trip Time (RTT) для пользователя,
@@ -96,7 +98,7 @@ export default class RTTManager {
 
       // новый пинг
       user.pingIdCounter += 1;
-      const time = Date.now();
+      const time = clock.now();
 
       // удаление старых пингов и запись нового
       // `outstandingPings` содержит только один, последний отправленный пинг
@@ -141,7 +143,7 @@ export default class RTTManager {
     const time = user.outstandingPings.get(pingId);
 
     if (time) {
-      const newRttSample = Date.now() - time;
+      const newRttSample = clock.now() - time;
       const oldRtt = user.rtt;
 
       // сглаживание значения RTT

@@ -207,4 +207,9 @@ every item here fails **silently** or with an error far from its cause.
   no per-player progression rules: model them inside your core and snapshot
   schema if you need them.
 - No runtime localisation: one language per config.
-- No debug mode.
+- No in-game debug overlay or debug HUD. What does exist is out-of-band: the
+  engine's headless runner (`npm run sim`), which replays a scenario without
+  a browser and reports every broken contract on this page by name, plus
+  `debug_json()` world dumps and a prediction-drift detector — all of it free
+  to your plugin. See `13-debugging.md`; verifying this checklist with the
+  runner beats verifying it by eye.

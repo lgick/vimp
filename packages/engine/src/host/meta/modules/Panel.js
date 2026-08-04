@@ -178,4 +178,11 @@ class Panel {
   }
 }
 
+// Сброс синглтона. Нужен только тем, кто крутит больше одного матча в
+// процессе — headless-runner (devtools/resetHostSingletons.js) и тесты;
+// в браузерной вкладке матч всегда один, поэтому прод его не зовёт.
+export const resetPanel = () => {
+  panel = null;
+};
+
 export default Panel;

@@ -4,6 +4,7 @@
 //! (`game::GameClientDef`, реализует конкретная игра — см.
 //! games/tanks/core/src/client/mod.rs).
 
+pub mod divergence;
 pub mod game;
 pub mod interpolator;
 pub mod raycast;

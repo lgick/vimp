@@ -11,6 +11,7 @@ import config from '../lib/config.js';
 import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import { clampLimit } from '../lib/validators.js';
+import DebugReportStore from './DebugReportStore.js';
 import GameCatalog from './GameCatalog.js';
 import HostRatingProxy from './HostRatingProxy.js';
 import HostRegistry from './HostRegistry.js';
@@ -156,9 +157,6 @@ const signaling = new SignalingServer(registry, {
 const app = express();
 let server;
 
-// нужен для тела PUT /auth/rank и /auth/state (Этап B4)
-app.use(express.json());
-
 const port = config.get('master:port');
 
 // гигиена среды (Этап 5.4): базовые security-заголовки на всех ответах.
@@ -177,6 +175,32 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// Выгрузка браузерной половины отладочного контура (этап 6 плана
+// plan/ai-debug): записанный вкладкой хоста сценарий и дампы ложатся в тот же
+// `.debug/`, куда пишет headless-runner. Только dev: в проде это запись на
+// диск по запросу произвольного клиента. Свой парсер тела — сценарий матча
+// заведомо не влезает в дефолтные 100 kb express.json
+if (!isProduction) {
+  const debugReports = new DebugReportStore(
+    path.resolve(engineDir, '..', '..', '.debug'),
+  );
+
+  app.post('/debug/report', express.json({ limit: '8mb' }), (req, res) => {
+    debugReports
+      .save(req.body)
+      .then(({ file, bytes }) => {
+        console.info(`[vimp:debug] report saved: .debug/${file} (${bytes} B)`);
+        res.json({ file, bytes });
+      })
+      .catch(err => {
+        res.status(err.status || 500).json({ error: err.message });
+      });
+  });
+}
+
+// нужен для тела PUT /auth/rank и /auth/state (Этап B4)
+app.use(express.json());
 
 // REST API: список серверов (пагинация, регионы, поиск)
 app.get('/servers', (req, res) => {

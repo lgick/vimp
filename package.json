@@ -29,7 +29,10 @@
     "test:coverage": "vitest run --coverage",
     "build": "npm run build:app",
     "build:app": "npm -w vimp-engine run build",
-    "core:test": "cargo test --workspace"
+    "core:test": "cargo test --workspace",
+    "sim": "node packages/engine/bin/vimp-sim.js",
+    "sim:replay": "node packages/engine/bin/vimp-sim.js --scenario",
+    "sim:check": "node packages/engine/bin/vimp-sim.js --no-write"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
@@ -42,6 +45,6 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@vimp-games/tanks": "^0.3.0"
+    "@vimp-games/tanks": "^0.4.0"
   }
 }

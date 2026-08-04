@@ -159,11 +159,16 @@ export default class FakeGameCore {
   // ***** упаковка снапшота (фикстурный формат — не бинарный кодек ядра;
   // достаточно для тестов меты, которые не декодируют реальный фрейминг) ***** //
 
+  // поля записи — по снапшот-схеме фикстуры (config/game.js, ключ a1):
+  // x, y, angle, team; клиентская половина фикстуры раскладывает их в
+  // hot-буфер той же ширины, что заявлена схемой
   pack_body() {
     this._lastBody = [...this._actors.entries()].map(([id, a]) => ({
       id: Number(id),
       x: a.x,
       y: a.y,
+      angle: a.angle,
+      team: a.team,
     }));
   }
 
@@ -183,6 +188,35 @@ export default class FakeGameCore {
 
   frame_bytes() {
     return new TextEncoder().encode(JSON.stringify(this._lastFrame));
+  }
+
+  // ***** отладка ***** //
+
+  // форма дампа — та же, что у движкового crate::debug (тела/карта/rng),
+  // с поправкой на фикстуру без физики: актёры и есть тела
+  debug_json() {
+    return JSON.stringify({
+      bodies: [...this._actors.entries()].map(([id, a]) => ({
+        handle: Number(id),
+        tag: 2,
+        userData: String(id),
+        translation: [a.x, a.y],
+        rotation: a.angle,
+        linvel: [a.vx, a.vy],
+        angvel: 0,
+        mass: 1,
+        bodyType: 'Dynamic',
+        ccd: false,
+      })),
+      colliders: [],
+      map: this._map
+        ? { setId: this._map.setId, step: this._map.step ?? null }
+        : null,
+      nav: null,
+      spatial: { cells: 0, entities: 0, cellCounts: [] },
+      rng: { state: '0' },
+      step: { timeStep: this._config.timeStep ?? null, accumulator: 0 },
+    });
   }
 
   // ***** handoff (задел, PLAN.md §6 «открытые вопросы») ***** //

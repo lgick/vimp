@@ -246,6 +246,31 @@ hostSecret)` в `main.js` ищет комнату в `HostRegistry` и возв�
 её точно так же, как деплой только движка. Протокол свопа и
 `HANDOFF_VERSION` — см. [host.md](host.md#эстафета-workerов).
 
+### POST /debug/report (только dev)
+
+Приёмник браузерной половины отладочного контура: вкладка хоста выгружает
+сюда записанный сценарий или дамп состояния, файл ложится в тот же
+`.debug/`, куда пишет headless-runner, — см.
+[debugging.md](debugging.md#выгрузка-post-debugreport).
+
+Маршрут регистрируется **только при `!isProduction`**: в проде это была бы
+запись на диск по запросу произвольного клиента. У него свой парсер тела
+(`express.json({ limit: '8mb' })`, поднят до глобального стокилобайтного) —
+записанный матч заведомо не влезает в дефолтный лимит.
+
+```
+POST /debug/report
+{ "kind": "scenario" | "dump" | "divergence", "payload": {...}, "note": "танк в стене" }
+
+→ 200 { "file": "scenario-<метка>-1.json", "bytes": 24576 }
+→ 400 { "error": "unknown kind 'x'" }   // kind из закрытого списка: имя файла собирается из данных запроса
+→ 413 { "error": "payload too large: ... > 8388608" }
+```
+
+`packages/engine/src/master/DebugReportStore.js` пишет
+`{ kind, note, receivedAt, payload }` и логирует результат как
+`[vimp:debug] report saved: …`.
+
 ## Сигнальный протокол (WebSocket)
 
 Сообщения — JSON-объекты с полем `type`. При подключении соединение проходит проверку `Origin` (allowlist через `security.createOriginValidator`; отсутствие `Origin` — немедленный `terminate`, чужой — закрытие с кодом `4001`), затем получает:

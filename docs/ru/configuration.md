@@ -57,7 +57,7 @@
 
 | Параметр | Значение | Описание |
 | --- | --- | --- |
-| `isDevMode` | `false` | Флаг режима разработки (открывает dev-команды чата) |
+| `isDevMode` | `false` | Флаг режима разработки: открывает dev-команды чата и отладочный рекордер в `HostGame` ([debugging.md](debugging.md#рекордер)). Комната берёт его из `room.isDevMode`, который клиент выставляет из `import.meta.env.DEV`; в прод-бандле остаётся `false` |
 | `maxPlayers` | `30` | Дефолтный лимит участников; комната хоста ограничивает его настройкой создателя (кламп к `roomDefaults.maxPlayers` игры), лимит считается по людям |
 | `chatMaxLength` | `60` | Максимальная длина сообщения чата (авторитетно на хосте; должна совпадать с `maxlength` инпута в `chat.pug`) |
 | `spectatorKeys` | `nextPlayer`/`prevPlayer` | Команды наблюдателя и неактивного игрока (переключение наблюдаемого) |
@@ -122,6 +122,14 @@ rank/state (движковая сторона) — [auth.md](auth.md#загру�
 - `delay: 100` — мс; мир рендерится в прошлом (`renderTime = serverNow − delay`), ~3 кадра при 30 пакетах/сек;
 - `maxFrameAge: 1000` — страховочная очистка старых кадров буфера.
 
+### `divergence` — детектор рассинхрона предикта (движок, опционально)
+
+В боевом конфиге секции нет, и тогда путь кадра не делает ничего лишнего.
+Читается клиентским ядром, в headless-прогоне задаётся полем `divergence`
+сценария: `thresholds` (позиционно по player-блоку), `defaultThreshold`,
+`capacity` (кольцевой буфер). См.
+[debugging.md](debugging.md#детектор-рассинхрона-предикта).
+
 ### `modules.canvasManager` — полотна и камера
 
 Общие параметры `dynamicCamera` — движковые; набор полотен `canvases` — игровой. Canvas-элементы генерирует `main.js` из этого конфига (ключ — id элемента; `width`/`height` — стартовый размер до первого resize):
@@ -185,6 +193,7 @@ DOM-структуры (`elems`) — движковые; тексты и схе�
 - `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`, `leaderboardLimit: 10` (lobby-page-plan) — проксируемые мастером эндпоинты рейтинга/позиции игрока (см. [master.md](master.md#get-authleaderboard-get-authplacement)) и размер топ-N для вкладки Leaderboard; тот же origin, что и у мастера — правки CSP не нужны;
 - `reconnect` — переподключение сигнального WS хоста: экспоненциальный бэкофф от `baseDelay: 1000` до `maxDelay: 30000` (мс);
 - `pageSize: 10` — размер страницы для «Загрузить ещё» (`offset`/`limit`);
+- `debugReportUrl: '/debug/report'` — эндпоинт выгрузки отладочного контура (`window.__vimpDebug`); маршрут поднимается мастером только в dev, см. [debugging.md](debugging.md#выгрузка-post-debugreport);
 - `pingInterval: 5000` — минимальный интервал повторного `ping_host` одного сервера (защита от спама при скролле/перерисовке);
 - `elems` — id DOM-элементов лобби (из `lobby.pug`), включая `nameId`/`hostBtnId` — поле имени и кнопка «создать сервер» (браузерный хост, [host.md](host.md)) — и, с lobby-page-plan, id вкладок/leaderboard (`tabServersBtnId`, `tabLeaderboardBtnId`, `serversContentId`, `leaderboardContentId`, `leaderboardListId`, `leaderboardTitleId`, `leaderboardTotalId`, `myPlacementId`);
 - `create` — настройки создания комнаты: `defaultName`, `maxPlayers` (≤ 8), `heartbeatInterval` (период `update_host` у мастера), `hostSocketId: 'local'` — socketId loopback-соединения хоста-игрока (по нему Worker исключает хоста из kick-политик).
@@ -220,6 +229,23 @@ identity лобби, а не вводится пользователем. Вал
 - **`wsports.js`** — реестр числовых портов игрового протокола (источник истины). Полные таблицы — в [network.md](network.md#порты).
 - **`opcodes.js`** — версия бинарного snapshot-формата (`SNAPSHOT_FORMAT_VERSION = 3`), `ENGINE_API_VERSION` и `HOT_FLAGS`. Реестр снапшот-ключей — игровые данные, поставляемые через `HostPlugin.gameConfig.snapshot` (числовой id + `kind` на каждый ключ, задающий байтовую раскладку блока). Незарегистрированный ключ уронит упаковку кадра. Подробности — в [network.md](network.md#бинарный-snapshot-кадр-порт-5).
 - **`gameCodes.js`** — коды сообщений `GAME_INFORM_DATA` (порт 7) (`winnerTeam`/`roundStart`/`gameOver`), источник истины, общий для хоста (`SocketManager.sendGameInform`) и клиента (`GAME_ROUND_START_CODE` в `main.js`, запускающий анимацию старта раунда на панели и логотипе).
+
+## lib/clock.js
+
+Источник: [packages/engine/src/lib/clock.js](../../packages/engine/src/lib/clock.js).
+Не конфиг, а точка подмены, делающая матч воспроизводимым: синглтон (в
+идиоме `lib/config.js`) с методами `now()` (эпоха, мс, `Date.now`),
+`monotonic()` (высокое разрешение, `performance.now`), `random()`,
+`setTimeout`/`clearTimeout`/`setInterval`/`clearInterval` плюс
+`install(custom)` (возвращает функцию отката) и `reset()`.
+
+Все таймеры хоста идут через `lib/AbstractTimer.js`, который берёт
+таймер-функции из `clock`; call-site хоста зовут
+`clock.now()`/`clock.monotonic()`/`clock.random()` вместо глобалов. Дефолты
+резолвят глобалы в момент вызова, поэтому поведение в проде (и
+`vi.useFakeTimers()` в тестах) не меняется, а headless-runner подставляет
+`VirtualClock` и прогоняет десятиминутный матч за секунды — детерминированно.
+См. [debugging.md](debugging.md).
 
 ## Игровые данные (модели, оружие, карты)
 

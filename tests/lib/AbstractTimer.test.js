@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import AbstractTimer from '../../packages/engine/src/lib/AbstractTimer.js';
+import clock from '../../packages/engine/src/lib/clock.js';
 
 // подкласс для доступа к protected-методам
 class TestTimer extends AbstractTimer {
@@ -91,5 +92,62 @@ describe('AbstractTimer', () => {
     expect(b).not.toHaveBeenCalled();
     expect(timer.has('a')).toBe(false);
     expect(timer.has('b')).toBe(false);
+  });
+
+  // все таймеры хоста идут через AbstractTimer, поэтому подмена clock —
+  // единственное, что нужно headless-прогону для управления временем
+  describe('работа через подменённый clock', () => {
+    afterEach(() => {
+      clock.reset();
+    });
+
+    it('setTimeout/setInterval берутся из clock', () => {
+      const setTimeoutFake = vi.fn(() => 'timeout-id');
+      const setIntervalFake = vi.fn(() => 'interval-id');
+      const clearTimeoutFake = vi.fn();
+      const clearIntervalFake = vi.fn();
+
+      clock.install({
+        setTimeout: setTimeoutFake,
+        setInterval: setIntervalFake,
+        clearTimeout: clearTimeoutFake,
+        clearInterval: clearIntervalFake,
+      });
+
+      const timer = new TestTimer();
+      const cb = vi.fn();
+
+      timer.start('t', cb, 1000);
+      timer.start('i', cb, 500, true);
+
+      expect(setTimeoutFake).toHaveBeenCalledTimes(1);
+      expect(setIntervalFake).toHaveBeenCalledWith(cb, 500);
+
+      timer.clearAll();
+
+      expect(clearTimeoutFake).toHaveBeenCalledWith('timeout-id');
+      expect(clearIntervalFake).toHaveBeenCalledWith('interval-id');
+    });
+
+    it('callback подменённого setTimeout чистит ключ перед вызовом', () => {
+      let fire;
+
+      clock.install({
+        setTimeout: callback => {
+          fire = callback;
+          return 1;
+        },
+      });
+
+      const timer = new TestTimer();
+      const cb = vi.fn(() => expect(timer.has('t')).toBe(false));
+
+      timer.start('t', cb, 1000);
+      expect(timer.has('t')).toBe(true);
+
+      fire();
+
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
   });
 });

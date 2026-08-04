@@ -1,4 +1,5 @@
 import AbstractTimer from '../../../lib/AbstractTimer.js';
+import clock from '../../../lib/clock.js';
 
 // Singleton TimerManager
 
@@ -66,7 +67,7 @@ class TimerManager extends AbstractTimer {
   // при возобновлении после эстафеты Worker'ов, Этап 5.2)
   startMapTimer(duration = this._mapTime) {
     this.stopMapTimer();
-    this._startMapTime = Date.now();
+    this._startMapTime = clock.now();
     this._currentMapDuration = duration;
     this._startTimer('map', this._callbacks.onMapTimeEnd, duration);
   }
@@ -79,7 +80,7 @@ class TimerManager extends AbstractTimer {
   // возвращает оставшееся время до конца карты в миллисекундах
   getMapTimeLeft() {
     const timeLeft =
-      this._currentMapDuration - (Date.now() - this._startMapTime);
+      this._currentMapDuration - (clock.now() - this._startMapTime);
 
     return Math.max(0, timeLeft);
   }
@@ -95,7 +96,7 @@ class TimerManager extends AbstractTimer {
   // запускает таймер до конца текущего раунда
   startRoundTimer() {
     this.stopRoundTimer();
-    this._startRoundTime = Date.now();
+    this._startRoundTime = clock.now();
     this._startTimer('round', this._callbacks.onRoundTimeEnd, this._roundTime);
   }
 
@@ -106,21 +107,21 @@ class TimerManager extends AbstractTimer {
 
   // возвращает оставшееся время до конца раунда в секундах
   getRoundTimeLeft() {
-    const timeLeft = this._roundTime - (Date.now() - this._startRoundTime);
+    const timeLeft = this._roundTime - (clock.now() - this._startRoundTime);
 
     return Math.max(0, Math.floor(timeLeft / 1000));
   }
 
   // проверяет возможно сменить команду игроку в текущем раунде
   canChangeTeamInCurrentRound() {
-    const roundTime = Date.now() - this._startRoundTime;
+    const roundTime = clock.now() - this._startRoundTime;
 
     return roundTime <= this._teamChangeGracePeriod;
   }
 
   // логика одного "тика" игрового цикла
   _loopTick() {
-    const now = performance.now();
+    const now = clock.monotonic();
     let dt = (now - this._lastShotTime) / 1000;
     this._lastShotTime = now;
 
@@ -146,7 +147,7 @@ class TimerManager extends AbstractTimer {
   _startGameLoop() {
     this._stopGameLoop();
 
-    this._lastShotTime = performance.now();
+    this._lastShotTime = clock.monotonic();
     this._expectedTickTime = this._lastShotTime + this._timeStep;
 
     // запуск первого таймаута, который инициирует цикл
@@ -273,5 +274,12 @@ class TimerManager extends AbstractTimer {
     this._stopTimer('rttPing');
   }
 }
+
+// Сброс синглтона. Нужен только тем, кто крутит больше одного матча в
+// процессе — headless-runner (devtools/resetHostSingletons.js) и тесты;
+// в браузерной вкладке матч всегда один, поэтому прод его не зовёт.
+export const resetTimerManager = () => {
+  timerManager = null;
+};
 
 export default TimerManager;

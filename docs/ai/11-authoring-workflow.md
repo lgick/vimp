@@ -130,7 +130,34 @@ npm link @my-scope/my-game
 
 Then start the master (`npm run dev` in the engine) and open the lobby.
 
-## Step 9 — smoke test
+## Step 9 — headless simulation (do this before the browser)
+
+Two browser tabs are the slowest and least informative way to find a broken
+contract. Run the engine's headless runner first — it closes the whole loop
+(host → binary frame → client core → scene) in one Node process and names
+every violated contract in text. Full reference: `13-debugging.md`.
+
+```bash
+# in the engine checkout, with your package linked
+npm run sim -- --game <path to your package> --scenario <scenario.json>
+```
+
+- [ ] `entries.wasmNode` points at `core/pkg-node/<crate>.js` (otherwise pass
+      `--core <path>`).
+- [ ] One scenario per major mechanic: movement, firing, death/respawn,
+      round end, map change, a vote.
+- [ ] Every invariant green — in particular `snapshotKeysUsed`,
+      `fieldWidths`, `renderCoverage`, `panelContract`, `keyBindings`: these
+      are the silent failures from `10-pitfalls.md`, mechanised.
+- [ ] `--determinism` green once the match is stable.
+- [ ] Prediction drift within threshold (implement
+      `GameClientDef::predicted_state` for a component-wise report).
+
+Fix everything the runner reports before opening a browser. Anything the
+browser later catches can be recorded with `window.__vimpDebug` and replayed
+here via `npm run sim:replay`.
+
+## Step 10 — smoke test
 
 Open two browser tabs against the local master:
 
@@ -173,5 +200,7 @@ Two rules behind the table: the master always reads `dist/manifest.json` and
 - [ ] `npm test` green (both Vitest projects).
 - [ ] `npm run core:test` green, including motion parity.
 - [ ] `npm run core:build && npm run build` succeeds from a clean `dist/`.
+- [ ] `npm run sim -- --game <package>` exits `0` on every scenario you
+      wrote (see `13-debugging.md`).
 - [ ] The smoke checklist above passes on two tabs.
 - [ ] Every box in `10-pitfalls.md` is verified.

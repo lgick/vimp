@@ -33,6 +33,45 @@ pub struct EngineClientConfig {
     pub time_step_ms: f64,
     pub snapshot: SnapshotConfig,
     pub interpolation: InterpolationConfig,
+    /// Детектор рассинхрона предикта (plan/ai-debug/stage_5.md). Отсутствует
+    /// в боевом конфиге — тогда движок не делает вообще ничего лишнего на
+    /// пути кадра.
+    #[serde(default)]
+    pub divergence: Option<DivergenceConfig>,
+}
+
+/// Пороги детектора рассинхрона предикта: расхождение считается нарушением,
+/// если |предсказанное − авторитетное| по компоненту player-блока превышает
+/// порог. Раскладка компонентов — игровая, поэтому пороги задаются позиционно
+/// (`thresholds[i]`), а недостающие берутся из `default_threshold`.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DivergenceConfig {
+    #[serde(default)]
+    pub thresholds: Vec<f32>,
+    #[serde(default = "default_divergence_threshold")]
+    pub default_threshold: f32,
+    /// Ёмкость кольцевого буфера записей (лишние вытесняются, их число
+    /// попадает в отчёт как `dropped`).
+    #[serde(default = "default_divergence_capacity")]
+    pub capacity: usize,
+}
+
+impl DivergenceConfig {
+    pub fn threshold(&self, index: usize) -> f32 {
+        self.thresholds
+            .get(index)
+            .copied()
+            .unwrap_or(self.default_threshold)
+    }
+}
+
+fn default_divergence_threshold() -> f32 {
+    1.0
+}
+
+fn default_divergence_capacity() -> usize {
+    64
 }
 
 fn default_map_scale() -> f32 {

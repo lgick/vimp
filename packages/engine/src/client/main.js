@@ -32,7 +32,12 @@ import {
   reportFormValidity,
 } from './lib/formBuilder.js';
 import { getHostGateState } from './lib/hostGate.js';
+import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
+import {
+  buildSnapshotKeysById,
+  reconstructHot,
+} from '../lib/reconstructHot.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
 import { sanitizeMessage } from '../lib/sanitizers.js';
@@ -198,12 +203,7 @@ socketMethods[PS_CONFIG_DATA] = async data => {
   entitiesOnCanvas = data.parts.entitiesOnCanvas;
 
   // ширина hot-записи: keyId + id + поля класса по схеме игры
-  snapshotKeysById = Object.fromEntries(
-    Object.entries(data.snapshot).map(([key, { id, kind, fields }]) => [
-      id,
-      { key, kind, width: 2 + fields.length },
-    ]),
-  );
+  snapshotKeysById = buildSnapshotKeysById(data.snapshot);
 
   // клиентское ядро: интерполяция + предикт + спавн выстрелов; конфиг
   // собирается из interpolation/prediction CONFIG_DATA (хост шлёт их
@@ -601,9 +601,10 @@ socketMethods[PS_CLEAR] = function (setIdList) {
   soundManager.reset();
 };
 
-// console
+// console: логи авторитетной половины (Worker изолирован от DevTools вкладки —
+// иначе его события в браузере не видны вовсе, этап 6 плана plan/ai-debug)
 socketMethods[PS_CONSOLE] = data => {
-  console.log(data);
+  console.log(`${DEBUG_PREFIX}[host]`, data);
 };
 
 // ФУНКЦИИ
@@ -633,42 +634,6 @@ function applyShot(game, camera) {
   applyCamera(camera);
 }
 
-// восстанавливает объект игровых данных из плоского hot-буфера ядра:
-// [3] N записей Indexed8-группы, затем M записей IndexedNoNull8-группы;
-// каждая запись — keyId, id, поля по схеме игры (ширина = 2 + fields);
-// у IndexedNoNull8 id получает префикс 'd' (динамика карты, зеркало
-// snapshot_to_json ядра). Predicted-запись (последняя) перекрывает свою —
-// предикт поверх интерполяции тем же parse-конвейером
-function reconstructHot(hot) {
-  const game = {};
-  let i = 3;
-
-  const readRecord = () => {
-    const { key, kind, width } = snapshotKeysById[hot[i]];
-    const id = kind === 'indexedNoNull8' ? `d${hot[i + 1]}` : hot[i + 1];
-
-    (game[key] ??= {})[id] = Array.from(hot.subarray(i + 2, i + width));
-    i += width;
-  };
-
-  // две группы: Indexed8 (акторы), затем IndexedNoNull8 (динамика карты)
-  for (let g = 0; g < 2; g += 1) {
-    const count = hot[i];
-
-    i += 1;
-
-    for (let n = 0; n < count; n += 1) {
-      readRecord();
-    }
-  }
-
-  if (hot[0] & HOT_FLAGS.PREDICTED) {
-    readRecord();
-  }
-
-  return game;
-}
-
 // рендер-тик: ядро выдаёт пересечённые кадры (события, создания/удаления)
 // JSON-очередью, а горячие позиции (танки/динамика/камера + предсказанный
 // свой танк) — плоским Float32-буфером zero-copy из памяти WASM
@@ -690,7 +655,7 @@ function renderTick() {
   }
 
   if (flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED)) {
-    applyGameData(reconstructHot(hot));
+    applyGameData(reconstructHot(hot, snapshotKeysById));
   }
 
   if (flags & HOT_FLAGS.CAMERA) {
@@ -1004,6 +969,22 @@ let hostController = null;
 let hostConnections = null;
 let hostHeartbeat = null;
 
+// dev-сборка (Vite подставляет константу): включает отладочный контур этапа 6
+// плана plan/ai-debug — рекордер в комнате и window.__vimpDebug. В прод-бандле
+// ветка вырезается сборкой, поведение не меняется
+const isDevBuild =
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;
+
+if (isDevBuild) {
+  window.__vimpDebug = createDebugApi({
+    getHostController: () => hostController,
+    getClientCore: () => clientCore,
+    reportUrl: lobbyConfig.debugReportUrl,
+  });
+
+  debugLog('window.__vimpDebug is available: dump, startRecording, stopRecording, divergence');
+}
+
 // WebRTC обязателен для P2P-игры. В Firefox RTCPeerConnection может
 // отсутствовать (media.peerconnection.enabled = false, resistFingerprinting,
 // приватные сборки) — честное сообщение вместо падения с чёрным экраном
@@ -1061,6 +1042,10 @@ async function connectAsHost(room) {
   // фактическая карта комнаты (из 'ready'; далее актуализируется map_changed)
   let currentMapName = null;
 
+  // отладочный контур (этап 6): рекордер живого матча и хостовый CONSOLE-лог
+  // поднимаются только в dev-сборке
+  room.isDevMode = isDevBuild;
+
   // Этап 6.4: Worker грузит HostPlugin динамически по entries.host/entries.wasm
   // активной игры — движок больше не знает игру статически
   room.game = {
@@ -1104,6 +1089,15 @@ async function connectAsHost(room) {
     workerUrl,
     onReady: readyMsg => {
       currentMapName = readyMsg?.mapName;
+
+      // seed мира приезжает в 'ready' (этап 1): без него запись матча
+      // невоспроизводима, поэтому он виден в консоли сразу
+      if (isDevBuild) {
+        debugLog('room ready', {
+          map: currentMapName,
+          seed: readyMsg?.seed,
+        });
+      }
 
       // периодический heartbeat/актуализация комнаты у мастера
       const update = () =>

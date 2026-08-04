@@ -1,6 +1,6 @@
 {
   "name": "vimp-engine",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "VIMP — движок-приложение (мастер, P2P-транспорт, Worker-хост, мета, MVC-каркас клиента)",
   "license": "MIT",
   "repository": {
@@ -15,12 +15,16 @@
   "exports": {
     "./lib/*": "./src/lib/*",
     "./config/*": "./src/config/*",
-    "./host/*": "./src/host/*"
+    "./host/*": "./src/host/*",
+    "./devtools/*": "./src/devtools/*"
   },
   "files": [
     "src/lib",
     "src/config",
-    "src/host"
+    "src/host",
+    "src/devtools",
+    "tests/fixtures",
+    "bin"
   ],
   "scripts": {
     "predev": "node scripts/sync-pixi-vendor.mjs",
@@ -43,5 +47,8 @@
     "nodemon": "^3.1.10",
     "vite": "^7.1.11",
     "vite-plugin-pug": "^0.4.1"
+  },
+  "bin": {
+    "vimp-sim": "bin/vimp-sim.js"
   }
 }

@@ -54,7 +54,16 @@ Main-thread messages:
   clamped to `roomTimeMin…roomTimeMax`)/friendly fire; maps come
   from `room.maps` if the main thread fetched the master's catalog),
   initializes the core via `HostPlugin.createCore(coreConfigJson, {
-  wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies `ready`;
+  wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies
+  `ready { mapName, seed }`. Everything except the postMessage wrapping is
+  `packages/engine/src/lib/createHostRuntime.js` — the same function the
+  headless runner boots a match with, so the two cannot drift apart (its
+  injection points — `loadHostPlugin`, `createSocketManager`, `hostOptions`,
+  `overrideGameConfig` — are unused in production and default to the
+  behaviour above). The `seed` in `ready` is the PRNG seed the match
+  actually runs on: `room.seed` when given, otherwise drawn from `clock` —
+  it is what makes a recording replayable, see
+  [debugging.md](debugging.md);
   `handoff` is the Worker handoff state: the room is restored instead of a
   cold start. A failure (game import/WASM/config/handoff meta) sends
   `error { message }`: on a cold start the main thread tears down the room
@@ -74,13 +83,17 @@ Main-thread messages:
 - `update_maps(maps)` — an updated map catalog from the master →
   `HostGame.updateMaps`;
 - `prepare_handoff` / `resume` / `handoff_complete` — the Worker handoff
-  protocol (see the section of the same name below).
+  protocol (see the section of the same name below);
+- `debug { action, requestId }` — dev-only debugging requests
+  (`startRecording`/`stopRecording`/`dump`), answered by `debug_result` with
+  the same `requestId`; see [debugging.md](debugging.md).
 
 The Worker sends back to the main thread `to_client` (a wire frame: a JSON
 string or a binary `ArrayBuffer` via a Transferable), `close_client`,
-`ready`, `error` (init failure), `map_changed { mapName }` (a map change from
-a vote/timer — the main thread updates the room record at the master), and
-`handoff_state { state }` (a handoff: room state at a round boundary). The
+`ready { mapName, seed }`, `error` (init failure), `map_changed { mapName }`
+(a map change from a vote/timer — the main thread updates the room record at
+the master), `handoff_state { state }` (a handoff: room state at a round
+boundary) and `debug_result { requestId, … }`. The
 per-user **wire socket** (`makeWorkerSocket`) implements the `SocketManager`
 contract (`send`/`sendBinary`/`close`) over `postMessage`. Transport quirks:
 
@@ -256,6 +269,24 @@ The host facade — module wiring + the participant lifecycle:
 
 The client-facing `CONFIG_DATA` (port 0: base config + vote time + prediction
 data) is assembled by `packages/engine/src/lib/buildClientConfig.js`.
+
+### Debug recorder (dev only)
+
+When `gameConfig.isDevMode` is on (`room.isDevMode`, which `client/main.js`
+sets from `import.meta.env.DEV`), `HostGame` owns a `DebugRecorder`
+(`packages/engine/src/host/DebugRecorder.js`, Worker-safe — it only uses
+`clock`) that writes the live match into the headless runner's scenario
+format: seed, joins, and every `updateKeys`/`pushMessage`/`parseVote` tagged
+with its tick. In production the recorder is `null` and every recording
+point degrades to `?.`.
+
+Public surface: `startRecording()`, `stopRecording()`, `isRecording`,
+`debugSnapshot()` (host meta — seed, seq, tick, participants, current map —
+plus the core's `debug_json`). It reaches the tab through the Worker's
+`debug`/`debug_result` pair and `HostController.startRecording/
+stopRecording/dump()`; the recorder's own events also go to the clients'
+consoles over port `CONSOLE`. Full loop:
+[debugging.md](debugging.md#the-browser-half).
 
 ## GameCoreAdapter (`packages/engine/src/host/GameCoreAdapter.js`)
 

@@ -48,8 +48,10 @@ artifacts (the questionnaire ends with that mapping table).
 order (scaffold → configs → Rust core → client → tests → build → link → smoke)
 and lists which change requires which rebuild.
 
-**Step 5 — verify against [`10-pitfalls.md`](10-pitfalls.md)** before
-declaring the plugin done. That file is the checklist of every silent
+**Step 5 — verify.** Run the plugin through the engine's headless runner
+([`13-debugging.md`](13-debugging.md)) until its invariant checks are green —
+that is a text-only loop with no browser and no human — and only then go
+through [`10-pitfalls.md`](10-pitfalls.md) before declaring the plugin done. That file is the checklist of every silent
 contract in the engine — things that fail at runtime with no error, or with
 an error far from the cause.
 
@@ -69,6 +71,7 @@ an error far from the cause.
 | [`10-pitfalls.md`](10-pitfalls.md) | Invariant and trap checklist — verify against this before finishing |
 | [`11-authoring-workflow.md`](11-authoring-workflow.md) | Generation process, testing, build, linking, smoke test, rebuild matrix |
 | [`12-questionnaire.md`](12-questionnaire.md) | The interview (Russian text, conduct in the user's language) + answer→artifact mapping |
+| [`13-debugging.md`](13-debugging.md) | The headless runner (`npm run sim`), scenario format, the 12 invariant checks, world dumps, prediction drift, browser recording |
 
 ## Reading rules
 

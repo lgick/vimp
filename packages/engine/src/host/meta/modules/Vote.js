@@ -1,3 +1,5 @@
+import clock from '../../../lib/clock.js';
+
 // Singleton Vote
 let vote;
 
@@ -171,9 +173,16 @@ class Vote {
     }
 
     // случайный выбор, если победителей несколько
-    const randomIndex = Math.floor(Math.random() * winners.length);
+    const randomIndex = Math.floor(clock.random() * winners.length);
     return winners[randomIndex];
   }
 }
+
+// Сброс синглтона. Нужен только тем, кто крутит больше одного матча в
+// процессе — headless-runner (devtools/resetHostSingletons.js) и тесты;
+// в браузерной вкладке матч всегда один, поэтому прод его не зовёт.
+export const resetVote = () => {
+  vote = null;
+};
 
 export default Vote;

@@ -43,7 +43,7 @@
 | 9 | `MISC` | JSON | Разнообразные данные (`{key, value}`; сейчас — замена имени в localStorage) |
 | 10 | `PING` | JSON | id пинга для замера RTT |
 | 11 | `CLEAR` | JSON | Полная или частичная (по `setId`) очистка полотен |
-| 12 | `CONSOLE` | JSON | Свободен (зарезервирован под вывод в console.log) |
+| 12 | `CONSOLE` | JSON | Отладочный лог хоста (только dev): `SocketManager.sendConsole`, клиент печатает как `[vimp:debug][host] …` — Worker изолирован от DevTools вкладки, см. [debugging.md](debugging.md#логи-хоста-в-консоли-клиента) |
 | 13 | `PANEL_DATA` | JSON | Панель HUD (per-user, только при изменении) |
 | 14 | `STAT_DATA` | JSON | Статистика (broadcast, только при изменении) |
 | 15 | `CHAT_DATA` | JSON | Сообщение чата (общее или персональное) |

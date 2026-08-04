@@ -7,17 +7,11 @@
 // (JSON-строки и бинарные ArrayBuffer'ы через Transferable).
 
 import authClientConfig from '../config/authClient.js';
-import clientDefaults from '../config/clientDefaults.js';
 import lobbyConfig from '../config/lobby.js';
 import wsports from '../config/wsports.js';
-import { applyRoomOverrides } from '../lib/applyRoomOverrides.js';
-import { buildClientConfig } from '../lib/buildClientConfig.js';
-import { buildCoreConfig } from '../lib/coreConfig.js';
+import { createHostRuntime } from '../lib/createHostRuntime.js';
 import { validateAuth } from '../lib/validators.js';
 import { verifyIdentityToken } from '../lib/jwt.js';
-import { assertGameConfigShape } from '../lib/gamePlugin.js';
-import SocketManager from './meta/SocketManager.js';
-import HostGame from './HostGame.js';
 
 // PC (client ports): порты получения данных от клиента
 const PC_CONFIG_READY = wsports.client.CONFIG_READY;
@@ -130,54 +124,28 @@ function makeWorkerSocket(socketId) {
 // эстафеты Worker'ов (Этап 5.2): комната восстанавливается вместо
 // холодного старта, порт-машины клиентов поднимутся минуя хендшейк
 async function onInit(room, handoff = null) {
-  const pluginModule = await import(/* @vite-ignore */ room.game.hostEntryUrl);
-
-  hostPlugin = pluginModule.default;
-  assertGameConfigShape(hostPlugin);
-
-  const game = applyRoomOverrides(room, hostPlugin);
-  const seed = (Math.random() * 2 ** 32) >>> 0;
-
-  const core = await hostPlugin.createCore(
-    JSON.stringify(
-      buildCoreConfig(hostPlugin.gameConfig, {
-        friendlyFire: game.parts.friendlyFire,
-        seed,
-      }),
-    ),
-    { wasmUrl: room.game.wasmUrl },
-  );
-
-  clientCfg = buildClientConfig(
-    game,
-    clientDefaults,
-    hostPlugin.buildClientGameConfig(),
-  );
-  socketManager = new SocketManager(wsports.server, {
-    soundCues: game.soundCues,
-    initialVote: game.initialVote,
-  });
-  host = new HostGame(game, socketManager, core, hostPlugin, {
-    hostSocketId: room?.hostSocketId ?? null,
-    onMapChange: mapName => self.postMessage({ type: 'map_changed', mapName }),
-    handoff,
-    gameVersion: room.game.version,
+  // общая с headless-runner'ом сборка (lib/createHostRuntime.js) — чтобы
+  // отладочный прогон крутил ровно тот код, что и прод
+  const runtime = await createHostRuntime(room, {
+    hostOptions: {
+      onMapChange: mapName => self.postMessage({ type: 'map_changed', mapName }),
+      handoff,
+    },
   });
 
-  // эстафета Worker'ов (Этап 5.2) несёт уже известные hostId+секрет в room —
-  // новый Worker не должен ждать повторного register_host, чтобы возобновить
-  // атрибуцию rank/state-flush (кодревью №1); при холодном старте они ещё не
-  // назначены мастером, придут позже через 'set_host_id'
-  if (room?.hostId) {
-    host.setHostId(room.hostId, room.hostSecret);
-  }
+  hostPlugin = runtime.hostPlugin;
+  clientCfg = runtime.clientCfg;
+  socketManager = runtime.socketManager;
+  host = runtime.host;
+
+  const seed = runtime.seed;
 
   if (handoff) {
     handoffClients = new Map(handoff.humans.map(h => [h.socketId, h.gameId]));
   }
 
   // мастеру нужна фактическая карта комнаты (после эстафеты — восстановленная)
-  self.postMessage({ type: 'ready', mapName: host.currentMap });
+  self.postMessage({ type: 'ready', mapName: host.currentMap, seed });
 }
 
 // порт-обработчики клиента (замыкание над gameId через state)
@@ -375,6 +343,31 @@ function onDisconnect(socketId) {
   clients.delete(socketId);
 }
 
+// отладочные действия хоста (этап 6): запись живого матча в формат сценария
+// и дамп мира. Сбой не должен ронять Worker — уезжает в ответ строкой
+function onDebug({ requestId, action }) {
+  let result = null;
+  let error = null;
+
+  try {
+    if (!host) {
+      error = 'host is not ready';
+    } else if (action === 'startRecording') {
+      result = host.startRecording();
+    } else if (action === 'stopRecording') {
+      result = host.stopRecording();
+    } else if (action === 'dump') {
+      result = host.debugSnapshot();
+    } else {
+      error = `unknown debug action '${action}'`;
+    }
+  } catch (e) {
+    error = e && e.message ? e.message : String(e);
+  }
+
+  self.postMessage({ type: 'debug_result', requestId, result, error });
+}
+
 self.onmessage = async event => {
   const msg = event.data;
 
@@ -412,6 +405,12 @@ self.onmessage = async event => {
     // нужны PlayerDataSync для атрибуции последующих rank/state-flush
     case 'set_host_id':
       host?.setHostId(msg.hostId, msg.hostSecret);
+      break;
+
+    // отладочный контур (этап 6 плана plan/ai-debug): единственный вход в
+    // авторитетную половину из главного потока — запрос/ответ по requestId
+    case 'debug':
+      onDebug(msg);
       break;
 
     // эстафета Worker'ов (Этап 5.2)

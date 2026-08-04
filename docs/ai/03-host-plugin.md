@@ -42,7 +42,7 @@ export default {
 | --- | --- | --- |
 | `id` | ✅ | must equal `manifest.id` |
 | `engineApi` | ✅ | compared with the engine build |
-| `createCore(json, { wasmUrl })` | ✅ | async; returns the `GameCore` instance |
+| `createCore(json, { wasmUrl })` | ✅ | async; returns the `GameCore` instance. `wasmUrl` comes in two shapes: the `.wasm` asset URL in the browser, and a `file:` URL of the Node glue (`entries.wasmNode`) under `npm run sim` — see [Two shapes of `wasmUrl`](#two-shapes-of-wasmurl) |
 | `gameConfig` | ✅ | validated field-by-field, see below |
 | `authSchema` | ✅ | sent to every joining client |
 | `chatCommands` | ✅ **array** | the engine iterates it without a guard — omit it and boot throws. Use `[]` for none |
@@ -54,6 +54,40 @@ export default {
 > Older engine documentation lists `chatCommands` and `createModules` as
 > optional and mentions a `views: { Panel, Stat }` field. Both are wrong:
 > the first two are mandatory, `views` does not exist.
+
+## Two shapes of `wasmUrl`
+
+The browser passes the hashed `.wasm` asset from `entries.wasm`, and the
+engine's headless runner passes a `file:` URL of your `--target nodejs`
+build (`entries.wasmNode`, see `13-debugging.md`). They load differently:
+the Node build pulls the wasm in itself, so there is no `init()` to call,
+and `fetch()` cannot read `file:` URLs in Node anyway. Branch on the suffix
+in **both** plugins (host and client), from one shared helper — a headless
+run that used a different core than the browser would be worthless:
+
+```js
+// src/nodeCore.js
+export const isNodeCore = wasmUrl => (wasmUrl ?? '').endsWith('.js');
+export const loadNodeCore = wasmUrl => import(/* @vite-ignore */ wasmUrl);
+```
+
+```js
+async createCore(coreConfigJson, { wasmUrl }) {
+  if (isNodeCore(wasmUrl)) {
+    const node = await loadNodeCore(wasmUrl);
+
+    return new node.GameCore(coreConfigJson);
+  }
+
+  await init({ module_or_path: wasmUrl });
+
+  return new GameCore(coreConfigJson);
+}
+```
+
+The client side is the same, except the Node build exposes no WASM memory —
+return `memory: null`; the headless client reads the hot buffer by copy
+(`hot_values()`), not through a memory view.
 
 ## `gameConfig` validation gate
 

@@ -17,3 +17,6 @@ target/
 # вендоренный ESM pixi.js для import map (см. scripts/sync-pixi-vendor.mjs,
 # predev/prebuild) — генерируется из node_modules/pixi.js, не коммитится
 packages/engine/public/vendor/pixi/
+
+# отчёты headless-прогонов (npm run sim)
+.debug/

@@ -334,6 +334,24 @@ impl<G: GameDef> EngineSim<G> {
         self.accumulator = 0.0;
     }
 
+    // ***** отладка ***** //
+
+    /// Курированный дамп мира (тела, коллайдеры, карта, нав-граф,
+    /// spatial-сетка, rng, аккумулятор фикс-шага) — читаемая
+    /// альтернатива сырому `serialize_state` (см. `crate::debug`).
+    pub fn debug_json(&self) -> String {
+        crate::debug::engine_json(
+            &self.world,
+            &self.map,
+            &self.nav,
+            &self.spatial,
+            &self.rng,
+            self.accumulator,
+            self.time_step,
+        )
+        .to_string()
+    }
+
     // ***** handoff (Spike B / Этап 5.2) ***** //
 
     /// Сериализует состояние симуляции для эстафетной передачи между
@@ -776,6 +794,73 @@ mod tests {
         assert!(!sim.is_alive(1));
         assert!(!sim.is_alive(2));
         assert_eq!(sim.alive_players_flat().len(), 0);
+    }
+
+    // карта 2×2 с одной статичной стеной: хватает, чтобы в дампе появились
+    // тело, коллайдер и нав-граф
+    fn tiny_map_json() -> &'static str {
+        r#"{
+            "setId": "tiny",
+            "scale": 1,
+            "step": 10,
+            "map": [[1, 0], [0, 0]],
+            "physicsStatic": [1],
+            "respawns": { "team1": [[5, 5, 0]] }
+        }"#
+    }
+
+    #[test]
+    fn debug_json_dumps_world_map_and_rng() {
+        let mut sim = make_sim();
+
+        sim.load_map(tiny_map_json()).unwrap();
+
+        let dump: serde_json::Value = serde_json::from_str(&sim.debug_json()).unwrap();
+
+        let bodies = dump["bodies"].as_array().unwrap();
+        let colliders = dump["colliders"].as_array().unwrap();
+
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(colliders.len(), 1);
+        assert_eq!(bodies[0]["bodyType"], "Fixed");
+        assert_eq!(bodies[0]["translation"], serde_json::json!([5.0, 5.0]));
+        assert_eq!(colliders[0]["shape"], "cuboid");
+        assert_eq!(colliders[0]["halfExtents"], serde_json::json!([5.0, 5.0]));
+        assert_eq!(colliders[0]["isSensor"], false);
+        assert_eq!(colliders[0]["parent"], bodies[0]["handle"]);
+
+        assert_eq!(dump["map"]["setId"], "tiny");
+        assert_eq!(dump["map"]["staticBodies"], 1);
+        assert_eq!(dump["map"]["grid"]["rows"], 2);
+        assert_eq!(dump["map"]["respawns"]["team1"], 1);
+
+        assert!(dump["nav"]["nodes"].as_u64().unwrap() > 0);
+        assert_eq!(dump["spatial"]["cells"], 0);
+        assert_eq!(dump["rng"]["state"], "42");
+        assert_eq!(dump["step"]["accumulator"], 0.0);
+    }
+
+    #[test]
+    fn debug_json_is_null_for_map_and_nav_without_map() {
+        let dump: serde_json::Value = serde_json::from_str(&make_sim().debug_json()).unwrap();
+
+        assert!(dump["map"].is_null());
+        assert!(dump["nav"].is_null());
+        assert_eq!(dump["bodies"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn debug_json_is_stable_between_identical_runs() {
+        let mut a = make_sim();
+        let mut b = make_sim();
+
+        for sim in [&mut a, &mut b] {
+            sim.load_map(tiny_map_json()).unwrap();
+            sim.spawn_actor(1, "m", 1, 3.0, 4.0, 0.0).unwrap();
+            sim.step(1.0 / 120.0);
+        }
+
+        assert_eq!(a.debug_json(), b.debug_json());
     }
 
     #[test]

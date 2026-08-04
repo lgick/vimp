@@ -48,6 +48,8 @@ packages/engine/core/             # vimp-engine-core — rlib, no wasm-bindgen
 │   │                              #   rounding, angles — game body tags (e.g. player/shot)
 │   │                              #   live in the game crate's own body-tag module
 │   ├── rng.rs                     # deterministic PRNG (SplitMix64)
+│   ├── debug.rs                   # curated world dump (debug_json) — bodies, colliders,
+│   │                              #   map, nav, spatial, rng, fixed-step accumulator
 │   ├── nav/                       # generic bot-adjacent utilities (no "bot" naming)
 │   │   ├── navigation.rs         # nav grid + graph + line-of-sight (NavigationSystem)
 │   │   ├── pathfinder.rs         # A*
@@ -57,6 +59,7 @@ packages/engine/core/             # vimp-engine-core — rlib, no wasm-bindgen
 │       │                          #   sample() pipeline, the hot buffer, frame queue;
 │       │                          #   the game supplies prediction/shot-spawn via the trait
 │       ├── unpack.rs              # the v3 frame decoder + JSON forms
+│       ├── divergence.rs          # prediction divergence detector (ring buffer of records)
 │       ├── interpolator.rs        # the snapshot buffer, seq, lerp (schema-driven)
 │       └── raycast.rs             # DDA over tiles + an OBB slab test
 ```
@@ -138,6 +141,39 @@ bundle = one game).
 The trait's shape is validated by a fixture second client (`TestClient`,
 tests in `packages/engine/core/src/client/game.rs`) before any real second
 game exists — this is what guarantees the traits stay game-agnostic.
+
+## Debugging: `debug_json` and the divergence detector
+
+Two debugging facilities live in the engine crate and are exported through
+the ABI macros, so every game gets them for free and
+`ENGINE_API_VERSION` is unaffected. The full loop that consumes them is
+[debugging.md](debugging.md).
+
+- **`debug.rs` — `EngineSim::debug_json()`** (exported as
+  `GameCore.debug_json()`): a *curated* world dump, next to the raw
+  `serialize_state()` serde output, which is unreadable. Bodies (`tag`,
+  `userData`, `translation`, `rotation`, `linvel`, `angvel`, `mass`,
+  `bodyType`, `ccd`), colliders (`shape` + `halfExtents`/`radius`,
+  `isSensor`, collision/solver groups in hex, `parent`), map (`setId`,
+  step, grid, static/dynamic body counts, respawns), nav graph
+  (nodes/edges/step), spatial grid (cell size, per-cell counts), `rng.state`
+  and the fixed-step accumulator. Record order is deterministic, so two
+  dumps can be diffed. `ClientState::debug_json()` mirrors it on the client:
+  interpolator buffer depth, `seq` window, `offset`, the last frame's
+  `seq`/`serverTime`.
+- **`client/divergence.rs` — the prediction divergence detector.** Just
+  before `on_server_state` overwrites the prediction, `ClientState` compares
+  the predicted state against the authoritative player block and stores a
+  record if any component exceeds its threshold. Level 0 needs nothing from
+  the game (the `render_overlay()` camera against the frame's x/y); level 1
+  uses the optional `GameClientDef::predicted_state()` (component-wise) and
+  `replayed_inputs()` (the replayed input window), both defaulting to
+  `None`. Configuration is the optional `EngineClientConfig.divergence`
+  (`thresholds` positional, `defaultThreshold`, ring-buffer `capacity`) —
+  absent in production, and then the frame path is untouched.
+  `ClientCore.take_divergence()` drains the buffer. Matching is by frame
+  **time**, not by `seq`, because reconciliation replays the input history
+  from the authoritative timestamp.
 
 ## Snapshot blocks — a declarative schema
 

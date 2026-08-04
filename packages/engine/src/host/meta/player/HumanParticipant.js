@@ -1,4 +1,5 @@
 import Participant from './Participant.js';
+import clock from '../../../lib/clock.js';
 
 // Участник-человек: поля и поведение, специфичные для реального игрока
 class HumanParticipant extends Participant {
@@ -24,7 +25,7 @@ class HumanParticipant extends Participant {
     this.watchedGameId = watchedGameId ?? null;
     this.forceCameraReset = true;
     this.pendingShake = null;
-    this.lastActionTime = Date.now();
+    this.lastActionTime = clock.now();
     this.lastInputSeq = 0; // номер последнего обработанного ввода (предикшен)
   }
 

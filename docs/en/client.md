@@ -127,6 +127,13 @@ plugin's `peerDependencies` range reintroduces the dual-instance crash.
   doesn't recreate the lobby — a guard in `initLobby`). A Worker init
   failure (`error`) tears down the room with a message and returns to the
   lobby.
+- **Debug API (dev build only)**: `window.__vimpDebug`
+  (`packages/engine/src/client/debug.js`) — `dump()`, `startRecording()`,
+  `stopRecording()`, `divergence()`, `save()`. The branch is guarded by
+  `import.meta.env.DEV`, so the production bundle drops it; the same flag
+  goes into `room.isDevMode` and switches on the host recorder. Port 12
+  (`CONSOLE`) carries the host's debug log into this tab's console as
+  `[vimp:debug][host] …`. See [debugging.md](debugging.md#the-browser-half).
 
 ## Network layer (packages/engine/src/client/network/)
 
@@ -405,7 +412,10 @@ Data flow:
   the buffer). The buffer carries flags, the camera (already resolved:
   predicted position or interpolated), interpolated tank/dynamic records,
   and the local tank's predicted record last. The `reconstructHot` adapter
-  (~40 lines in `main.js`) assembles the previous shape
+  (`packages/engine/src/lib/reconstructHot.js` — `buildSnapshotKeysById`
+  builds the reverse schema index, `reconstructHot(hot, keysById)` walks the
+  buffer; shared with the headless runner, which decodes frames through the
+  very same code) assembles the previous shape
   `{ m1: { id: [...] }, c1: {...} }` from it and feeds the existing
   `applyGameData` — GameCtrl/parts were never touched; the predicted record
   overrides the local actor through the same pipeline.

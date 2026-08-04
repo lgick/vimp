@@ -248,6 +248,16 @@ Rules:
     одним набором в конфиге. На каком языке пишем тексты?
 66. Как разрабатываете локально: движок из npm или из локального
     чекаута? Во втором случае нужен `npm link` в обе стороны.
+67. Публикуем ли в манифесте `entries.wasmNode` (путь к `core/pkg-node`)?
+    **Настоятельно рекомендуется**: без него игру нельзя прогнать
+    headless-runner'ом движка (`npm run sim`), и все проверки контрактов
+    придётся делать глазами в браузере. См. `13-debugging.md`.
+68. Какие сценарии отладочных прогонов пишем сразу (движение, стрельба,
+    смерть/респаун, конец раунда, смена карты, голосование)? Сценарий —
+    обычный JSON, формат в `13-debugging.md`.
+69. Реализуем ли `GameClientDef::predicted_state` (опционально, дефолт
+    `None`) ради покомпонентного отчёта о расхождении предикта? Без него
+    работает грубое сравнение по камере.
 
 ---
 
@@ -268,4 +278,4 @@ Rules:
 | 11 | client `modules.canvasManager.canvases`, `initIdList`, `styles`, `parts.bakedAssets`, `parts.componentDependencies` |
 | 12 | snapshot `kind`/`class` decisions, `timers.networkSendRate`, extra snapshot keys for pickups/objectives |
 | 13 | `gameConfig.playerState.defaultState`, `onCoreEvent` state writes |
-| 14 | `vitest.config.js` projects, `core/src/client/predictor.rs` parity tests, `tests/`, local `npm link` setup |
+| 14 | `vitest.config.js` projects, `core/src/client/predictor.rs` parity tests, `tests/`, local `npm link` setup, `entries.wasmNode` in the manifest, debug scenarios for `npm run sim`, optional `predicted_state` |

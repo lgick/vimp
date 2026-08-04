@@ -30,6 +30,24 @@ impl SpatialGrid {
         self.grid.clear();
     }
 
+    pub fn cell_size(&self) -> f32 {
+        self.cell_size
+    }
+
+    /// Заполненность ячеек `[(cx, cy, count)]` для отладочного дампа, в
+    /// детерминированном порядке (HashMap отдаёт свой).
+    pub fn cell_counts(&self) -> Vec<(i32, i32, usize)> {
+        let mut cells: Vec<(i32, i32, usize)> = self
+            .grid
+            .iter()
+            .map(|((cx, cy), entities)| (*cx, *cy, entities.len()))
+            .collect();
+
+        cells.sort_by_key(|(cx, cy, _)| (*cx, *cy));
+
+        cells
+    }
+
     fn cell_key(&self, x: f32, y: f32) -> (i32, i32) {
         (
             (x / self.cell_size).floor() as i32,

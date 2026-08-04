@@ -256,6 +256,32 @@ redeploy triggers a relay exactly like an engine-only one. See
 [host.md](host.md#worker-handoff) for the swap protocol and
 `HANDOFF_VERSION`.
 
+### POST /debug/report (dev only)
+
+Receiver for the browser half of the debugging loop: a host tab uploads a
+recorded scenario or a state dump here, and the file lands in the same
+`.debug/` the headless runner writes to — see
+[debugging.md](debugging.md#upload-post-debugreport).
+
+The route is registered **only when `!isProduction`**: in production this
+would be a disk write on request from an arbitrary client. It also carries
+its own body parser (`express.json({ limit: '8mb' })`, mounted before the
+global 100 kb one) because a recorded match is far larger than the default
+limit.
+
+```
+POST /debug/report
+{ "kind": "scenario" | "dump" | "divergence", "payload": {...}, "note": "tank stuck in a wall" }
+
+→ 200 { "file": "scenario-<stamp>-1.json", "bytes": 24576 }
+→ 400 { "error": "unknown kind 'x'" }   // kind is a closed list — the file name is built from request data
+→ 413 { "error": "payload too large: ... > 8388608" }
+```
+
+`packages/engine/src/master/DebugReportStore.js` writes
+`{ kind, note, receivedAt, payload }` and logs the result as
+`[vimp:debug] report saved: …`.
+
 ## Signaling protocol (WebSocket)
 
 Messages are JSON objects with a `type` field. On connect, the connection is

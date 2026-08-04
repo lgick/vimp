@@ -13,6 +13,12 @@ impl Rng {
         Self { state: seed }
     }
 
+    /// Текущее состояние генератора — для отладочного дампа (два прогона
+    /// одного сценария обязаны сойтись и по нему).
+    pub fn state(&self) -> u64 {
+        self.state
+    }
+
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.state;

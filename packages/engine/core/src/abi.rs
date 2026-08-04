@@ -228,6 +228,13 @@ macro_rules! export_game_core_abi {
                 self.state.clear();
             }
 
+            /// Курированный дамп мира для отладки (тела, коллайдеры,
+            /// карта, нав-граф, spatial-сетка, rng, аккумулятор) —
+            /// читаемая альтернатива serialize_state.
+            pub fn debug_json(&self) -> String {
+                self.state.debug_json()
+            }
+
             /// Дамп состояния симуляции (Worker Handoff, Этап 5.2).
             pub fn serialize_state(&self) -> Result<Vec<u8>, ::wasm_bindgen::JsError> {
                 self.state
@@ -344,6 +351,21 @@ macro_rules! export_client_core_abi {
             }
 
             // ***** тесты и харнесс ***** //
+
+            /// Дамп клиентского состояния для отладки: сетевой буфер
+            /// (глубина, окно seq, оффсет, последний кадр), свой gameId,
+            /// размеры hot-буфера и очереди событийных кадров.
+            pub fn debug_json(&self) -> String {
+                self.state.debug_json()
+            }
+
+            /// Записи расхождения предикта с авторитетным состоянием
+            /// (JSON {samples, violations, dropped, maxDelta, records});
+            /// очередь очищается. 'null' — детектор выключен (конфиг без
+            /// секции divergence, боевой путь).
+            pub fn take_divergence(&mut self) -> String {
+                self.state.take_divergence()
+            }
 
             /// Чистая распаковка кадра v3 → JSON {port, seq, serverTime,
             /// camera, player, snapshot} (замена unpackFrame в тестах);

@@ -92,7 +92,7 @@ central auth service ([master.md](master.md#server-rating-likeunlike)).
 | 9 | `MISC` | JSON | Miscellaneous data (`{key, value}`; currently — a name change in localStorage) |
 | 10 | `PING` | JSON | A ping id for RTT measurement |
 | 11 | `CLEAR` | JSON | A full or partial (by `setId`) canvas clear |
-| 12 | `CONSOLE` | JSON | Unused (reserved for console.log output) |
+| 12 | `CONSOLE` | JSON | Host debug log (dev only): `SocketManager.sendConsole`, printed by the client as `[vimp:debug][host] …` — the Worker is isolated from the tab's DevTools, see [debugging.md](debugging.md#host-logs-in-the-client-console) |
 | 13 | `PANEL_DATA` | JSON | The HUD panel (per-user, only on change) |
 | 14 | `STAT_DATA` | JSON | Stats (broadcast, only on change) |
 | 15 | `CHAT_DATA` | JSON | A chat message (broadcast or personal) |

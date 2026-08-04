@@ -75,7 +75,7 @@ the room's settings on top.
 
 | Parameter | Value | Description |
 | --- | --- | --- |
-| `isDevMode` | `false` | Development-mode flag (unlocks dev chat commands) |
+| `isDevMode` | `false` | Development-mode flag: unlocks dev chat commands and the debug recorder in `HostGame` ([debugging.md](debugging.md#the-recorder)). A room sets it from `room.isDevMode`, which the client fills from `import.meta.env.DEV` — in a production bundle it stays `false` |
 | `maxPlayers` | `30` | The default participant limit; a host's room clamps it to the creator's setting (capped by the game's `roomDefaults.maxPlayers`), counted by humans |
 | `chatMaxLength` | `60` | The max chat message length (authoritative on the host; must match the `maxlength` of the input in `chat.pug`) |
 | `spectatorKeys` | `nextPlayer`/`prevPlayer` | Commands of a spectator or inactive player (switching the observed player) |
@@ -157,6 +157,14 @@ lives in [plugin-api.md](plugin-api.md#clientplugin-api) (`ClientPlugin API` sec
 - `delay: 100` — ms; the world renders in the past
   (`renderTime = serverNow − delay`), ~3 frames at 30 packets/sec;
 - `maxFrameAge: 1000` — a safety cleanup of stale buffered frames.
+
+### `divergence` — prediction divergence detector (engine, optional)
+
+Absent from the production config, and then the frame path does nothing
+extra. Consumed by the client core, set from a scenario's `divergence` field
+in a headless run: `thresholds` (positional over the player block),
+`defaultThreshold`, `capacity` (ring buffer). See
+[debugging.md](debugging.md#prediction-divergence-detector).
 
 ### `modules.canvasManager` — canvases and camera
 
@@ -312,6 +320,9 @@ host: the lobby happens before connecting to a host.
 - `reconnect` — the host's signaling WS reconnect: exponential backoff
   from `baseDelay: 1000` to `maxDelay: 30000` (ms);
 - `pageSize: 10` — the page size for "Load more" (`offset`/`limit`);
+- `debugReportUrl: '/debug/report'` — the upload endpoint of the debugging
+  loop (`window.__vimpDebug`); the master registers the route in dev only,
+  see [debugging.md](debugging.md#upload-post-debugreport);
 - `pingInterval: 5000` — the minimum interval between repeated
   `ping_host` calls for one server (anti-spam while scrolling/redrawing);
 - `elems` — lobby DOM element ids (from `lobby.pug`), including
@@ -364,6 +375,23 @@ mechanics (voice limits, priorities) are engine-owned — see
   (`winnerTeam`/`roundStart`/`gameOver`), the source of truth shared by the
   host (`SocketManager.sendGameInform`) and the client (`GAME_ROUND_START_CODE`
   in `main.js`, which triggers the round-start panel/logo animation).
+
+## lib/clock.js
+
+Source: [packages/engine/src/lib/clock.js](../../packages/engine/src/lib/clock.js).
+Not a config file but the injection point that makes a match reproducible:
+a singleton (same idiom as `lib/config.js`) exposing `now()` (epoch ms,
+`Date.now`), `monotonic()` (high resolution, `performance.now`), `random()`,
+`setTimeout`/`clearTimeout`/`setInterval`/`clearInterval`, plus
+`install(custom)` (returns a rollback function) and `reset()`.
+
+Every host timer goes through `lib/AbstractTimer.js`, which takes its timer
+functions from `clock`; host call sites use `clock.now()`/`clock.monotonic()`
+/`clock.random()` instead of the globals. Defaults resolve the globals at
+call time, so production behaviour (and `vi.useFakeTimers()` in tests) is
+unchanged, while the headless runner can swap in a `VirtualClock` and run a
+ten-minute match in seconds — deterministically. See
+[debugging.md](debugging.md).
 
 ## Game data (models, weapons, maps)
 

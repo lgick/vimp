@@ -63,4 +63,11 @@ class Chat {
   }
 }
 
+// Сброс синглтона. Нужен только тем, кто крутит больше одного матча в
+// процессе — headless-runner (devtools/resetHostSingletons.js) и тесты;
+// в браузерной вкладке матч всегда один, поэтому прод его не зовёт.
+export const resetChat = () => {
+  chat = null;
+};
+
 export default Chat;

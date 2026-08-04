@@ -17,7 +17,15 @@ export default {
   id: 'my-game',
   engineApi: ENGINE_API_VERSION,
 
+  // wasmUrl has two shapes — .wasm asset in the browser, Node glue under
+  // `npm run sim`; see 03-host-plugin.md § Two shapes of `wasmUrl`
   async createClientCore(clientConfigJson, { wasmUrl }) {
+    if (isNodeCore(wasmUrl)) {
+      const node = await loadNodeCore(wasmUrl);
+
+      return { core: new node.ClientCore(clientConfigJson), memory: null };
+    }
+
     const wasm = await init({ module_or_path: wasmUrl });
     return { core: new ClientCore(clientConfigJson), memory: wasm.memory };
   },

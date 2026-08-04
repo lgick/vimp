@@ -220,6 +220,16 @@ impl GameMap {
         }
     }
 
+    // ***** отладочный дамп (crate::debug) ***** //
+
+    pub fn static_body_count(&self) -> usize {
+        self.static_bodies.len()
+    }
+
+    pub fn dynamic_body_count(&self) -> usize {
+        self.dynamic_bodies.len()
+    }
+
     /// Удаляет все тела карты из мира (Map.destroyMap).
     pub fn destroy(&mut self, world: &mut PhysicsWorld) {
         for handle in self.static_bodies.drain(..) {

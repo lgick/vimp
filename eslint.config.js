@@ -41,12 +41,17 @@ export default [
     files: [
       'packages/engine/src/master/**/*.js', // мастер-сервер (Node.js)
       'packages/auth/src/**/*.js', // центральный auth-сервис (Node.js)
+      // headless-отладка (npm run sim): Node-процесс, но крутит внутри себя
+      // хост и клиентское ядро, поэтому нужны и браузерные изоморфные глобалы
+      'packages/engine/src/devtools/**/*.js',
+      'packages/engine/bin/**/*.js',
     ],
     languageOptions: {
       ecmaVersion: 'latest', // последний ECMAScript
       sourceType: 'module', // "type": "module" в package.json
       globals: {
         ...globals.node, // глобальные переменные Node.js (console, process...)
+        ...globals.browser, // structuredClone, queueMicrotask, URL, TextDecoder
       },
     },
     rules: {
@@ -195,13 +200,16 @@ export default [
     },
   },
 
-  // fake-core фикстуры миниигры: имена методов зеркалят Wasm Host ABI
-  // (snake_case, как у настоящих wasm-bindgen-биндингов GameCore/ClientCore) —
-  // camelCase здесь неприменим, это не движковый JS-код, а стенд-ин ядра
+  // стенд-ины ядра: имена методов зеркалят Wasm Host ABI (snake_case, как у
+  // настоящих wasm-bindgen-биндингов GameCore/ClientCore) — camelCase здесь
+  // неприменим, это не движковый JS-код
   {
     files: [
       'packages/engine/tests/fixtures/miniGame/host/fakeCore.js',
       'packages/engine/tests/fixtures/miniGame/client/fakeClientCore.js',
+      'tests/devtools/VirtualClient.test.js',
+      'tests/devtools/invariants.test.js',
+      'tests/client/debug.test.js',
     ],
     rules: {
       camelcase: 'off',

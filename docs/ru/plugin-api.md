@@ -53,7 +53,8 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
   "entries": {
     "client": "/games/tanks/client-<hash>.js",  // ESM, default export = ClientPlugin
     "host":   "/games/tanks/host-<hash>.js",    // ESM worker-safe, default export = HostPlugin
-    "wasm":   "/games/tanks/core-<hash>.wasm"   // единый hashed .wasm обоих entry (общий HTTP-кеш)
+    "wasm":   "/games/tanks/core-<hash>.wasm",  // единый hashed .wasm обоих entry (общий HTTP-кеш)
+    "wasmNode": "core/pkg-node/index.js"        // ОПЦИОНАЛЬНО: node-сборка ядра для `npm run sim`
   },
   "assetsBase": "/games/tanks/",           // база звуков/ассетов
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
@@ -79,6 +80,34 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
 набором ключей комнаты. Манифест без `roomForm` рендерит пустую форму
 создания комнаты (с предупреждением в консоли) вместо вывода контролов из
 типа значений `roomDefaults`.
+
+`entries.wasmNode` **опционально** и браузером не используется: это путь
+(относительно манифеста) к **node**-сборке того же WASM-ядра (по конвенции
+`core/pkg-node/`), которую берёт headless-runner
+`npm run sim -- --game <пакет>` — см. [debugging.md](debugging.md). Без него
+игру всё ещё можно прогнать headless, передав `--core <путь>` явно; игра, у
+которой нет ни того, ни другого, просто не симулируется на своём настоящем
+ядре.
+
+Из-за него `createCore`/`createClientCore` получают `wasmUrl` **в двух
+видах**: браузер передаёт URL `.wasm`-ассета, headless-раннер — `file:`-URL
+node-глюe (`wasmNode`). Плагин, которому нужны headless-прогоны, ветвится
+по суффиксу — у сборки `--target nodejs` wasm подгружает сам модуль,
+поэтому `init()` там нет:
+
+```js
+async createCore(coreConfigJson, { wasmUrl }) {
+  if (wasmUrl?.endsWith('.js')) {
+    const node = await import(/* @vite-ignore */ wasmUrl);
+
+    return new node.GameCore(coreConfigJson);
+  }
+
+  await init({ module_or_path: wasmUrl });
+
+  return new GameCore(coreConfigJson);
+}
+```
 
 Проекции: **мастер** — весь манифест + раздача `/games/:id/maps/*`;
 **хост** — `entries.host` (dynamic import в Worker'е) + `entries.wasm` +
@@ -310,7 +339,9 @@ engine-crate от wasm-bindgen не зависит вовсе.
 `pack_frame`, `body_has_events`, `frame_ptr/frame_bytes`, `is_alive`,
 `position_of`, `players_data`, `alive_players`, `last_input_seq`,
 `reset_all_vitals`, `remove_players_and_shots`, `clear`,
-`serialize_state/deserialize_state`.
+`serialize_state/deserialize_state`, `debug_json` (курированный дамп мира
+для отладки — см. [debugging.md](debugging.md); генерируется макросом, игра
+не реализует ничего).
 
 Стандартный словарь событий `take_events` (убирает игровой словарь из
 `GameCoreAdapter._drainEvents`):
@@ -325,9 +356,20 @@ engine-crate от wasm-bindgen не зависит вовсе.
 
 **ClientCore** — движковый минимум: `new`, `push_frame`, `my_game_id`,
 `offset`, `sample`, `hot_ptr/hot_values`, `take_frames`, `apply_input`,
-`set_active`, `set_map`, `reset`, `decode_frame`. Игровые методы
+`set_active`, `set_map`, `reset`, `decode_frame` плюс отладочная пара
+`debug_json` и `take_divergence` (тоже из макроса). Игровые методы
 (`set_model`, `try_fire`, `cycle_weapon`, `sync_panel`) в минимум не
 входят — их зовут только хуки ClientPlugin.
+
+Два **опциональных** trait-метода `GameClientDef` уточняют детектор
+рассинхрона предикта и имеют дефолт `None`, так что плагин вправе их
+игнорировать: `predicted_state() -> Option<[f32; PLAYER_STATE_LEN]>`
+(предсказанное состояние в раскладке player-блока, сравнивается
+покомпонентно с авторитетным кадром) и
+`replayed_inputs() -> Option<(f64, f64, usize)>` (окно истории ввода,
+переигранное последним реконсилем). Без них движок сравнивает камеру
+`render_overlay()` с x/y кадра. См.
+[debugging.md](debugging.md#детектор-рассинхрона-предикта).
 
 ### Snapshot-блоки — декларативная схема
 

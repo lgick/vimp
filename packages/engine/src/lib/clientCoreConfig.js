@@ -40,6 +40,9 @@ export const buildClientCoreConfig = (
     },
     interpolation,
     seed: undefined,
+    // детектор рассинхрона предикта: в боевом конфиге секции нет (undefined
+    // не попадает в JSON) — ядро тогда не делает на пути кадра ничего лишнего
+    divergence: undefined,
     ...overrides,
   };
 
@@ -48,6 +51,7 @@ export const buildClientCoreConfig = (
       timeStepMs: flat.timeStepMs,
       snapshot: flat.snapshot,
       interpolation: flat.interpolation,
+      divergence: flat.divergence,
     },
     game: {
       playerKeys: flat.playerKeys,

@@ -257,6 +257,29 @@ impl Interpolator {
         }
     }
 
+    /// Дамп сетевого буфера для отладки: глубина буфера, окно seq,
+    /// оффсет, последний принятый кадр (см. `crate::debug` — серверное
+    /// зеркало этого дампа).
+    pub fn debug_json(&self) -> serde_json::Value {
+        let last = self.frames.last();
+
+        serde_json::json!({
+            "delay": self.delay,
+            "maxFrameAge": self.max_frame_age,
+            "buffered": self.frames.len(),
+            "seqWindow": self.frames.first().map(|frame| [frame.seq, self.frames[self.frames.len() - 1].seq]),
+            "lastFrame": last.map(|frame| serde_json::json!({
+                "seq": frame.seq,
+                "serverTime": frame.server_time,
+                "issued": frame.issued,
+            })),
+            "offset": self.offset_ema,
+            "lastRenderTime": self.last_render_time,
+            "pendingLate": self.pending_late.len(),
+            "issuedSeqs": self.issued_seqs.len(),
+        })
+    }
+
     /// Сбрасывает буфер и оценку времени (смена карты, очистка полотна).
     pub fn reset(&mut self) {
         self.frames.clear();

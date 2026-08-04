@@ -11,7 +11,9 @@ import VoteCoordinator from './meta/core/VoteCoordinator.js';
 import RoundManager from './meta/core/RoundManager.js';
 import CommandProcessor from './meta/core/CommandProcessor.js';
 import { sanitizeMessage } from '../lib/sanitizers.js';
+import clock from '../lib/clock.js';
 import GameCoreAdapter from './GameCoreAdapter.js';
+import DebugRecorder from './DebugRecorder.js';
 
 // Версия формата handoff-меты эстафеты Worker'ов (Этап 5.2; →2 в Этапе 6.5 —
 // добавлены gameId/gameVersion; →3 в Этапе Д3 — нейтральное поле scripted).
@@ -70,6 +72,8 @@ export default class HostGame {
    * @param {string} [opts.gameVersion] - версия игры комнаты (room.game.version,
    *   Этап 6.5): едет в handoff-мете рядом с gameId — расхождение с игрой
    *   восстанавливающего Worker'а валит init тем же путём, что и версия формата.
+   * @param {number} [opts.seed] - seed мира, которым инициализировано ядро
+   *   (createHostRuntime): без него записанный сценарий невоспроизводим.
    */
   constructor(
     data,
@@ -81,9 +85,12 @@ export default class HostGame {
       onMapChange = null,
       handoff = null,
       gameVersion = null,
+      playerDataFetch = null,
+      seed = null,
     } = {},
   ) {
     this._isDevMode = data.isDevMode || false;
+    this._seed = seed;
 
     this._hostSocketId = hostSocketId;
     this._onMapChange = onMapChange;
@@ -126,13 +133,21 @@ export default class HostGame {
     // обратно на мастер по границам раунда/карты (см. RoundManager)
     this._playerDataSync = new PlayerDataSync(this._gameId, {
       defaultState: data.playerState?.defaultState ?? {},
+      // headless-прогону некуда ходить за профилем (относительный URL и нет
+      // мастера) — подменяется только там, в проде остаётся глобальный fetch
+      ...(playerDataFetch ? { fetchImpl: playerDataFetch } : {}),
     });
     this._chat = new Chat();
     this._vote = new Vote();
 
     this._socketManager = socketManager;
 
-    this._snapshotManager = new SnapshotThrottle(data.timers.networkSendRate);
+    this._networkSendRate = data.timers.networkSendRate;
+    this._snapshotManager = new SnapshotThrottle(this._networkSendRate);
+
+    // рекордер живого матча (этап 6 плана plan/ai-debug) — только в dev-режиме;
+    // в проде null, и все точки записи ниже вырождаются в ?.
+    this._recorder = this._isDevMode ? new DebugRecorder() : null;
 
     // игровые host-модули (scripted-модуль игры)
     this._scripted = hostPlugin.createModules({
@@ -282,6 +297,9 @@ export default class HostGame {
 
   // создаёт кадр игры (core-driven)
   _onShotTick(dt) {
+    // номер тика — единственная временная координата сценария (этап 6)
+    this._recorder?.tick(dt);
+
     // шаг ядра + проекция событий (kill/health/ammo/weapon/shake) в мету
     this._game.updateData(dt);
 
@@ -313,7 +331,7 @@ export default class HostGame {
     const chat = this._chat.shift();
     const vote = this._vote.shift();
 
-    const serverTime = Date.now();
+    const serverTime = clock.now();
     this._seq = (this._seq + 1) >>> 0;
     const seq = this._seq;
     const activeList = this._participants.getActiveList();
@@ -398,7 +416,7 @@ export default class HostGame {
 
   // проверяет игроков на бездействие и кикает, если превышен порог
   _kickIdleUsers() {
-    const now = Date.now();
+    const now = clock.now();
     const usersToKick = [];
 
     for (const user of this._participants.getHumans()) {
@@ -491,6 +509,94 @@ export default class HostGame {
 
     this._mapList.length = 0;
     this._mapList.push(...Object.keys(this._maps));
+  }
+
+  // ***** отладочный контур (этап 6 плана plan/ai-debug) ***** //
+  // Всё ниже живёт под флагом isDevMode: в проде рекордера нет, а дамп
+  // отдаёт только то, что и так знает мета.
+
+  get isRecording() {
+    return this._recorder?.isRecording === true;
+  }
+
+  // начинает запись живого матча в формат сценария headless-runner'а.
+  // Возвращает false, если dev-режим выключен — тишины быть не должно
+  startRecording() {
+    if (!this._recorder) {
+      return false;
+    }
+
+    this._recorder.start({
+      seed: this._seed,
+      map: this._roundManager.currentMap,
+      networkSendRate: this._networkSendRate,
+      participants: this._participants.getHumans().map(user => ({
+        gameId: user.gameId,
+        name: user.name,
+        model: user.model,
+        socketId: user.socketId,
+        team: user.team === this._spectatorTeam ? null : user.team,
+      })),
+    });
+
+    this._debugConsole('recording started');
+
+    return true;
+  }
+
+  // останавливает запись и отдаёт сценарий (parseScenario принимает как есть)
+  stopRecording() {
+    const scenario = this._recorder?.stop() ?? null;
+
+    if (scenario) {
+      this._debugConsole(
+        `recording stopped: ${scenario.ticks} tick(s), ` +
+          `${scenario.timeline.length} op(s)`,
+      );
+    }
+
+    return scenario;
+  }
+
+  // курированный срез хоста: мета рядом с дампом мира ядра (этап 4) —
+  // расхождение «в ядре тело есть, на холсте пусто» видно только вместе
+  debugSnapshot() {
+    return {
+      seed: this._seed,
+      seq: this._seq,
+      tick: this._recorder?.tickCount ?? null,
+      recording: this.isRecording,
+      currentMap: this._roundManager.currentMap,
+      participants: {
+        humans: this._participants.getHumans().map(user => ({
+          gameId: user.gameId,
+          socketId: user.socketId,
+          name: user.name,
+          team: user.team,
+          isReady: user.isReady,
+          isWatching: user.isWatching,
+        })),
+        scripted: this._participants.getScripted().map(user => ({
+          gameId: user.gameId,
+          name: user.name,
+          team: user.team,
+        })),
+        activeList: this._participants.getActiveList(),
+      },
+      core: this._game.debugJson(),
+    };
+  }
+
+  // структурированный лог хоста в консоль клиентов (порт CONSOLE): Worker
+  // изолирован от DevTools вкладки, поэтому его события иначе не видны
+  _debugConsole(message) {
+    if (!this._isDevMode) {
+      return;
+    }
+
+    for (const user of this._participants.getNetworkedReady()) {
+      this._socketManager.sendConsole(user.socketId, message);
+    }
   }
 
   // ***** эстафета Worker'ов (Этап 5.2) ***** //
@@ -683,6 +789,13 @@ export default class HostGame {
     const gameId = this._participants.createHuman(params, socketId);
     const name = this._participants.get(gameId).name;
 
+    this._recorder?.noteJoin({
+      gameId,
+      name,
+      model: params.model,
+      socketId,
+    });
+
     this._chat.addUser(gameId);
     this._vote.addUser(gameId);
     this._stat.addUser(gameId, this._spectatorId, { name });
@@ -707,6 +820,8 @@ export default class HostGame {
     }
 
     const { team, teamId } = user;
+
+    this._recorder?.noteLeave(gameId);
 
     this._RTTManager.removeUser(gameId);
     this._stat.removeUser(gameId, teamId);
@@ -740,7 +855,9 @@ export default class HostGame {
 
     const [seq, action, name] = keyStr.split(':');
 
-    user.lastActionTime = Date.now();
+    this._recorder?.noteKey(gameId, action, name);
+
+    user.lastActionTime = clock.now();
     user.lastInputSeq = Number(seq) >>> 0;
 
     if (user.isWatching === true) {
@@ -766,7 +883,7 @@ export default class HostGame {
       return;
     }
 
-    user.lastActionTime = Date.now();
+    user.lastActionTime = clock.now();
 
     message = sanitizeMessage(message);
 
@@ -775,6 +892,9 @@ export default class HostGame {
     }
 
     if (message) {
+      // пишется уже вычищенный текст — ровно тот, что применяется к матчу
+      this._recorder?.noteChat(gameId, message);
+
       if (message.charAt(0) === '/') {
         this._commandProcessor.parseCommand(gameId, message);
       } else {
@@ -791,7 +911,9 @@ export default class HostGame {
       return;
     }
 
-    user.lastActionTime = Date.now();
+    this._recorder?.noteVote(gameId, data);
+
+    user.lastActionTime = clock.now();
 
     if (typeof data === 'string') {
       if (data === 'teams') {

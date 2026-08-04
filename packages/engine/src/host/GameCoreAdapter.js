@@ -197,6 +197,23 @@ export default class GameCoreAdapter {
     );
   }
 
+  // ***** отладка ***** //
+
+  /**
+   * Курированный дамп мира ядра (тела, коллайдеры, карта, нав-граф,
+   * spatial-сетка, rng). Метод приезжает из движкового ABI-макроса, но
+   * ядро игры могло быть собрано против более старого движка — тогда
+   * null, а не исключение посреди прогона.
+   * @returns {Object|null}
+   */
+  debugJson() {
+    if (typeof this._core.debug_json !== 'function') {
+      return null;
+    }
+
+    return JSON.parse(this._core.debug_json());
+  }
+
   // бот ли участник (спавн/удаление в ядре различаются)
   _isScripted(gameId) {
     const participant = this._participants.get(gameId);

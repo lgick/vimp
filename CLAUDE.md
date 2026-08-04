@@ -32,6 +32,7 @@ Bilingual user docs live in `docs/en/` (canonical, ToC at
 | client modules / parts / ClientCore | `client.md` |
 | plugin contract, game-package loading (`GameManifest`, `GameCatalog`, Wasm ABI) | `plugin-api.md` |
 | deploy scripts, workflows, npm scripts | `deployment.md`, `getting-started.md` |
+| devtools (`packages/engine/src/devtools/`, `bin/vimp-sim.js`), scenario format, invariants, debug recorder | `debugging.md` |
 
 `docs/ai/` is a separate English-only, self-contained spec of the plugin
 contract for LLMs authoring a game plugin (index: `docs/ai/README.md`); the
@@ -58,6 +59,9 @@ npm test                  # Vitest, single run
 npm run test:watch
 npm run test:coverage
 npm run core:test         # Rust core tests (cargo test --workspace)
+npm run sim               # headless match run, report into .debug/
+npm run sim:check         # same, verdict to stdout only (no files)
+npm run sim:replay <file> # run a recorded/scripted scenario JSON
 npm run dev:auth          # auth service: http://localhost:3010 (nodemon)
 npm run start:auth        # production auth service (reads .env)
 npm run auth:db:migrate   # apply packages/auth/src/db/migrations/*.sql
@@ -84,6 +88,10 @@ installed/linked into `node_modules` — this repo no longer builds one; see
 - **Client** (`packages/engine/src/client/`) — WebRTC transport, MVC
   component triplets (model/view/controller, Publisher pattern); game-specific
   rendering parts live in the game plugin package. Details: `docs/en/client.md`.
+- **Devtools** (`packages/engine/src/devtools/`, CLI
+  `packages/engine/bin/vimp-sim.js`) — headless match runner: virtual clock,
+  recording transport, real client cores, scene dumps. Node-only, never
+  imported by the app bundle.
 - **Game plugins** — published packages (e.g. `@vimp-games/tanks`, developed in the
   separate `vimp-tanks` repository), loaded by the engine only dynamically at
   runtime via `GameManifest`/`GameCatalog` (never imported statically); the

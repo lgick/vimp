@@ -15,6 +15,7 @@
 
 use serde_json::{Map, Value, json};
 
+use super::divergence::{DivergenceTracker, Observation, Source};
 use super::interpolator::{FrameData, InterpolatedGame, Interpolator};
 use super::unpack::{self, DecodedSnapshot, UnpackError};
 use crate::config::{BlockKind, EngineClientConfig, FieldValue, PLAYER_STATE_LEN, SnapshotConfig};
@@ -75,6 +76,24 @@ pub trait GameClientDef: Sized {
     /// интерполяции, а флаг HOT_HAS_PREDICTED не выставляется.
     fn render_overlay(&self, my_game_id: Option<u32>) -> Option<RenderOverlay>;
 
+    /// Предсказанное состояние своего актора в раскладке player-блока —
+    /// уровень 1 детектора рассинхрона (`client::divergence`). Движок
+    /// снимает его непосредственно перед `on_server_state`, то есть до
+    /// затирания предикта авторитетным состоянием. Дефолт `None` — тогда
+    /// движок сравнивает камеру predicted-оверлея с x/y кадра (уровень 0),
+    /// и от плагина не требуется ничего.
+    fn predicted_state(&self) -> Option<[f32; PLAYER_STATE_LEN]> {
+        None
+    }
+
+    /// Окно локального времени истории ввода, переигранное последним
+    /// реконсилем: (начало, конец, число вводов). Реконсиляция идёт по
+    /// времени, а не по `seq`, поэтому именно окно локализует расхождение
+    /// в формуле движения. Дефолт `None`.
+    fn replayed_inputs(&self) -> Option<(f64, f64, usize)> {
+        None
+    }
+
     fn apply_input(&mut self, action: &str, key_name: &str, local_now: f64);
     fn set_model(&mut self, model_name: &str);
     fn set_active(&mut self, active: bool);
@@ -132,12 +151,17 @@ pub struct ClientState<G: GameClientDef> {
 
     // переиспользуемый плоский буфер рендер-тика
     hot: Vec<f32>,
+
+    // детектор рассинхрона предикта; None в боевом конфиге — путь кадра
+    // остаётся ровно таким же, как до этапа 5
+    divergence: Option<DivergenceTracker>,
 }
 
 impl<G: GameClientDef> ClientState<G> {
     pub fn new(cfg: EngineClientConfig, game_cfg: &G::Config) -> Self {
         let interpolator = Interpolator::new(&cfg.interpolation, cfg.snapshot.clone());
         let game = G::new(game_cfg, &cfg);
+        let divergence = cfg.divergence.clone().map(DivergenceTracker::new);
 
         Self {
             cfg,
@@ -146,6 +170,7 @@ impl<G: GameClientDef> ClientState<G> {
             my_game_id: None,
             frames_out: Vec::new(),
             hot: Vec::new(),
+            divergence,
         }
     }
 
@@ -177,6 +202,8 @@ impl<G: GameClientDef> ClientState<G> {
 
             // после push оффсет всегда известен
             let offset = self.interpolator.offset().unwrap_or(0.0);
+
+            self.observe_divergence(&player, frame.server_time, offset, local_now);
 
             self.game.on_server_state(
                 player.state,
@@ -297,6 +324,64 @@ impl<G: GameClientDef> ClientState<G> {
         self.frames_out.clear();
     }
 
+    /// Зеркало серверного `EngineSim::debug_json` на клиенте: состояние
+    /// сетевого буфера (глубина, окно seq, оффсет, последний кадр), свой
+    /// gameId, размеры hot-буфера и очереди событийных кадров.
+    pub fn debug_json(&self) -> String {
+        json!({
+            "myGameId": self.my_game_id,
+            "offset": self.interpolator.offset(),
+            "interpolator": self.interpolator.debug_json(),
+            "hotLen": self.hot.len(),
+            "framesOut": self.frames_out.len(),
+        })
+        .to_string()
+    }
+
+    /// Записи расхождения предикта с авторитетным состоянием (JSON,
+    /// см. `client::divergence`); очередь очищается. `"null"` — детектор
+    /// выключен (боевой конфиг без секции `divergence`).
+    pub fn take_divergence(&mut self) -> String {
+        match &mut self.divergence {
+            Some(tracker) => tracker.take_json(),
+            None => "null".to_string(),
+        }
+    }
+
+    // Снимок предикта ДО реконсиляции: после on_server_state сравнивать уже
+    // не с чем — состояние затёрто авторитетным.
+    fn observe_divergence(
+        &mut self,
+        player: &unpack::DecodedPlayer,
+        server_time: f64,
+        offset: f64,
+        local_now: f64,
+    ) {
+        let Some(tracker) = &mut self.divergence else {
+            return;
+        };
+
+        // уровень 1 (predicted_state игры) либо уровень 0 (камера оверлея)
+        let (source, predicted) = match self.game.predicted_state() {
+            Some(state) => (Source::State, state.to_vec()),
+            None => match self.game.render_overlay(self.my_game_id) {
+                Some(overlay) => (Source::Camera, overlay.camera.to_vec()),
+                None => return,
+            },
+        };
+
+        tracker.observe(Observation {
+            source,
+            predicted: &predicted,
+            authoritative: &player.state,
+            server_time,
+            local_now,
+            offset,
+            input_seq: player.input_seq,
+            replayed: self.game.replayed_inputs(),
+        });
+    }
+
     /// Чистая распаковка кадра v3 в JSON-форму unpackFrame (тесты/харнесс).
     pub fn decode_frame(&self, data: &[u8]) -> String {
         match unpack::unpack_frame(data, &self.cfg.snapshot) {
@@ -414,6 +499,9 @@ mod fixture {
         active: bool,
         alive: bool,
         last_update: Option<f64>,
+        // уровень детектора рассинхрона, которым фикстура притворяется:
+        // set_model("predicted") → уровень 1 (predicted_state), иначе — 0
+        report_state: bool,
     }
 
     impl GameClientDef for TestClient {
@@ -428,6 +516,7 @@ mod fixture {
                 active: false,
                 alive: true,
                 last_update: None,
+                report_state: false,
             }
         }
 
@@ -481,9 +570,20 @@ mod fixture {
             })
         }
 
+        fn predicted_state(&self) -> Option<[f32; PLAYER_STATE_LEN]> {
+            self.report_state
+                .then_some([self.x, self.y, 0.0, self.vx, self.vy, 0.0, 0.0, 0.0])
+        }
+
+        fn replayed_inputs(&self) -> Option<(f64, f64, usize)> {
+            self.last_update.map(|last| (last - 50.0, last, 2))
+        }
+
         fn apply_input(&mut self, _action: &str, _key_name: &str, _local_now: f64) {}
 
-        fn set_model(&mut self, _model_name: &str) {}
+        fn set_model(&mut self, model_name: &str) {
+            self.report_state = model_name == "predicted";
+        }
 
         fn set_active(&mut self, active: bool) {
             self.active = active;
@@ -535,6 +635,19 @@ mod tests {
 
     fn engine_client_config() -> EngineClientConfig {
         serde_json::from_value(config_json()).unwrap()
+    }
+
+    // конфиг с включённым детектором рассинхрона (в боевом конфиге секции
+    // divergence нет — путь кадра тогда не меняется вовсе)
+    fn config_with_divergence(capacity: usize) -> EngineClientConfig {
+        let mut json = config_json();
+
+        json["divergence"] = serde_json::json!({
+            "defaultThreshold": 1.0,
+            "capacity": capacity,
+        });
+
+        serde_json::from_value(json).unwrap()
     }
 
     fn make_state() -> ClientState<TestClient> {
@@ -642,6 +755,127 @@ mod tests {
         state.reset();
 
         assert_eq!(state.take_frames(), "[]");
+    }
+
+    #[test]
+    fn debug_json_reports_buffer_seq_window_and_offset() {
+        let mut state = make_state();
+
+        let empty: serde_json::Value = serde_json::from_str(&state.debug_json()).unwrap();
+
+        assert!(empty["myGameId"].is_null());
+        assert_eq!(empty["interpolator"]["buffered"], 0);
+        assert!(empty["interpolator"]["lastFrame"].is_null());
+
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, false), 1100.0);
+        state.sample(1150.0);
+
+        let dump: serde_json::Value = serde_json::from_str(&state.debug_json()).unwrap();
+
+        assert_eq!(dump["myGameId"], 2);
+        assert_eq!(dump["interpolator"]["buffered"], 2);
+        assert_eq!(dump["interpolator"]["seqWindow"], serde_json::json!([1, 2]));
+        assert_eq!(dump["interpolator"]["lastFrame"]["seq"], 2);
+        assert_eq!(dump["interpolator"]["lastFrame"]["serverTime"], 1100.0);
+        assert_eq!(dump["interpolator"]["delay"], 100.0);
+        assert_eq!(dump["offset"], dump["interpolator"]["offset"]);
+        assert_eq!(dump["hotLen"], state.hot().len());
+        assert_eq!(dump["framesOut"], 1);
+    }
+
+    // ***** детектор рассинхрона предикта (этап 5 plan/ai-debug) ***** //
+
+    #[test]
+    fn divergence_is_off_without_config() {
+        let mut state = make_state();
+
+        state.set_active(true);
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+
+        assert_eq!(state.take_divergence(), "null");
+    }
+
+    // уровень 0: плагин не реализовал predicted_state — сравнивается камера
+    // predicted-оверлея с x/y авторитетного состояния
+    #[test]
+    fn divergence_falls_back_to_overlay_camera() {
+        let mut state = ClientState::<TestClient>::new(config_with_divergence(8), &TestConfig {});
+
+        state.set_active(true);
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+
+        let dump: serde_json::Value = serde_json::from_str(&state.take_divergence()).unwrap();
+        let record = &dump["records"][0];
+
+        assert_eq!(dump["samples"], 1);
+        assert_eq!(dump["violations"], 1);
+        assert_eq!(record["source"], "camera");
+        assert_eq!(record["predicted"], serde_json::json!([0.0, 0.0]));
+        assert_eq!(record["authoritative"], serde_json::json!([10.0, 0.0]));
+        assert_eq!(record["delta"][0], -10.0);
+        assert_eq!(record["exceeded"], serde_json::json!([0]));
+        assert_eq!(record["thresholds"][0], 1.0);
+        assert!(record["replayed"].is_null());
+    }
+
+    // уровень 1: predicted_state сравнивается покомпонентно, а отчёт несёт
+    // serverTime/offset/окно переигранного ввода — реконсиляция идёт по
+    // времени, а не по seq
+    #[test]
+    fn divergence_reports_predicted_state_and_replay_window() {
+        let mut state = ClientState::<TestClient>::new(config_with_divergence(8), &TestConfig {});
+
+        state.set_active(true);
+        state.set_model("predicted");
+
+        // первый кадр совпадает с предиктом — записи быть не должно
+        state.push_frame(&frame_bytes(1000.0, 1, 0.0, true), 1000.0);
+        state.sample(1100.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 50.0, true), 1100.0);
+
+        let dump: serde_json::Value = serde_json::from_str(&state.take_divergence()).unwrap();
+
+        assert_eq!(dump["samples"], 2);
+        assert_eq!(dump["violations"], 1);
+        assert_eq!(dump["records"].as_array().unwrap().len(), 1);
+        assert_eq!(dump["maxDelta"][0], 50.0);
+
+        let record = &dump["records"][0];
+
+        assert_eq!(record["source"], "state");
+        assert_eq!(record["serverTime"], 1100.0);
+        assert_eq!(record["localNow"], 1100.0);
+        assert_eq!(record["inputSeq"], 0);
+        assert_eq!(record["delta"][0], -50.0);
+        assert_eq!(record["exceeded"], serde_json::json!([0]));
+        assert_eq!(record["replayed"]["from"], 1050.0);
+        assert_eq!(record["replayed"]["to"], 1100.0);
+        assert_eq!(record["replayed"]["count"], 2);
+
+        // очередь вычерпана, агрегаты — накопительные
+        let drained: serde_json::Value = serde_json::from_str(&state.take_divergence()).unwrap();
+
+        assert_eq!(drained["records"].as_array().unwrap().len(), 0);
+        assert_eq!(drained["samples"], 2);
+        assert_eq!(drained["maxDelta"][0], 50.0);
+    }
+
+    #[test]
+    fn divergence_ring_buffer_evicts_oldest_records() {
+        let mut state = ClientState::<TestClient>::new(config_with_divergence(1), &TestConfig {});
+
+        state.set_active(true);
+        state.set_model("predicted");
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 90.0, true), 1100.0);
+
+        let dump: serde_json::Value = serde_json::from_str(&state.take_divergence()).unwrap();
+
+        assert_eq!(dump["violations"], 2);
+        assert_eq!(dump["dropped"], 1);
+        assert_eq!(dump["records"].as_array().unwrap().len(), 1);
+        assert_eq!(dump["records"][0]["serverTime"], 1100.0);
     }
 
     // Расширение сценариев фикстуры (Этап 7 плана отделения движка): второй

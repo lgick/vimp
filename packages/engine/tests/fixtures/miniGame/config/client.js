@@ -4,6 +4,9 @@
 export default {
   parts: {
     gameSets: {
+      // ключ снапшот-схемы (a1) — по нему клиент разводит записи кадра по
+      // parts; setId карты (m1) — по нему создаётся статика полотна
+      a1: ['Actor'],
       m1: ['Actor'],
     },
     entitiesOnCanvas: {
@@ -74,8 +77,11 @@ export default {
     panel: {
       // поле нарочно называется не health: бар обязан работать по
       // type: 'bar', а не по имени поля (Д2)
+      // 't' — движковый ключ времени раунда: его шлёт Panel хоста, поэтому
+      // без маппинга клиент получал бы значение с именем undefined
       keys: {
         h: 'energy',
+        t: 'time',
       },
       fields: [
         {
@@ -84,6 +90,11 @@ export default {
           type: 'bar',
           max: 100,
           blocks: 10,
+        },
+        {
+          name: 'time',
+          elem: 'panel-time',
+          type: 'time',
         },
       ],
     },
