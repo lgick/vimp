@@ -45,6 +45,6 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@vimp-games/tanks": "^0.4.0"
+    "@vimp-games/tanks": "^0.4.1"
   }
 }
