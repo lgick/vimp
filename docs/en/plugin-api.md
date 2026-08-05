@@ -55,7 +55,7 @@ map JSON (a `maps:export` product of the game build).
     "client": "/games/tanks/client-<hash>.js",  // ESM, default export = ClientPlugin
     "host":   "/games/tanks/host-<hash>.js",    // ESM worker-safe, default export = HostPlugin
     "wasm":   "/games/tanks/core-<hash>.wasm",  // single hashed .wasm for both entries (shared HTTP cache)
-    "wasmNode": "core/pkg-node/index.js"        // OPTIONAL: Node build of the core, for `npm run sim`
+    "wasmNode": "./core-node/index.js"          // OPTIONAL: Node build of the core inside dist/, for `npm run sim`
   },
   "assetsBase": "/games/tanks/",           // base for sounds/assets
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
@@ -83,9 +83,14 @@ room-creation form (with a console warning) instead of guessing controls
 from `roomDefaults` value types.
 
 `entries.wasmNode` is **optional** and never used by the browser: it is a
-path (relative to the manifest) to a **Node** build of the same WASM core
-(conventionally `core/pkg-node/`), used by the headless runner
-`npm run sim -- --game <package>` — see [debugging.md](debugging.md). Without
+path (relative to the manifest) to a **Node** build of the same WASM core,
+used by the headless runner `npm run sim -- --game <package>` — see
+[debugging.md](debugging.md). It must point **inside the published `dist/`**
+(conventionally `./core-node/`, where the build copies its own
+`core/pkg-node/`): a `wasm-pack` output directory is usually git-ignored and
+npm applies ignore rules inside directories listed in `files` too, so a
+manifest pointing outside `dist/` works in a checkout and breaks in the
+installed package. Without
 it the game can still be run headlessly by passing `--core <path>`
 explicitly; a game that has neither simply cannot be simulated on its real
 core. If the field is declared, the file must exist in the package as

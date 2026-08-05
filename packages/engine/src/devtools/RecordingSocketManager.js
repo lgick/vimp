@@ -81,9 +81,22 @@ class RecordingSocketManager extends SocketManager {
     this._payload({ port: null, data: { code, data } });
   }
 
+  // Кадр публикуется в момент первой отправки — это и есть порядок провода:
+  // составной отправитель отдаёт свою нагрузку раньше вложенных вызовов
+  // (FIRST_SHOT_DATA → STAT → PANEL → KEYSET), и клиент прогона видит ту же
+  // последовательность, что и браузер. Публикация после invoke() отдавала бы
+  // родителя последним.
   _payload(entry) {
-    if (this._current) {
-      this._current.sent.push(entry);
+    const frame = this._current;
+
+    if (!frame) {
+      return;
+    }
+
+    frame.sent.push(entry);
+
+    if (frame.sent.length === 1) {
+      this._emit(frame);
     }
   }
 
@@ -100,8 +113,15 @@ class RecordingSocketManager extends SocketManager {
       this._current = parent;
     }
 
-    // подписчик получает кадр уже с нагрузкой — иначе первый снапшот мира
-    // (sendFirstShot) доехал бы до клиента пустым
+    // отправитель без собственной нагрузки (составной вроде
+    // sendPlayerDefaultShot либо отфильтрованный прод-кодом незамапленный
+    // soundCue) всё равно доезжает до подписчика — но ровно один раз
+    if (!frame.sent.length) {
+      this._emit(frame);
+    }
+  }
+
+  _emit(frame) {
     if (this._onFrame) {
       this._onFrame(frame);
     }

@@ -57,7 +57,7 @@ Resolution order in `devtools/pluginLoader.js`, by decreasing precision:
 1. `--game <path>` → the manifest is read, `engineApi` is checked against
    this engine build, `entries.host`/`entries.client` are imported, and the
    core comes from `entries.wasmNode` (a **Node** build of the WASM core,
-   conventionally `core/pkg-node/`);
+   conventionally `dist/core-node/`);
 2. `--core <path>` → overrides `entries.wasmNode`;
 3. nothing → the `miniGame` fixture shipped with the engine
    (`packages/engine/tests/fixtures/miniGame/`), whose cores are plain JS.
@@ -74,6 +74,14 @@ published `dist/`** — ignore rules apply inside directories listed in
 `files` too. Both halves of the plugin are also re-checked against the
 manifest's `engineApi`, which catches a rebuilt manifest next to a stale
 `dist/`. See [plugin-api.md](plugin-api.md#gamemanifest).
+
+One more thing about `--game`: the runner imports the game's **client**
+bundle, and its externals must resolve from where the package lies —
+`pixi.js` above all (a peer dependency of the plugin). An installed copy
+(`node_modules/<package>`) resolves it from the project; a tarball unpacked
+into an arbitrary directory does not, and fails with
+`Cannot find package 'pixi.js'`. Unpack inside a project that has the
+dependencies, or install the package.
 
 ## Scenario format
 
@@ -140,7 +148,10 @@ Two properties are worth knowing before writing a scenario by hand:
   core, exactly as the browser does on every round restart and map change.
   Without that the core would run in a state the game never produces — no
   model, prediction off, a scene carrying entities the browser already
-  dropped. `sendPing` is answered
+  dropped. The order is the wire order too: the recording transport publishes
+  a frame the moment the production code hands its payload to the socket, so
+  a composite sender arrives before the calls nested inside it
+  (`FIRST_SHOT_DATA` → `STAT` → `PANEL` → `KEYSET`). `sendPing` is answered
   immediately (`updateRTT`), otherwise the host would honestly kick every
   participant on the RTT timeout in the middle of a long run.
 - **Spawn resets reach the client late.** A `force_reset` camera arrives

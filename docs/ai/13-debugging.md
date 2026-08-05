@@ -44,14 +44,16 @@ without a human: edit → run → read the text → repeat.
 
 The runner is Node, so it needs the `--target nodejs` build of your core —
 the same `core/pkg-node/` you already build for your Rust-side integration
-tests (`02-packaging.md`). Point the manifest at it:
+tests (`02-packaging.md`), copied into the published `dist/` at build time
+(see the paragraph after the snippet — this is the part that breaks in an
+installed copy if you skip it). Point the manifest at the copy:
 
 ```json
 "entries": {
   "client": "/games/<id>/client-<hash>.js",
   "host": "/games/<id>/host-<hash>.js",
   "wasm": "/games/<id>/assets/<crate>_bg-<hash>.wasm",
-  "wasmNode": "../core/pkg-node/<crate>.js"
+  "wasmNode": "./core-node/<crate>.js"
 }
 ```
 

@@ -51,6 +51,48 @@ describe('RecordingSocketManager', () => {
     expect(sent.data[0]).toEqual({ p: { 1: [7, 8] } });
   });
 
+  // порядок публикации = порядок провода: в браузере первым уходит
+  // FIRST_SHOT_DATA, а не панель с keySet'ом вложенных вызовов
+  it('составной отправитель публикуется раньше своих вложенных', () => {
+    const delivered = [];
+    const socket = new RecordingSocketManager(wsports.server, {}, {
+      onFrame: frame => delivered.push(frame.method),
+    });
+    const { game, panel, stat } = services();
+
+    socket.injectServices(game, panel, stat);
+    socket.sendFirstShot('s1');
+
+    expect(delivered).toEqual([
+      'sendFirstShot',
+      'sendStat',
+      'sendPanel',
+      'sendKeySet',
+    ]);
+  });
+
+  // отправитель без собственной нагрузки не теряется и не задваивается
+  it('кадр без нагрузки публикуется ровно один раз', () => {
+    const delivered = [];
+    const socket = new RecordingSocketManager(
+      wsports.server,
+      { soundCues: {} },
+      { onFrame: frame => delivered.push(frame.method) },
+    );
+    const { game, panel, stat } = services();
+
+    socket.injectServices(game, panel, stat);
+    socket.sendPlayerDefaultShot('s1', 3);
+    socket.sendSoundCue('s1', 'frag');
+
+    expect(delivered).toEqual([
+      'sendPanel',
+      'sendKeySet',
+      'sendPlayerDefaultShot',
+      'sendSoundCue',
+    ]);
+  });
+
   it('sendPlayerDefaultShot раскрывается в полную панель + keySet игрока', () => {
     const socket = make();
 
