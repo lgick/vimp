@@ -79,7 +79,7 @@ export async function createHostRuntime(room, options = {}) {
   const host = new HostGame(game, socketManager, core, hostPlugin, {
     hostSocketId: room?.hostSocketId ?? null,
     gameVersion: room.game?.version ?? null,
-    // рекордер (этап 6 плана plan/ai-debug) кладёт seed в сценарий — без него
+    // рекордер (этап 6 плана plan/done/ai-debug) кладёт seed в сценарий — без него
     // записанный матч невоспроизводим
     seed,
     ...hostOptions,

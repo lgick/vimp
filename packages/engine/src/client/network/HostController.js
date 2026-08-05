@@ -50,7 +50,7 @@ export default class HostController {
 
     this._swap = null; // состояние эстафеты (Этап 5.2)
 
-    // отладочные запросы в Worker (этап 6 плана plan/ai-debug):
+    // отладочные запросы в Worker (этап 6 плана plan/done/ai-debug):
     // requestId → { resolve, reject }
     this._debugRequests = new Map();
     this._debugRequestId = 0;
@@ -183,7 +183,7 @@ export default class HostController {
   }
 
   /**
-   * Отладочный контур (этап 6 плана plan/ai-debug): начинает запись живого
+   * Отладочный контур (этап 6 плана plan/done/ai-debug): начинает запись живого
    * матча в формат сценария headless-runner'а.
    * @returns {Promise<boolean>} false — dev-режим в комнате выключен.
    */

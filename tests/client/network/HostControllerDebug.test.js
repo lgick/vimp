@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import HostController from '../../../packages/engine/src/client/network/HostController.js';
 
 // Мост отладочных запросов главного потока в Worker хоста (этап 6 плана
-// plan/ai-debug). postMessage односторонний, а отладке нужен именно результат:
+// plan/done/ai-debug). postMessage односторонний, а отладке нужен именно результат:
 // проверяется корреляция по requestId и то, что промис не остаётся висеть.
 
 const createFakeWorker = () => {

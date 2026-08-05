@@ -407,7 +407,7 @@ self.onmessage = async event => {
       host?.setHostId(msg.hostId, msg.hostSecret);
       break;
 
-    // отладочный контур (этап 6 плана plan/ai-debug): единственный вход в
+    // отладочный контур (этап 6 плана plan/done/ai-debug): единственный вход в
     // авторитетную половину из главного потока — запрос/ответ по requestId
     case 'debug':
       onDebug(msg);

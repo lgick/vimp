@@ -15,7 +15,7 @@ export const PASS = 'pass';
 export const FAIL = 'fail';
 export const SKIP = 'skip';
 
-// список проверок в порядке plan/ai-debug/stage_3.md
+// список проверок в порядке plan/done/ai-debug/stage_3.md
 const CHECKS = [
   [1, 'finiteValues', 'no NaN/Infinity in decoded fields and hot buffer'],
   [2, 'snapshotKeysUsed', 'every snapshot key produced at least one row'],

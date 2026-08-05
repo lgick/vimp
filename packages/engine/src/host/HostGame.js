@@ -145,7 +145,7 @@ export default class HostGame {
     this._networkSendRate = data.timers.networkSendRate;
     this._snapshotManager = new SnapshotThrottle(this._networkSendRate);
 
-    // рекордер живого матча (этап 6 плана plan/ai-debug) — только в dev-режиме;
+    // рекордер живого матча (этап 6 плана plan/done/ai-debug) — только в dev-режиме;
     // в проде null, и все точки записи ниже вырождаются в ?.
     this._recorder = this._isDevMode ? new DebugRecorder() : null;
 
@@ -511,7 +511,7 @@ export default class HostGame {
     this._mapList.push(...Object.keys(this._maps));
   }
 
-  // ***** отладочный контур (этап 6 плана plan/ai-debug) ***** //
+  // ***** отладочный контур (этап 6 плана plan/done/ai-debug) ***** //
   // Всё ниже живёт под флагом isDevMode: в проде рекордера нет, а дамп
   // отдаёт только то, что и так знает мета.
 

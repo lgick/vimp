@@ -40,7 +40,7 @@ export function applyRoomOverrides(room = {}, plugin) {
     game.timers.mapTime = clampTime(room.mapTime);
   }
 
-  // dev-режим вкладки хоста (этап 6 плана plan/ai-debug): включает рекордер
+  // dev-режим вкладки хоста (этап 6 плана plan/done/ai-debug): включает рекордер
   // и хостовый CONSOLE-лог. Прод-бандл его не выставляет — поведение то же
   if (typeof room.isDevMode === 'boolean') {
     game.isDevMode = room.isDevMode;

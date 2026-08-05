@@ -33,7 +33,7 @@ pub struct EngineClientConfig {
     pub time_step_ms: f64,
     pub snapshot: SnapshotConfig,
     pub interpolation: InterpolationConfig,
-    /// Детектор рассинхрона предикта (plan/ai-debug/stage_5.md). Отсутствует
+    /// Детектор рассинхрона предикта (plan/done/ai-debug/stage_5.md). Отсутствует
     /// в боевом конфиге — тогда движок не делает вообще ничего лишнего на
     /// пути кадра.
     #[serde(default)]

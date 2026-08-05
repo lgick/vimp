@@ -5,7 +5,7 @@ import path from 'node:path';
 import DebugReportStore from '../../packages/engine/src/master/DebugReportStore.js';
 
 // Приёмник выгрузок браузерной половины отладочного контура (этап 6 плана
-// plan/ai-debug): записанный вкладкой хоста сценарий должен лечь в `.debug/`
+// plan/done/ai-debug): записанный вкладкой хоста сценарий должен лечь в `.debug/`
 // в том же виде, в каком его читает `npm run sim:replay`.
 
 const scenario = {

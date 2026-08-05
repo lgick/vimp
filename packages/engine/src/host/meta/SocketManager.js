@@ -310,7 +310,7 @@ export default class SocketManager {
 
   /**
    * Отправка отладочного лога хоста в консоль клиента (порт CONSOLE,
-   * этап 6 плана plan/ai-debug). Worker изолирован от DevTools вкладки —
+   * этап 6 плана plan/done/ai-debug). Worker изолирован от DevTools вкладки —
    * без этого канала его события в браузере не видны вовсе.
    * @param {string} socketId
    * @param {*} data

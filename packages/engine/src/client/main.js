@@ -602,7 +602,7 @@ socketMethods[PS_CLEAR] = function (setIdList) {
 };
 
 // console: логи авторитетной половины (Worker изолирован от DevTools вкладки —
-// иначе его события в браузере не видны вовсе, этап 6 плана plan/ai-debug)
+// иначе его события в браузере не видны вовсе, этап 6 плана plan/done/ai-debug)
 socketMethods[PS_CONSOLE] = data => {
   console.log(`${DEBUG_PREFIX}[host]`, data);
 };
@@ -970,7 +970,7 @@ let hostConnections = null;
 let hostHeartbeat = null;
 
 // dev-сборка (Vite подставляет константу): включает отладочный контур этапа 6
-// плана plan/ai-debug — рекордер в комнате и window.__vimpDebug. В прод-бандле
+// плана plan/done/ai-debug — рекордер в комнате и window.__vimpDebug. В прод-бандле
 // ветка вырезается сборкой, поведение не меняется
 const isDevBuild =
   typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;

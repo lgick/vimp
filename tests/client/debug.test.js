@@ -4,7 +4,7 @@ import {
   DEBUG_PREFIX,
 } from '../../packages/engine/src/client/debug.js';
 
-// window.__vimpDebug (этап 6 плана plan/ai-debug): вход в отладку из DevTools
+// window.__vimpDebug (этап 6 плана plan/done/ai-debug): вход в отладку из DevTools
 // и из Chrome MCP. Главное свойство — молчаливого отказа не бывает: «вкладка
 // не хостит» и «дамп сломался» должны различаться.
 

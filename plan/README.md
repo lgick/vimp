@@ -13,6 +13,8 @@
 - [done/server-rating/](done/server-rating/) — направление C: рейтинг серверов
   (`/like`·`/unlike`), модель доверия игр к профилю, аннулирование rank/skills
   при бане хостера (`stage_1.md`–`stage_5.md`, `review.md`).
+- [done/ai-debug/](done/ai-debug/) — направление F: среда отладки игровых
+  плагинов для нейросети (`stage_1.md`–`stage_8.md`, `original-statement.md`).
 
 Направление D: подготовка страницы лобби к нескольким играм + Leaderboard —
 [lobby-page-plan.md](lobby-page-plan.md) (✅ выполнено целиком, 2026-08-02):
@@ -30,11 +32,14 @@ Leaderboard (`GET /auth/leaderboard`·`/auth/placement`), серверный п�
 подготовке дрейф старых доков перенесён в пункт 4 «Что осталось сделать».
 
 Направление F: среда отладки игровых плагинов для нейросети —
-[ai-debug/](ai-debug/) (в работе, этапы 1–7 из 8 выполнены; остался этап 8 — парные правки в `vimp-tanks`): headless-контур
+[done/ai-debug/](done/ai-debug/) (✅ выполнено целиком, коммиты `9831c53`
+движка и `b8f6b68` игры, 2026-08-05): headless-контур
 `host → бинарный кадр → ClientCore → hot-буфер → сцена в JSON` в одном
 Node-процессе + автоматические проверки инвариантов, чтобы LLM получила цикл
 «правка → `npm run sim` → текстовый вердикт» без браузера. Исходная
-постановка — [docs-en-readme-md-velvety-shell.md](docs-en-readme-md-velvety-shell.md).
+постановка — [done/ai-debug/original-statement.md](done/ai-debug/original-statement.md).
+Кодревью пройдено (2026-08-05) — [done/ai-debug/review.md](done/ai-debug/review.md);
+находки не закрыты, см. пункт 5 «Что осталось сделать».
 
 **Зафиксированные решения:**
 
@@ -185,3 +190,31 @@ Postgres) — делается руками на чистой БД:
   объявляет `elems.formId`, а движок (`client/components/view/Auth.js`)
   читает `elems.fieldsId` — тесты проходят, потому что DOM в них не
   поднимается.
+
+### 5. Находки кодревью направления F (среда отладки)
+
+Полный разбор — [done/ai-debug/review.md](done/ai-debug/review.md). Порядок
+устранения:
+
+1. 🔴 Опубликованный `@vimp-games/tanks@0.4.0` объявляет в манифесте
+   `entries.wasmNode`, но `core/pkg-node/` не попадает в тарбол (`.gitignore`
+   срезает его несмотря на `files`) — `vimp-sim --game
+   node_modules/@vimp-games/tanks` падает сырым `ERR_MODULE_NOT_FOUND`.
+   Чинится в игре (класть node-глюe внутрь `dist/` + страховка в `prepack`)
+   и в движке (`pluginLoader` обязан проверять существование файла).
+2. 🟠 `VirtualClient` игнорирует порт CLEAR: нет ни `core.reset()`, ни
+   очистки сцены — через границу раунда headless живёт в состоянии, которого
+   в браузере не бывает.
+3. 🟠 `RecordingSocketManager` — ручная копия боевого `SocketManager`
+   (нагрузка первого кадра теряется, `_game` мёртв); правильное решение —
+   наследование с подменой транспорта через `addUser`.
+4. 🟠 `report.json` тащит base64 всего потока кадров даже без
+   `--determinism` (линейно от длины матча).
+5. 🟡 Таймаут отладочных промисов `HostController`, сверка `plugin.engineApi`
+   в headless-загрузчике, допущение «`state[0..1] == x, y`» уровня 0
+   детектора, `capacity: 0`, неявный роутинг `mergeConfig`, недокументированный
+   предел рекордера (реплей = новый матч с нуля).
+
+Ручное, не покрытое автоматикой: браузерный smoke на двух вкладках — записать
+реплей через `window.__vimpDebug`, прогнать его `npm run sim:replay`, сверить
+финальное состояние.

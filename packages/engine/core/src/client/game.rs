@@ -784,7 +784,7 @@ mod tests {
         assert_eq!(dump["framesOut"], 1);
     }
 
-    // ***** детектор рассинхрона предикта (этап 5 plan/ai-debug) ***** //
+    // ***** детектор рассинхрона предикта (этап 5 plan/done/ai-debug) ***** //
 
     #[test]
     fn divergence_is_off_without_config() {

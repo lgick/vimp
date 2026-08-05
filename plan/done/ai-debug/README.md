@@ -1,7 +1,7 @@
 # План: среда отладки игровых плагинов VIMP для нейросети
 
 Индекс этапов. Полное обоснование и исходная постановка —
-[`plan/docs-en-readme-md-velvety-shell.md`](../docs-en-readme-md-velvety-shell.md).
+[`original-statement.md`](original-statement.md).
 
 ## Контекст (кратко)
 

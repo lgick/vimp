@@ -1,6 +1,6 @@
 import clock from '../lib/clock.js';
 
-// Рекордер живого матча (этап 6 плана plan/ai-debug): пишет то, что headless
+// Рекордер живого матча (этап 6 плана plan/done/ai-debug): пишет то, что headless
 // не воспроизводит — реальный WebRTC, PixiJS и живой ввод человека — ровно в
 // формат сценария headless-runner'а (devtools/ScenarioRunner.js). Баг,
 // пойманный человеком в браузере, догоняется потом `npm run sim:replay`
