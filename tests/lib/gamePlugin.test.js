@@ -104,6 +104,16 @@ describe('gamePlugin: assertGameConfigShape', () => {
       assertGameConfigShape({ id: 'tanks', gameConfig: rest }),
     ).toThrow(/teams, spectatorTeam/);
   });
+
+  // присутствия мало: при опечатке участник заходит в несуществующую
+  // команду и падает уже в ParticipantManager, без упоминания причины
+  it('требует, чтобы spectatorTeam был ключом teams', () => {
+    const typo = { ...validGameConfig, spectatorTeam: 'spectator' };
+
+    expect(() =>
+      assertGameConfigShape({ id: 'tanks', gameConfig: typo }),
+    ).toThrow(/'spectator' is not a key of teams \(team1, spectators\)/);
+  });
 });
 
 describe('gamePlugin: assertEngineApiCompatible', () => {

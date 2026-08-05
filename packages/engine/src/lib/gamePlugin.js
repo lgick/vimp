@@ -75,6 +75,19 @@ export function assertGameConfigShape(hostPlugin) {
         missing.join(', '),
     );
   }
+
+  // единственная связь между полями, которую стоит проверять здесь:
+  // spectatorTeam — имя ключа внутри teams, и опечатка даёт spectatorId ===
+  // undefined, после чего участник заходит в несуществующую команду
+  // (ParticipantManager.createHuman валится на её счётчике)
+  const { teams, spectatorTeam } = hostPlugin.gameConfig;
+
+  if (teams[spectatorTeam] === undefined) {
+    throw new Error(
+      `game "${hostPlugin.id}": spectatorTeam '${spectatorTeam}' is not a ` +
+        `key of teams (${Object.keys(teams).join(', ')})`,
+    );
+  }
 }
 
 // динамический import ClientPlugin игры (client-entry её сборки). Манифест и

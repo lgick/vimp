@@ -13,6 +13,9 @@ import { writeReport, formatMarkdown } from '../src/devtools/report.js';
 // CLI headless-прогона: правка → npm run sim → текстовый вердикт, без
 // браузера и без человека.
 
+// ошибка разбора флагов печатается без стека — см. обработчик внизу файла
+class UsageError extends Error {}
+
 const USAGE = `Usage: vimp-sim [options]
 
   --scenario <path>  scenario JSON (default: built-in smoke scenario)
@@ -131,17 +134,19 @@ function parseArgs(argv) {
       case '--out':
         i += 1;
 
-        // без проверки «--game» последним аргументом тихо уводит на
-        // фикстуру: прогон зелёный, игра не тронута
-        if (argv[i] === undefined) {
-          throw new Error(`option '${arg}' needs a value\n\n${USAGE}`);
+        // «--game» последним аргументом (или перед следующим флагом) тихо
+        // уводил на фикстуру: прогон зелёный, игра не тронута. Путь,
+        // начинающийся с '--', тем самым запрещён — таких не бывает, а
+        // явный отказ лучше ENOENT про каталог '--determinism'
+        if (argv[i] === undefined || argv[i].startsWith('--')) {
+          throw new UsageError(`option '${arg}' needs a value\n\n${USAGE}`);
         }
 
         args[arg.slice(2)] = argv[i];
         break;
 
       default:
-        throw new Error(`unknown option '${arg}'\n\n${USAGE}`);
+        throw new UsageError(`unknown option '${arg}'\n\n${USAGE}`);
     }
   }
 
@@ -153,7 +158,13 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   error => {
-    process.stderr.write(`${error.stack ?? error.message}\n`);
+    // опечатка в флаге — не краш инструмента: стек тут лишний шум поверх
+    // USAGE, который пользователь и должен прочитать
+    process.stderr.write(
+      error instanceof UsageError
+        ? `${error.message}\n`
+        : `${error.stack ?? error.message}\n`,
+    );
     process.exitCode = 1;
   },
 );

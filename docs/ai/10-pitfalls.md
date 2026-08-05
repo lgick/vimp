@@ -23,7 +23,8 @@ every item here fails **silently** or with an error far from its cause.
 - [ ] All nine `REQUIRED_GAME_CONFIG_PATHS` exist:
       `roomDefaults.maxPlayers`, `snapshot`, `parts.models`, `parts.weapons`,
       `parts.friendlyFire`, `panel.fields`, `playerKeys`, `teams`,
-      `spectatorTeam`.
+      `spectatorTeam` — and `spectatorTeam` is spelled exactly as one of the
+      `teams` keys (the gate checks that too).
 - [ ] The `createModules` context has **no** `timerManager` and **no**
       `voteCoordinator` (a comment in the tanks source says otherwise — it is
       wrong). Only chat-command handlers get those.

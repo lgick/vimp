@@ -106,6 +106,10 @@ teams
 spectatorTeam
 ```
 
+Plus one cross-check: `spectatorTeam` must be a **key of `teams`**. A typo
+there leaves the spectator team id `undefined`, and the first participant to
+join lands in a team that does not exist — the gate names the typo instead.
+
 ## Config merge order
 
 ```
