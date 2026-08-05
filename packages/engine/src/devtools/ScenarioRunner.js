@@ -4,7 +4,11 @@ import RecordingSocketManager from './RecordingSocketManager.js';
 import VirtualClient from './VirtualClient.js';
 import { loadGameForSim } from './pluginLoader.js';
 import { resetHostSingletons } from './resetHostSingletons.js';
-import { checkInvariants, summarize } from './invariants.js';
+import {
+  checkInvariants,
+  summarize,
+  ALL_KEYS_UNAUDITED,
+} from './invariants.js';
 import { inspectCore, inspectHost } from './inspectHost.js';
 
 // Прогон сценария целиком в одном Node-процессе: авторитетный хост
@@ -58,6 +62,21 @@ export function parseScenario(raw) {
   const timeline = [...(raw.timeline ?? [])].sort(
     (a, b) => (a.tick ?? 0) - (b.tick ?? 0),
   );
+  const unusedSnapshotKeys = raw.unusedSnapshotKeys ?? [];
+
+  // строка тут легальна ровно одна: без проверки забытые скобки
+  // ("unusedSnapshotKeys": "w1") молча разложились бы в набор символов, и
+  // объявленный ключ всё равно попал бы в нарушения инварианта 2
+  if (
+    unusedSnapshotKeys !== ALL_KEYS_UNAUDITED &&
+    (!Array.isArray(unusedSnapshotKeys) ||
+      unusedSnapshotKeys.some(key => typeof key !== 'string'))
+  ) {
+    throw new Error(
+      'scenario: unusedSnapshotKeys must be an array of snapshot keys or ' +
+        `"${ALL_KEYS_UNAUDITED}"`,
+    );
+  }
 
   return {
     version: 1,
@@ -71,9 +90,9 @@ export function parseScenario(raw) {
     // «сущность не спавнится» отличается от «сценарий её не трогает» только
     // этим объявлением. '*' — сценарий не берётся судить покрытие ключей
     // вовсе (встроенный смоук на чужой игре), и инвариант честно пропускается
-    unusedSnapshotKeys: raw.unusedSnapshotKeys ?? [],
+    unusedSnapshotKeys,
     // пороги детектора рассинхрона предикта (инвариант 9); {} — дефолты
-    // ядра, null — детектор выключен
+    // ядра, null — детектор выключен, и инвариант тоже пропускается
     divergence: raw.divergence === null ? null : (raw.divergence ?? {}),
     ticks: raw.ticks ?? 600,
     dumpTicks: raw.dumpTicks ?? null,

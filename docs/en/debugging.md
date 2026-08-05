@@ -46,13 +46,16 @@ CLI options (`packages/engine/bin/vimp-sim.js`, also installed as the
 | `--determinism` | run the scenario twice and compare the frame streams (invariant 12) |
 | `--help` | usage |
 
-**The built-in scenario is a smoke test, not an audit.** It knows the
-`miniGame` fixture: its snapshot keys, its model, its key names. Run it
-against `--game <your game>` and it proves only that the loop closes on your
-plugin — so invariant 2 (key coverage, whose `unusedSnapshotKeys` list would
-be the fixture's) and invariant 9 (prediction drift, whose thresholds are
-per-game) are **skipped**, with a notice on stderr. Both come back the
-moment you pass a `--scenario` written for your game.
+**The built-in scenario is a smoke test, not an audit.** One participant
+joins, holds a key, releases it. The identifiers it drives — model, playable
+team, key name — are read from your `gameConfig` (`parts.models`, `teams`
+minus `spectatorTeam`, `playerKeys`: the first of each), so it runs on any
+plugin; if a game declares none of them, the runner says so instead of
+guessing. What it cannot infer is what your game *means*: invariant 2 (key
+coverage — the scenario cannot know which keys it ought to spawn) and
+invariant 9 (prediction drift — thresholds are per-game) are **skipped**,
+with a notice on stderr. Both come back the moment you pass a `--scenario`
+written for your game.
 
 **Exit code is the verdict**: `0` when no invariant failed, `1` when at
 least one did (the failing names are printed to stderr). That is what makes
@@ -123,7 +126,7 @@ dependencies, or install the package.
 | `participants` | `[{ id, name, model }]`, non-empty; `id` is the scenario-local handle used by `who` |
 | `timeline` | ops, sorted by `tick` on parse |
 | `unusedSnapshotKeys` | snapshot keys this scenario deliberately never spawns (see invariant 2); `"*"` means "this scenario does not audit key coverage at all" and makes invariant 2 skip — used by the built-in scenario when it runs on someone else's game |
-| `divergence` | thresholds for the prediction detector; `{}` = core defaults, `null` = detector off |
+| `divergence` | thresholds for the prediction detector; `{}` = core defaults, `null` = detector off, which makes invariant 9 skip |
 | `ticks` | how many ticks to run (default `600`) |
 | `dumpTicks` | ticks at which a scene slice is dumped (default: the last tick) |
 

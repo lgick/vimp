@@ -21,6 +21,10 @@ const FIXTURE_DIR = new URL(
   import.meta.url,
 );
 
+// значение поля source у фикстуры: по нему отличается «своя игра, схему
+// которой инструмент знает» от чужого плагина (см. builtinScenario.js)
+export const FIXTURE_SOURCE = 'fixture:miniGame';
+
 /**
  * @param {Object} [options]
  * @param {string} [options.game] - Путь к пакету игры или к манифесту.
@@ -107,7 +111,7 @@ async function loadFixture(core) {
     hostPlugin,
     clientPlugin,
     wasmUrl: core ? pathToFileURL(path.resolve(core)).href : undefined,
-    source: 'fixture:miniGame',
+    source: FIXTURE_SOURCE,
   };
 }
 

@@ -15,6 +15,10 @@ export const PASS = 'pass';
 export const FAIL = 'fail';
 export const SKIP = 'skip';
 
+// scenario.unusedSnapshotKeys: вместо списка ключей — «этот сценарий вообще
+// не берётся судить покрытие схемы» (встроенный смоук на чужой игре)
+export const ALL_KEYS_UNAUDITED = '*';
+
 // список проверок в порядке plan/done/ai-debug/stage_3.md
 const CHECKS = [
   [1, 'finiteValues', 'no NaN/Infinity in decoded fields and hot buffer'],
@@ -140,12 +144,13 @@ function snapshotKeysUsed({ game, clients, scenario }) {
   // сценарий, не знающий схемы этой игры (встроенный смоук на чужом плагине),
   // не должен объявлять её ключи «не спавнящимися» — это красный вердикт
   // исправной игре
-  if (scenario.unusedSnapshotKeys === '*') {
+  if (scenario.unusedSnapshotKeys === ALL_KEYS_UNAUDITED) {
     return result(
       'snapshotKeysUsed',
       SKIP,
       [],
-      'the scenario declares unusedSnapshotKeys: "*" — key coverage is not audited',
+      `the scenario declares unusedSnapshotKeys: "${ALL_KEYS_UNAUDITED}" — ` +
+        'key coverage is not audited',
     );
   }
 
@@ -409,7 +414,19 @@ function keyBindings({ game, clientConfig, scenario }) {
 // player-блоком кадра. Сопоставление идёт по времени кадра, а не по seq —
 // предиктор переигрывает историю ввода от момента авторитетного состояния,
 // и «тот же seq» на клиенте и на хосте означает разные моменты.
-function predictionDrift({ clients }) {
+function predictionDrift({ clients, scenario }) {
+  // детектор выключен самим сценарием — молчит не ядро, и автор плагина не
+  // должен идти искать несуществующую проблему в take_divergence
+  if (scenario.divergence === null) {
+    return result(
+      'predictionDrift',
+      SKIP,
+      [],
+      'the scenario disables the drift detector (divergence: null) — ' +
+        'thresholds are per-game, write a scenario for yours',
+    );
+  }
+
   const violations = [];
   const tracked = clients.filter(client => client.divergenceStats);
 

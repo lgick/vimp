@@ -348,6 +348,21 @@ describe('9. predictionDrift', () => {
     expect(result.note).toMatch(/no divergence data/);
   });
 
+  // порог дрейфа у каждой игры свой, и встроенный смоук выключает детектор
+  // сам: пояснение обязано указывать на сценарий, а не на молчание ядра —
+  // иначе автор плагина пойдёт чинить исправный take_divergence
+  it('детектор выключен сценарием — skip называет причиной сценарий', () => {
+    const ctx = context();
+
+    ctx.scenario.divergence = null;
+
+    const result = check('predictionDrift', ctx);
+
+    expect(result.status).toBe(SKIP);
+    expect(result.violations).toEqual([]);
+    expect(result.note).toMatch(/the scenario disables the drift detector/);
+  });
+
   it('детектор включён, но player-блоков не было — skip', () => {
     const ctx = context({
       clients: [drifted([], { samples: 0, violations: 0 })],

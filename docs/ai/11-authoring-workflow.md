@@ -145,8 +145,9 @@ npm run sim -- --game <path to your package> --scenario <scenario.json>
 - [ ] `entries.wasmNode` points at the copy of the Node core **inside**
       `dist/` (`./core-node/<crate>.js`) — otherwise pass `--core <path>`.
 - [ ] Your own scenarios, not just the built-in one: without `--scenario` the
-      runner falls back to the engine fixture's scenario and skips invariants
-      2 and 9, which cannot be meaningful for a game it does not know.
+      runner drives a one-key smoke built from your `gameConfig` and skips
+      invariants 2 and 9, which cannot be meaningful for a game it does not
+      know.
 - [ ] One scenario per major mechanic: movement, firing, death/respawn,
       round end, map change, a vote.
 - [ ] Every invariant green — in particular `snapshotKeysUsed`,

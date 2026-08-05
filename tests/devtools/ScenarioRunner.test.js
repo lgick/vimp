@@ -46,6 +46,20 @@ describe('parseScenario', () => {
     expect(parsed.seed).toBe(1);
     expect(parsed.ticks).toBe(600);
   });
+
+  // "w1" вместо ["w1"] — забытые скобки, которые молча разложились бы в
+  // набор символов, и объявленный ключ всё равно попал бы в нарушения
+  it('отвергает строку в unusedSnapshotKeys, кроме "*"', () => {
+    const raw = key => ({
+      version: 1,
+      participants: [{ id: 'p1' }],
+      unusedSnapshotKeys: key,
+    });
+
+    expect(() => parseScenario(raw('w1'))).toThrow(/unusedSnapshotKeys/);
+    expect(() => parseScenario(raw([1]))).toThrow(/unusedSnapshotKeys/);
+    expect(parseScenario(raw('*')).unusedSnapshotKeys).toBe('*');
+  });
 });
 
 describe('runScenario (фикстура miniGame)', () => {
