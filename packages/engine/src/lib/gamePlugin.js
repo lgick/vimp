@@ -65,9 +65,14 @@ function getPath(obj, dottedPath) {
 
 // бросает при отсутствии обязательных полей HostPlugin.gameConfig
 export function assertGameConfigShape(hostPlugin) {
-  const missing = REQUIRED_GAME_CONFIG_PATHS.filter(
-    p => getPath(hostPlugin.gameConfig, p) === undefined,
-  );
+  // null проходил бы проверку присутствия, хотя ни одно из этих полей не
+  // бывает пустым по контракту: движок разыменовывает их сразу, и гейт,
+  // заведённый ради текста вместо TypeError, сам отвечал бы TypeError
+  const missing = REQUIRED_GAME_CONFIG_PATHS.filter(p => {
+    const value = getPath(hostPlugin.gameConfig, p);
+
+    return value === undefined || value === null;
+  });
 
   if (missing.length > 0) {
     throw new Error(

@@ -105,6 +105,19 @@ describe('gamePlugin: assertGameConfigShape', () => {
     ).toThrow(/teams, spectatorTeam/);
   });
 
+  // null — не «поле есть»: движок разыменовывает эти поля сразу, и до
+  // правки гейт молча пропускал такой конфиг (а на teams падал сам)
+  it('считает null отсутствующим полем, а не значением', () => {
+    for (const field of ['teams', 'snapshot', 'playerKeys']) {
+      expect(() =>
+        assertGameConfigShape({
+          id: 'tanks',
+          gameConfig: { ...validGameConfig, [field]: null },
+        }),
+      ).toThrow(new RegExp(`missing required field\\(s\\): ${field}`));
+    }
+  });
+
   // присутствия мало: при опечатке участник заходит в несуществующую
   // команду и падает уже в ParticipantManager, без упоминания причины
   it('требует, чтобы spectatorTeam был ключом teams', () => {
