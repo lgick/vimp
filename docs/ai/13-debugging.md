@@ -31,7 +31,7 @@ npm run sim:check                                     # verdict to stdout, no fi
 | --- | --- |
 | `--scenario <path>` | scenario JSON (see below); omitted → a built-in smoke scenario (read the warning under this table) |
 | `--game <path>` | your package directory, or its `dist/manifest.json` |
-| `--core <path>` | Node build of your core, overriding `entries.wasmNode` |
+| `--core <path>` | Node build of your core, overriding `entries.wasmNode` — only together with `--game`, otherwise the run silently falls back to the fixture |
 | `--out <dir>` | report root (default `.debug`) |
 | `--no-write` | print the report instead of writing files |
 | `--determinism` | run the scenario twice and compare the frame streams |
@@ -39,8 +39,9 @@ npm run sim:check                                     # verdict to stdout, no fi
 **Do not judge your plugin by the built-in scenario.** Run without
 `--scenario` and one participant joins, holds a key and releases it. The
 identifiers come from your own `gameConfig` — the first of `parts.models`,
-the first `teams` entry that is not `spectatorTeam`, the first of
-`playerKeys` — so it runs on any plugin, but it is a smoke test: it proves
+the first `teams` entry that is not `spectatorTeam`, and the first
+`playerKeys` entry that is **not** a `type: 1` trigger (`up` on a trigger is
+ignored, so there would be nothing to hold) — so it runs on any plugin, but it is a smoke test: it proves
 the loop closes (frames decode, the hot buffer lays out, the panel arrives,
 no `NaN`), and it **skips** invariant 2 (key coverage — it cannot know which
 of your keys ought to have spawned) and invariant 9 (prediction drift —

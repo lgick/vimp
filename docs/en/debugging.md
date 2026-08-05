@@ -40,7 +40,7 @@ CLI options (`packages/engine/bin/vimp-sim.js`, also installed as the
 | --- | --- |
 | `--scenario <path>` | scenario JSON; without it a built-in smoke scenario runs (see the note below) |
 | `--game <path>` | game package directory, or a `dist/manifest.json` directly |
-| `--core <path>` | Node build of the game core, overriding `entries.wasmNode` |
+| `--core <path>` | Node build of the game core, overriding `entries.wasmNode`; only meaningful with `--game` (the fixture's core is plain JS, so `--core` alone is a no-op and says so) |
 | `--out <dir>` | report root (default `.debug`) |
 | `--no-write` | print the report to stdout instead of writing files |
 | `--determinism` | run the scenario twice and compare the frame streams (invariant 12) |
@@ -48,9 +48,10 @@ CLI options (`packages/engine/bin/vimp-sim.js`, also installed as the
 
 **The built-in scenario is a smoke test, not an audit.** One participant
 joins, holds a key, releases it. The identifiers it drives — model, playable
-team, key name — are read from your `gameConfig` (`parts.models`, `teams`
-minus `spectatorTeam`, `playerKeys`: the first of each), so it runs on any
-plugin; if a game declares none of them, the runner says so instead of
+team, key name — are read from your `gameConfig` (first of `parts.models`,
+first `teams` entry that is not `spectatorTeam`, first `playerKeys` entry
+that is not a `type: 1` trigger — `up` on a trigger is a no-op, so the smoke
+would hold nothing), so it runs on any plugin; if a game declares none of them, the runner says so instead of
 guessing. What it cannot infer is what your game *means*: invariant 2 (key
 coverage — the scenario cannot know which keys it ought to spawn) and
 invariant 9 (prediction drift — thresholds are per-game) are **skipped**,

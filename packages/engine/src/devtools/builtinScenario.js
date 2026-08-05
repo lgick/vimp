@@ -1,5 +1,5 @@
 import { ALL_KEYS_UNAUDITED } from './invariants.js';
-import { FIXTURE_SOURCE } from './pluginLoader.js';
+import { isFixture } from './pluginLoader.js';
 
 // Встроенный сценарий headless-прогона: один участник заходит, едет вперёд,
 // отпускает клавишу. Этого хватает, чтобы контур доказал, что он замкнут
@@ -25,6 +25,19 @@ const FIXTURE_UNUSED_KEYS = ['e1'];
 
 const firstKey = dict => Object.keys(dict ?? {})[0];
 
+// Клавиша для смоука обязана быть удерживаемой: по конвенции playerKeys
+// (docs/ai/04-client-plugin.md) `type: 1` — триггер, у которого 'up'
+// игнорируется, и «нажал — отпустил» не даёт ни удержания, ни движения.
+// Порядок объявления в playerKeys контрактом не задан, поэтому берём первую
+// без type; если игра объявила одни триггеры — первую любую, смоук всё равно
+// должен запуститься. Движок сам type не интерпретирует (это дело ядра
+// игры) — здесь это эвристика выбора, а не поведение движка.
+const heldKey = playerKeys => {
+  const keys = Object.entries(playerKeys ?? {});
+
+  return (keys.find(([, spec]) => !spec?.type) ?? keys[0])?.[0];
+};
+
 /**
  * Собирает встроенный смоук-сценарий под конкретную игру.
  * @param {Object} plugin - Результат loadGameForSim.
@@ -33,7 +46,7 @@ const firstKey = dict => Object.keys(dict ?? {})[0];
 export function builtinScenario(plugin) {
   const config = plugin.hostPlugin.gameConfig;
   const model = firstKey(config.parts?.models);
-  const key = firstKey(config.playerKeys);
+  const key = heldKey(config.playerKeys);
   const team = Object.keys(config.teams ?? {}).find(
     name => name !== config.spectatorTeam,
   );
@@ -65,7 +78,7 @@ export function builtinScenario(plugin) {
     ticks: TICKS,
   };
 
-  if (plugin.source === FIXTURE_SOURCE) {
+  if (isFixture(plugin)) {
     return { ...scenario, unusedSnapshotKeys: FIXTURE_UNUSED_KEYS };
   }
 

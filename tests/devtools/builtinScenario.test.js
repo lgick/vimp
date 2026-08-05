@@ -42,6 +42,28 @@ describe('builtinScenario', () => {
     expect(scenario.divergence).toBeNull();
   });
 
+  // type: 1 — триггер, у которого 'up' игнорируется: смоук «нажал —
+  // отпустил» на нём не даёт ни удержания, ни движения
+  it('берёт удерживаемую клавишу, а не первый попавшийся триггер', () => {
+    const triggerFirst = {
+      ...otherGame,
+      playerKeys: { fire: { key: 1, type: 1 }, thrust: { key: 2 } },
+    };
+
+    expect(builtinScenario(plugin(triggerFirst)).timeline[1].name).toBe(
+      'thrust',
+    );
+  });
+
+  it('если игра объявила одни триггеры — берёт первый, прогон не блокируется', () => {
+    const triggersOnly = {
+      ...otherGame,
+      playerKeys: { fire: { key: 1, type: 1 }, swap: { key: 2, type: 1 } },
+    };
+
+    expect(builtinScenario(plugin(triggersOnly)).timeline[1].name).toBe('fire');
+  });
+
   it('команда зрителей в качестве играющей не берётся', () => {
     const spectatorsFirst = {
       ...otherGame,

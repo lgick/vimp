@@ -51,6 +51,10 @@ const REQUIRED_GAME_CONFIG_PATHS = [
   'parts.friendlyFire',
   'panel.fields',
   'playerKeys',
+  // без них HostGame разыменовывает undefined (this._teams[spectatorTeam])
+  // и игра умирает тремя разными сообщениями вместо одного контрактного
+  'teams',
+  'spectatorTeam',
 ];
 
 function getPath(obj, dottedPath) {

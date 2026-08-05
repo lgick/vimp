@@ -20,8 +20,27 @@ beforeAll(async () => {
   await mkdir(path.join(dist, 'assets'), { recursive: true });
   await mkdir(path.join(dir, 'core', 'pkg-node'), { recursive: true });
 
+  // минимальный gameConfig, проходящий контракт: загрузчик проверяет его сам,
+  // потому что встроенный сценарий собирается из него до старта прогона
+  const gameConfig = JSON.stringify({
+    roomDefaults: { maxPlayers: 8 },
+    snapshot: {},
+    parts: { models: { m1: {} }, weapons: {}, friendlyFire: false },
+    panel: { fields: {} },
+    playerKeys: { forward: { key: 1 } },
+    teams: { team1: 1, spectators: 2 },
+    spectatorTeam: 'spectators',
+  });
+
   await writeFile(
     path.join(dist, 'host-abc.js'),
+    `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION}, ` +
+      `gameConfig: ${gameConfig} };\n`,
+  );
+  // плагин, не довёзший gameConfig: до проверки в createHostRuntime дело не
+  // доходит — сценарий собирается раньше
+  await writeFile(
+    path.join(dist, 'host-noconfig.js'),
     `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION} };\n`,
   );
   await writeFile(
@@ -113,6 +132,28 @@ describe('loadGameForSim', () => {
 
     await expect(loadGameForSim({ game: broken })).rejects.toThrow(
       /does not exist — the game package was published without/,
+    );
+  });
+
+  it('плагин без gameConfig отвечает контрактом, а не TypeError', async () => {
+    const noconfig = path.join(dir, 'noconfig.json');
+
+    await writeFile(
+      noconfig,
+      JSON.stringify({
+        id: 'demo',
+        engineApi: ENGINE_API_VERSION,
+        assetsBase: '/games/demo/',
+        entries: {
+          host: '/games/demo/dist/host-noconfig.js',
+          client: '/games/demo/dist/client-abc.js',
+          wasmNode: './core/pkg-node/demo.js',
+        },
+      }),
+    );
+
+    await expect(loadGameForSim({ game: noconfig })).rejects.toThrow(
+      /missing required field/,
     );
   });
 

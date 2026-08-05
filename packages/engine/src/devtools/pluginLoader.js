@@ -1,7 +1,10 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertEngineApiCompatible } from '../lib/gamePlugin.js';
+import {
+  assertEngineApiCompatible,
+  assertGameConfigShape,
+} from '../lib/gamePlugin.js';
 
 // Поиск игры для headless-прогона. В браузере плагин грузится по URL из
 // GameManifest мастера; в Node URL-ов нет, поэтому источников три, по
@@ -26,6 +29,12 @@ const FIXTURE_DIR = new URL(
 export const FIXTURE_SOURCE = 'fixture:miniGame';
 
 /**
+ * @param {Object} plugin - Результат loadGameForSim.
+ * @returns {boolean} Прогон идёт на встроенной фикстуре, а не на чужой игре.
+ */
+export const isFixture = plugin => plugin.source === FIXTURE_SOURCE;
+
+/**
  * @param {Object} [options]
  * @param {string} [options.game] - Путь к пакету игры или к манифесту.
  * @param {string} [options.core] - Путь к node-сборке ядра (перекрывает
@@ -34,10 +43,20 @@ export const FIXTURE_SOURCE = 'fixture:miniGame';
  *   source }.
  */
 export async function loadGameForSim({ game = null, core = null } = {}) {
-  if (!game) {
-    return loadFixture(core);
-  }
+  const plugin = game
+    ? await loadFromManifest(game, core)
+    : await loadFixture(core);
 
+  // контракт gameConfig проверяется здесь, а не только в createHostRuntime:
+  // встроенный сценарий собирается из gameConfig раньше, чем стартует прогон
+  // (builtinScenario.js), и плагин без конфига иначе отвечал бы сырым
+  // TypeError вместо перечисления недостающих полей
+  assertGameConfigShape(plugin.hostPlugin);
+
+  return plugin;
+}
+
+async function loadFromManifest(game, core) {
   const manifestPath = game.endsWith('.json')
     ? path.resolve(game)
     : path.resolve(game, 'dist/manifest.json');

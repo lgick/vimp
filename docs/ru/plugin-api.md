@@ -221,8 +221,8 @@ export default {
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // игровая половина бывшего config/game.js
-    teams: { team1: 1, team2: 2, spectators: 3 },   // произвольное число команд
-    spectatorTeam: 'spectators',
+    teams: { team1: 1, team2: 2, spectators: 3 },   // произвольное число команд — обязательное поле
+    spectatorTeam: 'spectators',      // обязательное поле, ключ из teams
     models, weapons,                  // из src/data игры-плагина (например, vimp-tanks)
     snapshot,                         // снапшот-схема ключей (config/snapshot.js) — обязательное поле
     playerKeys, // spectatorKeys — движковые (наблюдение — механизм движка)

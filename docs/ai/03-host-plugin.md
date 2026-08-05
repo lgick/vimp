@@ -102,6 +102,8 @@ parts.weapons
 parts.friendlyFire
 panel.fields
 playerKeys
+teams
+spectatorTeam
 ```
 
 ## Config merge order
@@ -155,8 +157,8 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 | `parts.friendlyFire` | `boolean` | overridable per room |
 | `parts.*` (free-form) | any | extra keys are passed to the client config untouched (tanks uses `mapConstructor`, `hitscanService`) |
 | `snapshot` | schema object | the binary protocol layout — see `06-snapshot-protocol.md` |
-| `teams` | `{ teamName: teamId }` | includes the spectator team |
-| `spectatorTeam` | `string` | which key of `teams` is spectators |
+| `teams` | `{ teamName: teamId }` | includes the spectator team; **required** |
+| `spectatorTeam` | `string` | which key of `teams` is spectators; **required** |
 | `scripted` | `{ namePrefix, defaultModel }` | bot naming/model defaults |
 | `maps` | `{ mapName: mapObject }` | bundled maps (replaced by the master catalog at runtime) |
 | `currentMap` | `string` | default map |

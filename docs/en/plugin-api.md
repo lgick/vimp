@@ -221,8 +221,8 @@ export default {
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // the game half of the former config/game.js
-    teams: { team1: 1, team2: 2, spectators: 3 },   // any number of teams
-    spectatorTeam: 'spectators',
+    teams: { team1: 1, team2: 2, spectators: 3 },   // any number of teams — required
+    spectatorTeam: 'spectators',                    // required, must be a key of teams
     models, weapons,                  // from the game plugin's src/data (e.g. vimp-tanks's)
     snapshot,                         // the snapshot key schema (config/snapshot.js) — required
     playerKeys, // spectatorKeys are engine-owned (spectating is an engine mechanism)

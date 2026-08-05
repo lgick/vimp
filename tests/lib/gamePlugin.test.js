@@ -77,6 +77,8 @@ describe('gamePlugin: assertGameConfigShape', () => {
     parts: { models: {}, weapons: {}, friendlyFire: false },
     panel: { fields: {} },
     playerKeys: {},
+    teams: { team1: 1, spectators: 2 },
+    spectatorTeam: 'spectators',
   };
 
   it('пропускает gameConfig со всеми обязательными полями', () => {
@@ -91,6 +93,16 @@ describe('gamePlugin: assertGameConfigShape', () => {
     expect(() =>
       assertGameConfigShape({ id: 'tanks', gameConfig: rest }),
     ).toThrow(/roomDefaults\.maxPlayers/);
+  });
+
+  // HostGame разыменовывает их безусловно (this._teams[spectatorTeam]):
+  // отсутствие обязано называться контрактом, а не тремя TypeError подряд
+  it('требует teams и spectatorTeam', () => {
+    const { teams, spectatorTeam, ...rest } = validGameConfig;
+
+    expect(() =>
+      assertGameConfigShape({ id: 'tanks', gameConfig: rest }),
+    ).toThrow(/teams, spectatorTeam/);
   });
 });
 

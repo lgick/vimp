@@ -20,9 +20,10 @@ every item here fails **silently** or with an error far from its cause.
       unguarded. Use `[]` for none.
 - [ ] `createModules` is present and its result has a `scripted` key.
 - [ ] `buildClientGameConfig` is present — it is called unconditionally.
-- [ ] All seven `REQUIRED_GAME_CONFIG_PATHS` exist:
+- [ ] All nine `REQUIRED_GAME_CONFIG_PATHS` exist:
       `roomDefaults.maxPlayers`, `snapshot`, `parts.models`, `parts.weapons`,
-      `parts.friendlyFire`, `panel.fields`, `playerKeys`.
+      `parts.friendlyFire`, `panel.fields`, `playerKeys`, `teams`,
+      `spectatorTeam`.
 - [ ] The `createModules` context has **no** `timerManager` and **no**
       `voteCoordinator` (a comment in the tanks source says otherwise — it is
       wrong). Only chat-command handlers get those.

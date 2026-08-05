@@ -2,10 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { runScenario } from '../src/devtools/ScenarioRunner.js';
 import { builtinScenario } from '../src/devtools/builtinScenario.js';
-import {
-  loadGameForSim,
-  FIXTURE_SOURCE,
-} from '../src/devtools/pluginLoader.js';
+import { loadGameForSim, isFixture } from '../src/devtools/pluginLoader.js';
 import {
   checkDeterminism,
   summarize,
@@ -20,7 +17,9 @@ const USAGE = `Usage: vimp-sim [options]
 
   --scenario <path>  scenario JSON (default: built-in smoke scenario)
   --game <path>      game package directory or dist/manifest.json
-  --core <path>      node build of the game core (overrides entries.wasmNode)
+  --core <path>      node build of the game core (overrides entries.wasmNode);
+                     only meaningful with --game — the built-in fixture has
+                     no WASM core to override
   --out <dir>        report root (default: .debug)
   --no-write         print the report to stdout instead of writing files
   --determinism      run the scenario twice and compare the frame streams
@@ -37,6 +36,12 @@ const BUILTIN_NOTICE =
   "notice: engine's docs/en/debugging.md (github.com/lgick/vimp), then run\n" +
   'notice: vimp-sim --scenario <file>.\n\n';
 
+// типичная опечатка «--core без --game»: фикстурное ядро — обычный JS и
+// wasmUrl не смотрит, поэтому прогон был бы зелёным, не тронув ядро игры
+const STRAY_CORE_NOTICE =
+  'notice: --core without --game does nothing: the run falls back to the\n' +
+  "notice: built-in fixture, whose core is plain JS. Add --game <path>.\n\n";
+
 async function main(argv) {
   const args = parseArgs(argv);
 
@@ -45,13 +50,17 @@ async function main(argv) {
     return 0;
   }
 
+  if (args.core && !args.game) {
+    process.stderr.write(STRAY_CORE_NOTICE);
+  }
+
   // плагин грузится один раз: второй прогон самопроверки детерминизма
   // обязан идти на том же ядре, иначе он проверял бы загрузчик, а не мир.
   // Загрузка идёт до сборки сценария: встроенный берёт имена модели, команды
   // и клавиши из gameConfig игры
   const plugin = await loadGameForSim({ game: args.game, core: args.core });
 
-  if (!args.scenario && plugin.source !== FIXTURE_SOURCE) {
+  if (!args.scenario && !isFixture(plugin)) {
     process.stderr.write(BUILTIN_NOTICE);
   }
 
@@ -121,6 +130,13 @@ function parseArgs(argv) {
       case '--core':
       case '--out':
         i += 1;
+
+        // без проверки «--game» последним аргументом тихо уводит на
+        // фикстуру: прогон зелёный, игра не тронута
+        if (argv[i] === undefined) {
+          throw new Error(`option '${arg}' needs a value\n\n${USAGE}`);
+        }
+
         args[arg.slice(2)] = argv[i];
         break;
 
