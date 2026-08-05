@@ -46,7 +46,7 @@ describe('DebugRecorder', () => {
     ]);
     expect(scenario.seed).toBe(7);
     expect(scenario.map).toBe('arena');
-    expect(scenario.config).toEqual({ networkSendRate: 4 });
+    expect(scenario.config).toEqual({ timers: { networkSendRate: 4 } });
   });
 
   it('операции адресуются номером тика', () => {

@@ -61,10 +61,19 @@ Resolution order in `devtools/pluginLoader.js`, by decreasing precision:
 2. `--core <path>` → overrides `entries.wasmNode`;
 3. nothing → the `miniGame` fixture shipped with the engine
    (`packages/engine/tests/fixtures/miniGame/`), whose cores are plain JS.
+   That fallback is why `packages/engine/package.json:files` publishes
+   `tests/fixtures` — a "cleanup" of that list silently breaks `npm run sim`
+   without `--game`.
 
 `entries.wasmNode` is optional. A game without it simply cannot be run
 headlessly on its real core — the runner then says so instead of guessing.
-See [plugin-api.md](plugin-api.md#gamemanifest).
+The declared file must actually exist: a manifest that points at a Node core
+missing from the published package fails with that sentence, not with a raw
+`ERR_MODULE_NOT_FOUND` from the module resolver. Ship the glue **inside the
+published `dist/`** — ignore rules apply inside directories listed in
+`files` too. Both halves of the plugin are also re-checked against the
+manifest's `engineApi`, which catches a rebuilt manifest next to a stale
+`dist/`. See [plugin-api.md](plugin-api.md#gamemanifest).
 
 ## Scenario format
 
@@ -73,7 +82,7 @@ See [plugin-api.md](plugin-api.md#gamemanifest).
   "version": 1,
   "seed": 3812,
   "map": "arena",
-  "config": { "networkSendRate": 1 },
+  "config": { "timers": { "networkSendRate": 1 } },
   "participants": [{ "id": "p1", "name": "P1", "model": "m1" }],
   "timeline": [
     { "tick": 0,  "op": "join", "who": "p1", "team": "team1" },
@@ -94,7 +103,7 @@ See [plugin-api.md](plugin-api.md#gamemanifest).
 | `map` | starting map name (default: the game's own default) |
 | `game` | `{ version }` of the game package, as the lobby would send it |
 | `room` | extra room overrides (`applyRoomOverrides`) |
-| `config` | patch merged into the assembled game config before the core is created (e.g. `networkSendRate`, timers) |
+| `config` | patch merged into the assembled game config before the core is created; **timers only under `config.timers`** — a top-level key is a game-config key and is never routed into timers |
 | `participants` | `[{ id, name, model }]`, non-empty; `id` is the scenario-local handle used by `who` |
 | `timeline` | ops, sorted by `tick` on parse |
 | `unusedSnapshotKeys` | snapshot keys this scenario deliberately never spawns (see invariant 2) |
@@ -126,8 +135,12 @@ Two properties are worth knowing before writing a scenario by hand:
   repeats what `client/main.js` does with the core: the participant's
   `{ name, model }` goes through `hooks.onAuth` on creation, `MAP_DATA`
   through `set_map`, panel frames through `hooks.onPanel`, and `KEYSET_DATA`
-  through `set_active`. Without that the core would run in a state the game
-  never produces — no model, prediction off. `sendPing` is answered
+  through `set_active`; `FIRST_SHOT_DATA` is applied immediately (the world
+  snapshot of the first frame) and `CLEAR` removes entities and resets the
+  core, exactly as the browser does on every round restart and map change.
+  Without that the core would run in a state the game never produces — no
+  model, prediction off, a scene carrying entities the browser already
+  dropped. `sendPing` is answered
   immediately (`updateRTT`), otherwise the host would honestly kick every
   participant on the RTT timeout in the middle of a long run.
 - **Spawn resets reach the client late.** A `force_reset` camera arrives
@@ -157,7 +170,7 @@ value.
 | 9 | `predictionDrift` | prediction divergence above the threshold (see below) |
 | 10 | `roundLifecycle` | round ended, winner announced, respawns happened, participants not leaked |
 | 11 | `actorLeak` | `players_data()` disagreeing with the active participants |
-| 12 | `determinism` | two runs of the same scenario producing a byte-identical frame stream (only with `--determinism`) |
+| 12 | `determinism` | two runs of the same scenario producing an identical frame stream — frames are compared by hash, and the hashes are only collected under `--determinism` (on a long match the stream would be megabytes of report) |
 
 Invariant 12 is the self-check of everything else: it holds only because
 time, timers and randomness in the host all go through the injectable
@@ -171,7 +184,7 @@ Written to `.debug/run-<timestamp>/` (`.debug/` is git-ignored):
 | File | Contents |
 | --- | --- |
 | `report.md` | the human/LLM-readable verdict |
-| `report.json` | the same run, machine-readable, plus `shotBytes` (base64 frame stream) and `snapshotSchema` |
+| `report.json` | the same run, machine-readable, plus `snapshotSchema` |
 | `scene-<tick>.json` | one file per dumped tick: per-client scene, camera, panel, plus the core dump |
 
 Scene slices live in their own files because they are by far the largest
@@ -226,8 +239,13 @@ just before `on_server_state` overwrites the prediction.
 Two levels, so that a plugin needs to do nothing in the basic case:
 
 - **level 0** — no plugin changes: the camera of `render_overlay()` (the
-  predicted position for a predicting plugin) against the x/y of the
-  authoritative player block;
+  predicted position for a predicting plugin) against `state[0]`/`state[1]`
+  of the authoritative player block. **This is a contract**: level 0 assumes
+  the first two components of your player block are world x/y. If your
+  layout starts with something else, implement `predicted_state()` — level 0
+  would otherwise report violations that mean nothing. Level-0 records name
+  the components `x`/`y`; level-1 records address them by index, because
+  their meaning is the game's;
 - **level 1** — one optional trait method,
   `GameClientDef::predicted_state() -> Option<[f32; PLAYER_STATE_LEN]>`
   (default `None`), compared component-wise; the optional companion
@@ -353,6 +371,16 @@ The recorded file is accepted by `npm run sim:replay` without editing —
 `tests/devtools/replayRecording.test.js` records a match with the fixture
 host and immediately feeds the result to `runScenario`, so this is a tested
 contract, not a declaration.
+
+**Known limit: a replay is a new match, not a resumed one.** The recorder
+starts at `tick = 0` and stores only entries and input — not the state of
+the world at that moment (positions, round phase, score, map rotation) — and
+the replay runs on a fixed `timeStep` while the live match ran on a floating
+`dt`. So "a bug caught in the browser is reproduced by `sim:replay`" holds
+for bugs reproducible **from the start of the match**. Start recording at
+minute five and the replay will not contain the situation you saw. Lifting
+this needs an `initialState` snapshot in the recording (the engine already
+has `serialize_state()` for the Worker handoff) and is a separate task.
 
 ## Suggested workflow for a new plugin
 

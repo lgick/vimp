@@ -500,8 +500,8 @@ describe('11. actorLeak', () => {
 describe('12. determinism', () => {
   it('ловит расхождение потоков кадров', () => {
     const result = checkDeterminism(
-      { shotBytes: ['aa', 'bb'] },
-      { shotBytes: ['aa', 'cc'] },
+      { shotHashes: [1, 2] },
+      { shotHashes: [1, 3] },
     );
 
     expect(result.status).toBe(FAIL);
@@ -509,14 +509,20 @@ describe('12. determinism', () => {
   });
 
   it('ловит разное число кадров', () => {
-    const result = checkDeterminism({ shotBytes: ['aa'] }, { shotBytes: [] });
+    const result = checkDeterminism({ shotHashes: [1] }, { shotHashes: [] });
 
     expect(result.violations[0]).toMatch(/frame count differs: 1 vs 0/);
   });
 
   it('совпавшие прогоны — зелёный вердикт', () => {
     expect(
-      checkDeterminism({ shotBytes: ['aa'] }, { shotBytes: ['aa'] }).status,
+      checkDeterminism({ shotHashes: [1] }, { shotHashes: [1] }).status,
     ).toBe(PASS);
+  });
+
+  it('без собранных кадров проверка честно пропускается', () => {
+    const result = checkDeterminism({ shotHashes: null }, { shotHashes: null });
+
+    expect(result.status).toBe(SKIP);
   });
 });

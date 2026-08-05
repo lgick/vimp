@@ -59,9 +59,20 @@ tests (`02-packaging.md`). Point the manifest at it:
 URL. Without it, pass `--core <path>` on every run.
 
 Your `createCore`/`createClientCore` must accept it: it is a JS module, not
-a `.wasm` asset — see `03-host-plugin.md` § *Two shapes of `wasmUrl`*. Ship
-`core/pkg-node` in the package's `files` if you want the runner to work from
-an installed copy of your game, not only from a checkout.
+a `.wasm` asset — see `03-host-plugin.md` § *Two shapes of `wasmUrl`*.
+
+For the runner to work from an **installed copy** of your game and not only
+from a checkout, copy the Node glue **into the published `dist/`** at build
+time (e.g. `dist/core-node/`) and point `wasmNode` there. Listing
+`core/pkg-node` in `files` is not enough: npm applies ignore rules inside
+directories from `files` too, and a `wasm-pack` output directory is usually
+git-ignored (it also drops its own `.gitignore` with `*` — do not copy that
+file). Keep the `package.json` that `wasm-pack` writes: without it Node
+reads the CommonJS glue as ESM. Add a `prepack` check that the file is
+really in the tarball — the engine now refuses a manifest whose `wasmNode`
+does not exist, and both plugin halves are re-checked against the manifest's
+`engineApi`, so a stale `dist/` fails loudly instead of producing a green
+verdict about code you no longer ship.
 
 ## Scenario format
 
@@ -70,7 +81,7 @@ an installed copy of your game, not only from a checkout.
   "version": 1,
   "seed": 3812,
   "map": "arena",
-  "config": { "networkSendRate": 1 },
+  "config": { "timers": { "networkSendRate": 1 } },
   "participants": [{ "id": "p1", "name": "P1", "model": "m1" }],
   "timeline": [
     { "tick": 0,  "op": "join", "who": "p1", "team": "team1" },
@@ -89,7 +100,7 @@ an installed copy of your game, not only from a checkout.
 | `version` | must be `1` |
 | `seed` | uint32 PRNG seed of the match — the same seed reproduces the same world |
 | `map` | starting map name (default: your `roomDefaults.map`) |
-| `config` | patch merged into your assembled `gameConfig` before the core is created (timers, `networkSendRate`, …) |
+| `config` | patch merged into your assembled `gameConfig` before the core is created; **timers go only under `config.timers`** (`{ "timers": { "networkSendRate": 1 } }`) — a top-level key patches the game config and is never routed into timers |
 | `room` | extra room overrides, as the lobby form would send them |
 | `participants` | `[{ id, name, model }]`; `id` is a scenario-local handle referenced by `who` |
 | `timeline` | ops (`join`, `leave`, `key`, `chat`, `vote`), sorted by `tick` |
@@ -133,7 +144,7 @@ because the matching mistake is otherwise silent.
 | 9 | `predictionDrift` | client prediction drifting from the authoritative state beyond the threshold |
 | 10 | `roundLifecycle` | the round never ends, no winner, no respawns, participants leaked |
 | 11 | `actorLeak` | `players_data()` disagreeing with the engine's active participants |
-| 12 | `determinism` | two identical runs producing different frame bytes (only with `--determinism`) |
+| 12 | `determinism` | two identical runs producing different frames — compared by per-frame hash, collected only under `--determinism` |
 
 Numbers 2, 3, 6, 7 and 8 are the checklist items from `10-pitfalls.md`,
 mechanised. If your plugin passes them on a scenario that exercises every
@@ -146,7 +157,7 @@ entity type, most of the "nothing renders" class is already dead.
 | File | Contents |
 | --- | --- |
 | `report.md` | the verdict — read this first |
-| `report.json` | the same, machine-readable, plus the raw frame stream |
+| `report.json` | the same, machine-readable, plus `snapshotSchema` (the frame stream is not written — under `--determinism` it is compared in memory as hashes) |
 | `scene-<tick>.json` | per dumped tick: every client's reconstructed scene, camera, panel, and a dump of the authoritative world |
 
 `report.md` ends with `## Invariants` — one line per contract, and one
@@ -181,7 +192,12 @@ engine compares the two exactly when an authoritative frame arrives, just
 before it overwrites your prediction.
 
 - **Level 0 — nothing to implement.** The engine compares the camera your
-  `render_overlay()` returns against the authoritative x/y.
+  `render_overlay()` returns against `state[0]`/`state[1]` of the
+  authoritative player block. **This is a contract on your layout**: level 0
+  assumes those two components are world x/y. If your player block starts
+  with anything else, implement `predicted_state()` below — otherwise
+  invariant 9 reports violations that mean nothing. Level-0 records name the
+  components `x`/`y`; level-1 records address them by index.
 - **Level 1 — two optional trait methods** on `GameClientDef`, both
   defaulting to `None`:
 
@@ -243,6 +259,14 @@ The recording **is** a scenario file in the format above: run it with
 `npm run sim:replay .debug/scenario-<...>.json` and you are back in the
 text-only loop. Host-side debug events also arrive in the tab's console
 prefixed `[vimp:debug][host]`.
+
+**The replay is a new match, not a resumed one.** The recorder starts at
+tick 0 and stores entries and input only — not the world state at that
+moment (positions, round phase, score, map rotation) — and it replays on a
+fixed `timeStep` while the live match ran on a floating `dt`. Only bugs
+reproducible **from the start of the match** come back this way, so start
+recording before the situation you want to capture, not in the middle of
+it.
 
 ## Where this sits in the workflow
 

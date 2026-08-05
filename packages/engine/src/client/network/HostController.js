@@ -17,6 +17,9 @@ const SWAP_INIT_TIMEOUT = 15000;
 // кап очереди клиентских сообщений, копящихся за паузу эстафеты
 const SWAP_QUEUE_LIMIT = 2000;
 
+// предел ожидания ответа Worker'а на отладочный запрос (dump/запись)
+const DEBUG_TIMEOUT = 5000;
+
 export default class HostController {
   /**
    * @param {Object} room - настройки комнаты (имя/карта/лимит/таймеры).
@@ -208,8 +211,11 @@ export default class HostController {
   }
 
   // запрос/ответ с Worker'ом по requestId: postMessage односторонний, а
-  // отладке нужен именно результат, а не факт отправки
-  _debug(action) {
+  // отладке нужен именно результат, а не факт отправки. Таймаут обязателен:
+  // отладка нужна ровно на зависшем Worker'е, а там ответа не будет никогда —
+  // молча висящий await в консоли и есть тот отказ, против которого всё это
+  // писалось
+  _debug(action, timeoutMs = DEBUG_TIMEOUT) {
     if (this._swap?.paused) {
       return Promise.reject(new Error('worker swap in progress'));
     }
@@ -219,7 +225,23 @@ export default class HostController {
     const requestId = this._debugRequestId;
 
     return new Promise((resolve, reject) => {
-      this._debugRequests.set(requestId, { resolve, reject });
+      const timer = setTimeout(() => {
+        this._debugRequests.delete(requestId);
+        reject(
+          new Error(`debug request '${action}' timed out after ${timeoutMs} ms`),
+        );
+      }, timeoutMs);
+
+      this._debugRequests.set(requestId, {
+        resolve: value => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
       this._worker.postMessage({ type: 'debug', action, requestId });
     });
   }

@@ -878,6 +878,24 @@ mod tests {
         assert_eq!(dump["records"][0]["serverTime"], 1100.0);
     }
 
+    // capacity: 0 — буфер всё равно держит одну запись, значит и вытеснений
+    // на две записи ровно одно: иначе отчёт врал бы про «вытеснено N»
+    #[test]
+    fn divergence_zero_capacity_counts_evictions_honestly() {
+        let mut state = ClientState::<TestClient>::new(config_with_divergence(0), &TestConfig {});
+
+        state.set_active(true);
+        state.set_model("predicted");
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 90.0, true), 1100.0);
+
+        let dump: serde_json::Value = serde_json::from_str(&state.take_divergence()).unwrap();
+
+        assert_eq!(dump["violations"], 2);
+        assert_eq!(dump["dropped"], 1);
+        assert_eq!(dump["records"].as_array().unwrap().len(), 1);
+    }
+
     // Расширение сценариев фикстуры (Этап 7 плана отделения движка): второй
     // ключ схемы другого BlockKind (IndexedNoNull8 — «динамика карты» по
     // форме) наряду с Indexed8 («танк» по форме) — доказывает, что hot-буфер

@@ -88,7 +88,10 @@ path (relative to the manifest) to a **Node** build of the same WASM core
 `npm run sim -- --game <package>` — see [debugging.md](debugging.md). Without
 it the game can still be run headlessly by passing `--core <path>`
 explicitly; a game that has neither simply cannot be simulated on its real
-core.
+core. If the field is declared, the file must exist in the package as
+published — the loader checks it and names the contract, and it also
+re-checks both plugin halves against the manifest's `engineApi` (a rebuilt
+manifest next to a stale `dist/` is a failure, not a green run).
 
 Because of it, `createCore`/`createClientCore` receive **two shapes** of
 `wasmUrl`: the browser passes the `.wasm` asset URL, the headless runner
@@ -367,8 +370,11 @@ entirely: `predicted_state() -> Option<[f32; PLAYER_STATE_LEN]>` (the
 predicted state in the player-block layout, compared component-wise against
 the authoritative frame) and `replayed_inputs() -> Option<(f64, f64, usize)>`
 (the input-history window the last reconciliation replayed). Without them
-the engine falls back to comparing the `render_overlay()` camera with the
-frame's x/y. See [debugging.md](debugging.md#prediction-divergence-detector).
+the engine falls back to comparing the `render_overlay()` camera with
+`state[0]`/`state[1]` of the frame's player block — which is a contract on
+the layout: if the first two components are not world x/y, implement
+`predicted_state()`, otherwise that fallback reports meaningless
+violations. See [debugging.md](debugging.md#prediction-divergence-detector).
 
 ### Snapshot blocks — a declarative schema
 

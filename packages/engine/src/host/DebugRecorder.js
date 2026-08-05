@@ -134,8 +134,11 @@ export default class DebugRecorder {
       version: 1,
       seed: this._seed,
       map: this._map,
+      // таймеры сценария живут только в config.timers: верхний уровень
+      // config — это ключи конфига игры, и раньше запись подсовывала туда
+      // таймер в расчёте на неявный роутинг
       config: this._networkSendRate
-        ? { networkSendRate: this._networkSendRate }
+        ? { timers: { networkSendRate: this._networkSendRate } }
         : {},
       participants: this._participants,
       timeline: this._timeline,

@@ -88,6 +88,47 @@ describe('VirtualClient', () => {
     expect(client.snapshot().entities.a1[10]).toEqual([50, 70]);
   });
 
+  it('CLEAR снимает сущности с «холста» и сбрасывает ядро', () => {
+    const core = new StubCore([actorFrame(10, 5, 7)]);
+
+    core.reset = () => {
+      core.wasReset = true;
+    };
+
+    const client = makeClient(core);
+
+    client.render(0);
+    client.clear();
+
+    expect(client.scene).toEqual({});
+    expect(client.camera).toBeNull();
+    expect(core.wasReset).toBe(true);
+  });
+
+  it('CLEAR со списком setId снимает только перечисленные ключи', () => {
+    const core = new StubCore([actorFrame(10, 5, 7)]);
+    const client = makeClient(core);
+
+    client.render(0);
+    client.clear(['other']);
+
+    expect(client.scene.a1).toEqual({ 10: [5, 7] });
+
+    client.clear(['a1']);
+
+    expect(client.scene.a1).toBeUndefined();
+  });
+
+  it('первый кадр применяется немедленно, как в браузере', () => {
+    const client = makeClient(new StubCore());
+
+    client.applyFirstShot([{ a1: { 3: [1, 2] } }, [1, 2], 100, 0]);
+
+    expect(client.scene).toEqual({ a1: { 3: [1, 2] } });
+    expect(client.camera).toEqual([1, 2]);
+    expect(client.observed.a1.rows).toBe(1);
+  });
+
   it('ключ снапшота без записи в gameSets — это «чёрный холст», и он назван', () => {
     const client = makeClient(new StubCore([actorFrame(10, 5, 7)]), {
       ...clientConfig,

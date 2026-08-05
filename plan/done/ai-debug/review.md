@@ -413,3 +413,30 @@ for (const [key, value] of Object.entries(rest)) { … }
 2. Находки 2 и 3 (🟠) — вместе; правка 3 в структурном варианте закрывает 2.
 3. Находка 4 (🟠) — до того, как кто-то запишет длинный матч из браузера.
 4. Находки 5–10 (🟡) и мелочи — по мере правок в соответствующих файлах.
+
+---
+
+## Статус устранения (2026-08-05) — ✅ все находки закрыты
+
+| # | Что сделано |
+| --- | --- |
+| 1 🔴 | Игра: `build-game-manifest.js` копирует `core/pkg-node/` в `dist/core-node/` (без `.gitignore` от wasm-pack — именно он, а не `files`, срезал каталог), `files: ["dist"]`, `prepack`/`check:pack` валит публикацию без node-ядра в тарболе. Движок: `pluginLoader` проверяет существование файла и называет контракт. Проверено на распакованном тарболе: `vimp-sim --game <распакованный пакет>` — 10 pass / 0 fail / 2 skip |
+| 2 🟠 | `VirtualClient.clear()` (снятие сущностей + `core.reset()`), маршрутизация `sendClear` в runner'е. Инвариант 9 на `round.json` после этого зелёный — детектор в сценарии игры включён (`divergence: null` убран) |
+| 3 🟠 | `RecordingSocketManager extends SocketManager`: список отправителей берётся из прототипа, тела вызывают боевой код, `_send/_sendBinary/_close` перехватывают нагрузку в кадр (`frame.sent`). Кадр остаётся именованным (это нужно инвариантам 4/10), но нагрузка теперь настоящая — первый снапшот мира доезжает до клиента (`applyFirstShot`), мёртвого `_game` больше нет. Транспорт создаётся той же фабрикой `createSocketManager(ports, gameOpts)`, что и боевой |
+| 4 🟠 | `runScenario(..., { captureFrames })`; вместо base64-потока — FNV-1a хеш на кадр, только под `--determinism`, и `writeReport` их не пишет |
+| 5 🟡 | `HostController._debug` — таймаут 5 с, ответ снимает таймер (2 теста) |
+| 6 🟡 | `pluginLoader` сверяет `engineApi` обеих половин плагина с манифестом |
+| 7 🟡 | Контракт «уровень 0 = мировые x/y» зафиксирован в `docs/ai/13-debugging.md`, `docs/en\|ru/debugging.md`, `plugin-api.md`; записи уровня 0 называют компоненты `x`/`y` |
+| 8 🟡 | `DivergenceTracker::new` — `capacity.max(1)` + cargo-тест |
+| 9 🟡 | `mergeConfig` — явный `config.timers`, без неявного роутинга; `DebugRecorder` пишет запись в новом виде; строка в доках |
+| 10 🟡 | Предел рекордера («реплей = новый матч с нуля») описан в `docs/en\|ru/debugging.md` и `docs/ai/13-debugging.md` |
+| 🟢 | `AbstractTimer` зовёт `clock.clearX` через объект; `let host` поднят выше транспорта; `leave` освобождает клиентское ядро (`VirtualClient.destroy`); публикация `tests/fixtures` описана в `debugging.md`; `pluginLoader` уложен в 80 колонок; `isNodeCore` смотрит на путь, а не на весь URL (+ тесты в игре) |
+
+Проверено после правок: `npx eslint .` чисто, `npm test` — 1010 тестов зелёные,
+`npm run core:test` — 68 cargo-тестов, `npm run sim:check` — 9/0/3,
+`vimp-sim --game <чекаут vimp-tanks>` movement/combat/round — все зелёные
+(round теперь 11 pass / 0 fail / 1 skip), `--determinism` зелёный.
+
+Не покрыто автоматикой (осталось руками): браузерный smoke на двух вкладках —
+запись реплея через `window.__vimpDebug`, прогон `npm run sim:replay`, сверка
+финального состояния.

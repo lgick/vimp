@@ -18,8 +18,10 @@ export async function writeReport(report, { outDir = '.debug', stamp } = {}) {
 
   await mkdir(runDir, { recursive: true });
 
-  // срезы сцены — отдельными файлами: они самые объёмные и читаются точечно
-  const { scenes = [], ...rest } = report;
+  // срезы сцены — отдельными файлами: они самые объёмные и читаются точечно.
+  // shotHashes — служебный материал самопроверки детерминизма (длина = число
+  // кадров матча), в читаемом отчёте ему делать нечего
+  const { scenes = [], shotHashes, ...rest } = report;
 
   await Promise.all(
     scenes.map(scene =>

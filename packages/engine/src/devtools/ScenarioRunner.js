@@ -89,6 +89,9 @@ export function parseScenario(raw) {
  *   детерминизма).
  * @param {string} [options.gamePath] - Путь к пакету игры/манифесту.
  * @param {string} [options.corePath] - Путь к node-сборке ядра.
+ * @param {boolean} [options.captureFrames] - Считать хеши потока кадров
+ *   (нужны только самопроверке детерминизма — на длинном матче это лишние
+ *   мегабайты в отчёте).
  * @returns {Promise<Object>} Отчёт прогона.
  */
 export async function runScenario(rawScenario, options = {}) {
@@ -105,13 +108,15 @@ export async function runScenario(rawScenario, options = {}) {
   const restoreClock = virtualClock.install();
 
   try {
-    return await execute(scenario, plugin, virtualClock);
+    return await execute(scenario, plugin, virtualClock, {
+      captureFrames: options.captureFrames === true,
+    });
   } finally {
     restoreClock();
   }
 }
 
-async function execute(scenario, plugin, virtualClock) {
+async function execute(scenario, plugin, virtualClock, { captureFrames }) {
   const clients = new Map(); // socketId → VirtualClient
   const byParticipant = new Map(); // id сценария → { socketId, gameId }
   const participantLog = []; // [{ who, socketId, gameId, joinTick, leaveTick }]
@@ -120,13 +125,11 @@ async function execute(scenario, plugin, virtualClock) {
 
   let currentTick = 0;
 
-  const socketManager = new RecordingSocketManager({
-    onFrame: frame => routeFrame(frame, clients, virtualClock, host),
-  });
-
   // ping/pong: без ответа хост честно кикает участника по таймауту RTT, и
-  // длинный сценарий тихо теряет игроков посреди прогона
+  // длинный сценарий тихо теряет игроков посреди прогона. Объявлено до
+  // транспорта — замыкание onFrame читает эту переменную.
   let host = null;
+  let socketManager = null;
 
   const room = {
     ...scenario.room,
@@ -143,7 +146,15 @@ async function execute(scenario, plugin, virtualClock) {
 
   const runtime = await createHostRuntime(room, {
     loadHostPlugin: () => plugin.hostPlugin,
-    createSocketManager: () => socketManager,
+    // транспорт собирается той же фабрикой, что и боевой: наследник обязан
+    // получить те же порты и ту же игровую параметризацию
+    createSocketManager: (ports, gameOpts) => {
+      socketManager = new RecordingSocketManager(ports, gameOpts, {
+        onFrame: frame => routeFrame(frame, clients, virtualClock, host),
+      });
+
+      return socketManager;
+    },
     overrideGameConfig: game => mergeConfig(game, scenario.config),
     hostOptions: {
       onMapChange: mapName =>
@@ -229,6 +240,7 @@ async function execute(scenario, plugin, virtualClock) {
     mapChanges,
     byParticipant,
     participantLog,
+    captureFrames,
   });
 }
 
@@ -250,6 +262,21 @@ function routeFrame(frame, clients, virtualClock, host) {
 
   if (frame.method === 'sendShot') {
     client.pushFrame(frame.args[0], virtualClock.monotonic());
+    return;
+  }
+
+  // первый снапшот мира: в браузере он применяется сразу (applyShot), а не
+  // едет через буфер интерполяции — сущность, доехавшая только им, иначе не
+  // попадёт ни в сцену, ни в проверки
+  if (frame.method === 'sendFirstShot') {
+    client.applyFirstShot(frame.sent[0]?.data);
+    return;
+  }
+
+  // CLEAR приходит на каждый рестарт раунда и на смену карты; без него
+  // headless живёт через границу раунда в состоянии, которого в игре нет
+  if (frame.method === 'sendClear') {
+    client.clear(frame.args[0]);
     return;
   }
 
@@ -286,6 +313,10 @@ async function applyOp(op, ctx) {
 
       if (entry) {
         host.removeUser(entry.gameId);
+
+        // ядро клиента живёт в WASM-памяти: без free многочасовой реплей с
+        // текучкой участников растит процесс
+        clients.get(entry.socketId)?.destroy();
         clients.delete(entry.socketId);
         byParticipant.delete(op.who);
 
@@ -409,13 +440,16 @@ function requireEntry(byParticipant, who) {
   return entry;
 }
 
-// точечное переопределение конфига игры сценарием: config.timers.* и
-// config.<ключ верхнего уровня>
+// точечное переопределение конфига игры сценарием. Таймеры — только через
+// config.timers: неявный роутинг одноимённого ключа верхнего уровня в
+// game.timers молча правил не то, что просил сценарий.
 function mergeConfig(game, overrides) {
-  for (const [key, value] of Object.entries(overrides)) {
-    if (key in game.timers) {
-      game.timers[key] = value;
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+  const { timers = {}, ...rest } = overrides;
+
+  Object.assign(game.timers, timers);
+
+  for (const [key, value] of Object.entries(rest)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
       game[key] = { ...game[key], ...value };
     } else {
       game[key] = value;
@@ -439,6 +473,7 @@ function buildReport(ctx) {
     mapChanges,
     byParticipant,
     participantLog,
+    captureFrames,
   } = ctx;
 
   const frameCounts = {};
@@ -511,11 +546,14 @@ function buildReport(ctx) {
       ),
     })),
     scenes,
-    // сырой поток кадров нужен самопроверке детерминизма (этап 3) —
-    // сравнивается побайтово
-    shotBytes: socketManager
-      .framesOf('sendShot')
-      .map(frame => Buffer.from(toBytes(frame.args[0])).toString('base64')),
+    // поток кадров нужен ровно одному потребителю — самопроверке
+    // детерминизма (этап 3). Хеша на кадр для сравнения потоков достаточно,
+    // а сами байты линейно от длины матча раздували report.json
+    shotHashes: captureFrames
+      ? socketManager
+          .framesOf('sendShot')
+          .map(frame => hash32(toBytes(frame.args[0])))
+      : null,
     snapshotSchema: game.snapshot,
   };
 }
@@ -526,4 +564,17 @@ function toBytes(value) {
   }
 
   return new Uint8Array(value);
+}
+
+// FNV-1a: сравниваются потоки одного и того же прогона, криптостойкость не
+// нужна — нужна дешевизна и отсутствие зависимостей
+function hash32(bytes) {
+  let hash = 0x811c9dc5;
+
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return hash >>> 0;
 }

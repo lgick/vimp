@@ -49,9 +49,14 @@ class AbstractTimer {
   _stopTimer(key) {
     if (this._timers.has(key)) {
       const { timerId, isInterval } = this._timers.get(key);
-      const handler = isInterval ? clock.clearInterval : clock.clearTimeout;
 
-      handler(timerId);
+      // вызов через clock, а не отрыв метода от объекта: сейчас это
+      // замыкания, но привязка к модулю не должна зависеть от этого
+      if (isInterval) {
+        clock.clearInterval(timerId);
+      } else {
+        clock.clearTimeout(timerId);
+      }
 
       this._timers.delete(key);
     }
@@ -74,9 +79,12 @@ class AbstractTimer {
   _clearAllTimers() {
     for (const timerData of this._timers.values()) {
       const { timerId, isInterval } = timerData;
-      const handler = isInterval ? clock.clearInterval : clock.clearTimeout;
 
-      handler(timerId);
+      if (isInterval) {
+        clock.clearInterval(timerId);
+      } else {
+        clock.clearTimeout(timerId);
+      }
     }
 
     this._timers.clear();

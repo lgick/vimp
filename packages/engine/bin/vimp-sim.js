@@ -55,10 +55,13 @@ async function main(argv) {
   // плагин грузится один раз: второй прогон самопроверки детерминизма
   // обязан идти на том же ядре, иначе он проверял бы загрузчик, а не мир
   const plugin = await loadGameForSim({ game: args.game, core: args.core });
-  const report = await runScenario(scenario, { plugin });
+  // хеши потока кадров собираются только под --determinism: их единственный
+  // потребитель — сравнение двух прогонов, а объём линеен по длине матча
+  const captureFrames = args.determinism === true;
+  const report = await runScenario(scenario, { plugin, captureFrames });
 
   if (args.determinism) {
-    const second = await runScenario(scenario, { plugin });
+    const second = await runScenario(scenario, { plugin, captureFrames });
     const check = checkDeterminism(report, second);
 
     report.invariants = report.invariants.map(item =>

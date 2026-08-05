@@ -67,14 +67,19 @@ export function checkInvariants(ctx) {
 }
 
 /**
- * Инвариант 12: два прогона одного сценария обязаны совпасть побайтово.
+ * Инвариант 12: два прогона одного сценария обязаны совпасть кадр в кадр
+ * (сравниваются хеши кадров, собранные при captureFrames).
  * @param {Object} first - Отчёт первого прогона.
  * @param {Object} second - Отчёт второго прогона.
  * @returns {Object} Результат проверки.
  */
 export function checkDeterminism(first, second) {
-  const a = first.shotBytes;
-  const b = second.shotBytes;
+  const a = first.shotHashes;
+  const b = second.shotHashes;
+
+  if (!a || !b) {
+    return result('determinism', SKIP, [], 'run with --determinism');
+  }
 
   if (a.length !== b.length) {
     return result('determinism', FAIL, [
@@ -442,11 +447,19 @@ function predictionDrift({ clients }) {
 }
 
 // Компоненты player-блока — игровая раскладка, движок знает только их
-// порядок, поэтому нарушение адресуется индексом.
+// порядок, поэтому нарушение адресуется индексом. Исключение — уровень 0
+// (source 'camera'): там движок сравнивает ровно мировые x/y, и называть их
+// «#0/#1» значит прятать причину (см. docs/ai/13-debugging.md).
+const CAMERA_COMPONENTS = ['x', 'y'];
+
 function formatDivergence(record) {
+  const name =
+    record.source === 'camera'
+      ? index => CAMERA_COMPONENTS[index] ?? `#${index}`
+      : index => `#${index}`;
   const parts = (record.exceeded ?? []).map(
     index =>
-      `#${index} Δ${record.delta[index]} > ${record.thresholds[index]} ` +
+      `${name(index)} Δ${record.delta[index]} > ${record.thresholds[index]} ` +
       `(predicted ${record.predicted[index]}, authoritative ${record.authoritative[index]})`,
   );
   const replayed = record.replayed

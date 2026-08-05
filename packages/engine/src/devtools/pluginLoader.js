@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertEngineApiCompatible } from '../lib/gamePlugin.js';
@@ -43,14 +43,43 @@ export async function loadGameForSim({ game = null, core = null } = {}) {
 
   const baseDir = path.dirname(manifestPath);
   const { assetsBase } = manifest;
-  const hostPlugin = await importDefault(baseDir, manifest.entries.host, assetsBase);
-  const clientPlugin = await importDefault(baseDir, manifest.entries.client, assetsBase);
+  const hostPlugin = await importDefault(
+    baseDir,
+    manifest.entries.host,
+    assetsBase,
+  );
+  const clientPlugin = await importDefault(
+    baseDir,
+    manifest.entries.client,
+    assetsBase,
+  );
+
+  assertPluginMatchesManifest(manifest, {
+    host: hostPlugin,
+    client: clientPlugin,
+  });
+
   const nodeCore = core ?? manifest.entries.wasmNode ?? null;
 
   if (!nodeCore) {
     throw new Error(
       `${manifestPath}: no node build of the core — add entries.wasmNode ` +
         `to the manifest (core/pkg-node) or pass --core <path>`,
+    );
+  }
+
+  const corePath = path.resolve(baseDir, nodeCore);
+
+  // манифест объявляет поле, но опубликованный пакет мог не довезти файл
+  // (ignore-правила срезают каталог внутри files) — без этой проверки отказ
+  // приходит сырым ERR_MODULE_NOT_FOUND из резолвера
+  try {
+    await access(corePath);
+  } catch {
+    throw new Error(
+      `${manifestPath}: entries.wasmNode points at '${nodeCore}', but ` +
+        `${corePath} does not exist — the game package was published ` +
+        `without its node core (npm run core:build:node) or pass --core <path>`,
     );
   }
 
@@ -80,6 +109,21 @@ async function loadFixture(core) {
     wasmUrl: core ? pathToFileURL(path.resolve(core)).href : undefined,
     source: 'fixture:miniGame',
   };
+}
+
+// зеркало lib/gamePlugin.js:loadClientPlugin — манифест мог быть пересобран
+// без dist/: прогон на старом плагине даёт зелёный вердикт о том, чего в
+// сборке уже нет
+function assertPluginMatchesManifest(manifest, plugins) {
+  for (const [half, plugin] of Object.entries(plugins)) {
+    if (plugin.engineApi !== manifest.engineApi) {
+      throw new Error(
+        `game "${manifest.id}": ${half} plugin engineApi ` +
+          `v${plugin.engineApi} does not match manifest engineApi ` +
+          `v${manifest.engineApi} — stale dist/`,
+      );
+    }
+  }
 }
 
 function importDefault(baseDir, entry, assetsBase) {

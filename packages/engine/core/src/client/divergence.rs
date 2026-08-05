@@ -62,7 +62,11 @@ pub struct DivergenceTracker {
 }
 
 impl DivergenceTracker {
-    pub fn new(cfg: DivergenceConfig) -> Self {
+    pub fn new(mut cfg: DivergenceConfig) -> Self {
+        // capacity: 0 держал бы буфер пустым, но считал вытеснение на каждой
+        // записи — отчёт сообщал бы «вытеснено N» при N-1 вытеснениях
+        cfg.capacity = cfg.capacity.max(1);
+
         Self {
             cfg,
             records: VecDeque::new(),

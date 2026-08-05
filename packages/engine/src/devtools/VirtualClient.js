@@ -142,6 +142,48 @@ class VirtualClient {
   }
 
   /**
+   * FIRST_SHOT_DATA: первый снапшот мира. В браузере применяется немедленно
+   * (applyShot), в буфер интерполяции не попадает — сущность, доехавшая
+   * только им, иначе не появится в сцене вовсе.
+   * @param {Array} [data] - [gameSnapshot, camera, serverTime, seq].
+   */
+  applyFirstShot(data) {
+    if (!Array.isArray(data)) {
+      return;
+    }
+
+    const [game, camera] = data;
+
+    if (game) {
+      this._applyGameData(game);
+    }
+
+    if (camera && camera !== 0) {
+      this.camera = [camera[0], camera[1]];
+    }
+  }
+
+  /**
+   * CLEAR: зеркало client/main.js — снятие сущностей с «холста» и сброс ядра
+   * (буфер интерполяции + предикт). Хост шлёт его на каждый рестарт раунда
+   * и на смену карты; без него headless живёт через границу раунда в
+   * состоянии, которого в браузере не бывает.
+   * @param {Array} [setIdList] - Ключи схемы к снятию; без него — всё.
+   */
+  clear(setIdList) {
+    if (Array.isArray(setIdList)) {
+      for (const setId of setIdList) {
+        delete this.scene[setId];
+      }
+    } else {
+      this.scene = {};
+      this.camera = null;
+    }
+
+    this.core.reset?.();
+  }
+
+  /**
    * MAP_DATA: мир raycast в ядре и сброс предикта — зеркало main.js.
    * @param {Object} data - Данные карты, как их шлёт хост.
    */
@@ -240,6 +282,12 @@ class VirtualClient {
     }
 
     return JSON.parse(this.core.debug_json());
+  }
+
+  // Ядро живёт в памяти WASM: вышедший участник обязан её отдать, иначе
+  // длинный реплей с текучкой игроков растит процесс
+  destroy() {
+    this.core.free?.();
   }
 
   // Записи детектора рассинхрона предикта из ядра. Агрегаты накопительные,

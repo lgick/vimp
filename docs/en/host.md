@@ -86,7 +86,10 @@ Main-thread messages:
   protocol (see the section of the same name below);
 - `debug { action, requestId }` — dev-only debugging requests
   (`startRecording`/`stopRecording`/`dump`), answered by `debug_result` with
-  the same `requestId`; see [debugging.md](debugging.md).
+  the same `requestId`. The promise on the main thread has a 5 s timeout:
+  debugging is needed precisely when the Worker is stuck, and a silently
+  hanging `await` would be the same failure mode the tooling exists to
+  remove. See [debugging.md](debugging.md).
 
 The Worker sends back to the main thread `to_client` (a wire frame: a JSON
 string or a binary `ArrayBuffer` via a Transferable), `close_client`,

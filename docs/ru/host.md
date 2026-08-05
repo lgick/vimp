@@ -80,7 +80,9 @@
   Worker'ов (см. одноимённый раздел ниже);
 - `debug { action, requestId }` — отладочные запросы, только в dev
   (`startRecording`/`stopRecording`/`dump`), ответ — `debug_result` с тем же
-  `requestId`; см. [debugging.md](debugging.md).
+  `requestId`. Промис в главном потоке имеет таймаут 5 с: отладка нужна
+  ровно на зависшем Worker'е, а молча висящий `await` — тот же отказ, против
+  которого вся эта оснастка и написана. См. [debugging.md](debugging.md).
 
 Обратно в главный поток Worker шлёт `to_client` (wire-кадр: JSON-строка или
 бинарный `ArrayBuffer` через Transferable), `close_client`,

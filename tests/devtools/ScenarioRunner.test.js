@@ -9,7 +9,7 @@ import { loadGameForSim } from '../../packages/engine/src/devtools/pluginLoader.
 const scenario = () => ({
   version: 1,
   seed: 3812,
-  config: { networkSendRate: 1 },
+  config: { timers: { networkSendRate: 1 } },
   participants: [{ id: 'p1', name: 'P1', model: 'm1' }],
   timeline: [
     { tick: 0, op: 'join', who: 'p1', team: 'team1' },
@@ -167,10 +167,34 @@ describe('runScenario (фикстура miniGame)', () => {
     expect(check.violations[0]).toMatch(/snapshot key 'e1' never produced a row/);
   });
 
-  it('два прогона одного сценария дают побайтово одинаковый поток кадров', async () => {
-    const second = await runScenario(scenario(), { plugin });
+  it('два прогона одного сценария дают одинаковый поток кадров', async () => {
+    const first = await runScenario(scenario(), {
+      plugin,
+      captureFrames: true,
+    });
+    const second = await runScenario(scenario(), {
+      plugin,
+      captureFrames: true,
+    });
 
-    expect(second.shotBytes).toEqual(report.shotBytes);
+    expect(first.shotHashes).toHaveLength(first.frameCounts.sendShot);
+    expect(second.shotHashes).toEqual(first.shotHashes);
+  });
+
+  it('без captureFrames поток кадров в отчёт не попадает', () => {
+    // на длинном матче это была бы линейная по числу тиков нагрузка в
+    // report.json, нужная одной-единственной проверке
+    expect(report.shotHashes).toBeNull();
+  });
+
+  it('таймеры сценария едут только через config.timers', async () => {
+    const custom = scenario();
+
+    custom.config = { timers: { networkSendRate: 2 } };
+
+    const result = await runScenario(custom, { plugin });
+
+    expect(result.frameCounts.sendShot).toBe(30);
   });
 
   it('join неизвестного участника — внятная ошибка, а не молчание', async () => {

@@ -72,6 +72,38 @@ describe('HostController: отладочный контур', () => {
     await expect(dump).resolves.toEqual({ seed: 1 });
   });
 
+  it('зависший Worker отваливается по таймауту, а не висит молча', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const { controller } = createController();
+      const pending = controller.dump();
+
+      // ровно тот случай, ради которого отладка и нужна: ответа не будет
+      vi.advanceTimersByTime(5000);
+
+      await expect(pending).rejects.toThrow(/'dump' timed out after 5000 ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ответ снимает таймаут: поздний таймер не роняет разрешённый промис', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const { controller, worker } = createController();
+      const pending = controller.dump();
+
+      worker.emit({ type: 'debug_result', requestId: 1, result: { seed: 1 } });
+      vi.advanceTimersByTime(10000);
+
+      await expect(pending).resolves.toEqual({ seed: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('закрытие комнаты не оставляет висящих промисов', async () => {
     const { controller } = createController();
 
