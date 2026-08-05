@@ -86,6 +86,12 @@ class RecordingSocketManager extends SocketManager {
   // (FIRST_SHOT_DATA → STAT → PANEL → KEYSET), и клиент прогона видит ту же
   // последовательность, что и браузер. Публикация после invoke() отдавала бы
   // родителя последним.
+  //
+  // Отсюда несущее допущение: у отправителя не больше ОДНОЙ собственной
+  // нагрузки (составные раскладываются во вложенные вызовы, а два _send в
+  // sendClear/sendTechInform — это ветки if/else). Нарушь его — и подписчик
+  // получит кадр, собранный наполовину, уже после решения о маршрутизации.
+  // Поэтому не молчим, а называем контракт.
   _payload(entry) {
     const frame = this._current;
 
@@ -93,11 +99,17 @@ class RecordingSocketManager extends SocketManager {
       return;
     }
 
-    frame.sent.push(entry);
-
-    if (frame.sent.length === 1) {
-      this._emit(frame);
+    if (frame.sent.length) {
+      throw new Error(
+        `RecordingSocketManager: '${frame.method}' sent a second payload ` +
+          `(port ${entry.port}) — a sender may hand the socket at most one, ` +
+          'otherwise the subscriber already routed a half-built frame; ' +
+          'split it into nested senders like sendFirstShot does',
+      );
     }
+
+    frame.sent.push(entry);
+    this._emit(frame);
   }
 
   _record(method, socketId, args, invoke) {

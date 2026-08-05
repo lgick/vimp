@@ -93,6 +93,22 @@ describe('RecordingSocketManager', () => {
     ]);
   });
 
+  // допущение публикации «на первой нагрузке»: второй _send в одном
+  // отправителе означал бы кадр, отданный подписчику наполовину
+  it('вторая нагрузка одного отправителя называет нарушенный контракт', () => {
+    const socket = make();
+
+    socket.sendFirstShot('s1');
+
+    const frame = socket.framesOf('sendFirstShot')[0];
+
+    socket._current = frame;
+
+    expect(() => socket._send('s1', 1, 'extra')).toThrow(
+      /'sendFirstShot' sent a second payload/,
+    );
+  });
+
   it('sendPlayerDefaultShot раскрывается в полную панель + keySet игрока', () => {
     const socket = make();
 
