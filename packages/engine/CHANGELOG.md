@@ -5,6 +5,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/);
 this project uses [Semantic Versioning](https://semver.org/) (in `0.x`, a
 breaking change bumps the minor version).
 
+## [0.6.0] — 2026-08-05
+
+### ⚠️ Breaking — stricter `gameConfig` gate
+
+The plugin API itself is unchanged: `ENGINE_API_VERSION` stays **3**, no
+manifest restamp and no plugin rebuild are required. What changed is that
+configs the engine used to accept and then fail on later — or silently
+degrade on — are now rejected at load, naming the field:
+
+- `teams` and `spectatorTeam` are **required** (`REQUIRED_GAME_CONFIG_PATHS`
+  grew from seven paths to nine). They always were, de facto: without them
+  `HostGame` dereferenced `undefined` and the game died in three different
+  places with three unrelated messages.
+- `spectatorTeam` must be a **key of `teams`**. A typo used to leave the
+  spectator team id `undefined`, and the first participant to join crashed in
+  `ParticipantManager.createHuman` on a team counter that does not exist.
+- `null` in any required path now counts as **missing**. Previously only
+  `undefined` did, so `snapshot: null` or `weapons: null` passed the gate and
+  failed later, somewhere else.
+
+**Migration.** If the host now refuses to start with
+`gameConfig is missing required field(s): …` or
+`spectatorTeam '…' is not a key of teams (…)`, the named field was already
+broken — declare it (or spell it as one of the `teams` keys) and the plugin
+loads as before. A plugin that passes today needs no change.
+
+### Added
+
+- `vimp-sim`: the built-in smoke scenario is now built from the game's own
+  `gameConfig` — model from `parts.models`, playable team from `teams` minus
+  `spectatorTeam`, and the first `playerKeys` entry that is not a `type: 1`
+  trigger. It used to hardcode the engine fixture's `m1`/`team1`/`forward`,
+  which crashed or failed a perfectly good third-party plugin.
+- Scenario field `unusedSnapshotKeys: "*"` — "this scenario does not audit key
+  coverage at all", which makes invariant 2 **skip** instead of reporting the
+  game's keys as never spawning.
+- `vimp-sim --core` without `--game` prints a notice: the run falls back to
+  the fixture, whose core is plain JS, so the flag does nothing.
+
+### Changed
+
+- The `gameConfig` gate now runs inside `devtools/pluginLoader.js`, not only
+  in `createHostRuntime` — the built-in scenario reads `gameConfig` before the
+  run starts, so a plugin without one answered with a raw `TypeError`. The
+  fixture goes through the same gate as a third-party plugin.
+- Invariant 9 (`predictionDrift`) skipped by a scenario that sets
+  `divergence: null` now says so, instead of blaming the client core for
+  reporting no divergence data.
+- `vimp-sim` usage errors (unknown option, missing option value) print the
+  message and `USAGE` without a Node stack; `--scenario`/`--game`/`--core`/
+  `--out` reject a missing value instead of silently falling back to the
+  fixture.
+
+### Fixed
+
+- `vimp-sim --game <plugin>` no longer reports a false red verdict on a
+  healthy game: the two invariants the built-in scenario cannot judge (2 —
+  key coverage, 9 — prediction drift, whose thresholds are per-game) are
+  skipped with a notice on stderr instead of being judged by the fixture's
+  values.
+
 ## [0.2.0] — 2026-07-28
 
 ### ⚠️ Breaking — plugin API v2 (`ENGINE_API_VERSION` 1 → 2)
@@ -57,4 +118,5 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.6.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.6.0
 [0.2.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.2.0

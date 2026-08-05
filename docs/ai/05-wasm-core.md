@@ -20,7 +20,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-vimp-engine-core = "0.1"
+vimp-engine-core = "0.2"
 rapier2d = { workspace = true }        # features: enhanced-determinism, serde-serialize
 serde = { workspace = true }
 serde_json = { workspace = true }

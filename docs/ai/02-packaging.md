@@ -54,8 +54,8 @@ my-game/
     "test": "vitest run"
   },
   "peerDependencies": { "pixi.js": "^8.14.0" },
-  "dependencies": { "vimp-engine": "^0.3.0" },
   "devDependencies": {
+    "vimp-engine": "^0.6.0",
     "pixi.js": "^8.14.0",
     "vite": "^7.1.11",
     "vitest": "^4.1.9",
@@ -73,8 +73,10 @@ Rules:
   instance through an import map. Bundling your own copy gives the engine and
   the plugin two independent PixiJS registries; cross-instance objects
   (a baker handing a `Texture` to the engine's renderer) then fail at runtime.
-- `vimp-engine` is a real dependency — the build scripts import engine
-  constants from it.
+- `vimp-engine` is a **dev** dependency: everything you import from it
+  (`config/opcodes.js`, `lib/math.js`, …) is bundled into your `dist/`, and
+  the engine that loads you is the one already running. It also brings the
+  `vimp-sim` bin — pin it to the engine you build against (`^0.6.0`).
 - `files: ["dist"]` — sources are not published.
 
 ### What the engine package exports to a plugin
