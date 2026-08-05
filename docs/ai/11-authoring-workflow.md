@@ -142,8 +142,11 @@ every violated contract in text. Full reference: `13-debugging.md`.
 npm run sim -- --game <path to your package> --scenario <scenario.json>
 ```
 
-- [ ] `entries.wasmNode` points at `core/pkg-node/<crate>.js` (otherwise pass
-      `--core <path>`).
+- [ ] `entries.wasmNode` points at the copy of the Node core **inside**
+      `dist/` (`./core-node/<crate>.js`) — otherwise pass `--core <path>`.
+- [ ] Your own scenarios, not just the built-in one: without `--scenario` the
+      runner falls back to the engine fixture's scenario and skips invariants
+      2 and 9, which cannot be meaningful for a game it does not know.
 - [ ] One scenario per major mechanic: movement, firing, death/respawn,
       round end, map change, a vote.
 - [ ] Every invariant green — in particular `snapshotKeysUsed`,

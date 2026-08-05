@@ -29,12 +29,22 @@ npm run sim:check                                     # verdict to stdout, no fi
 
 | Option | Meaning |
 | --- | --- |
-| `--scenario <path>` | scenario JSON (see below); omitted → a built-in smoke scenario |
+| `--scenario <path>` | scenario JSON (see below); omitted → a built-in smoke scenario (read the warning under this table) |
 | `--game <path>` | your package directory, or its `dist/manifest.json` |
 | `--core <path>` | Node build of your core, overriding `entries.wasmNode` |
 | `--out <dir>` | report root (default `.debug`) |
 | `--no-write` | print the report instead of writing files |
 | `--determinism` | run the scenario twice and compare the frame streams |
+
+**Do not judge your plugin by the built-in scenario.** It belongs to the
+engine's own `miniGame` fixture — its snapshot keys, its model name, its key
+names. Run without `--scenario` and you get a smoke test: it proves the loop
+closes on your plugin (frames decode, the hot buffer lays out, the panel
+arrives, no `NaN`), and it **skips** invariant 2 (key coverage — the list of
+deliberately-unused keys would be the fixture's) and invariant 9 (prediction
+drift — thresholds are per-game, in your player block's units). A notice
+says so on stderr. Write your own scenario as soon as the smoke run is
+green: those two invariants are where the expensive bugs live.
 
 The **exit code is the verdict**: `0` = every contract held, `1` = at least
 one broke (names printed to stderr). That is what makes this loop usable
@@ -106,7 +116,7 @@ verdict about code you no longer ship.
 | `room` | extra room overrides, as the lobby form would send them |
 | `participants` | `[{ id, name, model }]`; `id` is a scenario-local handle referenced by `who` |
 | `timeline` | ops (`join`, `leave`, `key`, `chat`, `vote`), sorted by `tick` |
-| `unusedSnapshotKeys` | snapshot keys this scenario deliberately never produces |
+| `unusedSnapshotKeys` | snapshot keys this scenario deliberately never produces; `"*"` = "this scenario does not audit key coverage", which makes invariant 2 skip (what the built-in scenario uses on a game it does not know) |
 | `divergence` | prediction-drift thresholds; `{}` = defaults, `null` = off |
 | `ticks` | total ticks to run (default `600`) |
 | `dumpTicks` | ticks at which a full scene slice is written out |

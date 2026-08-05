@@ -137,6 +137,18 @@ function finiteValues({ clients }) {
 
 // 2
 function snapshotKeysUsed({ game, clients, scenario }) {
+  // сценарий, не знающий схемы этой игры (встроенный смоук на чужом плагине),
+  // не должен объявлять её ключи «не спавнящимися» — это красный вердикт
+  // исправной игре
+  if (scenario.unusedSnapshotKeys === '*') {
+    return result(
+      'snapshotKeysUsed',
+      SKIP,
+      [],
+      'the scenario declares unusedSnapshotKeys: "*" — key coverage is not audited',
+    );
+  }
+
   const declared = Object.keys(game.snapshot);
   const unused = new Set(scenario.unusedSnapshotKeys);
   const seen = new Set();

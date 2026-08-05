@@ -138,6 +138,21 @@ describe('2. snapshotKeysUsed', () => {
     expect(check('snapshotKeysUsed', ctx).status).toBe(PASS);
   });
 
+  // встроенный смоук движка не знает схемы чужой игры: объявить её ключи
+  // «не спавнящимися» значило бы выдать красный вердикт исправному плагину
+  it("'*' — покрытие ключей не проверяется, и это skip, а не тихий pass", () => {
+    const ctx = context();
+
+    ctx.game.snapshot = { ...schema, e1: { id: 2, fields: [] } };
+    ctx.scenario.unusedSnapshotKeys = '*';
+
+    const result = check('snapshotKeysUsed', ctx);
+
+    expect(result.status).toBe(SKIP);
+    expect(result.violations).toEqual([]);
+    expect(result.note).toMatch(/not audited/);
+  });
+
   it('ловит и обратное: объявлен неиспользуемым, но приехал', () => {
     const ctx = context();
 

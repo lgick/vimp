@@ -24,21 +24,46 @@ const USAGE = `Usage: vimp-sim [options]
 `;
 
 // минимальный сценарий на фикстуре: один игрок заходит, едет вперёд,
-// отпускает клавишу — этого хватает, чтобы контур доказал, что он замкнут
+// отпускает клавишу — этого хватает, чтобы контур доказал, что он замкнут.
+// Ввод начинается на 40-м тике, а не на 10-м: кадр спавна с force_reset
+// приходит примерно на interpolation.delay позже и чистит удержанные клавиши
+// предиктора (docs/en/debugging.md) — встроенный сценарий не должен
+// демонстрировать ровно ту ловушку, от которой предостерегает документация
 const DEFAULT_SCENARIO = {
   version: 1,
   seed: 3812,
   participants: [{ id: 'p1', name: 'P1', model: 'm1' }],
   timeline: [
     { tick: 0, op: 'join', who: 'p1', team: 'team1' },
-    { tick: 10, op: 'key', who: 'p1', action: 'down', name: 'forward' },
-    { tick: 60, op: 'key', who: 'p1', action: 'up', name: 'forward' },
+    { tick: 40, op: 'key', who: 'p1', action: 'down', name: 'forward' },
+    { tick: 100, op: 'key', who: 'p1', action: 'up', name: 'forward' },
   ],
   // событийный ключ фикстуры в этом сценарии не стреляет — объявлено явно,
   // иначе инвариант 2 честно посчитает это «сущность не спавнится»
   unusedSnapshotKeys: ['e1'],
   ticks: 120,
 };
+
+// Тот же прогон на чужой игре — смоук контура, а не аудит контракта:
+// встроенный сценарий не знает ни ключей её схемы (список неиспользуемых —
+// фикстурный), ни её порогов дрейфа (у каждой игры своя раскладка
+// player-блока и свои единицы). Судить по ним чужую игру значит выдавать
+// красный вердикт исправному плагину, поэтому проверки 2 и 9 честно
+// пропускаются, а не притворяются.
+function builtinScenario(foreignGame) {
+  if (!foreignGame) {
+    return DEFAULT_SCENARIO;
+  }
+
+  return { ...DEFAULT_SCENARIO, unusedSnapshotKeys: '*', divergence: null };
+}
+
+const BUILTIN_NOTICE =
+  'Running the built-in smoke scenario against --game: it only proves the ' +
+  'loop closes on this plugin.\nKey coverage (2) and prediction drift (9) ' +
+  'are skipped — both need a scenario written for your game\n' +
+  '(see docs/en/debugging.md § Scenario format), then run it with ' +
+  '--scenario <file>.\n\n';
 
 async function main(argv) {
   const args = parseArgs(argv);
@@ -48,9 +73,13 @@ async function main(argv) {
     return 0;
   }
 
+  if (!args.scenario && args.game) {
+    process.stderr.write(BUILTIN_NOTICE);
+  }
+
   const scenario = args.scenario
     ? JSON.parse(await readFile(args.scenario, 'utf8'))
-    : DEFAULT_SCENARIO;
+    : builtinScenario(Boolean(args.game));
 
   // плагин грузится один раз: второй прогон самопроверки детерминизма
   // обязан идти на том же ядре, иначе он проверял бы загрузчик, а не мир

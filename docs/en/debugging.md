@@ -38,13 +38,21 @@ CLI options (`packages/engine/bin/vimp-sim.js`, also installed as the
 
 | Option | Meaning |
 | --- | --- |
-| `--scenario <path>` | scenario JSON; without it a built-in smoke scenario runs |
+| `--scenario <path>` | scenario JSON; without it a built-in smoke scenario runs (see the note below) |
 | `--game <path>` | game package directory, or a `dist/manifest.json` directly |
 | `--core <path>` | Node build of the game core, overriding `entries.wasmNode` |
 | `--out <dir>` | report root (default `.debug`) |
 | `--no-write` | print the report to stdout instead of writing files |
 | `--determinism` | run the scenario twice and compare the frame streams (invariant 12) |
 | `--help` | usage |
+
+**The built-in scenario is a smoke test, not an audit.** It knows the
+`miniGame` fixture: its snapshot keys, its model, its key names. Run it
+against `--game <your game>` and it proves only that the loop closes on your
+plugin — so invariant 2 (key coverage, whose `unusedSnapshotKeys` list would
+be the fixture's) and invariant 9 (prediction drift, whose thresholds are
+per-game) are **skipped**, with a notice on stderr. Both come back the
+moment you pass a `--scenario` written for your game.
 
 **Exit code is the verdict**: `0` when no invariant failed, `1` when at
 least one did (the failing names are printed to stderr). That is what makes
@@ -114,7 +122,7 @@ dependencies, or install the package.
 | `config` | patch merged into the assembled game config before the core is created; **timers only under `config.timers`** — a top-level key is a game-config key and is never routed into timers |
 | `participants` | `[{ id, name, model }]`, non-empty; `id` is the scenario-local handle used by `who` |
 | `timeline` | ops, sorted by `tick` on parse |
-| `unusedSnapshotKeys` | snapshot keys this scenario deliberately never spawns (see invariant 2) |
+| `unusedSnapshotKeys` | snapshot keys this scenario deliberately never spawns (see invariant 2); `"*"` means "this scenario does not audit key coverage at all" and makes invariant 2 skip — used by the built-in scenario when it runs on someone else's game |
 | `divergence` | thresholds for the prediction detector; `{}` = core defaults, `null` = detector off |
 | `ticks` | how many ticks to run (default `600`) |
 | `dumpTicks` | ticks at which a scene slice is dumped (default: the last tick) |
