@@ -47,6 +47,18 @@ engine.
 Root `README.md` is a short showcase linking into `docs/en/`; keep details
 out of it.
 
+## Changelog
+
+`packages/engine/CHANGELOG.md` (English, Keep a Changelog, newest first)
+records every externally visible change: plugin contract,
+`ENGINE_API_VERSION`, `vimp-sim`/scenario format, master endpoints/config,
+published exports. Update it unasked, in the **same change** — unreleased
+work under `## [Unreleased]`, renamed and dated at release (`0.x`: breaking
+bumps the minor). Anything that can reject a plugin or config which loaded
+before needs `### ⚠️ Breaking` + `### Migration`, even when
+`ENGINE_API_VERSION` is unchanged. Internal-only work (tests, refactors,
+`docs/`) is not an entry.
+
 ## Commands
 
 ```bash
