@@ -1,9 +1,11 @@
 # Changelog
 
-All notable changes to the `vimp-engine` package are documented here.
-The format is based on [Keep a Changelog](https://keepachangelog.com/);
-this project uses [Semantic Versioning](https://semver.org/) (in `0.x`, a
-breaking change bumps the minor version).
+All notable changes to the npm package `vimp-engine` are documented here.
+The Rust crate `vimp-engine-core` is versioned and released separately and
+has its own journal: [core/CHANGELOG.md](core/CHANGELOG.md). The format is
+based on [Keep a Changelog](https://keepachangelog.com/); this project uses
+[Semantic Versioning](https://semver.org/) (in `0.x`, a breaking change
+bumps the minor version).
 
 ## [0.6.0] — 2026-08-05
 

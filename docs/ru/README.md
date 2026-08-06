@@ -20,6 +20,7 @@
 | [configuration.md](configuration.md) | Конфигурация движка: переменные `.env`, все файлы `packages/engine/src/config/` |
 | [debugging.md](debugging.md) | Отладочный контур: headless-прогон (`npm run sim`), формат сценария, проверки инвариантов, дампы ядра, рассинхрон предикта, браузерный рекордер |
 | [deployment.md](deployment.md) | Развертывание: подготовка VPS, добавление/удаление серверов, CI/CD |
+| [publishing.md](publishing.md) | Релиз: публикация крейта `vimp-engine-core`, пакета `vimp-engine` и игры-плагина, раскатка прода, порядок между ними |
 | [plugin-api.md](plugin-api.md) | Контракты движок ↔ игра-плагин: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, снапшот-схема, версии |
 
 Документация игровых правил и расширения контента (gameplay, extending,
@@ -37,6 +38,7 @@
 - **Хочу запустить локально** → [getting-started.md](getting-started.md)
 - **Хочу понять, как всё устроено** → [architecture.md](architecture.md), затем [host.md](host.md) / [client.md](client.md) / [network.md](network.md)
 - **Хочу поднять свой сервер** → [deployment.md](deployment.md)
+- **Хочу выкатить обновление** → [publishing.md](publishing.md)
 - **В матче что-то молча сломалось** → [debugging.md](debugging.md)
 - **Хочу добавить карту/оружие** → доки активной игры-плагина (например, [vimp-tanks/docs/ru/extending.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/extending.md))
 

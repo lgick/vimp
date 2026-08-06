@@ -1,0 +1,272 @@
+# Публикация релиза
+
+Наружу уходят четыре артефакта, и зависят они друг от друга в одном
+фиксированном порядке:
+
+- **`vimp-engine-core`** — Rust-крейт на crates.io
+  (`packages/engine/core/`, rlib, против которого компилируется ядро любой
+  игры);
+- **`vimp-engine`** — пакет движка в npm (`packages/engine`, ровно те пути,
+  что перечислены в его `files`: `src/lib`, `src/config`, `src/host`,
+  `src/devtools`, `tests/fixtures`, `bin`);
+- **`@vimp-games/tanks`** — игра-плагин в npm, собирается и публикуется из
+  отдельного репозитория
+  [vimp-tanks](https://github.com/lgick/vimp-tanks);
+- **мастер-сервер** — Docker-образ, который собирает CI и раскатывает на все
+  VPS из `SERVERS_MATRIX` (см. [deployment.md](deployment.md)).
+
+## Почему порядок именно крейт → движок → игра → прод
+
+```
+vimp-engine-core (crates.io)
+      │  крейт игры зависит от него по версии, а не по пути:
+      │  vimp-tanks/core/Cargo.toml → vimp-engine-core = "X.Y.Z"
+      ▼
+vimp-engine (npm)
+      │  игра держит его в devDependencies, а
+      │  scripts/build-game-manifest.js читает ENGINE_API_VERSION из
+      │  установленной копии и штампует им dist/manifest.json
+      ▼
+@vimp-games/tanks (npm)
+      │  прод ставит его через npm ci — версия берётся из
+      │  package-lock.json этого репозитория
+      ▼
+прод (push в main → deploy.yml)
+```
+
+При нарушении порядка ломается двумя способами: WASM-ядро игры молча
+соберётся против предыдущего релиза крейта, а манифест получит устаревший
+`engineApi`, который `GameCatalog` отвергнет при загрузке — лобби
+поднимется, но комната не создастся.
+
+## Что вообще нужно публиковать
+
+| Что изменилось | Крейт | Движок в npm | Игра в npm | Прод |
+| --- | --- | --- | --- | --- |
+| Мастер, клиент, вёрстка, деплой-скрипты | — | — | — | ✅ |
+| `src/lib`, `src/config`, `src/host`, `src/devtools`, `bin`, фикстуры | — | ✅ | когда удобно | ✅ |
+| `packages/engine/core/` (Rust) | ✅ | — | ✅ (пересборка против нового крейта) | ✅ |
+| Контракт плагина без бампа `ENGINE_API_VERSION` | — | ✅ | когда удобно | ✅ |
+| Бамп `ENGINE_API_VERSION` | — | ✅ | **обязательно** | ✅ строго последним |
+| Только игра (правила, карты, ассеты, игровое ядро) | — | — | ✅ | ✅ (перепин + пуш) |
+
+Всё, чего нет в `files` пакета движка (`src/master`, `src/client`,
+шаблоны), в npm не попадает вовсе — для таких правок релиз состоит из одного
+шага «прод».
+
+## Версии
+
+Версии проставляет разработчик, он же запускает публикации. Правила бампа:
+
+| Артефакт | Файл | Правило |
+| --- | --- | --- |
+| `vimp-engine-core` | `packages/engine/core/Cargo.toml` | semver cargo (в `0.x` ломающее бампает minor) плюс запись в `packages/engine/core/CHANGELOG.md` |
+| `vimp-engine` | `packages/engine/package.json` | то же плюс запись в `packages/engine/CHANGELOG.md` |
+| `@vimp-games/tanks` | `vimp-tanks/package.json` | то же, в репозитории игры |
+
+Бамп крейта нужно повторить руками в игре:
+`vimp-tanks/core/Cargo.toml` → `vimp-engine-core = "X.Y.Z"`.
+
+## Шаг 0: отвязать локальные чекауты (перед любым релизом)
+
+Локальная разработка линкует репозитории друг в друга. Уцелевший линк
+означает, что игра соберёт манифест против движка из вашей рабочей копии
+вместо опубликованного, а WASM-ядро — против того `[patch.crates-io]`,
+который вы могли добавить. Развязать **до** любой релизной сборки, в обоих
+репозиториях:
+
+```bash
+cd vimp
+npm unlink @vimp-games/tanks         # снимает симлинк (uninstall --no-save)
+npm install                          # вернуть регистри-копию по lock-файлу
+npm ls @vimp-games/tanks             # в выводе нет "-> ./../vimp-tanks"
+
+cd ../vimp-tanks
+npm unlink vimp-engine
+npm install
+npm ls vimp-engine                   # нет "-> ./../vimp/packages/engine"
+```
+
+Rust-сторона: `vimp-tanks/core/Cargo.toml` обязан зависеть от
+`vimp-engine-core` по версии, и ни в одном `Cargo.toml` не должно остаться
+`[patch.crates-io]` с локальным путём. Если добавляли его для разработки
+крейта — уберите и выполните `cargo update -p vimp-engine-core`.
+
+## Шаг A1: публикация крейта `vimp-engine-core`
+
+Нужен, только если менялся `packages/engine/core/`.
+
+```bash
+cd vimp
+
+npm run core:test                              # cargo test --workspace
+cargo package -p vimp-engine-core --list       # что попадёт в тарболл
+
+# поднять версию в packages/engine/core/Cargo.toml и добавить запись в
+# packages/engine/core/CHANGELOG.md руками, затем:
+cargo build                                    # обновить Cargo.lock
+git add -A && git commit -m "chore: bump vimp-engine-core to X.Y.Z"
+
+cargo login                                    # один раз, токен с crates.io
+cargo publish -p vimp-engine-core --dry-run
+cargo publish -p vimp-engine-core
+```
+
+crates.io отдаёт новую версию в течение минуты; игра подхватит её на
+шаге B.
+
+## Шаг A2: публикация `vimp-engine` в npm
+
+```bash
+cd vimp
+
+# 1. Полная проверка
+npx eslint .
+npm test
+npm run core:test
+npm run sim:check                                       # фикстура: 9/0/3
+npm run sim -- --game node_modules/@vimp-games/tanks    # настоящий плагин
+
+# 2. Версия и changelog правятся руками:
+#    packages/engine/package.json, packages/engine/CHANGELOG.md
+npm install                          # обновить package-lock.json
+git add -A && git commit -m "chore: bump vimp-engine to X.Y.Z"
+
+# 3. Публикация
+npm login
+npm publish -w vimp-engine --dry-run # посмотреть содержимое тарболла
+npm publish -w vimp-engine
+
+# 4. Проверка
+npm view vimp-engine version
+```
+
+> ⚠️ **`git push` здесь заодно раскатывает прод.**
+> [deploy.yml](../../.github/workflows/deploy.yml) срабатывает на любой push
+> в `main`, независимо от `test.yml`. Обычно это не проблема — прод просто
+> получает новый движок раньше новой игры, — но если менялся
+> `ENGINE_API_VERSION`, пуш надо отложить до шага C, иначе раскатанный
+> мастер отвергнет ту версию плагина, которая у него ещё запинена.
+
+## Шаг B: публикация `@vimp-games/tanks`
+
+Выполняется в репозитории игры. Нужен Rust-тулчейн (`rustup` +
+`wasm-pack`) — см. `docs/ru/getting-started.md` того репозитория.
+
+```bash
+cd vimp-tanks
+
+# 1. Подтянуть обе свежие половины движка
+#    - крейт: поднять в core/Cargo.toml до vimp-engine-core = "X.Y.Z"
+cargo update -p vimp-engine-core
+#    - npm-пакет: именно он штампует engineApi в манифест
+npm i -D vimp-engine@^X.Y.Z
+npm ls vimp-engine                   # регистри-копия, а не линк
+
+# 2. Сборка: сначала WASM, потом dist/
+npm run core:build                   # pkg-web + pkg-node
+npm run build                        # бандлы, ассеты, карты, manifest.json
+
+# 3. Проверки
+npx eslint .
+npm test
+npm run core:test
+npm run sim                          # смоук-прогон движка на этой игре
+npm run sim:scenarios                # собственные сценарии игры
+npm run check:pack                   # манифест смотрит внутрь dist/ (также на prepack)
+
+# 4. Версия: поднять package.json руками (или `npm version patch` —
+#    он же создаст коммит и тег)
+
+# 5. Публикация (scope публичный, задан в publishConfig)
+npm publish --dry-run
+npm publish
+
+# 6. Пуш
+git push && git push --tags
+npm view @vimp-games/tanks version
+```
+
+Дальше — глазами в `dist/manifest.json`: `engineApi` обязан совпасть с
+`ENGINE_API_VERSION` опубликованного движка, а `entries.wasmNode` —
+указывать на `./core-node/<crate>.js`, то есть внутрь `dist/`,
+единственного каталога, который пакет везёт с собой.
+
+## Шаг C: раскатка прода
+
+```bash
+cd vimp
+
+# 1. Запинить новую игру — прод ставит её через npm ci по lock-файлу
+npm i @vimp-games/tanks@X.Y.Z
+
+# 2. Доказать, что пара версий работает вместе, до отправки
+npm test
+npm run sim -- --game node_modules/@vimp-games/tanks
+
+# 3. Пуш в main — это и есть деплой
+git add package.json package-lock.json
+git commit -m "chore: bump @vimp-games/tanks to X.Y.Z"
+git push
+```
+
+Дальше CI собирает образ мастера, публикует его в GHCR и заходит по SSH на
+каждый сервер из `SERVERS_MATRIX` (`docker compose pull && up -d`);
+auth-сервис собирается, раскатывается и мигрируется отдельными джобами
+(пропускаются, если `AUTH_SERVER_IP` не задан). Подробности —
+[deployment.md](deployment.md).
+
+```bash
+gh run watch                                    # следить за прогоном
+curl -s https://<ваш-домен>/servers | head      # лобби отвечает
+```
+
+Финальная проверка руками: открыть лобби, создать комнату, зайти вторым
+табом. Расхождение `engineApi` проявляется ровно здесь — лобби грузится,
+создание комнаты падает, а в логах мастера виден отказ `GameCatalog`.
+
+## Шаг D: вернуть локальную связку
+
+После релиза оба репозитория сидят на регистри-копиях. Чтобы вернуться в
+локальный контур:
+
+```bash
+cd vimp-tanks && npm run core:build && npm run build   # WASM + dist/
+
+cd vimp-tanks && npm link                     # зарегистрировать @vimp-games/tanks
+cd ../vimp/packages/engine && npm link        # зарегистрировать vimp-engine
+
+cd ../.. && npm link @vimp-games/tanks        # движок ← плагин
+cd ../vimp-tanks && npm link vimp-engine      # плагин ← движок
+```
+
+Важны обе стороны: без обратного линка импорты `vimp-engine/*` внутри
+плагина резолвятся в регистри-копию в его собственном `node_modules` —
+второй экземпляр модуля с молча разъехавшимся `ENGINE_API_VERSION`. См.
+[getting-started.md](getting-started.md#подключение-локального-чекаута-игры-плагина).
+
+## Грабли
+
+- **Забытый `npm link` или `[patch.crates-io]`.** Закрывается шагом 0; это
+  самый частый способ опубликовать пакет, собранный против кода, которого
+  больше ни у кого нет.
+- **Версии в npm неперезаписываемы, на crates.io — тоже.** Откат всегда
+  новая патч-версия; на crates.io плохую версию можно дополнительно скрыть
+  через `cargo yank --version X.Y.Z`.
+- **`deploy.yml` не ждёт `test.yml`.** Зелёные тесты до пуша — ваша
+  ответственность, CI прод не защищает.
+- **`dist/` и `core/pkg-*` в репозитории игры в `.gitignore`.** Тарболл
+  собирается из того, что лежит на диске: публикуйте только сразу после
+  чистой `npm run core:build && npm run build`, иначе уедет вчерашний
+  `dist/`.
+- **Свежесозданный пакет в GHCR приватный.** Это важно только при поднятии
+  нового сервера, см. [deployment.md](deployment.md).
+
+## Откат
+
+| Что сломалось | Как откатить |
+| --- | --- |
+| Крейт на crates.io | Опубликовать исправленную патч-версию; плохую скрыть через `cargo yank` |
+| Пакет движка или игры в npm | Опубликовать исправленную патч-версию (перезаписать нельзя) |
+| На проде плохая версия плагина | Вернуть прежний пин `@vimp-games/tanks` в `package.json`/`package-lock.json`, закоммитить, запушить |
+| На проде плохая сборка мастера | `git revert` деплойного коммита и пуш — CI пересоберёт и раскатает прежнее состояние |

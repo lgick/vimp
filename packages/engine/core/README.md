@@ -6,3 +6,5 @@ wasm-bindgen — WASM-ABI обёртки собирает крейт конкр�
 `@vimp-games/tanks`'s `GameCore`/`ClientCore`).
 
 Документация: https://github.com/lgick/vimp/blob/main/docs/en/core.md
+
+История версий: [CHANGELOG.md](CHANGELOG.md).

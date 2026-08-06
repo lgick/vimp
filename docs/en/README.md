@@ -20,6 +20,7 @@ and signaling.
 | [configuration.md](configuration.md) | Engine configuration: `.env` variables, every file under `packages/engine/src/config/` |
 | [debugging.md](debugging.md) | Debugging loop: headless runner (`npm run sim`), scenario format, invariant checks, core dumps, prediction divergence, browser recorder |
 | [deployment.md](deployment.md) | Deployment: VPS setup, adding/removing servers, CI/CD |
+| [publishing.md](publishing.md) | Releasing: publishing the `vimp-engine-core` crate, the `vimp-engine` package and the game plugin, rolling out production, the order between them |
 | [plugin-api.md](plugin-api.md) | Engine ↔ game plugin contracts: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, snapshot schema, versioning |
 
 Game rules and content-authoring docs (gameplay, extending, game-specific
@@ -36,6 +37,7 @@ of this bilingual set.
 - **I want to run it locally** → [getting-started.md](getting-started.md)
 - **I want to understand how it works** → [architecture.md](architecture.md), then [host.md](host.md) / [client.md](client.md) / [network.md](network.md)
 - **I want to host my own server** → [deployment.md](deployment.md)
+- **I want to ship an update** → [publishing.md](publishing.md)
 - **Something is silently broken in a match** → [debugging.md](debugging.md)
 - **I want to add a map/weapon** → the active game plugin's own docs (e.g. [vimp-tanks/docs/en/extending.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/extending.md))
 

@@ -25,6 +25,11 @@ container. On the VPS, Nginx terminates HTTPS and proxies to the app port
 > its `engineApi` doesn't match this engine build's `ENGINE_API_VERSION`
 > — it never imports game source.
 
+This page is about infrastructure: preparing a server and how the rollout
+works. The release order itself — publishing `vimp-engine` and the game
+plugin to npm before pushing to `main` — is in
+[publishing.md](publishing.md).
+
 ## 📋 Prerequisites
 
 1. A **VPS** running Ubuntu 20.04, 22.04, or 24.04.

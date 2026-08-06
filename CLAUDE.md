@@ -2,157 +2,107 @@
 
 Guidance for Claude Code when working in this repository.
 
-## Project Overview
+## Overview
 
-VIMP — the P2P multiplayer engine: authoritative matches run in a Web
-Worker in the room creator's browser tab, clients render via PixiJS and
-connect over WebRTC, a lightweight Node.js master server provides the lobby,
-WebRTC signaling and game/map catalog. Game rules themselves (e.g. the tanks
-game) live in separately published, dynamically loaded plugin packages —
-contract in `docs/en/plugin-api.md`. The reference game, formerly `games/tanks/` in
-this repo, now lives at `vimp-tanks` (separate repository); the engine loads
-it only through `@vimp-games/tanks` in `node_modules` (`GameManifest`), never by
-path into this repo.
+VIMP — a P2P multiplayer engine: the authoritative match runs in a Web
+Worker in the room creator's tab, PixiJS clients connect over WebRTC, a
+Node.js master serves lobby, signaling and catalogs. Game rules live in
+runtime-loaded plugin packages (`@vimp-games/tanks`, repo `vimp-tanks`) —
+this repo never imports game code by path.
 
 ## Documentation
 
-Bilingual user docs live in `docs/en/` (canonical, ToC at
-`docs/en/README.md`) and `docs/ru/` (identical structure, ToC at
-`docs/ru/README.md`). **Rule**: any functional change updates the matching
-`docs/en/` and `docs/ru/` pages in the same change. Area → page:
+`docs/en/` is canonical, `docs/ru/` mirrors it exactly (ToC in each
+`README.md`). **Rule**: any functional change updates both matching pages in
+the same change. Area → page (paths under `packages/engine/`):
 
 | Change | Page |
 | --- | --- |
-| ports, binary frame format, opcodes | `network.md` |
-| `packages/engine/src/config/*`, env vars | `configuration.md` |
-| master server `packages/engine/src/master/` | `master.md` |
-| central auth service `packages/auth/` | `auth.md` |
-| browser host `packages/engine/src/host/` (Worker, core adapter, meta, transport) | `host.md` |
-| Rust engine core `packages/engine/core/` (generic traits/macros, snapshot framing, build, tests) | `core.md` |
+| ports, frame format, opcodes | `network.md` |
+| `src/config/*`, env vars | `configuration.md` |
+| `src/master/` | `master.md` |
+| `packages/auth/` | `auth.md` |
+| `src/host/` (Worker, adapter, meta) | `host.md` |
+| crate `core/` | `core.md` |
 | client modules / parts / ClientCore | `client.md` |
-| plugin contract, game-package loading (`GameManifest`, `GameCatalog`, Wasm ABI) | `plugin-api.md` |
+| plugin contract, `GameManifest`/`GameCatalog`, Wasm ABI | `plugin-api.md` |
+| `src/devtools/`, `bin/vimp-sim.js`, scenarios, invariants | `debugging.md` |
 | deploy scripts, workflows, npm scripts | `deployment.md`, `getting-started.md` |
-| devtools (`packages/engine/src/devtools/`, `bin/vimp-sim.js`), scenario format, invariants, debug recorder | `debugging.md` |
+| release flow, package `files`/versions, plugin pin | `publishing.md` |
 
-`docs/ai/` is a separate English-only, self-contained spec of the plugin
-contract for LLMs authoring a game plugin (index: `docs/ai/README.md`); the
-bilingual rule does not apply to it, but plugin-contract changes must be
-reflected there too.
+`docs/ai/` is an English-only plugin spec for LLMs — outside the bilingual
+rule, but plugin-contract changes land there too. Gameplay/extending docs
+live in the plugin's own repo; root `README.md` is a showcase, keep details
+out.
 
-Game rules (gameplay), content-authoring (extending), and the game-specific
-halves of configuration/core live in the active game plugin's own repo docs
-(e.g. `vimp-tanks`'s `docs/en/`), not here — this repo only documents the
-engine.
+## Changelogs
 
-Root `README.md` is a short showcase linking into `docs/en/`; keep details
-out of it.
+Two journals (English, Keep a Changelog), updated unasked in the same change
+as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`: plugin
+contract, `ENGINE_API_VERSION`, `vimp-sim`/scenarios, master endpoints,
+exports) and `packages/engine/core/CHANGELOG.md` (crate `vimp-engine-core`).
+Unreleased work under `## [Unreleased]`, dated at release. Anything that can
+reject a plugin or config which loaded before needs `### ⚠️ Breaking` +
+`### Migration`, even with `ENGINE_API_VERSION` unchanged. Tests, refactors
+and `docs/` are not entries.
 
-## Changelog
+## Release impact
 
-`packages/engine/CHANGELOG.md` (English, Keep a Changelog, newest first)
-records every externally visible change: plugin contract,
-`ENGINE_API_VERSION`, `vimp-sim`/scenario format, master endpoints/config,
-published exports. Update it unasked, in the **same change** — unreleased
-work under `## [Unreleased]`, renamed and dated at release (`0.x`: breaking
-bumps the minor). Anything that can reject a plugin or config which loaded
-before needs `### ⚠️ Breaking` + `### Migration`, even when
-`ENGINE_API_VERSION` is unchanged. Internal-only work (tests, refactors,
-`docs/`) is not an entry.
+Published code: `packages/engine/core/` (crate) and the `files` paths of
+`packages/engine/package.json` (npm). A change touching either **must be
+flagged when reporting the work**, unasked — which artifact, which bump
+(patch/minor/major; `0.x` breaking = minor), whether the game repo must
+follow (crate bump → `vimp-tanks/core/Cargo.toml`; `ENGINE_API_VERSION` →
+plugin rebuild + republish), and which pre-publish checks are needed vs.
+actually run. Never edit a `version`, never publish — the developer does
+both. Procedure: `docs/en/publishing.md`.
 
 ## Commands
 
 ```bash
-npm run dev              # master: lobby + signaling, https://localhost:3002
-npm start                # production master (reads .env)
-npm run build             # alias for build:app
-npm run build:app         # Vite bundle (engine app only)
-npx eslint .              # lint
-npm test                  # Vitest, single run
-npm run test:watch
-npm run test:coverage
-npm run core:test         # Rust core tests (cargo test --workspace)
-npm run sim               # headless match run, report into .debug/
-npm run sim:check         # same, verdict to stdout only (no files)
-npm run sim:replay <file> # run a recorded/scripted scenario JSON
-npm run dev:auth          # auth service: http://localhost:3010 (nodemon)
-npm run start:auth        # production auth service (reads .env)
-npm run auth:db:migrate   # apply packages/auth/src/db/migrations/*.sql
+npm run dev / npm start      # master (dev needs mkcert certs, see getting-started)
+npm run build:app            # Vite bundle (engine app only)
+npx eslint . && npm test     # both green at the end of every change
+npm run core:test            # cargo test --workspace
+npm run sim / sim:check / sim:replay <file>   # headless match, verdict, replay
+npm run dev:auth / start:auth / auth:db:migrate
 ```
 
-Dev requires local HTTPS certs (`mkcert`, see `docs/en/getting-started.md`).
-Playing a match locally also needs a game plugin package (e.g. `@vimp-games/tanks`)
-installed/linked into `node_modules` — this repo no longer builds one; see
-`vimp-tanks` and `docs/en/extending.md`.
+A local match also needs a plugin package installed or linked into
+`node_modules`.
 
 ## Architecture
 
-- **Master** (`packages/engine/src/master/`) — Node.js entry point: room
-  registry, `GET /servers`, map/worker-bundle catalogs, WebRTC signaling,
-  `/ban` moderation. No game logic. Details: `docs/en/master.md`.
-- **Browser host** (`packages/engine/src/host/`) — the authoritative match,
-  running in a Web Worker: `host.worker.js`, `HostGame.js` facade,
-  `GameCoreAdapter.js`, Worker-safe `meta/` modules (participants, rounds,
-  votes, timers). Details: `docs/en/host.md`.
-- **Rust core** (`packages/engine/core/`, crate `vimp-engine-core`) — rlib:
-  physics via `rapier2d`, frame codec, interpolation, ABI macros, no
-  wasm-bindgen (that lives in each game crate's own wasm-bindgen ABI, e.g.
-  `GameCore`/`ClientCore` in `vimp-tanks`). Details: `docs/en/core.md`.
-- **Client** (`packages/engine/src/client/`) — WebRTC transport, MVC
-  component triplets (model/view/controller, Publisher pattern); game-specific
-  rendering parts live in the game plugin package. Details: `docs/en/client.md`.
-- **Devtools** (`packages/engine/src/devtools/`, CLI
-  `packages/engine/bin/vimp-sim.js`) — headless match runner: virtual clock,
-  recording transport, real client cores, scene dumps. Node-only, never
-  imported by the app bundle.
-- **Game plugins** — published packages (e.g. `@vimp-games/tanks`, developed in the
-  separate `vimp-tanks` repository), loaded by the engine only dynamically at
-  runtime via `GameManifest`/`GameCatalog` (never imported statically); the
-  boundary is enforced by ESLint `no-restricted-imports` in
-  `packages/engine/**`.
+Under `packages/engine/`: `src/master/` (rooms, catalogs, signaling — no game
+logic) · `src/host/` (the match in a Worker: `HostGame`, `GameCoreAdapter`,
+`meta/` — the latter must stay Worker-safe, isomorphic APIs only) · `core/`
+(crate: `rapier2d`, frame codec, interpolation, ABI macros, no
+wasm-bindgen) · `src/client/` (WebRTC transport, MVC triplets, Publisher) ·
+`src/devtools/` + `bin/vimp-sim.js` (headless runner, Node-only, never in
+the app bundle). Plugins load only via `GameManifest`/`GameCatalog`; ESLint
+`no-restricted-imports` enforces the boundary.
 
-## Code Conventions
+## Conventions
 
-- ES modules throughout (`"type": "module"`)
-- `camelCase` for variables/functions, `PascalCase` for classes,
-  `UPPER_SNAKE_CASE` for constants
-- No two consecutive uppercase letters in camelCase (ESLint-enforced;
-  exceptions: `VX`, `VY`, `RTT`)
-- `===` required, `let`/`const` only, curly braces required for all blocks
-- Import order on edit: Node built-ins → npm packages → internal modules →
-  relative paths
-- Files/dirs prefixed with `_` are experimental scratch work, not committed
-  to git — don't read, edit, or suggest changes to them unless the developer
-  explicitly says otherwise
-- `packages/engine/src/host/meta/` must stay Worker-safe: isomorphic APIs
-  only (`Date`/`Math`/`performance`/`setTimeout`/`queueMicrotask`), no Node
-  globals
-- Comments explain *why*, not *what*; keep them short
-- When adding a new entity/module with no existing template, follow the
-  codebase's established style
+- ESM; `camelCase` / `PascalCase` / `UPPER_SNAKE_CASE`; no two consecutive
+  capitals in camelCase (ESLint; exceptions `VX`, `VY`, `RTT`)
+- `===`, `let`/`const`, braces on every block; imports: Node built-ins → npm
+  → internal → relative
+- Comments explain *why*, briefly; a new module follows the closest existing
+  pattern
+- `_`-prefixed files are scratch, never committed — don't read or touch them
+  unless told
 
 ## Testing
 
-Vitest (+ happy-dom for client, `@vitest/coverage-v8`). Every change ends
-with a green `npx eslint .` and `npm test`. Tests live under `tests/`,
-mirroring `packages/engine/src/` (not colocated with source). Rust-side:
-unit tests per module plus a cargo motion-parity suite
-(`client::predictor::parity`) — run `npm run core:test` after any change to
-core movement. Game-plugin tests (host-plugin behavior, JS↔WASM harness)
-live in the game's own repository (e.g. `vimp-tanks`).
-
-## Local Development
-
-- Local multiplayer: open several browser tabs — one creates a room
-  ("Create server" in the lobby), the rest join from the list
-- Requires a game plugin package installed/linked (see Commands above) —
-  its own build step (WASM core, assets, manifest) happens in that
-  package's repository, not here
-- No debug mode exists; implement one separately if needed
+Vitest (+ happy-dom); tests live in `tests/`, mirroring
+`packages/engine/src/`, never colocated. Rust: per-module units plus the
+`client::predictor::parity` suite — run `npm run core:test` after any
+core-movement change. Plugin tests live in the game's repo.
 
 ## Deployment
 
-CI/CD is in `.github/`; only the master server is deployed. Production only,
-no staging. `Dockerfile` installs the game plugin (`@vimp-games/tanks`) as a
-regular npm dependency (`npm ci`) instead of building its WASM core here;
-`GameCatalog` rejects a plugin manifest whose `engineApi` doesn't match this
-engine build's `ENGINE_API_VERSION`. Details: `docs/en/deployment.md`.
+A push to `main` deploys the master only (`.github/`, production, no
+staging). `Dockerfile` installs the plugin from npm instead of building its
+WASM core here; `GameCatalog` rejects a manifest whose `engineApi` differs
+from this build's. Details: `docs/en/deployment.md`.
