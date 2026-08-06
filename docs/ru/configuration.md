@@ -183,7 +183,7 @@ DOM-структуры (`elems`) — движковые; тексты и схе�
 
 ## packages/engine/src/config/lobby.js
 
-Конфиг клиентского лобби (см. [client.md](client.md#mvc-компоненты-srcclientcomponents)). В отличие от игрового клиентского конфига **бандлится в сборку**, а не приходит от хоста: лобби проходит до подключения к хосту.
+Конфиг клиентского лобби (см. [client.md](client.md#mvc-компоненты-packagesenginesrcclientcomponents)). В отличие от игрового клиентского конфига **бандлится в сборку**, а не приходит от хоста: лобби проходит до подключения к хосту.
 
 - `serversUrl: '/servers'` — REST-эндпоинт мастера со списком серверов;
 - `gamesManifestUrl: '/games/manifest.json'` — каталог игр мастера (`GameCatalog`): `roomDefaults` формы создания комнаты и ClientPlugin берутся отсюда;

@@ -81,7 +81,7 @@ Code-review pass over the 0.4.0 debugging loop. No API change:
   the declared path and the fix. Both plugin halves are additionally
   re-checked against the manifest's `engineApi`, which catches a rebuilt
   manifest sitting next to a stale `dist/`.
-- Prediction-drift level 1 (`vimp-engine-core` 0.2.1): with
+- Prediction-drift level 1 (`vimp-engine-core` 0.2.0): with
   `GameClientDef::predicted_state` implemented, the detector compares the
   core's own predicted state component-wise instead of the overlay camera.
 - Browser debug requests to the Worker got a 5 s timeout — debugging is needed

@@ -395,7 +395,7 @@ e.g. `vimp-tanks`'s, the
 wasm-bindgen class `ClientCore` from the same WASM
 binary as the host's `GameCore`). The JS shell (`main.js`) only forwards
 data and applies the result to rendering; ABI and layouts —
-[core.md](core.md#clientcore--the-cores-client-mode).
+[core.md](core.md#rust-traits-vimp-engine-core).
 
 Data flow:
 

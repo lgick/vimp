@@ -19,8 +19,10 @@ container. On the VPS, Nginx terminates HTTPS and proxies to the app port
 > `@vimp-games/tanks` from the registry, which brings its already-built `dist/` —
 > client/host entries, the WASM asset, maps, sounds, `manifest.json`)
 > followed by `npm run build:app` (engine Vite build). The runner stage
-> copies `packages/engine/dist/` and `node_modules/@vimp-games/tanks/dist/`; the
-> master reads the plugin only through `GameCatalog`
+> copies `packages/engine/dist/` and the `dist/` of every installed
+> `@vimp-games/*` package (staged via `/app/game-dists`, with no game
+> hardcoded — a second game in `master:games`/`GAMES_MATRIX` needs no
+> Dockerfile change); the master reads each plugin only through `GameCatalog`
 > (`dist/manifest.json` + `dist/maps/*.json`) and rejects it at load time if
 > its `engineApi` doesn't match this engine build's `ENGINE_API_VERSION`
 > — it never imports game source.
@@ -336,6 +338,22 @@ round start). Client pages stay on the old build until reloaded — the
 client↔host protocol must stay compatible across a deploy (the client
 drops an incompatible binary frame by format version). Details —
 [host.md](host.md#worker-handoff).
+
+### Adding a second game to the catalog
+
+The default catalog (`packages/engine/src/config/master.js`'s `games`) ships
+only `tanks`. Production needs two changes, both before the push that
+triggers the deploy:
+
+1. Add the new plugin as a root dependency (`npm i @vimp-games/<id>@X.Y.Z`
+   at the repo root — see [publishing.md](publishing.md)) so the Docker
+   build's `npm ci` installs it and stages its `dist/`.
+2. Set the `GAMES_MATRIX` repository variable (Settings → Secrets and
+   variables → Actions → Variables) to the full JSON array, e.g.
+   `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.4.1"},{"id":"<id>","package":"@vimp-games/<id>","version":"X.Y.Z"}]`
+   — it **replaces** the default array, so `tanks` must be listed too if it
+   should stay. Every master reads the same variable (one catalog for all
+   domains in `SERVERS_MATRIX`); there is no per-server override.
 
 ### Removing a server
 

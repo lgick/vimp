@@ -12,7 +12,7 @@ JSON dispatcher `socketMethods[portId]`
 ([packages/engine/src/client/main.js](../../packages/engine/src/client/main.js) `handleMessage`); an
 `ArrayBuffer` → `ClientCore.push_frame` (decoding and the interpolation
 buffer live in the client core, see
-[core.md](core.md#clientcore--the-cores-client-mode)).
+[core.md](core.md#rust-traits-vimp-engine-core)).
 
 ## Transport (WebRTC)
 

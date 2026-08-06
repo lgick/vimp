@@ -14,7 +14,7 @@ npm start         # production: HTTP за Nginx, читает .env
 - dev: HTTPS с локальными сертификатами из `.certs/`, клиентскую статику раздаёт ViteExpress. Порт `3002` (`3001` — Vite HMR).
 - production: обычный HTTP за Nginx; обязательна `VIMP_DOMAIN`, порт задаёт `VIMP_MASTER_PORT`.
 
-Конфигурация — [packages/engine/src/config/master.js](../../packages/engine/src/config/master.js), описание — в [configuration.md](configuration.md#srcconfigmasterjs).
+Конфигурация — [packages/engine/src/config/master.js](../../packages/engine/src/config/master.js), описание — в [configuration.md](configuration.md#packagesenginesrcconfigmasterjs).
 
 ## Модули
 
@@ -85,7 +85,7 @@ IP хоста и служебные поля наружу не отдаются.
 Каталог `GameManifest` (`GameCatalog`, Этап A2 — см.
 [plugin-api.md](plugin-api.md#gamemanifest)): при старте мастера резолвит
 список игр из конфига `master:games` (`{id, package, version}[]`, см.
-[configuration.md](configuration.md#srcconfigmasterjs), переопределяется в
+[configuration.md](configuration.md#packagesenginesrcconfigmasterjs), переопределяется в
 проде переменной окружения `GAMES_MATRIX`) в пакеты `node_modules/` (до
 разъезда репозиториев — workspace-симлинк на `games/<id>`, после — обычная
 зависимость) и читает `<package>/dist/manifest.json` (продукт
@@ -281,7 +281,7 @@ POST /debug/report
 
 `iceServers` — ICE-конфигурация для `RTCPeerConnection` (STUN обязателен; TURN — опциональный релей).
 
-Клиентская сторона сигналинга — [packages/engine/src/client/network/SignalingClient.js](../../packages/engine/src/client/network/SignalingClient.js): подключается к этому WS, потребляет `welcome`/`iceServers`, шлёт `webrtc_offer`/`ice_candidate`/`ping_host`/`like_host`/`unlike_host` и ретранслирует входящие сообщения по `type`. Игровой трафик после установки P2P идёт по WebRTC (`WebRtcManager`), минуя мастер — см. [client.md](client.md#сетевой-слой-srcclientnetwork) и [network.md](network.md#транспорт-webrtc).
+Клиентская сторона сигналинга — [packages/engine/src/client/network/SignalingClient.js](../../packages/engine/src/client/network/SignalingClient.js): подключается к этому WS, потребляет `welcome`/`iceServers`, шлёт `webrtc_offer`/`ice_candidate`/`ping_host`/`like_host`/`unlike_host` и ретранслирует входящие сообщения по `type`. Игровой трафик после установки P2P идёт по WebRTC (`WebRtcManager`), минуя мастер — см. [client.md](client.md#сетевой-слой-packagesenginesrcclientnetwork) и [network.md](network.md#транспорт-webrtc).
 
 ### Сообщения хоста
 
@@ -321,7 +321,7 @@ POST /debug/report
 
 Голос перехватывается **на клиенте** (`packages/engine/src/client/main.js`, команды `/like <причина>`/`/unlike <причина>`) и уходит **напрямую мастеру** по сигнальному WS, минуя хоста: его `CommandProcessor` мог бы отфильтровать голос против самого себя. Причина обязательна (гейт на стороне клиента), публично не отображается.
 
-Логика рейтинга (`SignalingServer` + central auth-сервис, [auth.md](auth.md#рейтинг-сервера)):
+Логика рейтинга (`SignalingServer` + central auth-сервис, [auth.md](auth.md#схема)):
 
 - голос принимается только от сессии, реально подключавшейся к комнате (слала ей `webrtc_offer`) — проверка членства в `SignalingServer._vote` (`session.offeredHosts`); причина обязательна — голос без непустого `reason` не отправляется.
 - и `register_host`, и `like_host`/`unlike_host` несут Bearer identity-токен; `SignalingServer` проверяет его по JWKS auth-сервиса (тот же `verifyIdentityToken`, каким пользуется Worker хоста), чтобы получить доверенный `hosterUserId`/`voterUserId` — IP здесь для идентичности не годится: вся суть в блокировке именно *хостера*, а не IP, который тривиально меняется новой вкладкой.

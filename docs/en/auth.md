@@ -98,8 +98,8 @@ without touching the rest of a player's history. `state_snapshots` captures
 `state` once per `(user, game, session)` — the value right before that
 server's first write — as an MVP rollback point; a player who plays a clean
 server between two sessions on a banned one will have that clean progress
-overwritten if the snapshot is ever restored (see
-[server-rating plan](../../plan/server-rating/stage_1.md) for the tradeoff).
+overwritten if the snapshot is ever restored — an accepted MVP tradeoff,
+since the alternative (a snapshot per session) is not implemented yet.
 
 **Server rating** (server-rating stage 2, `004_host_ratings.sql`,
 [master.md](master.md#server-rating-likeunlike)): unlike the rank ledger,

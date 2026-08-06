@@ -163,7 +163,7 @@ lobby. Protocol and port details — [network.md](network.md).
 
 The client revolves around three network-smoothing mechanisms; all three
 live in the client core — the `ClientCore` WASM class from the same Rust
-binary (details — [client.md](client.md), ABI — [core.md](core.md#clientcore--the-cores-client-mode)):
+binary (details — [client.md](client.md), ABI — [core.md](core.md#rust-traits-vimp-engine-core)):
 
 - **Interpolation** (`packages/engine/core/src/client/interpolator.rs`): frames are buffered, the world renders in the past (`serverNow − 100 ms`); events are emitted exactly once, positions are interpolated.
 - **Prediction** (game plugin core, e.g. `vimp-tanks`'s `core/src/client/predictor.rs`): the local entity is simulated by a replica of the authoritative motion model (formulas shared with the game's core); the host confirms input (`lastInputSeq`), reconciliation replays unconfirmed input, and the discrepancy decays smoothly.

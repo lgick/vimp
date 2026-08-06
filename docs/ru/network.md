@@ -5,7 +5,7 @@
 - **JSON**: `[portId, payload]` — все каналы, кроме снапшота. `portId` — числовой id из [packages/engine/src/config/wsports.js](../../packages/engine/src/config/wsports.js) (источник истины).
 - **Бинарный**: кадр игрового снапшота (порт `5`, SHOT_DATA) — `ArrayBuffer`, упакованный ядром (`packages/engine/core/src/snapshot.rs`).
 
-Клиент различает форматы по типу входящих данных: строка → JSON-диспетчер `socketMethods[portId]` ([packages/engine/src/client/main.js](../../packages/engine/src/client/main.js) `handleMessage`), `ArrayBuffer` → `ClientCore.push_frame` (распаковка и буфер интерполяции — в клиентском ядре, см. [core.md](core.md#clientcore--клиентский-режим-ядра)).
+Клиент различает форматы по типу входящих данных: строка → JSON-диспетчер `socketMethods[portId]` ([packages/engine/src/client/main.js](../../packages/engine/src/client/main.js) `handleMessage`), `ArrayBuffer` → `ClientCore.push_frame` (распаковка и буфер интерполяции — в клиентском ядре, см. [core.md](core.md#rust-трейты-vimp-engine-core)).
 
 ## Транспорт (WebRTC)
 

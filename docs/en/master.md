@@ -21,7 +21,7 @@ npm start         # production: plain HTTP behind Nginx, reads .env
 - dev: HTTPS with local certificates from `.certs/`, client static assets served by ViteExpress. Port `3002` (`3001` — Vite HMR).
 - production: plain HTTP behind Nginx; `VIMP_DOMAIN` is required, the port comes from `VIMP_MASTER_PORT`.
 
-Configuration — [packages/engine/src/config/master.js](../../packages/engine/src/config/master.js), described in [configuration.md](configuration.md#srcconfigmasterjs).
+Configuration — [packages/engine/src/config/master.js](../../packages/engine/src/config/master.js), described in [configuration.md](configuration.md#packagesenginesrcconfigmasterjs).
 
 ## Modules
 
@@ -91,7 +91,7 @@ round trip sets it; a blocked hoster can't register a room at all, so a
 The `GameManifest` catalog (`GameCatalog`, Stage A2 — see
 [plugin-api.md](plugin-api.md#gamemanifest)):
 at master startup, resolves the `master:games` config list (`{id, package,
-version}[]`, see [configuration.md](configuration.md#srcconfigmasterjs),
+version}[]`, see [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
 overridable in production via the `GAMES_MATRIX` env var) to packages under
 `node_modules/` (a workspace symlink onto `games/<id>` until the repos split,
 an ordinary dependency after) and reads `<package>/dist/manifest.json` (built
@@ -295,7 +295,7 @@ missing `Origin` terminates immediately, a foreign one closes with code
 
 `iceServers` is the ICE configuration for `RTCPeerConnection` (STUN is required; TURN is an optional relay).
 
-The client-side signaling counterpart — [packages/engine/src/client/network/SignalingClient.js](../../packages/engine/src/client/network/SignalingClient.js): connects to this WS, consumes `welcome`/`iceServers`, sends `webrtc_offer`/`ice_candidate`/`ping_host`/`like_host`/`unlike_host`, and relays incoming messages by `type`. Game traffic, once P2P is established, flows over WebRTC (`WebRtcManager`), bypassing the master — see [client.md](client.md#network-layer-srcclientnetwork) and [network.md](network.md#transport-webrtc).
+The client-side signaling counterpart — [packages/engine/src/client/network/SignalingClient.js](../../packages/engine/src/client/network/SignalingClient.js): connects to this WS, consumes `welcome`/`iceServers`, sends `webrtc_offer`/`ice_candidate`/`ping_host`/`like_host`/`unlike_host`, and relays incoming messages by `type`. Game traffic, once P2P is established, flows over WebRTC (`WebRtcManager`), bypassing the master — see [client.md](client.md#network-layer-packagesenginesrcclientnetwork) and [network.md](network.md#transport-webrtc).
 
 ### Host messages
 
@@ -335,7 +335,7 @@ against this is impossible without moving authority back to a trusted server
 
 The vote is intercepted **on the client** (`packages/engine/src/client/main.js`, the `/like <reason>`/`/unlike <reason>` commands) and goes **straight to the master** over the signaling WS, bypassing the host: its `CommandProcessor` could otherwise filter out a vote against itself. A reason is required (gated client-side) and is never shown publicly.
 
-Rating logic (`SignalingServer` + the central auth service, [auth.md](auth.md#server-rating)):
+Rating logic (`SignalingServer` + the central auth service, [auth.md](auth.md#schema)):
 
 - a vote is only accepted from a session that actually connected to the room (sent it a `webrtc_offer`) — membership is checked in `SignalingServer._vote` (`session.offeredHosts`); a reason is required — a vote with an empty `reason` isn't sent.
 - both `register_host` and `like_host`/`unlike_host` carry a Bearer identity-token; `SignalingServer` verifies it against the auth service's JWKS (the same `verifyIdentityToken` the host Worker uses) to get a trustworthy `hosterUserId`/`voterUserId` — an IP can't be used for identity here, since the whole point is blocking a *hoster*, not an IP that's trivially changed by opening a new tab.

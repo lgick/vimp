@@ -47,6 +47,7 @@ the lobby comes up, but no room can be created.
 | Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | when convenient | ✅ |
 | `ENGINE_API_VERSION` bump | — | ✅ | **required** | ✅ strictly last |
 | Game only (rules, maps, assets, game core) | — | — | ✅ | ✅ (re-pin + push) |
+| `packages/auth/` | — | — | — | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
 
 Anything outside the engine package's `files` list (`src/master`,
 `src/client`, views) never reaches npm — for those, the production step
@@ -108,10 +109,13 @@ git add -A && git commit -m "chore: bump vimp-engine-core to X.Y.Z"
 cargo login                                    # once, token from crates.io
 cargo publish -p vimp-engine-core --dry-run
 cargo publish -p vimp-engine-core
+
+git tag vimp-engine-core@X.Y.Z && git push origin vimp-engine-core@X.Y.Z
 ```
 
 crates.io serves the new version within a minute; the game picks it up in
-step B.
+step B. The tag is what the changelog's release-notes links resolve to —
+without it they 404.
 
 ## Step A2: publish `vimp-engine` on npm
 
@@ -134,6 +138,7 @@ git add -A && git commit -m "chore: bump vimp-engine to X.Y.Z"
 npm login
 npm publish -w vimp-engine --dry-run # review the tarball contents
 npm publish -w vimp-engine
+git tag vimp-engine@X.Y.Z && git push origin vimp-engine@X.Y.Z
 
 # 4. Verify
 npm view vimp-engine version
@@ -208,6 +213,11 @@ git commit -m "chore: bump @vimp-games/tanks to X.Y.Z"
 git push
 ```
 
+> A **new** game (not yet in the catalog) additionally needs the
+> `GAMES_MATRIX` repository variable set — `npm i` alone does not add it to
+> `master:games` in production. See
+> [deployment.md → Adding a second game](deployment.md#adding-a-second-game-to-the-catalog).
+
 CI then builds the master image, pushes it to GHCR, and SSHes into every
 server in `SERVERS_MATRIX` to `docker compose pull && up -d`; the auth
 service is built, deployed and migrated in its own jobs (skipped when
@@ -267,3 +277,7 @@ Both directions matter: without the reverse link the plugin's
 | Engine or game package on npm | Publish a fixed patch version (npm never overwrites) |
 | Production runs a bad plugin version | Re-pin the previous `@vimp-games/tanks` in `package.json`/`package-lock.json`, commit, push |
 | Production runs a bad master build | `git revert` the deploy commit and push — CI rebuilds and redeploys the previous state |
+
+---
+
+[← Back to docs index](README.md)

@@ -205,6 +205,11 @@ jobs:
           # общий для всех мастеров central auth-сервис (Этап B6); задаётся
           # один раз в Settings → Variables, см. docs/en/deployment.md
           VIMP_AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
+          # список игр-плагинов каталога, общий для всех мастеров (JSON,
+          # формат {id, package, version}[] — см. packages/engine/src/master/
+          # main.js). Не задан → мастер остаётся на дефолте из
+          # packages/engine/src/config/master.js (только tanks).
+          GAMES_MATRIX: ${{ vars.GAMES_MATRIX }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -212,7 +217,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           # Передача переменных окружения внутрь скрипта SSH
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GAMES_MATRIX,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             # Остановка выполнения при любой критической ошибке
             set -e
@@ -246,6 +251,9 @@ jobs:
               echo "VIMP_DOMAIN=$VIMP_DOMAIN"
               if [ -n "$VIMP_AUTH_SERVICE_URL" ]; then
                 echo "VIMP_AUTH_SERVICE_URL=$VIMP_AUTH_SERVICE_URL"
+              fi
+              if [ -n "$GAMES_MATRIX" ]; then
+                echo "GAMES_MATRIX=$GAMES_MATRIX"
               fi
             } > .env.prod
 

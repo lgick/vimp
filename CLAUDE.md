@@ -75,11 +75,13 @@ A local match also needs a plugin package installed or linked into
 
 Under `packages/engine/`: `src/master/` (rooms, catalogs, signaling — no game
 logic) · `src/host/` (the match in a Worker: `HostGame`, `GameCoreAdapter`,
-`meta/` — the latter must stay Worker-safe, isomorphic APIs only) · `core/`
-(crate: `rapier2d`, frame codec, interpolation, ABI macros, no
-wasm-bindgen) · `src/client/` (WebRTC transport, MVC triplets, Publisher) ·
-`src/devtools/` + `bin/vimp-sim.js` (headless runner, Node-only, never in
-the app bundle). Plugins load only via `GameManifest`/`GameCatalog`; ESLint
+`meta/` — the latter must stay Worker-safe: isomorphic APIs only, no Node
+globals) · `core/` (crate: `rapier2d`, frame codec, interpolation, ABI
+macros, no wasm-bindgen) · `src/client/` (WebRTC transport, MVC triplets,
+Publisher) · `src/devtools/` + `bin/vimp-sim.js` (headless runner,
+Node-only, never in the app bundle). `packages/auth/` is a separate
+workspace package: the central auth service (Postgres, JWKS), its own
+deploy artifact. Plugins load only via `GameManifest`/`GameCatalog`; ESLint
 `no-restricted-imports` enforces the boundary.
 
 ## Conventions
@@ -95,14 +97,16 @@ the app bundle). Plugins load only via `GameManifest`/`GameCatalog`; ESLint
 
 ## Testing
 
-Vitest (+ happy-dom); tests live in `tests/`, mirroring
-`packages/engine/src/`, never colocated. Rust: per-module units plus the
+Vitest (+ happy-dom); tests live in `tests/`, mirroring `packages/engine/src/`
+(plus `tests/auth/` for `packages/auth/src/`, its own vitest project), never
+colocated. Rust: per-module units plus the
 `client::predictor::parity` suite — run `npm run core:test` after any
 core-movement change. Plugin tests live in the game's repo.
 
 ## Deployment
 
-A push to `main` deploys the master only (`.github/`, production, no
-staging). `Dockerfile` installs the plugin from npm instead of building its
-WASM core here; `GameCatalog` rejects a manifest whose `engineApi` differs
-from this build's. Details: `docs/en/deployment.md`.
+A push to `main` deploys the master, and the auth service if
+`AUTH_SERVER_IP` is set (`.github/`, production, no staging). `Dockerfile`
+installs the plugin from npm instead of building its WASM core here;
+`GameCatalog` rejects a manifest whose `engineApi` differs from this
+build's. Details: `docs/en/deployment.md`.

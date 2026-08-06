@@ -425,3 +425,7 @@ Worker изолирован от DevTools вкладки, поэтому отл�
 `tests/host/DebugRecorder.test.js`, `tests/client/debug.test.js`,
 `tests/master/debugReport.test.js`; на стороне Rust — `game::tests::debug_json_*`
 и `client::game::tests::divergence_*` (`npm run core:test`).
+
+---
+
+[← Назад к оглавлению](README.md)

@@ -49,6 +49,7 @@ vimp-engine (npm)
 | Контракт плагина без бампа `ENGINE_API_VERSION` | — | ✅ | когда удобно | ✅ |
 | Бамп `ENGINE_API_VERSION` | — | ✅ | **обязательно** | ✅ строго последним |
 | Только игра (правила, карты, ассеты, игровое ядро) | — | — | ✅ | ✅ (перепин + пуш) |
+| `packages/auth/` | — | — | — | ✅ отдельный джоб `deploy_auth`, отдельная миграция (пропускается, если `AUTH_SERVER_IP` не задан) |
 
 Всё, чего нет в `files` пакета движка (`src/master`, `src/client`,
 шаблоны), в npm не попадает вовсе — для таких правок релиз состоит из одного
@@ -110,10 +111,13 @@ git add -A && git commit -m "chore: bump vimp-engine-core to X.Y.Z"
 cargo login                                    # один раз, токен с crates.io
 cargo publish -p vimp-engine-core --dry-run
 cargo publish -p vimp-engine-core
+
+git tag vimp-engine-core@X.Y.Z && git push origin vimp-engine-core@X.Y.Z
 ```
 
 crates.io отдаёт новую версию в течение минуты; игра подхватит её на
-шаге B.
+шаге B. Ссылки на релиз в CHANGELOG резолвятся именно в этот тег — без
+него они ведут в 404.
 
 ## Шаг A2: публикация `vimp-engine` в npm
 
@@ -136,6 +140,7 @@ git add -A && git commit -m "chore: bump vimp-engine to X.Y.Z"
 npm login
 npm publish -w vimp-engine --dry-run # посмотреть содержимое тарболла
 npm publish -w vimp-engine
+git tag vimp-engine@X.Y.Z && git push origin vimp-engine@X.Y.Z
 
 # 4. Проверка
 npm view vimp-engine version
@@ -210,6 +215,11 @@ git commit -m "chore: bump @vimp-games/tanks to X.Y.Z"
 git push
 ```
 
+> **Новой** игре (которой ещё нет в каталоге) дополнительно нужна
+> переменная репозитория `GAMES_MATRIX` — одного `npm i` недостаточно,
+> чтобы она попала в `master:games` на проде. См.
+> [deployment.md → Добавление второй игры](deployment.md#добавление-второй-игры-в-каталог).
+
 Дальше CI собирает образ мастера, публикует его в GHCR и заходит по SSH на
 каждый сервер из `SERVERS_MATRIX` (`docker compose pull && up -d`);
 auth-сервис собирается, раскатывается и мигрируется отдельными джобами
@@ -270,3 +280,7 @@ cd ../vimp-tanks && npm link vimp-engine      # плагин ← движок
 | Пакет движка или игры в npm | Опубликовать исправленную патч-версию (перезаписать нельзя) |
 | На проде плохая версия плагина | Вернуть прежний пин `@vimp-games/tanks` в `package.json`/`package-lock.json`, закоммитить, запушить |
 | На проде плохая сборка мастера | `git revert` деплойного коммита и пуш — CI пересоберёт и раскатает прежнее состояние |
+
+---
+
+[← Назад к оглавлению](README.md)

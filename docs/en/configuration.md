@@ -291,7 +291,7 @@ The master server's config (see [master.md](master.md)); read by
 ## packages/engine/src/config/lobby.js
 
 The client lobby's config (see
-[client.md](client.md#mvc-components-srcclientcomponents)). Unlike
+[client.md](client.md#mvc-components-packagesenginesrcclientcomponents)). Unlike
 `client.js`, it's **bundled into the build** rather than delivered by the
 host: the lobby happens before connecting to a host.
 
