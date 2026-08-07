@@ -311,6 +311,13 @@ host: the lobby happens before connecting to a host.
   from the `url` in the manifest, a `codeVersion` mismatch on re-register
   triggers a Worker handoff (falls back to the bundled URL with no code
   updates — dev/unavailability);
+- `auth` — the auth endpoints the master proxies under its own origin:
+  `jwksUrl: '/auth/jwks'` (the host Worker fetches it itself and verifies a
+  joining player's identity-token signature, see
+  [auth.md](auth.md#joining-a-room-host-verification)),
+  `rankUrl: '/auth/rank'` / `stateUrl: '/auth/state'` (the host requests
+  them with the player's identity-token on join and syncs back on
+  round/map boundaries, see [host.md](host.md));
 - `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`,
   `leaderboardLimit: 10` (lobby page plan) — the master's proxied game
   leaderboard/placement endpoints (see
@@ -327,14 +334,21 @@ host: the lobby happens before connecting to a host.
   `ping_host` calls for one server (anti-spam while scrolling/redrawing);
 - `elems` — lobby DOM element ids (from `lobby.pug`), including
   `nameId`/`hostBtnId` — the name field and the "create server" button
-  (the browser host, [host.md](host.md)) — and, since the lobby page plan,
+  (the browser host, [host.md](host.md)) — `gameId` (the game picker,
+  populated from the master's catalog) and `fieldsId` (the room-field
+  container, generated from the active game's `roomDefaults` keys — the
+  engine doesn't know the game's fields), and, since the lobby page plan,
   the tab/leaderboard ids (`tabServersBtnId`, `tabLeaderboardBtnId`,
   `serversContentId`, `leaderboardContentId`, `leaderboardListId`,
   `leaderboardTitleId`, `leaderboardTotalId`, `myPlacementId`);
-- `create` — room creation settings: `defaultName`, `maxPlayers` (≤ 8),
-  `heartbeatInterval` (the master's `update_host` period),
+- `create` — room creation settings: `defaultName`,
+  `heartbeatInterval: 10000` (the master's `update_host` period; must be
+  below `master.host.heartbeatTimeout`, 30 s, or the room gets swept),
   `hostSocketId: 'local'` — the loopback socketId of the host player (the
-  Worker uses it to exclude the host from kick policies).
+  Worker uses it to exclude the host from kick policies). The player limit,
+  round/map time, friendly fire and the default map are **not** here: they
+  come from the active game's `roomDefaults` in its manifest
+  ([plugin-api.md](plugin-api.md#gamemanifest)).
 
 ## The game's auth config
 

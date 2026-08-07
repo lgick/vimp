@@ -201,7 +201,7 @@ to still being the join-time default:
   and calling it as `this._fetch(...)` passes the instance as the receiver,
   which is a `TypeError` in a browser/Worker before any request goes out, and
   tests injecting a plain-function `fetchImpl` never see it.
-- **Attribution** (code-review fix, `plan/server-rating/review.md` finding
+- **Attribution** (code-review fix, `plan/done/server-rating/review.md` finding
   №1): every `PUT` body also carries `hostId` **and its per-room
   `hostSecret`**, so the master can stamp the event with this room's verified
   `hosterUserId`/`sessionId` before forwarding it to auth (see

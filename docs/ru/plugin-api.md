@@ -493,7 +493,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 | Константа | Владелец | Политика |
 | --- | --- | --- |
-| `ENGINE_API_VERSION` (=3) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1. v2: контракт [Form schema](#form-schema) (`roomForm`, `authSchema.params[].options`) заменил вывод контрола из типа значения. v3: набор `control` сокращён до нативных элементов (`select`/`text`/`checkbox`/`radio`, убраны `range`/`number`/`toggle`/`segmented`) — обязательное обновление для внешних репо игр (например, `vimp-tanks`) |
+| `ENGINE_API_VERSION` (=3) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1. v2: контракт [схемы формы](#схема-формы) (`roomForm`, `authSchema.params[].options`) заменил вывод контрола из типа значения. v3: набор `control` сокращён до нативных элементов (`select`/`text`/`checkbox`/`radio`, убраны `range`/`number`/`toggle`/`segmented`) — обязательное обновление для внешних репо игр (например, `vimp-tanks`) |
 | `SNAPSHOT_FORMAT_VERSION` (=3) | движок (фрейминг) | схема блоков едет в CONFIG_DATA → внутри комнаты всегда согласована |
 | `HANDOFF_VERSION` (→3) | движок | v2: +`gameId`, `gameVersion` в мете эстафеты; v3: поле `bots` переименовано в `scripted`; несовпадение → штатный `resume` |
 | `codeVersion` | мастер | составной: `{ engine: hash(host.worker-*.js), game: {id, version} }`; расхождение любой части → эстафета (новый Worker получает свежий `entries.host`) |

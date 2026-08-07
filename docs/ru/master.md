@@ -321,7 +321,7 @@ POST /debug/report
 
 Голос перехватывается **на клиенте** (`packages/engine/src/client/main.js`, команды `/like <причина>`/`/unlike <причина>`) и уходит **напрямую мастеру** по сигнальному WS, минуя хоста: его `CommandProcessor` мог бы отфильтровать голос против самого себя. Причина обязательна (гейт на стороне клиента), публично не отображается.
 
-Логика рейтинга (`SignalingServer` + central auth-сервис, [auth.md](auth.md#схема)):
+Логика рейтинга (`SignalingServer` + central auth-сервис, [auth.md](auth.md#схема-бд)):
 
 - голос принимается только от сессии, реально подключавшейся к комнате (слала ей `webrtc_offer`) — проверка членства в `SignalingServer._vote` (`session.offeredHosts`); причина обязательна — голос без непустого `reason` не отправляется.
 - и `register_host`, и `like_host`/`unlike_host` несут Bearer identity-токен; `SignalingServer` проверяет его по JWKS auth-сервиса (тот же `verifyIdentityToken`, каким пользуется Worker хоста), чтобы получить доверенный `hosterUserId`/`voterUserId` — IP здесь для идентичности не годится: вся суть в блокировке именно *хостера*, а не IP, который тривиально меняется новой вкладкой.
