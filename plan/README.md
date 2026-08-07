@@ -166,33 +166,7 @@ Postgres) — делается руками на чистой БД:
 5. Рейтинг в карточке лобби (`+N`/`0`/`-N`) обновляется по `refreshInterval`,
    включая снятие комнаты заблокированного хостера на другом мастере.
 
-### 4. Дрейф существующих доков (собран при подготовке `docs/ai/`)
-
-В `docs/ai/` эти утверждения не переносились; исправление самих доков —
-отдельная задача (бывший `plan/ai-docs/drift.md`):
-
-- `docs/en|ru/plugin-api.md`: `gameConfig.models`/`weapons` → на деле
-  `parts.models`/`parts.weapons`; `spawn_scripted` → `spawn_scripted_actor`;
-  `build_blocks` → `build_snapshot_blocks`; `GameClientDef::motion_step`/
-  `render_from_state`/`STATE_LEN` не существуют; `SimCtx<'a, G>` + `game_cfg`
-  → `SimCtx<'a>` (не generic); `min`/`max`/`step` в auth-options удалены в
-  v3; `onCoreEvent(ctx, event)` → `onCoreEvent(data, { vimp, panel })`;
-  `chatCommands`/`createModules` поданы как опциональные — обязательны;
-  `views: { Panel, Stat }` не реализовано.
-- Доки vimp-tanks: контролы форм `range`/`toggle` → в v3 только
-  `text|select|checkbox|radio`; `index.html` в корне пакета нет; npm-скриптов
-  `maps:export`/`game:build` нет (есть `build:assets`/`build`); комментарий
-  `src/host/createModules.js:5` про `timerManager`/`voteCoordinator` в ctx
-  не соответствует движку (их там нет).
-- Корневой `CLAUDE.md` движка: «`/ban` moderation» — эндпоинта нет;
-  соц. модерация — `/like`·`/unlike` (рейтинг −10..10, блок на −10,
-  эвакуация кодом 4002).
-- Фикстура `packages/engine/tests/fixtures/miniGame/config/auth.js`:
-  объявляет `elems.formId`, а движок (`client/components/view/Auth.js`)
-  читает `elems.fieldsId` — тесты проходят, потому что DOM в них не
-  поднимается.
-
-### 5. Находки кодревью направления F (среда отладки) — ✅ выполнен
+### 4. Находки кодревью направления F (среда отладки) — ✅ выполнен
 
 Все находки (1 🔴, 3 🟠, 6 🟡 и мелочи) устранены 2026-08-05 в движке и в
 `vimp-tanks`; разбор и таблица «что сделано» —

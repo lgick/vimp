@@ -223,7 +223,7 @@ export default {
   gameConfig: {                       // игровая половина бывшего config/game.js
     teams: { team1: 1, team2: 2, spectators: 3 },   // произвольное число команд — обязательное поле
     spectatorTeam: 'spectators',      // обязательное поле, ключ из teams
-    models, weapons,                  // из src/data игры-плагина (например, vimp-tanks)
+    parts: { models, weapons, friendlyFire },   // из src/data игры-плагина (например, vimp-tanks)
     snapshot,                         // снапшот-схема ключей (config/snapshot.js) — обязательное поле
     playerKeys, // spectatorKeys — движковые (наблюдение — механизм движка)
     panel: { fields: { health: {key:'h', value:100}, w1: {…}, w2: {…} }, activeKey: 'wa' },
@@ -251,8 +251,8 @@ export default {
                 validators: { isValidModel: v => v in models },
                 texts: { title, sections } },   // тексты формы для нейтрального каркаса auth.pug
 
-  onCoreEvent(ctx, event),            // только 'custom'-события; стандартные роутит движок
-  chatCommands: [{ name: '/bot', handler(ctx, gameId, args) {…} }],   // регистрация в CommandProcessor
+  onCoreEvent(data, { vimp, panel }),  // только 'custom'-события; стандартные роутит движок
+  chatCommands: [{ name: '/bot', handler(ctx, gameId, args) {…} }],   // обязательное поле — регистрация в CommandProcessor
   systemMessages: { BOT_PLAYERS_ONLY: 'b:0', … },                     // merge в реестр кодов движка
   // статических определений голосований нет: игровые голосования создаются
   // динамически через ctx.voteCoordinator.createVote(...) из чат-команд
@@ -286,7 +286,6 @@ export default {
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
   styles: '…css…',                    // игровой CSS (спрайты оружия панели и т.п.)
-  views: { Panel: CustomPanelView },  // опционально: свои view вместо schema-генератора (см. ниже)
   hooks: {
     onAuth(core, authData)   { core.set_model(authData.model); },
     onPanel(core, panelData) { core.sync_panel(JSON.stringify(panelData)); },
@@ -311,13 +310,11 @@ export default {
 | Controls (client) | player-keyset и раскладка; спектаторский набор — движковый |
 | Auth | схема формы (`authSchema`) + валидатор модели |
 
-Опциональный обход схемы: `views: { Panel?, Stat? }` — кастомный view-класс
-игры, реализующий view-интерфейс MVC-тройки (подписка на движковую модель
-через `Publisher`; model/controller остаются движковыми). В v1 движок
-реализует только schema-генератор — поле лишь валидируется при загрузке
-плагина, подстановка добавится при первой необходимости.
-Радиальные/canvas-индикаторы возможны и без этого: HUD-сущность на canvas —
-обычный `part`.
+Обхода схемы через `views` не существует: у `ClientPlugin` нет поля для
+своего Panel/Stat view-класса, и никакой код загрузки плагина его не
+валидирует и не читает — сегодня единственная реализация — движковые
+schema-generated PanelView/StatView. Радиальные/canvas-индикаторы возможны
+и без этого: HUD-сущность на canvas — обычный `part`.
 
 ## Wasm Host ABI (v1)
 
@@ -423,29 +420,40 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 ноль оверхеда на 120 Гц; `dyn` не нужен (один wasm-бандл = одна игра).
 
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
-- `trait GameSim<G>`: `new`, `spawn_actor`, `spawn_scripted`,
-  `remove_actor`, `reset_actor`, `reset_all_vitals`, `apply_input`,
-  `on_fixed_step(ctx, dt)`, `on_contacts(ctx, pairs)`, `on_ai_tick(ctx, dt)`,
-  `build_blocks(ctx) -> (Vec<(String, RowBlock)>, has_events)`,
-  `prediction_state`, `players_json`, `alive`, `position`, `last_input_seq`,
-  `clear`, `remove_players_and_shots`, `serialize/deserialize` (mid-round
-  handoff — сохраняется как задел).
-- `SimCtx<'a, G>` — доступ игры к движковому: `world` (Rapier), `map`
-  (respawns — `IndexMap<String, Vec<[f32;3]>>`, произвольные команды),
-  `nav`/`spatial` (A*/сетка — движковые утилиты в модуле `nav/`, без слова
-  «bot»), `rng`, `events`, `game_cfg`, destroy-очередь.
+- `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
+  `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
+  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `actor_position`, `prediction_state`, `alive_players_flat`,
+  `players_json`, `on_fixed_step(ctx: &mut SimCtx, dt)`,
+  `on_contacts(ctx: &mut SimCtx, pairs)`, `on_before_destroy`,
+  `on_ai_tick(ctx: &mut SimCtx, dt)`, `refresh_cached`,
+  `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
+  `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
+  handoff — сохраняется как задел), `rebuild_spatial_grid`.
+- `SimCtx<'a>` (не generic по игре) — доступ игры к движковому, передаётся
+  в тиковые callback'и: `world: &'a mut PhysicsWorld`,
+  `cfg: &'a EngineConfig`, `map: &'a Option<GameMap>` (respawns),
+  `nav`/`spatial: &'a Option<NavigationSystem>`/`&'a mut SpatialGrid`
+  (A*/сетка — движковые утилиты в модуле `nav/`, без слова «bot»),
+  `rng: &'a mut Rng`, `events: &'a mut Vec<CoreEvent>`,
+  `bodies_to_destroy: &'a mut Vec<RigidBodyHandle>`. Поля `game_cfg` нет —
+  игровой конфиг передаётся только в `GameSim::new`, дальше игра хранит
+  нужное сама.
 - Движок владеет: аккумулятор фикс-шага, сбор контактов, destroy-очередь,
   schema-driven `SnapshotPacker`, handoff-каркас, `EngineEvent`.
-- Клиентская половина: `trait GameClientDef { type Config; const STATE_LEN;
-  fn motion_step(state, keys, model, dt, ctx: &PredictCtx);
-  fn render_from_state(state) }`; `PredictCtx` даёт опциональный доступ к
-  движковой сетке статических тайлов (та же, что у raycast) — задел под
-  клиентское скольжение вдоль стен для жанров без инерции; танки контекст
-  игнорируют (parity-тесты не меняются). Движок — `Interpolator`
-  (schema-driven), `Predictor<G>` (история ввода, reconciliation,
-  visual-error decay), hot-буфер, raycast. `ShotPredictor`
-  (try_fire/cycle_weapon/sync_panel/клиентский спавн) — целиком в
-  game-crate, зовёт движковый raycast.
+- Клиентская половина: `trait GameClientDef { type Config;
+  fn new(cfg, engine_cfg); fn on_server_state(state, centering, server_time,
+  offset, local_now); fn set_server_offset(offset); fn update(local_now);
+  fn track_frame(my_game_id, frame); fn filter_frame_game(game, my_game_id,
+  local_now); fn update_world(snapshot); fn update_world_interpolated(game);
+  fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
+  fn set_model(...); fn set_active(...); fn set_map(...); fn sync_panel(...);
+  fn reset(); fn cycle_item(back); fn try_action(...) }`, плюс два
+  опциональных метода ниже. Движок даёт `Interpolator` (schema-driven),
+  generic-оркестрацию `ClientState<G>` (сетевой буфер, очередь событийных
+  кадров, hot-буфер рендер-тика), hot-буфер, raycast. Предикт актора,
+  визуальный спавн и панель — целиком забота игры внутри её реализации
+  `GameClientDef`.
 
 Состоявшийся разъезд модулей бывшего монолитного `core/src/` (этап 4b):
 

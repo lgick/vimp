@@ -5,7 +5,7 @@ import gameConfig from './game.js';
 export default {
   elems: {
     authId: 'auth',
-    formId: 'auth-form',
+    fieldsId: 'auth-form',
     errorId: 'auth-error',
     enterId: 'auth-enter',
     titleId: 'auth-title',

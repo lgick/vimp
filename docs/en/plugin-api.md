@@ -223,7 +223,7 @@ export default {
   gameConfig: {                       // the game half of the former config/game.js
     teams: { team1: 1, team2: 2, spectators: 3 },   // any number of teams — required
     spectatorTeam: 'spectators',                    // required, must be a key of teams
-    models, weapons,                  // from the game plugin's src/data (e.g. vimp-tanks's)
+    parts: { models, weapons, friendlyFire },   // from the game plugin's src/data (e.g. vimp-tanks's)
     snapshot,                         // the snapshot key schema (config/snapshot.js) — required
     playerKeys, // spectatorKeys are engine-owned (spectating is an engine mechanism)
     panel: { fields: { health: {key:'h', value:100}, w1: {…}, w2: {…} }, activeKey: 'wa' },
@@ -251,8 +251,8 @@ export default {
                 validators: { isValidModel: v => v in models },
                 texts: { title, sections } },   // form texts for the neutral auth.pug shell
 
-  onCoreEvent(ctx, event),            // 'custom' events only; standard ones are routed by the engine
-  chatCommands: [{ name: '/bot', handler(ctx, gameId, args) {…} }],   // registered in CommandProcessor
+  onCoreEvent(data, { vimp, panel }),  // 'custom' events only; standard ones are routed by the engine
+  chatCommands: [{ name: '/bot', handler(ctx, gameId, args) {…} }],   // required — registered in CommandProcessor
   systemMessages: { BOT_PLAYERS_ONLY: 'b:0', … },                     // merged into the engine code registry
   // there are no static vote definitions: game votes are created dynamically
   // via ctx.voteCoordinator.createVote(...) from chat-command handlers
@@ -287,7 +287,6 @@ export default {
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
   styles: '…css…',                    // game CSS (panel weapon sprites etc.)
-  views: { Panel: CustomPanelView },  // optional: custom views instead of the schema generator (see below)
   hooks: {
     onAuth(core, authData)   { core.set_model(authData.model); },
     onPanel(core, panelData) { core.sync_panel(JSON.stringify(panelData)); },
@@ -312,13 +311,11 @@ parameterized by the game's config.** Consequences:
 | Controls (client) | the player keyset and layout; the spectator set is engine-owned |
 | Auth | form schema (`authSchema`) + model validator |
 
-Optional schema bypass: `views: { Panel?, Stat? }` — a game view class
-implementing the MVC view interface (subscribes to the engine model via
-`Publisher`; model/controller stay engine-owned). In v1 the engine
-implements only the schema generator — the field is merely validated at
-plugin load; substitution will be added when first needed. Radial/canvas
-indicators are possible without it: a HUD entity on canvas is a regular
-`part`.
+There is no `views` schema-bypass export: `ClientPlugin` has no field for
+supplying a custom Panel/Stat view class, and no plugin-loading code
+validates or reads one — the engine's own schema-generated PanelView/
+StatView are the only implementation today. Radial/canvas indicators are
+still possible without it: a HUD entity on canvas is a regular `part`.
 
 ## Wasm Host ABI (v1)
 
@@ -425,30 +422,40 @@ monomorphized — zero overhead at 120 Hz; no `dyn` needed (one wasm bundle =
 one game).
 
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
-- `trait GameSim<G>`: `new`, `spawn_actor`, `spawn_scripted`, `remove_actor`,
-  `reset_actor`, `reset_all_vitals`, `apply_input`, `on_fixed_step(ctx, dt)`,
-  `on_contacts(ctx, pairs)`, `on_ai_tick(ctx, dt)`,
-  `build_blocks(ctx) -> (Vec<(String, RowBlock)>, has_events)`,
-  `prediction_state`, `players_json`, `alive`, `position`, `last_input_seq`,
-  `clear`, `remove_players_and_shots`, `serialize/deserialize` (mid-round
-  handoff — kept as groundwork).
-- `SimCtx<'a, G>` — the game's access to engine facilities: `world` (Rapier),
-  `map` (respawns — `IndexMap<String, Vec<[f32;3]>>`, arbitrary teams),
-  `nav`/`spatial` (A*/grid — engine utilities in a `nav/` module, no "bot"
-  wording), `rng`, `events`, `game_cfg`, the destroy queue.
+- `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
+  `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
+  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `actor_position`, `prediction_state`, `alive_players_flat`,
+  `players_json`, `on_fixed_step(ctx: &mut SimCtx, dt)`,
+  `on_contacts(ctx: &mut SimCtx, pairs)`, `on_before_destroy`,
+  `on_ai_tick(ctx: &mut SimCtx, dt)`, `refresh_cached`,
+  `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
+  `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
+  handoff — kept as groundwork), `rebuild_spatial_grid`.
+- `SimCtx<'a>` (not generic over the game) — the game's access to engine
+  facilities passed to the tick callbacks: `world: &'a mut PhysicsWorld`,
+  `cfg: &'a EngineConfig`, `map: &'a Option<GameMap>` (respawns), `nav`/
+  `spatial: &'a Option<NavigationSystem>`/`&'a mut SpatialGrid` (A*/grid —
+  engine utilities in a `nav/` module, no "bot" wording), `rng: &'a mut Rng`,
+  `events: &'a mut Vec<CoreEvent>`, `bodies_to_destroy: &'a mut
+  Vec<RigidBodyHandle>`. No `game_cfg` field — the game config is only
+  handed to `GameSim::new`; the game stores what it needs itself.
 - The engine owns: the fixed-step accumulator, contact collection, the
   destroy queue, the schema-driven `SnapshotPacker`, the handoff skeleton,
   `EngineEvent`.
-- The client half: `trait GameClientDef { type Config; const STATE_LEN;
-  fn motion_step(state, keys, model, dt, ctx: &PredictCtx);
-  fn render_from_state(state) }`; `PredictCtx` gives optional access to the
-  engine's static-tile grid (the same one raycast uses) — groundwork for
-  client-side wall sliding in genres without inertia; tanks ignore the
-  context (parity tests unchanged). The engine provides the `Interpolator`
-  (schema-driven), `Predictor<G>` (input history, reconciliation,
-  visual-error decay), the hot buffer, raycast. `ShotPredictor`
-  (try_fire/cycle_weapon/sync_panel/client-side spawning) lives entirely in
-  the game crate and calls the engine raycast.
+- The client half: `trait GameClientDef { type Config;
+  fn new(cfg, engine_cfg); fn on_server_state(state, centering, server_time,
+  offset, local_now); fn set_server_offset(offset); fn update(local_now);
+  fn track_frame(my_game_id, frame); fn filter_frame_game(game, my_game_id,
+  local_now); fn update_world(snapshot); fn update_world_interpolated(game);
+  fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
+  fn set_model(...); fn set_active(...); fn set_map(...); fn sync_panel(...);
+  fn reset(); fn cycle_item(back); fn try_action(...) }`, plus the two
+  optional methods below. The engine provides the `Interpolator`
+  (schema-driven), the generic `ClientState<G>` orchestration (network
+  buffer, event-frame queue, render-tick hot buffer), the hot buffer,
+  raycast. Actor prediction, visual spawning and the panel are entirely the
+  game's own responsibility inside its `GameClientDef` implementation.
 
 The completed module split of the former monolithic `core/src/` (Stage 4b):
 
