@@ -146,9 +146,17 @@ Base-36 ids match JS `id.toString(36)`.
 
 ## Rounding
 
-The packer rounds every `f32` to **2 decimal places** before writing, except
+Every transmitted `f32` is effectively carried at **2 decimal places**, except
 the per-user player block (prediction needs full precision). Do not design
 mechanics that depend on sub-centimetre transmitted precision.
+
+**The rounding is yours to apply, not the packer's.** The packer writes the
+`f32` you give it verbatim; the decoder passes every field through `round2`
+on the way out. So a value packed unrounded reaches the client as a different
+number than the one the host kept — call
+`vimp_engine_core::physics::round2` on the floats you put into
+`build_snapshot_blocks`. (The engine does this for the dynamic-map-object
+block it owns; the player block is packed *and* decoded raw.)
 
 ## Port table
 

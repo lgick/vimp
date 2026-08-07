@@ -214,9 +214,9 @@ The context is exactly:
 - `scripted` — the `gameConfig.scripted` **config object**
   (`{ namePrefix, defaultModel }`), not a module.
 
-> There is **no** `timerManager` and **no** `voteCoordinator` in this context,
-> despite a comment in the tanks source claiming otherwise. If a bot manager
-> needs timing, drive it from the core's AI tick or from a chat command.
+> There is **no** `timerManager` and **no** `voteCoordinator` in this context
+> — they exist only in the chat-command context below. If a bot manager needs
+> timing, drive it from the core's AI tick or from a chat command.
 
 Only the `scripted` key of the returned object is read. Returning other
 modules is harmless but they will never be called by the engine.

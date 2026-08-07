@@ -147,6 +147,11 @@ pub trait GameClientDef: Sized {
     fn update_world_interpolated(&mut self, game: &InterpolatedGame);
     fn render_overlay(&self, my_game_id: Option<u32>) -> Option<RenderOverlay>;
 
+    // --- both have a default of `None`; implementing them upgrades the
+    // --- prediction-drift detector from level 0 to level 1 (see 13-debugging.md)
+    fn predicted_state(&self) -> Option<[f32; PLAYER_STATE_LEN]> { None }
+    fn replayed_inputs(&self) -> Option<(f64, f64, usize)> { None }
+
     fn apply_input(&mut self, action: &str, key_name: &str, local_now: f64);
     fn set_model(&mut self, model_name: &str);
     fn set_active(&mut self, active: bool);
@@ -157,6 +162,16 @@ pub trait GameClientDef: Sized {
     fn try_action(&mut self, my_game_id: Option<u32>, local_now: f64) -> Option<String>;
 }
 ```
+
+Every method above is required except the two with bodies. `predicted_state`
+returns your predicted actor in the player-block layout; the engine samples it
+immediately before `on_server_state`, i.e. before the authoritative state
+overwrites the prediction, and compares component by component.
+`replayed_inputs` reports the local-time window the last reconciliation
+replayed. Leave both at `None` and drift detection falls back to comparing the
+predicted overlay's camera with the frame's x/y (level 0) — enough to notice
+divergence, not enough to say which component drifted. Invariant 9
+(`predictionDrift`) works either way; see `13-debugging.md`.
 
 ## The ABI macros
 
@@ -195,8 +210,8 @@ angleDeg)`, `remove_actor`, `reset_actor`, `reset_all_vitals`,
 `is_alive`, `position_of`, `players_data`, `alive_players` (→ `f32[]`),
 `step(dt)`, `take_events` (→ JSON), `pack_body`, `body_has_events`,
 `pack_frame(serverTime, seq, hasCamera, camX, camY, forceReset, shake,
-playerId)`, `frame_ptr`, `frame_bytes`, `serialize_state`,
-`deserialize_state`.
+playerId)`, `frame_ptr`, `frame_bytes`, `debug_json` (→ JSON world dump),
+`serialize_state`, `deserialize_state`.
 
 `pack_frame` with `playerId < 0` produces a frame without a player block
 (spectator view). `frame_ptr` + the WASM memory let JS read the frame
@@ -208,7 +223,12 @@ zero-copy.
 first player block), `offset()`, `sample(localNow) -> usize` (hot buffer
 length), `hot_ptr()`, `hot_values()`, `take_frames()` (→ JSON),
 `apply_input(action, keyName, localNow)`, `set_active`, `set_map`, `reset`,
+`debug_json` (→ JSON client dump), `take_divergence` (→ JSON drift records),
 `decode_frame`.
+
+`debug_json` and `take_divergence` are generated for you — they are what the
+headless runner reads for world dumps and prediction drift (`13-debugging.md`).
+Do not hand-write them.
 
 **Game-specific client methods are hand-written**, not generated:
 `set_model`, `sync_panel`, `try_fire` / `try_action`, `cycle_weapon` /
@@ -308,7 +328,8 @@ prediction diverges on every trigger press.
 The per-user player block carries exactly **eight `f32`s** describing the
 local actor's authoritative state, plus a `centering` flag. That is the whole
 reconciliation channel: whatever the client must predict has to fit in eight
-floats (tanks uses x, y, angle, gun angle, vx, vy, engine load, condition).
+floats (tanks uses `[x, y, angle, vx, vy, angvel, gunRotation,
+engineThrottle]`, with `centeringGun` as the flag).
 
 If your design needs more predicted state, either derive it client-side from
 those eight values, or do not predict it.
@@ -318,8 +339,15 @@ those eight values, or do not predict it.
 - All randomness goes through the engine `Rng` (SplitMix64) seeded from the
   init JSON. **Never** use `rand`, `Math.random`, or time-based seeding.
 - The physics uses `enhanced-determinism`.
-- The snapshot packer rounds `f32` values to 2 decimals (the per-user player
-  block is exempt), so client and host agree on the transmitted values.
+- **Round the values you pack yourself.** The packer writes raw `f32`s, but
+  the decoder restores every snapshot field through `round2` (2 decimals) —
+  so anything you pack unrounded comes back to the client as a *different*
+  number than the one your host still holds. Call
+  `vimp_engine_core::physics::round2` on the coordinates, angles and other
+  floats you put into `build_snapshot_blocks` (the engine does exactly that
+  for its own dynamic-map-object block). The per-user player block is the
+  one exception: it is packed and decoded raw, because prediction needs the
+  precision.
 - Keep every gameplay-relevant computation in Rust. JS-side arithmetic on
   snapshot values will not match the core.
 

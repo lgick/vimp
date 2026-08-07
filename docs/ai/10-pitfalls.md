@@ -68,8 +68,10 @@ every item here fails **silently** or with an error far from its cause.
       Anything rendered smoothly at frame rate must use one of those kinds;
       `indexed32` / `list16` arrive through `take_frames()`.
 - [ ] Only `f32` fields interpolate, and only in `class: 'hot'` blocks.
-- [ ] Transmitted `f32` values are rounded to 2 decimals (the player block is
-      exempt).
+- [ ] Your core calls `vimp_engine_core::physics::round2` on the `f32`s it
+      packs. The packer does **not** round; the decoder does, so an unrounded
+      value silently differs between host and client. The player block is
+      exempt (packed and decoded raw).
 - [ ] Weapon event blocks put the **author id last** — client-side duplicate
       suppression depends on it.
 - [ ] Events must live in `class: 'event'` keys, otherwise the frame is not
@@ -139,9 +141,10 @@ every item here fails **silently** or with an error far from its cause.
       `down`/`up` events. Implement the mask pattern (`down` sets a pending
       bit, one fixed step consumes it, `up` ignored) in the sim **and** the
       predictor, or a `type: 1` fire key autofires.
-- [ ] The auth schema element key is **`fieldsId`**, not `formId`. (The
-      engine's own test fixture has this wrong; it passes only because the
-      tests never build the DOM.)
+- [ ] The auth schema element key is **`fieldsId`**, not `formId` — it names
+      the container the engine fills with the form's fields. A wrong key
+      resolves to `null` and the auth screen dies with a `TypeError` on the
+      first render.
 - [ ] There is no nickname field — identity comes from the lobby JWT.
 - [ ] `authSchema.validators` are functions, are not serialised, and run on
       the host.
