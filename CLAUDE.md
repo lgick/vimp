@@ -62,7 +62,7 @@ both. Procedure: `docs/en/publishing.md`.
 ```bash
 npm run dev / npm start      # master (dev needs mkcert certs, see getting-started)
 npm run build:app            # Vite bundle (engine app only)
-npx eslint . && npm test     # both green at the end of every change
+npx eslint . && npm test     # lint + Vitest (see Testing)
 npm run core:test            # cargo test --workspace
 npm run sim / sim:check / sim:replay <file>   # headless match, verdict, replay
 npm run dev:auth / start:auth / auth:db:migrate
@@ -96,6 +96,10 @@ deploy artifact. Plugins load only via `GameManifest`/`GameCatalog`; ESLint
   unless told
 
 ## Testing
+
+**Rule**: any functional change adds or updates the tests covering it in the
+same change (a fix starts with a test reproducing the bug); `npx eslint .`
+and `npm test` end every change green.
 
 Vitest (+ happy-dom); tests live in `tests/`, mirroring `packages/engine/src/`
 (plus `tests/auth/` for `packages/auth/src/`, its own vitest project), never
