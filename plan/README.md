@@ -17,13 +17,13 @@
   плагинов для нейросети (`stage_1.md`–`stage_8.md`, `original-statement.md`).
 
 Направление D: подготовка страницы лобби к нескольким играм + Leaderboard —
-[lobby-page-plan.md](lobby-page-plan.md) (✅ выполнено целиком, 2026-08-02):
+[done/lobby-page/lobby-page-plan.md](done/lobby-page/lobby-page-plan.md) (✅ выполнено целиком, 2026-08-02):
 рабочий селектор игр (каталог манифестов, без динамической загрузки
 `ClientPlugin` — отложено до второй игры), две колонки лобби, вкладка
 Leaderboard (`GET /auth/leaderboard`·`/auth/placement`), серверный поиск
 `gameId/name`, формат карточки `gameId/name`. Статус пост-ревью (все
 замечания M1–M4/L1–L9 закрыты, включая TTL-кэш `/auth/leaderboard`) —
-[lobby-page-review-status.md](lobby-page-review-status.md).
+[done/lobby-page/lobby-page-review-status.md](done/lobby-page/lobby-page-review-status.md).
 
 Направление E: документация движка для нейросети (`docs/ai/`) — ✅ выполнено
 целиком (коммит `eba94a6`, сверено с кодом 2026-08-03): самодостаточный набор
