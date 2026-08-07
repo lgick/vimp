@@ -92,11 +92,6 @@ jobs:
   # ====================================================
   # 1c. ДЕПЛОЙ AUTH-СЕРВИСА + МИГРАЦИИ БД
   # ====================================================
-  # Раньше образ auth только публиковался в GHCR: на VPS его никто не
-  # подтягивал, а миграции гонялись лишь внутри add-server.sh — новая
-  # миграция доезжала до прода только вместе с реконфигурацией домена, и
-  # пропуск этого шага ничем не сигналился. Джоб пропускается, если
-  # AUTH_SERVER_IP не задан (auth-домен ещё не развёрнут).
   deploy_auth:
     needs: [build_and_push_auth]
     if: vars.AUTH_SERVER_IP != ''
@@ -160,22 +155,27 @@ jobs:
             echo "✅ Auth service deployed for ${AUTH_DOMAIN}"
 
   # ====================================================
-  # 2. ПОДГОТОВКА СПИСКА СЕРВЕРОВ
+  # 2. ПОДГОТОВКА СПИСКА СЕРВЕРОВ И ИГР
   # ====================================================
   prepare-matrix:
     runs-on: ubuntu-latest
     outputs:
       servers: ${{ steps.set-matrix.outputs.matrix }}
+      games: ${{ steps.set-matrix.outputs.games }}
     steps:
       - uses: actions/checkout@v6.0.2
       - id: set-matrix
         env:
           # Конфигурации из GitHub Repository Variables
           SERVERS_JSON: ${{ vars.SERVERS_MATRIX }}
+          GAMES_JSON:  ${{ vars.GAMES_MATRIX }}
         run: |
           # Формат JSON в одну строку
           JSON=$(echo "$SERVERS_JSON" | jq -c .)
           echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
+
+          G_JSON=$(echo "$GAMES_JSON" | jq -c .)
+          echo "games=$G_JSON" >> "$GITHUB_OUTPUT"
 
   # ====================================================
   # 3. ДЕПЛОЙ НА КАЖДЫЙ СЕРВЕР
@@ -205,11 +205,8 @@ jobs:
           # общий для всех мастеров central auth-сервис (Этап B6); задаётся
           # один раз в Settings → Variables, см. docs/en/deployment.md
           VIMP_AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
-          # список игр-плагинов каталога, общий для всех мастеров (JSON,
-          # формат {id, package, version}[] — см. packages/engine/src/master/
-          # main.js). Не задан → мастер остаётся на дефолте из
-          # packages/engine/src/config/master.js (только tanks).
-          GAMES_MATRIX: ${{ vars.GAMES_MATRIX }}
+          # Берем уже подготовленный, очищенный от переносов JSON игр из предыдущего джоба
+          GAMES_MATRIX: ${{ needs.prepare-matrix.outputs.games }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -227,7 +224,7 @@ jobs:
             echo "🔍 Checking status for ${VIMP_DOMAIN}..."
 
             # Если папки нет, значит сервер не был настроен через add-server.sh.
-            # Пропуск деплоя, но выход с кодом 0 (Success), чтобы пайплайн остался зеленым.
+            # Прерываем выполнение с кодом 1 (Failure), чтобы пайплайн упал с ошибкой.
             if [ ! -d "$PROJECT_DIR" ]; then
               echo "========================================================"
               echo "⚠️  SKIP: Server is not configured on VPS."
