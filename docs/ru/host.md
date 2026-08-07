@@ -620,15 +620,19 @@ version } }` (Этап 6.5). Деплой рестартует мастер → 
 
 - `GameCoreAdapter.test.js` — юнит на фейковом ядре: маппинг команд на ABI,
   различение бот/человек, проекция событий в панель/фасад, флаги камеры.
-- `HostGame.test.js` — интеграция поверх **реального** ядра (`pkg-node`,
-  `describe.skipIf` без сборки): онбординг, активный игрок с player-блоком,
+- `HostGame.fixture.test.js` — интеграция поверх встроенной **фикстуры
+  miniGame** (`packages/engine/tests/fixtures/`), ядро которой — обычный
+  JS-объект, реализующий Wasm Host ABI: набору не нужны ни сборка Rust, ни
+  игра-плагин, и он доказывает, что хост работает с *любым* корректным
+  `HostPlugin`. Аналогичный набор на настоящем WASM-ядре живёт в репозитории
+  игры-плагина. Покрыто: онбординг, активный игрок с player-блоком,
   движение, стрельба (трассер + боезапас), боты, `players_data`, `removeUser`
   (null-маркер в кадре), лимит комнаты (`isFull`), kick-исключение
   хоста-игрока, `updateMaps`/`onMapChange`, эстафета Worker'ов (сбор меты на
   границе раунда, восстановление участников/счёта/`seq`, `completeHandoff` с
   киком не переподключившихся, `resumeAfterHandoff`, отказ по несовместимой
   версии/ушедшей карте); бинарные кадры декодирует клиентское ядро
-  (`ClientCore.decode_frame`; каркас — `tests/host/harness.js`
+  (`ClientCore.decode_frame`; каркас — `tests/host/fixtureHarness.js`
   с `FakeSocketManager`).
 - `LoopbackTransport.test.js` — юнит на фейковом Worker: `HostController`
   (роутинг, очередь connect до `ready`, флаг `reliable`,
@@ -640,12 +644,14 @@ version } }` (Этап 6.5). Деплой рестартует мастер → 
   сигнальный pong, закрытие, гонка open/close, cleanup при сбое SDP,
   нефатальность транзиентного `'disconnected'`.
 - юнит-тесты мета-модулей: `RoundManager`, `CommandProcessor`,
-  `VoteCoordinator`, `ParticipantManager` (включая `restoreHuman`/`restoreBot`
+  `VoteCoordinator`, `ParticipantManager` (включая `restoreHuman`/`restoreScripted`
   эстафеты), `Chat`, `Vote`, `Stat` (включая `serialize`/`restore`), `Panel`,
   `TimerManager`, `RTTManager`, `SocketManager`.
 - смежные: `tests/client/network/SignalingClient.test.js` (исходящие хоста —
   `register_host`/`update_host`/`webrtc_answer`/`pong_host`),
-  `tests/core/core.test.js` (`body_has_events()` — классификация meta/state).
+  а в репозитории игры-плагина — `tests/core/core.test.js`
+  (`body_has_events()` — классификация meta/state, поверх настоящего ядра
+  этой игры).
 
 ## Сборка
 

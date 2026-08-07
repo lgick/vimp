@@ -109,34 +109,43 @@ set is documented as the contract in
 
 The engine crate is pure Rust without wasm-bindgen (errors are
 `Result<_, String>`; a game crate maps them to `JsError`). Static generic
-dispatch: `EngineSim<G>` / `EngineClient<G>` (for a game's `GameDef` `G`)
-are monomorphized — zero overhead at 120 Hz; no `dyn` needed (one wasm
-bundle = one game).
+dispatch: `EngineSim<G>` (host) and `ClientState<G>` (client) are
+monomorphized for a game's `GameDef` `G` — zero overhead at 120 Hz; no `dyn`
+needed (one wasm bundle = one game). The full signatures are in
+[plugin-api.md](plugin-api.md#rust-traits-vimp-engine-core); the summary here
+must not drift from them.
 
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
-- `trait GameSim<G>`: `new`, `spawn_actor`, `spawn_scripted`, `remove_actor`,
-  `reset_actor`, `reset_all_vitals`, `apply_input`, `on_fixed_step(ctx, dt)`,
-  `on_contacts(ctx, pairs)`, `on_ai_tick(ctx, dt)`,
-  `build_blocks(ctx) -> (Vec<(String, RowBlock)>, has_events)`,
-  `prediction_state`, `players_json`, `alive`, `position`, `last_input_seq`,
-  `clear`, `remove_players_and_shots`, `serialize/deserialize` (mid-round
-  handoff — kept as groundwork).
-- `SimCtx<'a, G>` — the game's access to engine facilities: `world` (Rapier),
-  `map` (respawns — `IndexMap<String, Vec<[f32;3]>>`, arbitrary teams),
-  `nav`/`spatial` (A*/grid — engine utilities in a `nav/` module, no "bot"
-  wording), `rng`, `events`, `game_cfg`, the destroy queue.
+- `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
+  `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
+  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `actor_position`, `prediction_state`, `alive_players_flat`,
+  `players_json`, `on_fixed_step(ctx, dt)`, `on_contacts(ctx, pairs)`,
+  `on_before_destroy`, `on_ai_tick(ctx, dt)`, `refresh_cached`,
+  `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
+  `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
+  handoff — kept as groundwork), `rebuild_spatial_grid`.
+- `SimCtx<'a>` — the game's access to engine facilities inside the tick
+  callbacks; **not** generic over the game: `world` (Rapier), `cfg`
+  (`EngineConfig`), `map` (respawns — `IndexMap<String, Vec<[f32;3]>>`,
+  arbitrary teams), `nav`/`spatial` (A*/grid — engine utilities in a `nav/`
+  module, no "bot" wording), `rng`, `events`, `bodies_to_destroy`. There is
+  no `game_cfg` field: the game config reaches the game once, in
+  `GameSim::new`, and the implementation keeps what it needs.
 - The engine owns: the fixed-step accumulator, contact collection, the
   destroy queue, the schema-driven `SnapshotPacker`, the handoff skeleton,
-  `EngineEvent`.
-- The client half: `trait GameClientDef { type Config; const STATE_LEN;
-  fn motion_step(state, keys, model, dt, ctx: &PredictCtx);
-  fn render_from_state(state) }`; `PredictCtx` gives optional access to the
-  engine's static-tile grid (the same one raycast uses) — groundwork for
-  client-side wall sliding in genres without inertia. The engine provides
-  the `Interpolator` (schema-driven), `Predictor<G>` (input history,
-  reconciliation, visual-error decay), the hot buffer, raycast.
-  `ShotPredictor`-equivalent logic (client-side spawn prediction) is
-  entirely a game-crate concern and calls the engine raycast.
+  `CoreEvent`.
+- The client half: `trait GameClientDef` — `new`, `on_server_state`,
+  `set_server_offset`, `update`, `track_frame`, `filter_frame_game`,
+  `update_world`, `update_world_interpolated`, `render_overlay`,
+  `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`,
+  `reset`, `cycle_item`, `try_action`, plus the two divergence hooks
+  (`predicted_state`, `replayed_inputs`) that default to `None` (see
+  below). The engine provides the `Interpolator` (schema-driven), the
+  generic `ClientState<G>` orchestration (network buffer, event-frame
+  queue, render-tick hot buffer) and raycast. Actor prediction, visual
+  spawn prediction and the panel are entirely the game crate's own concern
+  inside its `GameClientDef` implementation, and call the engine raycast.
 
 The trait's shape is validated by a fixture second client (`TestClient`,
 tests in `packages/engine/core/src/client/game.rs`) before any real second
@@ -178,13 +187,16 @@ the ABI macros, so every game gets them for free and
 ## Snapshot blocks — a declarative schema
 
 Fixed block layouts are a schema, not hardcoded structs:
-`SnapshotConfig.keys` expands into a full block schema — `id`, count/id
-widths, `nullMarker`, a field list with a type (`f32/u8/u16/u32`) and an
-interpolation mode (`lerp`/`lerpAngle`/discrete), a `hot` (interpolated) /
-`event` (frame-only) class, `idPrefix`. The packer (`snapshot.rs`), the
-unpacker (`client/unpack.rs`), the interpolator, and the engine hot buffer
-are all schema interpreters; a game crate only supplies rows as flat
-`RowData`. The schema itself is game data, supplied through
+`SnapshotConfig.keys` maps each key to a `BlockSchema` of exactly four
+fields — `id` (the block's opcode in the frame), `kind` (`BlockKind`: the
+row shape, which is what implies the count/id widths and whether rows carry
+a null marker), `class` (`hot` — interpolated / `event` — frame-only), and
+`fields` (each with a type `f32/u8/u16/u32` and an interpolation mode
+`lerp`/`lerpAngle`/discrete). The `d` prefix on `indexedNoNull8` ids is not
+a schema field either — it is hardcoded in the decoders. The packer
+(`snapshot.rs`), the unpacker (`client/unpack.rs`), the interpolator, and
+the engine hot buffer are all schema interpreters; a game crate only
+supplies rows as flat `Vec<FieldValue>`. The schema itself is game data, supplied through
 `HostPlugin.gameConfig.snapshot` (see [plugin-api.md](plugin-api.md)) —
 the engine bundle carries no snapshot keys of its own.
 `SNAPSHOT_FORMAT_VERSION` (currently `3`) is the engine's framing version;

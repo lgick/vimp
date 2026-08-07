@@ -652,8 +652,12 @@ Host and meta module tests live in `tests/host/`:
 - `GameCoreAdapter.test.js` — unit tests against a fake core: mapping
   commands to the ABI, telling bots and humans apart, projecting events into
   the panel/facade, camera flags.
-- `HostGame.test.js` — integration on top of the **real** core (`pkg-node`,
-  `describe.skipIf` without a build): onboarding, an active player with a
+- `HostGame.fixture.test.js` — integration on top of the bundled **miniGame
+  fixture** (`packages/engine/tests/fixtures/`), whose core is a plain JS
+  object implementing the Wasm Host ABI — so this suite needs no Rust build
+  and no game plugin, and proves the host works against *any* conforming
+  `HostPlugin`. The equivalent suite on a real WASM core lives in the game
+  plugin's own repository. Covered: onboarding, an active player with a
   player block, movement, shooting (tracer + ammo), bots, `players_data`,
   `removeUser` (a null marker in the frame), the room limit (`isFull`), the
   host player's kick exclusion, `updateMaps`/`onMapChange`, the Worker
@@ -661,7 +665,7 @@ Host and meta module tests live in `tests/host/`:
   participants/score/`seq`, `completeHandoff` kicking anyone who didn't
   reconnect, `resumeAfterHandoff`, refusal on an incompatible version/a map
   gone from the catalog); binary frames are decoded by the client core
-  (`ClientCore.decode_frame`; the scaffold is `tests/host/harness.js` with
+  (`ClientCore.decode_frame`; the scaffold is `tests/host/fixtureHarness.js` with
   `FakeSocketManager`).
 - `LoopbackTransport.test.js` — unit tests against a fake Worker:
   `HostController` (routing, a connect queue before `ready`, the `reliable`
@@ -675,13 +679,14 @@ Host and meta module tests live in `tests/host/`:
   failure, the non-fatal nature of a transient `'disconnected'`.
 - meta module unit tests: `RoundManager`, `CommandProcessor`,
   `VoteCoordinator`, `ParticipantManager` (including the handoff's
-  `restoreHuman`/`restoreBot`), `Chat`, `Vote`, `Stat` (including
+  `restoreHuman`/`restoreScripted`), `Chat`, `Vote`, `Stat` (including
   `serialize`/`restore`), `Panel`, `TimerManager`, `RTTManager`,
   `SocketManager`.
 - related: `tests/client/network/SignalingClient.test.js` (the host's
   outgoing `register_host`/`update_host`/`webrtc_answer`/`pong_host`),
+  and, in the game plugin's own repository,
   `tests/core/core.test.js` (`body_has_events()` — meta/state
-  classification).
+  classification, run against that game's real core).
 
 ## Build
 

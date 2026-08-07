@@ -164,7 +164,7 @@ wasm-bindgen класс `ClientCore` из того же WASM-бинаря,
   собственным кодом обновления актора игры-плагина (напр. `vimp-tanks`'ы
   `core/src/motion.rs`) — реплика не может разойтись с
   авторитетным путём по формулам, паритет интеграции (ручная против Rapier)
-  закрепляют cargo-тесты `client_parity`; история ввода, replay от `serverTime`
+  закрепляют cargo-тесты `client::predictor::parity`; история ввода, replay от `serverTime`
   кадра, `visualError` с экспоненциальным затуханием и снапом, freeze при
   `condition 0`, сброс по forceReset камеры/смене карты/keySet;
 - **спавн снарядов** (`client/shot.rs` + `client/raycast.rs`): реплика

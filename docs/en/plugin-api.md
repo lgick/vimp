@@ -325,7 +325,7 @@ by the engine (part of `engineApi`) — engine JS calls those methods.
 Principle: **the hot path carries no JSON** (scalars + zero-copy pointers);
 JSON is for the constructor/map/events/rare queries.
 
-The delegation boilerplate (~45 methods across two classes) is removed by the
+The delegation boilerplate (40 methods across two classes) is removed by the
 engine macros `export_game_core_abi!($Sim)` / `export_client_core_abi!($Client)`
 (`macro_rules!` in `vimp-engine-core` — the single source of truth of the
 mandatory set, drift is impossible): the game crate invokes them next to its
@@ -380,20 +380,26 @@ violations. See [debugging.md](debugging.md#prediction-divergence-detector).
 
 ### Snapshot blocks — a declarative schema
 
-Fixed block layouts are replaced by a schema: `SnapshotConfig.keys` expands
-into a full block schema — `id`, count/id widths, `nullMarker`, a field list
-with a type (`f32/u8/u16/u32`) and an interpolation mode
-(`lerp`/`lerpAngle`/discrete), a `hot` (interpolated) / `event` (frame-only)
-class, `idPrefix`. The packer (`snapshot.rs`), unpacker (`client/unpack.rs`),
-interpolator and the engine hot buffer are schema interpreters; the game
-crate supplies rows as flat `RowData`. The schema itself is game data —
+Fixed block layouts are replaced by a schema: `SnapshotConfig.keys` maps each
+key to a `BlockSchema` of exactly four fields — `id` (the block's opcode in
+the frame), `kind` (`BlockKind`: the row shape, which is what implies the
+count/id widths and whether rows carry a null marker), `class` (`hot` —
+interpolated / `event` — frame-only) and `fields` (each with a type
+`f32/u8/u16/u32` and an interpolation mode `lerp`/`lerpAngle`/discrete). The
+`d` prefix on `indexedNoNull8` ids is likewise not a schema field — it is
+hardcoded in the decoders. The packer (`snapshot.rs`), unpacker
+(`client/unpack.rs`), interpolator and the engine hot buffer are schema
+interpreters; the game crate supplies rows as flat `Vec<FieldValue>`. The schema itself is game data —
 the game plugin's `src/config/snapshot.js` (e.g. `vimp-tanks`'s)
 (`HostPlugin.gameConfig.snapshot`, a required field). The same schema travels to client JS in CONFIG_DATA →
-a generic `reconstructHot` in `packages/engine/src/client/main.js` (record
+a generic `reconstructHot` in `packages/engine/src/lib/reconstructHot.js` (record
 width = 2 service fields + the key's `fields` count); the engine bundle
 carries no snapshot keys (the host always provides the schema — no hidden
-"client bundle must match the host" coupling). The player block is
-described by a `playerState` schema (currently `[f32;8]+centering`).
+"client bundle must match the host" coupling). The player block is **not**
+schema-described: its layout is fixed by the engine
+(`PLAYER_STATE_LEN` = 8 `f32`s + a `centering` flag) and hardcoded in both
+the packer and the decoder. (`gameConfig.playerState` is an unrelated key —
+the starting rank/state profile blob.)
 `SNAPSHOT_FORMAT_VERSION` stays 3 (engine framing; the byte layout did not
 change); byte compatibility across deploys is not required (host and
 clients are one deploy; the version only protects framing within a room).
@@ -417,7 +423,7 @@ from hardcode.
 
 The engine crate is pure Rust without wasm-bindgen (errors are
 `Result<_, String>`; the game crate maps them to `JsError`). Static generic
-dispatch: `EngineSim<TanksGame>` / `EngineClient<TanksClient>` are
+dispatch: `EngineSim<TanksGame>` / `ClientState<TanksClient>` are
 monomorphized — zero overhead at 120 Hz; no `dyn` needed (one wasm bundle =
 one game).
 
@@ -442,7 +448,7 @@ one game).
   handed to `GameSim::new`; the game stores what it needs itself.
 - The engine owns: the fixed-step accumulator, contact collection, the
   destroy queue, the schema-driven `SnapshotPacker`, the handoff skeleton,
-  `EngineEvent`.
+  `CoreEvent`.
 - The client half: `trait GameClientDef { type Config;
   fn new(cfg, engine_cfg); fn on_server_state(state, centering, server_time,
   offset, local_now); fn set_server_offset(offset); fn update(local_now);
@@ -461,7 +467,7 @@ The completed module split of the former monolithic `core/src/` (Stage 4b):
 
 | → `vimp-engine-core` | → `vimp-tanks-core` |
 | --- | --- |
-| `physics.rs` (world, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), `snapshot.rs` framing, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, fixed-step/contacts out of `game.rs`, the handoff skeleton | `tank.rs`, `bomb.rs`, `motion.rs` (+parity tests), the `events` mapping, `bots/{controller,navigation}.rs`, the game logic of `game.rs` (→ `sim.rs`), `client/shot.rs`, game block layouts (as schema+RowData), the `#[wasm_bindgen]` wrappers, `tests/sim.rs` |
+| `physics.rs` (world, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), `snapshot.rs` framing, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, fixed-step/contacts out of `game.rs`, the handoff skeleton | `tank.rs`, `bomb.rs`, `motion.rs` (+parity tests), the `events` mapping, `bots/{controller,navigation}.rs`, the game logic of `game.rs` (→ `sim.rs`), `client/shot.rs`, game block layouts (as schema + row values), the `#[wasm_bindgen]` wrappers, `tests/sim.rs` |
 
 ## Profile writes: rank & skills
 

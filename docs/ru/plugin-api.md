@@ -324,7 +324,7 @@ schema-generated PanelView/StatView. Радиальные/canvas-индикат�
 **горячий путь без JSON** (скаляры + zero-copy указатели); JSON —
 конструктор/карта/события/редкие запросы.
 
-Бойлерплейт делегации (~45 методов на два класса) снимают движковые макросы
+Бойлерплейт делегации (40 методов на два класса) снимают движковые макросы
 `export_game_core_abi!($Sim)` / `export_client_core_abi!($Client)`
 (`macro_rules!` в `vimp-engine-core` — единственный источник истины
 обязательного набора, дрейф исключён): game-crate вызывает их рядом со
@@ -380,20 +380,25 @@ engine-crate от wasm-bindgen не зависит вовсе.
 
 ### Snapshot-блоки — декларативная схема
 
-Жёсткие раскладки блоков заменены схемой: `SnapshotConfig.keys` — полная
-схема блока: `id`, ширины count/id, `nullMarker`, список полей с типом
-(`f32/u8/u16/u32`) и способом интерполяции (`lerp`/`lerpAngle`/дискретное),
-класс `hot` (интерполируется) / `event` (только кадром), `idPrefix`. Пакер
+Жёсткие раскладки блоков заменены схемой: `SnapshotConfig.keys`
+сопоставляет каждому ключу `BlockSchema` ровно из четырёх полей: `id`
+(опкод блока в кадре), `kind` (`BlockKind`: форма строки, из неё и следуют
+ширины count/id и наличие null-маркера), `class` (`hot` — интерполируется /
+`event` — только кадром) и `fields` (у каждого тип `f32/u8/u16/u32` и
+способ интерполяции `lerp`/`lerpAngle`/дискретное). Префикс `d` у id блоков
+`indexedNoNull8` — тоже не поле схемы, он захардкожен в распаковщиках. Пакер
 (`snapshot.rs`), анпакер (`client/unpack.rs`), интерполятор и hot-буфер
 движка — интерпретаторы схемы; game-crate поставляет строки как плоские
-`RowData`. Сама схема — данные игры: `src/config/snapshot.js` игры-плагина
+`Vec<FieldValue>`. Сама схема — данные игры: `src/config/snapshot.js` игры-плагина
 (например, в `vimp-tanks`) (`HostPlugin.gameConfig.snapshot`, обязательное поле). Та же схема едет
 клиентскому JS в CONFIG_DATA → generic `reconstructHot` в
-`packages/engine/src/client/main.js` (ширина записи = 2 служебных поля +
+`packages/engine/src/lib/reconstructHot.js` (ширина записи = 2 служебных поля +
 число `fields` ключа); движковый бандл снапшот-ключей не содержит (схему
 всегда даёт хост — скрытой связи «бандл клиента обязан совпадать с хостом»
-нет). Player-блок описывается схемой `playerState` (сейчас
-`[f32;8]+centering`). `SNAPSHOT_FORMAT_VERSION` остаётся 3 (фрейминг
+нет). Player-блок схемой **не** описывается: его раскладка зафиксирована
+движком (`PLAYER_STATE_LEN` = 8 `f32` + флаг `centering`) и захардкожена в
+пакере и распаковщике. (`gameConfig.playerState` — не про это: это стартовый
+профиль rank/state.) `SNAPSHOT_FORMAT_VERSION` остаётся 3 (фрейминг
 движка; байтовая раскладка не менялась); байт-совместимость между деплоями
 не требуется (хост и клиенты — один деплой; версия защищает только
 фрейминг внутри комнаты).
@@ -416,7 +421,7 @@ models/weapons/playerKeys/timeStep) + снапшот-схема + произво
 
 Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, String>`; в
 `JsError` мапит game-crate). Статическая generic-диспетчеризация:
-`EngineSim<TanksGame>` / `EngineClient<TanksClient>` мономорфизируются —
+`EngineSim<TanksGame>` / `ClientState<TanksClient>` мономорфизируются —
 ноль оверхеда на 120 Гц; `dyn` не нужен (один wasm-бандл = одна игра).
 
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
@@ -440,7 +445,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
   игровой конфиг передаётся только в `GameSim::new`, дальше игра хранит
   нужное сама.
 - Движок владеет: аккумулятор фикс-шага, сбор контактов, destroy-очередь,
-  schema-driven `SnapshotPacker`, handoff-каркас, `EngineEvent`.
+  schema-driven `SnapshotPacker`, handoff-каркас, `CoreEvent`.
 - Клиентская половина: `trait GameClientDef { type Config;
   fn new(cfg, engine_cfg); fn on_server_state(state, centering, server_time,
   offset, local_now); fn set_server_offset(offset); fn update(local_now);
@@ -459,7 +464,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 | → `vimp-engine-core` | → `vimp-tanks-core` |
 | --- | --- |
-| `physics.rs` (мир, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), фрейминг `snapshot.rs`, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, фикс-шаг/контакты из `game.rs`, handoff-каркас | `tank.rs`, `bomb.rs`, `motion.rs` (+parity-тесты), `events`-маппинг, `bots/{controller,navigation}.rs`, игровая логика `game.rs` (→ `sim.rs`), `client/shot.rs`, game-раскладки блоков (как схема+RowData), `#[wasm_bindgen]`-обёртки, `tests/sim.rs` |
+| `physics.rs` (мир, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), фрейминг `snapshot.rs`, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, фикс-шаг/контакты из `game.rs`, handoff-каркас | `tank.rs`, `bomb.rs`, `motion.rs` (+parity-тесты), `events`-маппинг, `bots/{controller,navigation}.rs`, игровая логика `game.rs` (→ `sim.rs`), `client/shot.rs`, game-раскладки блоков (как схема + значения строк), `#[wasm_bindgen]`-обёртки, `tests/sim.rs` |
 
 ## Запись в профиль: rank и skills
 

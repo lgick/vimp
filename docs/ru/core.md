@@ -111,34 +111,43 @@ core:build` в `vimp-tanks`).
 
 Движковый crate — чистый Rust без wasm-bindgen (ошибки — `Result<_,
 String>`; игровой crate маппит их в `JsError`). Статическая generic-
-диспетчеризация: `EngineSim<G>` / `EngineClient<G>` (для игрового `GameDef`
-`G`) мономорфизируются — нулевые накладные расходы на 120 Гц; `dyn` не
-нужен (один wasm-бандл = одна игра).
+диспетчеризация: `EngineSim<G>` (хост) и `ClientState<G>` (клиент)
+мономорфизируются под игровой `GameDef` `G` — нулевые накладные расходы на
+120 Гц; `dyn` не нужен (один wasm-бандл = одна игра). Полные сигнатуры — в
+[plugin-api.md](plugin-api.md#rust-трейты-vimp-engine-core); эта выжимка не
+должна с ними расходиться.
 
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
-- `trait GameSim<G>`: `new`, `spawn_actor`, `spawn_scripted`, `remove_actor`,
-  `reset_actor`, `reset_all_vitals`, `apply_input`, `on_fixed_step(ctx, dt)`,
-  `on_contacts(ctx, pairs)`, `on_ai_tick(ctx, dt)`,
-  `build_blocks(ctx) -> (Vec<(String, RowBlock)>, has_events)`,
-  `prediction_state`, `players_json`, `alive`, `position`, `last_input_seq`,
-  `clear`, `remove_players_and_shots`, `serialize/deserialize` (handoff
-  посреди раунда — задел на будущее).
-- `SimCtx<'a, G>` — доступ игры к возможностям движка: `world` (Rapier),
-  `map` (респауны — `IndexMap<String, Vec<[f32;3]>>`, произвольные
-  команды), `nav`/`spatial` (A*/сетка — движковые утилиты в модуле `nav/`,
-  без слова «bot»), `rng`, `events`, `game_cfg`, очередь удаления.
+- `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
+  `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
+  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `actor_position`, `prediction_state`, `alive_players_flat`,
+  `players_json`, `on_fixed_step(ctx, dt)`, `on_contacts(ctx, pairs)`,
+  `on_before_destroy`, `on_ai_tick(ctx, dt)`, `refresh_cached`,
+  `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
+  `remove_players_and_shots`, `clear`, `serialize/deserialize` (handoff
+  посреди раунда — задел на будущее), `rebuild_spatial_grid`.
+- `SimCtx<'a>` — доступ игры к возможностям движка внутри тиковых
+  колбэков; **не** генерик по игре: `world` (Rapier), `cfg`
+  (`EngineConfig`), `map` (респауны — `IndexMap<String, Vec<[f32;3]>>`,
+  произвольные команды), `nav`/`spatial` (A*/сетка — движковые утилиты в
+  модуле `nav/`, без слова «bot»), `rng`, `events`, `bodies_to_destroy`.
+  Поля `game_cfg` нет: игровой конфиг приходит игре один раз, в
+  `GameSim::new`, и реализация сама хранит нужное.
 - Движок владеет: аккумулятором фикс-шага, сбором контактов, очередью
   удаления, schema-driven `SnapshotPacker`, скелетом handoff,
-  `EngineEvent`.
-- Клиентская половина: `trait GameClientDef { type Config; const STATE_LEN;
-  fn motion_step(state, keys, model, dt, ctx: &PredictCtx);
-  fn render_from_state(state) }`; `PredictCtx` даёт опциональный доступ к
-  статической тайловой сетке движка (той же, что использует raycast) —
-  задел на клиентское скольжение вдоль стен в жанрах без инерции. Движок
-  предоставляет `Interpolator` (schema-driven), `Predictor<G>` (историю
-  ввода, reconciliation, затухание визуальной ошибки), hot-буфер, raycast.
-  Логика вида `ShotPredictor` (клиентское предсказание спавна выстрела) —
-  целиком забота игрового crate, который вызывает движковый raycast.
+  `CoreEvent`.
+- Клиентская половина: `trait GameClientDef` — `new`, `on_server_state`,
+  `set_server_offset`, `update`, `track_frame`, `filter_frame_game`,
+  `update_world`, `update_world_interpolated`, `render_overlay`,
+  `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`,
+  `reset`, `cycle_item`, `try_action` плюс два хука детектора рассинхрона
+  (`predicted_state`, `replayed_inputs`) с дефолтом `None` (см. ниже).
+  Движок предоставляет `Interpolator` (schema-driven), generic-оркестровку
+  `ClientState<G>` (сетевой буфер, очередь событийных кадров, hot-буфер
+  рендер-тика) и raycast. Предсказание актора, клиентский спавн выстрела и
+  панель — целиком забота игрового crate внутри его реализации
+  `GameClientDef`, которая вызывает движковый raycast.
 
 Форма трейта проверяется фикстурным вторым клиентом (`TestClient`, тесты в
 `packages/engine/core/src/client/game.rs`) ещё до появления настоящей
@@ -180,13 +189,16 @@ ABI-макросами, поэтому достаются каждой игре 
 ## Блоки снапшота — декларативная схема
 
 Раскладки фиксированных блоков — это схема, а не захардкоженные структуры:
-`SnapshotConfig.keys` разворачивается в полную схему блока — `id`,
-ширины count/id, `nullMarker`, список полей с типом (`f32/u8/u16/u32`) и
-режимом интерполяции (`lerp`/`lerpAngle`/discrete), класс `hot`
-(интерполируемое) / `event` (только в кадре), `idPrefix`. Упаковщик
-(`snapshot.rs`), распаковщик (`client/unpack.rs`), интерполятор и
-движковый hot-буфер — все интерпретаторы схемы; игровой crate лишь
-поставляет строки как плоский `RowData`. Сама схема — игровые данные,
+`SnapshotConfig.keys` сопоставляет каждому ключу `BlockSchema` ровно из
+четырёх полей — `id` (опкод блока в кадре), `kind` (`BlockKind`: форма
+строки, из неё и следуют ширины count/id и наличие null-маркера), `class`
+(`hot` — интерполируется / `event` — только кадром) и `fields` (у каждого
+тип `f32/u8/u16/u32` и режим интерполяции `lerp`/`lerpAngle`/discrete).
+Префикс `d` у id блоков `indexedNoNull8` — тоже не поле схемы, он
+захардкожен в распаковщиках. Упаковщик (`snapshot.rs`), распаковщик
+(`client/unpack.rs`), интерполятор и движковый hot-буфер — все
+интерпретаторы схемы; игровой crate лишь поставляет строки как плоский
+`Vec<FieldValue>`. Сама схема — игровые данные,
 поставляемые через `HostPlugin.gameConfig.snapshot` (см.
 [plugin-api.md](plugin-api.md)) — движковый бандл не несёт собственных
 snapshot-ключей. `SNAPSHOT_FORMAT_VERSION` (сейчас `3`) — версия фрейминга

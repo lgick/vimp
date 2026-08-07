@@ -65,9 +65,10 @@ packages/engine/ — vimp-engine: the engine application (npm workspace)
                    sanitizers, security, config, clientCoreConfig, …
   core/          — vimp-engine-core (Rust rlib): physics, the snapshot codec,
                    interpolation, frame unpacking, ABI macros (docs/core.md)
-tests/           — Vitest projects: engine-node, engine-client,
-                   integration (tests/host/HostGame.test.js + tests/core,
-                   skipped unless a game plugin's WASM core is built/linked)
+tests/           — Vitest projects: engine-node, engine-client, auth
+                   (tests/host/HostGame.fixture.test.js runs on the bundled
+                   miniGame fixture, so no game plugin is needed; the former
+                   integration project moved to the game's own repository)
 scripts/         — helper scripts (map export to JSON, etc.)
 .github/         — CI/CD (test.yml, deploy.yml) and deployment scripts
 ```

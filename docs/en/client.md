@@ -456,7 +456,7 @@ Internally the core implements the following algorithms:
   are **shared** with the game plugin's own actor-update code (e.g.
   `vimp-tanks`'s `core/src/motion.rs`) — the replica
   can't diverge from the authoritative path on formulas, integration
-  parity (manual vs. Rapier) is locked in by the `client_parity` cargo
+  parity (manual vs. Rapier) is locked in by the `client::predictor::parity` cargo
   tests; input history, replay from the frame's `serverTime`,
   `visualError` with exponential decay and a snap, freeze at `condition
   0`, resets on a camera forceReset/map change/keySet;
