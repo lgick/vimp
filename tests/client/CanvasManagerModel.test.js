@@ -101,10 +101,37 @@ describe('CanvasManagerModel.resize', () => {
     model.resize({ width: 800, height: 600 });
 
     const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
-    // ВНИМАНИЕ: текущее поведение — ширина число, а высота остаётся
-    // строкой (в коде `+parts[1] ? parts[1] : parts[0]` присваивает
-    // строковый parts[1] вместо числа). Зафиксировано как есть.
-    expect(radar.data.sizes).toEqual({ width: 200, height: '100' });
+    // высота fixSize раньше уезжала строкой (`+parts[1] ? parts[1] : parts[0]`);
+    // зажим Math.max(1, …) заодно приводит её к числу
+    expect(radar.data.sizes).toEqual({ width: 200, height: 100 });
+  });
+
+  it('игнорирует нулевые размеры экрана', () => {
+    const model = makeModel();
+    const events = collect(model);
+
+    model.resize({ width: 1920, height: 1080 });
+    const scaleBefore = model._data.vimp.currentScale;
+
+    events.length = 0;
+    model.resize({ width: 0, height: 0 });
+
+    // ни события, ни обнулённого масштаба: следующий настоящий resize
+    // масштаб бы не пересчитал, и полотно осталось бы пустым
+    expect(events).toHaveLength(0);
+    expect(model._data.vimp.currentScale).toBe(scaleBefore);
+  });
+
+  it('не отдаёт нулевой размер при вырожденном соотношении сторон', () => {
+    const model = makeModel({
+      canvases: { radar: { baseScale: '1:1', fixSize: '0:0' } },
+    });
+    const events = collect(model);
+
+    model.resize({ width: 1920, height: 1080 });
+
+    const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
+    expect(radar.data.sizes).toEqual({ width: 1, height: 1 });
   });
 });
 

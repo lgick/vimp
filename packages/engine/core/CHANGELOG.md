@@ -11,6 +11,33 @@ A bump here has to be repeated by hand in every game crate that depends on
 it (e.g. `vimp-tanks/core/Cargo.toml` → `vimp-engine-core = "X.Y.Z"`), since
 the dependency is by version, not by path.
 
+## [Unreleased]
+
+### Added
+
+- `ClientState::resync()` — clears the network half only (interpolation
+  buffer, outgoing frame queue), leaving prediction and the local identity
+  intact. For a tab returning from a long pause: the clock offset is
+  reseeded from the next frame instead of being chased by the EMA for dozens
+  of frames, while entities on the canvas stay alive. Exposed as `resync()`
+  by `export_client_core_abi!`.
+
+### ⚠️ Breaking — `reset()` also clears `my_game_id`
+
+`ClientState::reset()` (the `CLEAR` port) means "the world is gone", so it
+now drops the local player's identity as well. Previously the identity
+survived a clear, and the game half kept rendering a predicted entity for a
+player the host no longer had — a ghost on an otherwise empty canvas after a
+map change. The identity is restored from the first player block that
+follows; a spectator has none, so no predicted entity is drawn.
+
+### Migration
+
+A game crate that reads `my_game_id()` right after a `CLEAR` now gets
+`None`; wait for the first frame carrying a player block. A `GameClientDef`
+that keeps its own copy of the local actor's identity should clear it in its
+`reset()` too (this is what `TanksClient` does with `my_tank_meta`).
+
 ## [0.2.1] — 2026-08-05
 
 ### Fixed

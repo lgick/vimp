@@ -97,7 +97,7 @@ central auth service ([master.md](master.md#server-rating-likeunlike)).
 | 14 | `STAT_DATA` | JSON | Stats (broadcast, only on change) |
 | 15 | `CHAT_DATA` | JSON | A chat message (broadcast or personal) |
 | 16 | `VOTE_DATA` | JSON | Vote data |
-| 17 | `KEYSET_DATA` | JSON | The active key set: `0` — spectator, `1` — player; sent on a status change |
+| 17 | `KEYSET_DATA` | JSON | The active key set: `0` — spectator, `1` — player; sent on a status change, and on a map change (the spectator set right before `CLEAR`) |
 
 ### Client → server
 

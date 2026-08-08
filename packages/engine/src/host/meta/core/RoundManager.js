@@ -141,6 +141,10 @@ class RoundManager {
     for (const user of this._participants.getHumans()) {
       const gameId = user.gameId;
 
+      // keyset наблюдателя уходит до очистки полотна: он выключает
+      // клиентский предикт, иначе тот успевает пересоздать сущность уже
+      // после CLEAR и она остаётся призраком до конца сессии
+      this._socketManager.sendSpectatorDefaultShot(user.socketId);
       this._socketManager.sendClear(user.socketId);
 
       // перемещение пользователя в наблюдатели

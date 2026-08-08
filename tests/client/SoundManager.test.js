@@ -98,7 +98,9 @@ const makeRegistryCtx = (sounds = new Map()) => ({
   setListenerPosition: P.setListenerPosition,
   registerSound: P.registerSound,
   unregisterSound: P.unregisterSound,
+  releaseSound: P.releaseSound,
   updateSoundData: P.updateSoundData,
+  reset: P.reset,
 });
 
 describe('SoundManager.getSoundConfig', () => {
@@ -196,5 +198,68 @@ describe('SoundManager.updateSoundData', () => {
   it('игнорирует неизвестный id без ошибки', () => {
     const ctx = makeRegistryCtx();
     expect(() => ctx.updateSoundData(Symbol('x'), { volume: 1 })).not.toThrow();
+  });
+});
+
+describe('SoundManager.reset', () => {
+  it('сохраняет регистрации и обнуляет id воспроизведения', () => {
+    const ctx = makeRegistryCtx(
+      new Map([['s', { sound: {}, config: { priority: 50, loop: true } }]]),
+    );
+    const id = ctx.registerSound('s', { position: { x: 0, y: 0 } });
+    ctx._registeredSounds.get(id).activeSoundId = 42;
+    ctx._activeInstances.set(42, {});
+
+    ctx.reset();
+
+    // владелец регистрации — сущность, она снимет её сама в destroy()
+    expect(ctx._registeredSounds.has(id)).toBe(true);
+    expect(ctx._registeredSounds.get(id).activeSoundId).toBe(null);
+    expect(ctx._activeInstances.size).toBe(0);
+  });
+
+  it('уцелевший луп перезапускается ближайшим processAudibility', () => {
+    const reg = snd('a', 10, 1, { loop: true, activeSoundId: 42 });
+    const ctx = makeCtx([reg]);
+    ctx.reset = P.reset;
+
+    ctx.reset();
+    ctx.processAudibility();
+
+    expect(ctx._internalPlay).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SoundManager.releaseSound', () => {
+  const ctxWith = loop =>
+    makeRegistryCtx(
+      new Map([['s', { sound: {}, config: { priority: 50, loop } }]]),
+    );
+
+  it('не глушит звучащий одноразовый звук', () => {
+    const ctx = ctxWith(false);
+    const id = ctx.registerSound('s', { position: { x: 0, y: 0 } });
+    ctx._registeredSounds.get(id).activeSoundId = 42;
+
+    ctx.releaseSound(id);
+
+    expect(ctx._internalStop).not.toHaveBeenCalled();
+    expect(ctx._registeredSounds.has(id)).toBe(false);
+  });
+
+  it('глушит луп вместе с владельцем', () => {
+    const ctx = ctxWith(true);
+    const id = ctx.registerSound('s', { position: { x: 0, y: 0 } });
+    ctx._registeredSounds.get(id).activeSoundId = 42;
+
+    ctx.releaseSound(id);
+
+    expect(ctx._internalStop).toHaveBeenCalledWith(42);
+    expect(ctx._registeredSounds.has(id)).toBe(false);
+  });
+
+  it('игнорирует неизвестный id без ошибки', () => {
+    const ctx = ctxWith(false);
+    expect(() => ctx.releaseSound(Symbol('x'))).not.toThrow();
   });
 });

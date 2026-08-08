@@ -361,7 +361,9 @@ Standard `take_events` dictionary (removes the game vocabulary from
 
 **ClientCore** — engine minimum: `new`, `push_frame`, `my_game_id`, `offset`,
 `sample`, `hot_ptr/hot_values`, `take_frames`, `apply_input`, `set_active`,
-`set_map`, `reset`, `decode_frame`, plus the debugging pair `debug_json` and
+`set_map`, `reset`, `resync` (drops the network half only — buffer and frame
+queue — after a long tab pause, keeping prediction and identity),
+`decode_frame`, plus the debugging pair `debug_json` and
 `take_divergence` (also macro-generated). Game methods (`set_model`,
 `try_fire`, `cycle_weapon`, `sync_panel`) are not part of the minimum — only
 ClientPlugin hooks call them.

@@ -222,7 +222,10 @@ zero-copy.
 `push_frame(bytes, localNow) -> bool`, `my_game_id() -> i32` (`-1` until the
 first player block), `offset()`, `sample(localNow) -> usize` (hot buffer
 length), `hot_ptr()`, `hot_values()`, `take_frames()` (→ JSON),
-`apply_input(action, keyName, localNow)`, `set_active`, `set_map`, `reset`,
+`apply_input(action, keyName, localNow)`, `set_active`, `set_map`, `reset`
+(the world is gone: buffer, predictor and `my_game_id` all cleared),
+`resync` (network half only — buffer and outgoing frame queue — for a tab
+waking up after a long pause; prediction and identity survive),
 `debug_json` (→ JSON client dump), `take_divergence` (→ JSON drift records),
 `decode_frame`.
 

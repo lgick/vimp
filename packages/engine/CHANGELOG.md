@@ -7,6 +7,38 @@ based on [Keep a Changelog](https://keepachangelog.com/); this project uses
 [Semantic Versioning](https://semver.org/) (in `0.x`, a breaking change
 bumps the minor version).
 
+## [Unreleased]
+
+### Added
+
+- Wasm ABI: `ClientCore.resync()` (from `vimp-engine-core`) — a clock resync
+  after a long tab pause, network half only. The engine shell calls it as
+  `clientCore?.resync?.()` on `visibilitychange` → visible, so a plugin
+  built against an older crate keeps working; a plugin rebuilt on the new
+  crate gets the method for free. `ENGINE_API_VERSION` is unchanged (**3**).
+- WebGL context-loss handling in the client shell: rendering is paused on
+  `webglcontextlost`, and on `webglcontextrestored` assets are re-baked and
+  the map is rebuilt from the cached `MAP_DATA` (no repeat `MAP_READY`) —
+  every visible pixel is a GPU-only `RenderTexture` with no CPU source.
+
+### Changed
+
+- `SoundManager.reset()` no longer clears the registrations, only stops the
+  playing instances and their active ids. Registrations belong to entities,
+  which unregister them in `destroy()`; after a partial clear a surviving
+  loop is restarted by the next `processAudibility()`, instead of going
+  silent for the rest of the session. `destroy()` still clears the registry.
+- `SoundManager.releaseSound(id)` (new) — unregisters while letting an
+  already playing one-shot finish, for entities that disappear earlier than
+  their sound (a detonated bomb and its "planted" sample). A looped sound is
+  still stopped.
+- `RoundManager.createMap()` sends every human the spectator `KEYSET_DATA`
+  right before `CLEAR`, so client prediction is off by the time the canvas
+  is cleared and can no longer recreate the local entity as a ghost.
+- `CanvasManagerModel` ignores a zero-sized resize (minimized tab/window),
+  which used to drive the scale to `0` and the renderer to `0x0` with no
+  recovery until the next real resize; emitted sizes are clamped to `1`.
+
 ## [0.6.0] — 2026-08-05
 
 ### ⚠️ Breaking — stricter `gameConfig` gate

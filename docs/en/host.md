@@ -385,9 +385,13 @@ code paths — fully unifying the two into one abstraction is a future task.
 `currentMapData`, `scaledMapData`, `isRoundEnding`, `removedPlayersList`.
 
 - `createMap()` — stops timers, resets Panel/Stat/Vote and teams, recreates
-  the world (in the core, through `GameCoreAdapter`), sends `CLEAR` to
-  everyone, moves everyone to spectators, broadcasts the map, restarts
-  timers, recreates bots;
+  the world (in the core, through `GameCoreAdapter`), sends every human the
+  spectator key set (`KEYSET_DATA`) and then `CLEAR`, moves everyone to
+  spectators, broadcasts the map, restarts
+  timers, recreates bots. The key set goes **before** `CLEAR` on purpose: it
+  switches the client's prediction off, otherwise prediction recreates the
+  local entity right after the canvas is cleared and it stays there as a
+  ghost;
 - `initiateNewRound()`/`_startRound()` — clears the active list, recreates
   the map, applies deferred team changes, resets the panel, sends a full
   stat table, the key set matching status, respawns and creates tanks;

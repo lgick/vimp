@@ -322,6 +322,20 @@ impl<G: GameClientDef> ClientState<G> {
         self.interpolator.reset();
         self.game.reset();
         self.frames_out.clear();
+        // мира больше нет: своя идентичность восстановится из первого же
+        // player-блока, а у наблюдателя его нет — значит и предсказанной
+        // сущности быть не должно
+        self.my_game_id = None;
+    }
+
+    /// Ресинк часов после долгой паузы вкладки (visibilitychange → visible):
+    /// сетевая половина начинает с чистого листа, чтобы следующий кадр
+    /// пересеял оффсет точно, а не догонял EMA десятки кадров. Игровую
+    /// половину (предикт, своя идентичность) не трогаем — сущности на
+    /// полотне живы.
+    pub fn resync(&mut self) {
+        self.interpolator.reset();
+        self.frames_out.clear();
     }
 
     /// Зеркало серверного `EngineSim::debug_json` на клиенте: состояние
@@ -758,6 +772,29 @@ mod tests {
     }
 
     #[test]
+    fn resync_clears_network_half_only() {
+        let mut state = make_state();
+
+        state.set_active(true);
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, false), 1100.0);
+        state.sample(1150.0);
+
+        state.resync();
+
+        let dump: serde_json::Value = serde_json::from_str(&state.debug_json()).unwrap();
+
+        assert_eq!(dump["interpolator"]["buffered"], 0);
+        assert!(dump["interpolator"]["lastFrame"].is_null());
+        assert!(dump["offset"].is_null());
+        assert_eq!(dump["framesOut"], 0);
+        assert_eq!(state.take_frames(), "[]");
+
+        // игровая половина цела: своя идентичность не потеряна
+        assert_eq!(state.my_game_id(), Some(2));
+    }
+
+    #[test]
     fn debug_json_reports_buffer_seq_window_and_offset() {
         let mut state = make_state();
 
@@ -950,5 +987,20 @@ mod tests {
         assert_eq!(hot[8], 1.0); // dynamicCount (IndexedNoNull8)
         assert_eq!(hot[9], 2.0); // keyId зоны
         assert_eq!(hot[11], 7.0); // level
+    }
+
+    #[test]
+    fn reset_clears_my_game_id() {
+        let mut state = make_state();
+
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, true), 1100.0);
+        state.sample(1150.0);
+        assert_eq!(state.my_game_id(), Some(2));
+
+        // CLEAR означает «мира больше нет»: без сброса идентичности предикт
+        // продолжил бы рисовать сущность, которой на хосте уже нет
+        state.reset();
+        assert_eq!(state.my_game_id(), None);
     }
 }

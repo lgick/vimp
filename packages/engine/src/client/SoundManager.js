@@ -196,6 +196,29 @@ export default class SoundManager {
   }
 
   /**
+   * Снимает звук с регистрации, но даёт уже звучащему одноразовому сэмплу
+   * доиграть. Для сущностей, которые исчезают раньше своего звука
+   * (например, взорвавшаяся бомба).
+   * @param {symbol} id - ID, полученный от `registerSound`.
+   */
+  releaseSound(id) {
+    const sound = this._registeredSounds.get(id);
+
+    if (!sound) {
+      return;
+    }
+
+    // луп обязан замолчать вместе с владельцем, one-shot — доиграть:
+    // updateActiveSounds() не-лупы не трогает, а обработчик 'end' сам
+    // подчистит _activeInstances
+    if (sound.loop && sound.activeSoundId !== null) {
+      this._internalStop(sound.activeSoundId);
+    }
+
+    this._registeredSounds.delete(id);
+  }
+
+  /**
    * Обновляет параметры зарегистрированного звука.
    * @param {symbol} id - ID, полученный от `registerSound`.
    * @param {object} data - Новые параметры.
@@ -444,7 +467,14 @@ export default class SoundManager {
   reset() {
     Howler.stop();
     this._activeInstances.clear();
-    this._registeredSounds.clear();
+
+    // регистрации переживают reset: их владельцы — сущности, которые снимут
+    // их сами в destroy(). При полном CLEAR реестр и так пуст, а при
+    // частичном уцелевший луп перезапустит ближайший processAudibility()
+    for (const regSound of this._registeredSounds.values()) {
+      regSound.activeSoundId = null;
+    }
+
     this._listenerX = 0;
     this._listenerY = 0;
   }
@@ -456,6 +486,7 @@ export default class SoundManager {
    */
   destroy() {
     this.reset();
+    this._registeredSounds.clear();
     Howler.unload();
     this._sounds.clear();
   }

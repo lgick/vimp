@@ -276,3 +276,69 @@ describe('RoundManager.changeName', () => {
     expect(rm._chat.pushSystemByUser).toHaveBeenCalledWith('u', 'NAME_INVALID');
   });
 });
+
+describe('RoundManager.createMap', () => {
+  const makeCtx = () => {
+    const users = {
+      u: { gameId: 'u', teamId: 1, team: 'red', socketId: 's' },
+    };
+
+    const participants = fakeParticipants(users);
+    participants.resetTeamSizes = vi.fn();
+    participants.clearActive = vi.fn();
+    participants.addToTeam = vi.fn();
+
+    return makeRm({
+      participants,
+      maps: { m1: { name: 'm1' } },
+      game: { clear: vi.fn(), createMap: vi.fn() },
+      panel: { reset: vi.fn() },
+      stat: { reset: vi.fn(), moveUser: vi.fn() },
+      voteCoordinator: { reset: vi.fn() },
+      snapshotManager: { reset: vi.fn() },
+      timerManager: { stopGameTimers: vi.fn(), startGameTimers: vi.fn() },
+      scripted: {
+        createMap: vi.fn(),
+        getCountsPerTeam: () => ({}),
+        removeScripted: vi.fn(),
+        createScripted: vi.fn(),
+      },
+      socketManager: {
+        sendClear: vi.fn(),
+        sendSpectatorDefaultShot: vi.fn(),
+        sendTechInform: vi.fn(),
+        sendMap: vi.fn(),
+      },
+    });
+  };
+
+  it('шлёт keyset наблюдателя каждому человеку до очистки полотна', () => {
+    const rm = makeCtx();
+    const order = [];
+
+    rm._socketManager.sendSpectatorDefaultShot.mockImplementation(id =>
+      order.push(`keyset:${id}`),
+    );
+    rm._socketManager.sendClear.mockImplementation(id =>
+      order.push(`clear:${id}`),
+    );
+
+    rm.createMap();
+
+    expect(order).toEqual(['keyset:s', 'clear:s']);
+  });
+
+  it('переводит человека в наблюдатели и отправляет карту', () => {
+    const rm = makeCtx();
+
+    rm.createMap();
+
+    const user = rm._participants.get('u');
+    expect(user.status).toBe('spectator');
+    expect(user.teamId).toBe(3);
+    expect(rm._socketManager.sendMap).toHaveBeenCalledWith(
+      's',
+      expect.objectContaining({ name: 'm1' }),
+    );
+  });
+});

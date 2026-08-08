@@ -155,6 +155,18 @@ let modulesConfig = {};
 let initIdList = [];
 const apps = {};
 
+// контекст рендера каждого полотна: нужен для перепечки ассетов после
+// восстановления WebGL-контекста (весь видимый контент — RenderTexture без
+// CPU-источника, сами по себе они не воскресают)
+const renderContexts = {};
+
+// последний payload MAP_DATA: карта пересобирается из него при восстановлении
+// контекста (хост её повторно не пришлёт)
+let lastMapData = null;
+
+// рендер снят с тикера на время потери контекста
+let contextLost = false;
+
 let gameInformer = null;
 let gameInformList = []; // массив игровых сообщений
 let panelView = null;
@@ -293,6 +305,10 @@ socketMethods[PS_CONFIG_DATA] = async data => {
     );
 
     apps[canvasId] = app;
+    renderContexts[canvasId] = { app, assetProvider, bakingArr };
+
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored);
   });
 
   Promise.all(initPromises)
@@ -370,6 +386,14 @@ socketMethods[PS_AUTH_RESULT] = async err => {
 
 // map data
 socketMethods[PS_MAP_DATA] = data => {
+  lastMapData = data;
+  applyMapData(data);
+};
+
+// собирает карту по payload MAP_DATA. notifyHost=false — пересборка после
+// восстановления WebGL-контекста: повторный MAP_READY сломал бы машину
+// состояний портов (хост его больше не ждёт)
+function applyMapData(data, { notifyHost = true } = {}) {
   const { scale, layers, map, step, setId, spriteSheet, physicsStatic } = data;
 
   // ядру — мир для raycast выстрелов (+сброс буфера кадров и предикта)
@@ -440,8 +464,11 @@ socketMethods[PS_MAP_DATA] = data => {
 
   removeMap(currentMapSetId);
   createMap(setId, staticData);
-  sending(PC_MAP_READY);
-};
+
+  if (notifyHost) {
+    sending(PC_MAP_READY);
+  }
+}
 
 // первый shot сразу после загрузки карты (JSON; порт 5 идёт бинарным путём);
 // применяется немедленно (создание сущностей), в буфер интерполяции не пушится
@@ -902,7 +929,84 @@ function handleVisibilityChange() {
     // иначе включение звука при возвращении
   } else {
     soundManager.unmute();
+
+    // после длинной паузы часы интерполятора устарели: пересеять оффсет
+    // точно, а не догонять EMA десятки кадров. Опциональный вызов —
+    // старая сборка плагина метода не имеет
+    clientCore?.resync?.();
+
+    if (isDevBuild) {
+      for (const id in renderContexts) {
+        if (Object.hasOwn(renderContexts, id)) {
+          const { app } = renderContexts[id];
+
+          debugLog('visible', {
+            canvas: id,
+            contextLost: app.renderer.gl?.isContextLost?.(),
+            size: [app.canvas.width, app.canvas.height],
+            stageScale: app.stage.scale.x,
+            stagePos: [app.stage.position.x, app.stage.position.y],
+            tickerStarted: Ticker.shared.started,
+          });
+        }
+      }
+
+      debugLog('clientCore', clientCore?.debug_json?.());
+    }
   }
+}
+
+// потеря WebGL-контекста (сворачивание вкладки, сброс GPU-драйвера): сцена и
+// тикер целы, но все текстуры мертвы — полотно рисовалось бы пустым. Рендер
+// снимаем до восстановления
+function handleContextLost(event) {
+  // без preventDefault браузер не пришлёт webglcontextrestored
+  event.preventDefault();
+
+  if (contextLost) {
+    return;
+  }
+
+  contextLost = true;
+  Ticker.shared.remove(renderTick);
+  console.warn('[render] WebGL context lost, rendering paused');
+}
+
+// восстановление контекста: перепекаем ассеты и пересобираем карту (весь
+// видимый контент — RenderTexture без CPU-источника). Танки и динамика
+// восстановятся сами из ближайших кадров
+function handleContextRestored() {
+  if (!contextLost) {
+    return;
+  }
+
+  contextLost = false;
+
+  // сущности держат мёртвые текстуры
+  for (const p in CTRL) {
+    if (Object.hasOwn(CTRL, p)) {
+      CTRL[p].remove();
+    }
+  }
+
+  for (const id in renderContexts) {
+    if (Object.hasOwn(renderContexts, id)) {
+      const { app, assetProvider, bakingArr } = renderContexts[id];
+
+      // BakingProvider пишет в тот же экземпляр Map, который держит
+      // GameModel._assets — контроллеры пересоздавать не нужно
+      if (bakingArr) {
+        assetProvider.bakeAll(bakingArr, app);
+      }
+    }
+  }
+
+  if (lastMapData) {
+    applyMapData(lastMapData, { notifyHost: false });
+  }
+
+  Ticker.shared.add(renderTick);
+  console.warn('[render] WebGL context restored, rendering resumed');
 }
 
 // ДАННЫЕ ОТ ХОСТА (WebRTC-транспорт)
@@ -926,13 +1030,11 @@ function handleMessage(data) {
 // разрыв P2P: выход хоста = смерть комнаты (host-migration нет). Останавливаем
 // рендер, показываем заглушку и возвращаемся в лобби перезагрузкой
 function handleDisconnect() {
+  // app.stop() здесь не зовём: при sharedTicker это Ticker.shared.stop()
+  // глобально, а autoStart вернёт тикер к жизни при первом add() из любого
+  // part'а — уже без renderTick. Рендер снят строкой выше, страницу и так
+  // убивает location.reload() через 3 с
   Ticker.shared.remove(renderTick);
-
-  for (const id in apps) {
-    if (Object.hasOwn(apps, id)) {
-      apps[id].stop();
-    }
-  }
 
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   soundManager.destroy();

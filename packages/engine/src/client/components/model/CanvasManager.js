@@ -86,6 +86,13 @@ export default class CanvasManagerModel {
     const screenWidth = data.width;
     const screenHeight = data.height;
 
+    // нулевой (свёрнутая вкладка/окно) resize уводил бы currentScale в 0, а
+    // renderer — в размер 0x0; scale сам не пересчитается до следующего
+    // настоящего resize, и полотно останется пустым
+    if (!(screenWidth > 0) || !(screenHeight > 0)) {
+      return;
+    }
+
     for (const canvasName in this._data) {
       if (Object.hasOwn(this._data, canvasName)) {
         const { fixSize, aspectRatio, baseScale } = this._data[canvasName];
@@ -129,7 +136,10 @@ export default class CanvasManagerModel {
 
         this.publisher.emit('resize', {
           id: canvasName,
-          sizes: { width, height },
+          sizes: {
+            width: Math.max(1, width),
+            height: Math.max(1, height),
+          },
         });
       }
     }

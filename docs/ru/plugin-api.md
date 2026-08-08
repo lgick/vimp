@@ -360,7 +360,9 @@ engine-crate от wasm-bindgen не зависит вовсе.
 
 **ClientCore** — движковый минимум: `new`, `push_frame`, `my_game_id`,
 `offset`, `sample`, `hot_ptr/hot_values`, `take_frames`, `apply_input`,
-`set_active`, `set_map`, `reset`, `decode_frame` плюс отладочная пара
+`set_active`, `set_map`, `reset`, `resync` (чистит только сетевую половину —
+буфер и очередь кадров — после долгой паузы вкладки, предикт и идентичность
+сохраняются), `decode_frame` плюс отладочная пара
 `debug_json` и `take_divergence` (тоже из макроса). Игровые методы
 (`set_model`, `try_fire`, `cycle_weapon`, `sync_panel`) в минимум не
 входят — их зовут только хуки ClientPlugin.

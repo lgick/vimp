@@ -103,9 +103,32 @@ plugin's `peerDependencies` range reintroduces the dual-instance crash.
   rare event frames → applied through the previous `parse` pipeline (see
   "Client Core" below).
 - Resets: a map change (`MAP_DATA` → `set_map`) and `CLEAR` (→ `reset`)
-  clear the frame buffer and the predictor in the core.
+  clear the frame buffer and the predictor in the core; `reset` also drops
+  the local player's identity (`my_game_id`), so the prediction overlay
+  stops rendering an entity the host no longer has.
+- **Tab wake-up** (`visibilitychange` → visible): besides unmuting, the
+  shell calls `clientCore?.resync?.()` — the interpolator clock is reseeded
+  from the next frame instead of crawling back through the EMA. The call is
+  optional: an older plugin build has no such ABI method.
+- **WebGL context loss** (`webglcontextlost` on each canvas): every visible
+  pixel is a GPU-only `RenderTexture` with no CPU source, so a lost context
+  would leave the scene blank. The handler calls `preventDefault()` (without
+  it the browser never fires `webglcontextrestored`) and removes `renderTick`
+  from the ticker. On `webglcontextrestored` the shell removes all
+  controllers (they hold dead textures), re-bakes the assets
+  (`BakingProvider.bakeAll` into the same `Map` instance `GameModel._assets`
+  holds — the old render textures are destroyed first), rebuilds the map
+  from the cached `MAP_DATA` payload **without** re-sending `MAP_READY`
+  (the host no longer expects it), and puts `renderTick` back. Tanks and
+  dynamics come back on their own from the next frames.
+- **Zero-sized resize** (minimized tab/window) is ignored by
+  `CanvasManagerModel`: it would drive the scale to `0` and the renderer to
+  `0x0`, and neither recovers until the next real resize; emitted sizes are
+  clamped to at least `1`.
 - **P2P drop** (`handleDisconnect`): the host leaving kills the room (no
-  host migration) — stops the render tick and the `Application`s, shows a
+  host migration) — removes the render tick (not `app.stop()`: with a shared
+  ticker that stops it globally, and `autoStart` revives it on the next
+  `add()` from any part — without `renderTick`), shows a
   placeholder, and returns to the lobby by reloading. A terminal close
   reason already shown by the tech informer (a kick, a full room — any code
   but `loading`) isn't overwritten by the generic "Host left…" message; the
@@ -405,7 +428,15 @@ Data flow:
   carries a player block, reconciles the predictor. Ports
   `MAP_DATA`/`PANEL_DATA`/`KEYSET_DATA`/`CLEAR` mirror into
   `set_map`/`sync_panel`/`set_active`/`reset`; the tank model — `set_model`
-  on auth.
+  on auth. `reset` means "the world is gone": along with the buffer and the
+  predictor it clears `my_game_id`, and the identity is restored from the
+  first player block that follows (a spectator has none, so no predicted
+  entity is drawn either).
+- **`resync()`**: clears the network half only — the interpolation buffer
+  and the outgoing frame queue — leaving prediction and identity intact.
+  Called by the shell when a tab becomes visible again after a long pause,
+  so the clock offset is reseeded exactly instead of being chased by the EMA
+  while entities on the canvas stay alive.
 - **Render tick**: `sample(now)` returns the length of the flat **hot
   buffer** — `new Float32Array(wasm.memory.buffer, hot_ptr(), len)` read
   zero-copy (the view is recreated every tick: WASM memory growth detaches
@@ -518,6 +549,18 @@ rather than the engine-bundled `/sounds/` static copy.
   })` → `processAudibility()` → `updateActiveSounds()` — the manager
   decides what's audible on its own, honoring a voice limit
   (`WORLD_VOICE_LIMIT = 30`) and priorities from the config.
+- **Unregistering**: `unregisterSound(id)` stops the sound instance and
+  drops the registration — for an entity whose sound must die with it.
+  `releaseSound(id)` drops the registration but lets an already playing
+  one-shot finish (a looped sound is still stopped: a loop must go silent
+  with its owner). Used by entities that disappear earlier than their sound
+  — a detonated bomb still finishes its "planted" sample.
+- **`reset()`** stops every playing instance but **keeps the
+  registrations**, only clearing their active-instance ids: registrations
+  are owned by entities, which unregister them in their own `destroy()`. On
+  a full `CLEAR` the registry is empty anyway; after a partial one a
+  surviving loop is restarted by the next `processAudibility()`. Only
+  `destroy()` clears the registry outright.
 
 ## InputListener
 
