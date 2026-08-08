@@ -1,9 +1,10 @@
 // рекурсивно уничтожает запечённое значение: пекарь волен вернуть текстуру,
 // массив кадров анимации или вложенный объект текстур по состояниям.
 // try/catch: после потери WebGL-контекста текстуры уже мертвы.
-// seen — дедуп за проход: один объект может лежать под двумя ключами,
-// а destroy(true) второй раз бессмысленен и маскировался бы тем же catch
-function destroyBaked(value, seen = new Set()) {
+// seen — дедуп за проход (набор заводит вызывающий bakeAll): один объект
+// может лежать под двумя ключами и в ассетах разных компонентов, а
+// destroy(true) второй раз бессмысленен и маскировался бы тем же catch
+function destroyBaked(value, seen) {
   if (!value || typeof value !== 'object' || seen.has(value)) {
     return;
   }
@@ -47,9 +48,13 @@ export default class BakingProvider {
     const renderer = pixiApp.renderer;
 
     // перепечка (восстановление WebGL-контекста) идёт в тот же экземпляр
-    // Map — старые RenderTexture иначе останутся висеть в GPU-памяти
+    // Map — старые RenderTexture иначе останутся висеть в GPU-памяти.
+    // seen — дедуп на весь проход: один объект может лежать и в ассетах
+    // разных компонентов, второй destroy(true) по нему бессмысленен
+    const seen = new Set();
+
     for (const assets of this._collection.values()) {
-      destroyBaked(assets);
+      destroyBaked(assets, seen);
     }
 
     this._collection.clear();

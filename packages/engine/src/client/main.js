@@ -937,7 +937,11 @@ function unpacking(pack) {
 // стоит — он выбрасывает валидный буфер вместе с событийными кадрами
 // (создание/удаление сущностей), и сцена замирает на delay + пару кадров
 const RESYNC_AFTER_HIDDEN_MS = 3000;
-let hiddenAt = null;
+
+// вкладка могла быть скрыта уже в момент навешивания слушателя — события
+// 'hidden' тогда не будет, а пауза всё равно идёт
+let hiddenAt =
+  document.visibilityState === 'hidden' ? performance.now() : null;
 
 // обработчик видимости вкладки
 function handleVisibilityChange() {
@@ -981,9 +985,8 @@ function handleVisibilityChange() {
   }
 }
 
-// потеря WebGL-контекста (сворачивание вкладки, сброс GPU-драйвера): сцена и
-// тикер целы, но все текстуры мертвы — полотно рисовалось бы пустым. Рендер
-// снимаем до восстановления
+// единая точка управления рендер-циклом: Ticker.add дубликаты не отсеивает,
+// а добавить renderTick могут и runModules, и восстановление контекста
 function startRenderLoop() {
   if (renderTickAttached) {
     return;
@@ -1009,6 +1012,9 @@ function canvasIdByTarget(target) {
   );
 }
 
+// потеря WebGL-контекста (сворачивание вкладки, сброс GPU-драйвера): сцена и
+// тикер целы, но все текстуры мертвы — полотно рисовалось бы пустым. Рендер
+// снимаем до восстановления
 function handleContextLost(event) {
   // без preventDefault браузер не пришлёт webglcontextrestored
   event.preventDefault();
