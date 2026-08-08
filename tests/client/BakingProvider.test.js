@@ -35,6 +35,20 @@ describe('BakingProvider.bakeAll', () => {
     expect(provider.getAssetsCollection().get('Tank').tank).toBe(second);
   });
 
+  it('общий объект под двумя ключами уничтожается один раз', () => {
+    const shared = makeTexture();
+    let next = { a: shared, b: shared };
+    const provider = new BakingProvider({ tank: () => next });
+    const arr = [{ name: 'tank', component: 'Tank', params: {} }];
+
+    provider.bakeAll(arr, app);
+
+    next = { a: makeTexture(), b: makeTexture() };
+    provider.bakeAll(arr, app);
+
+    expect(shared.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it('переживает мёртвые после потери контекста текстуры', () => {
     const dead = {
       destroy: () => {

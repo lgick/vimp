@@ -101,9 +101,23 @@ describe('CanvasManagerModel.resize', () => {
     model.resize({ width: 800, height: 600 });
 
     const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
-    // высота fixSize раньше уезжала строкой (`+parts[1] ? parts[1] : parts[0]`);
-    // зажим Math.max(1, …) заодно приводит её к числу
     expect(radar.data.sizes).toEqual({ width: 200, height: 100 });
+    // размеры — числа на выходе самого парсинга, а не после Math.max
+    expect(typeof radar.data.sizes.height).toBe('number');
+  });
+
+  it('fixSize без второй части задаёт квадрат', () => {
+    const model = makeModel({
+      canvases: { radar: { baseScale: '1:1', fixSize: '150' } },
+    });
+    const events = collect(model);
+
+    model.resize({ width: 800, height: 600 });
+
+    const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
+
+    expect(radar.data.sizes).toEqual({ width: 150, height: 150 });
+    expect(typeof radar.data.sizes.height).toBe('number');
   });
 
   it('игнорирует нулевые размеры экрана', () => {

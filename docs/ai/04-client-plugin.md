@@ -131,6 +131,9 @@ export default function explosionTexture(params, renderer) {
 - The result lands in the `assets` argument of every instance of the
   `component` class, keyed by `name`.
 - A baker whose `name` has no entry in `bakers` is silently skipped.
+- A baker **owns what it returns**. Re-baking (WebGL context restore)
+  destroys the previous result together with its `TextureSource`, so never
+  return a view onto a shared atlas or a texture someone else also holds.
 
 ## Dependencies
 

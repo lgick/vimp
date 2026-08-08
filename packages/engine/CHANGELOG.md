@@ -9,6 +9,9 @@ bumps the minor version).
 
 ## [Unreleased]
 
+Items marked *(app shell)* live in `src/client/**`, which is outside the
+package `files`: they change the engine app, not the published artifact.
+
 ### Added
 
 - Wasm ABI: `ClientCore.resync()` (from `vimp-engine-core`) — a clock resync
@@ -16,28 +19,45 @@ bumps the minor version).
   `clientCore?.resync?.()` on `visibilitychange` → visible, so a plugin
   built against an older crate keeps working; a plugin rebuilt on the new
   crate gets the method for free. `ENGINE_API_VERSION` is unchanged (**3**).
-- WebGL context-loss handling in the client shell: rendering is paused on
-  `webglcontextlost`, and on `webglcontextrestored` assets are re-baked and
-  the map is rebuilt from the cached `MAP_DATA` (no repeat `MAP_READY`) —
-  every visible pixel is a GPU-only `RenderTexture` with no CPU source.
+- WebGL context-loss handling in the client shell *(app shell)*: rendering is
+  paused on `webglcontextlost`, and on `webglcontextrestored` assets are
+  re-baked and the map is rebuilt from the cached `MAP_DATA` (no repeat
+  `MAP_READY`) — every visible pixel is a GPU-only `RenderTexture` with no
+  CPU source. Loss is tracked **per canvas** (`lib/contextTracker.js`): the
+  browser restores each context separately, and re-baking into a still-dead
+  one yields empty textures with no second event to fix them, so the scene
+  is rebuilt only once every context is alive again.
+- `SoundManager.releaseSound(id)` *(app shell)* — unregisters while letting
+  an already playing one-shot finish, for entities that disappear earlier
+  than their sound (a detonated bomb and its "planted" sample). A looped
+  sound is still stopped.
 
 ### Changed
 
-- `SoundManager.reset()` no longer clears the registrations, only stops the
-  playing instances and their active ids. Registrations belong to entities,
-  which unregister them in `destroy()`; after a partial clear a surviving
-  loop is restarted by the next `processAudibility()`, instead of going
-  silent for the rest of the session. `destroy()` still clears the registry.
-- `SoundManager.releaseSound(id)` (new) — unregisters while letting an
-  already playing one-shot finish, for entities that disappear earlier than
-  their sound (a detonated bomb and its "planted" sample). A looped sound is
-  still stopped.
+- `SoundManager.reset()` *(app shell)* no longer clears looped registrations,
+  only stops the playing instances and their active ids: registrations belong
+  to entities, and after a partial clear a surviving loop is restarted by the
+  next `processAudibility()` instead of going silent for the rest of the
+  session. One-shot registrations **are** dropped — `Howler.stop()` emits no
+  `end`, so a sample that already played would otherwise be started over.
+  `destroy()` still clears the whole registry.
 - `RoundManager.createMap()` sends every human the spectator `KEYSET_DATA`
   right before `CLEAR`, so client prediction is off by the time the canvas
   is cleared and can no longer recreate the local entity as a ghost.
-- `CanvasManagerModel` ignores a zero-sized resize (minimized tab/window),
-  which used to drive the scale to `0` and the renderer to `0x0` with no
-  recovery until the next real resize; emitted sizes are clamped to `1`.
+- `CanvasManagerModel` *(app shell)* ignores a zero-sized resize (minimized
+  tab/window), which used to drive the scale to `0` and the renderer to
+  `0x0` with no recovery until the next real resize; emitted sizes are
+  clamped to `1`. `fixSize` now parses both parts as numbers — the height
+  used to leak out as a string.
+- `clientCore.resync()` *(app shell)* is called only after a tab pause of at
+  least 3 s. A short alt-tab used to throw away a perfectly valid frame
+  buffer together with its event frames (entity create/delete), freezing the
+  scene for the interpolation delay and dropping removals.
+- `BakingProvider` *(app shell)* destroys each baked object once per re-bake
+  even when a baker returned it under several keys, and logs a failed
+  `destroy` instead of swallowing it. A baker owns what it returns: re-baking
+  destroys the result together with its `TextureSource`, so returning a view
+  onto a shared atlas is not allowed.
 
 ## [0.6.0] — 2026-08-05
 

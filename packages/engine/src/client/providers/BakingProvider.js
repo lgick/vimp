@@ -1,30 +1,37 @@
 // рекурсивно уничтожает запечённое значение: пекарь волен вернуть текстуру,
 // массив кадров анимации или вложенный объект текстур по состояниям.
-// try/catch: после потери WebGL-контекста текстуры уже мертвы
-function destroyBaked(value) {
-  if (!value || typeof value !== 'object') {
+// try/catch: после потери WebGL-контекста текстуры уже мертвы.
+// seen — дедуп за проход: один объект может лежать под двумя ключами,
+// а destroy(true) второй раз бессмысленен и маскировался бы тем же catch
+function destroyBaked(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) {
     return;
   }
+
+  seen.add(value);
 
   if (typeof value.destroy === 'function') {
     try {
       value.destroy(true);
-    } catch {
+    } catch (e) {
       // текстура ушла вместе с контекстом — освобождать нечего
+      console.warn('[baking] destroy failed:', e);
     }
 
     return;
   }
 
   for (const item of Array.isArray(value) ? value : Object.values(value)) {
-    destroyBaked(item);
+    destroyBaked(item, seen);
   }
 }
 
 // класс для управления "запеченными" ассетами
 // каждый потребитель владеет собственной коллекцией ассетов
 export default class BakingProvider {
-  // bakers — функции-пекари процедурных текстур (поставляет ClientPlugin игры)
+  // bakers — функции-пекари процедурных текстур (поставляет ClientPlugin игры).
+  // Пекарь владеет тем, что вернул: перепечка уничтожает результат вместе с
+  // его TextureSource, поэтому возвращать вьюху на чужой/общий атлас нельзя
   constructor(bakers = {}) {
     this._bakers = bakers;
 

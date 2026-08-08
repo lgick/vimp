@@ -109,18 +109,29 @@ plugin's `peerDependencies` range reintroduces the dual-instance crash.
 - **Tab wake-up** (`visibilitychange` → visible): besides unmuting, the
   shell calls `clientCore?.resync?.()` — the interpolator clock is reseeded
   from the next frame instead of crawling back through the EMA. The call is
-  optional: an older plugin build has no such ABI method.
+  optional: an older plugin build has no such ABI method. It only fires
+  after a pause of at least `RESYNC_AFTER_HIDDEN_MS` (3 s): a resync drops
+  the whole frame buffer, including event frames (entity create/delete), so
+  doing it after a short alt-tab would freeze the scene for the
+  interpolation delay and lose removals.
 - **WebGL context loss** (`webglcontextlost` on each canvas): every visible
   pixel is a GPU-only `RenderTexture` with no CPU source, so a lost context
   would leave the scene blank. The handler calls `preventDefault()` (without
-  it the browser never fires `webglcontextrestored`) and removes `renderTick`
-  from the ticker. On `webglcontextrestored` the shell removes all
-  controllers (they hold dead textures), re-bakes the assets
-  (`BakingProvider.bakeAll` into the same `Map` instance `GameModel._assets`
-  holds — the old render textures are destroyed first), rebuilds the map
-  from the cached `MAP_DATA` payload **without** re-sending `MAP_READY`
-  (the host no longer expects it), and puts `renderTick` back. Tanks and
-  dynamics come back on their own from the next frames.
+  it the browser never fires `webglcontextrestored`) and stops the render
+  loop. Loss is tracked per canvas (`lib/contextTracker.js`) — the canvases
+  are independent contexts and the browser restores them separately, so
+  re-baking on the first `webglcontextrestored` would draw into a context
+  that is still dead (empty textures), while the second event would find
+  nothing left to do. On `webglcontextrestored`, once **every** context is
+  alive again, the shell removes all controllers (they hold dead textures),
+  re-bakes the assets (`BakingProvider.bakeAll` into the same `Map` instance
+  `GameModel._assets` holds — the old render textures are destroyed first,
+  each exactly once), rebuilds the map from the cached `MAP_DATA` payload
+  **without** re-sending `MAP_READY` (the host no longer expects it), and
+  restarts the render loop. Tanks and dynamics come back on their own from
+  the next frames. `renderTick` goes on and off the ticker only through
+  `startRenderLoop`/`stopRenderLoop`, since `Ticker.add` does not
+  deduplicate.
 - **Zero-sized resize** (minimized tab/window) is ignored by
   `CanvasManagerModel`: it would drive the scale to `0` and the renderer to
   `0x0`, and neither recovers until the next real resize; emitted sizes are
@@ -128,7 +139,9 @@ plugin's `peerDependencies` range reintroduces the dual-instance crash.
 - **P2P drop** (`handleDisconnect`): the host leaving kills the room (no
   host migration) — removes the render tick (not `app.stop()`: with a shared
   ticker that stops it globally, and `autoStart` revives it on the next
-  `add()` from any part — without `renderTick`), shows a
+  `add()` from any part — without `renderTick`), drops the context
+  listeners and the cached render contexts (a context restored after the
+  drop would otherwise resume rendering a dead game), shows a
   placeholder, and returns to the lobby by reloading. A terminal close
   reason already shown by the tech informer (a kick, a full room — any code
   but `loading`) isn't overwritten by the generic "Host left…" message; the
@@ -529,7 +542,10 @@ data, calls `update(data)` on an existing one, or removes it (`null`).
   — one-time procedural texture generation at startup from the
   `bakedAssets` config; baking functions live in
   [the game plugin's `src/client/bakers/`](https://github.com/lgick/vimp-tanks/tree/main/src/client/bakers) (e.g. `vimp-tanks`'s; no fixed
-  interface, follow the existing ones).
+  interface, follow the existing ones). A baker owns what it returns:
+  re-baking destroys the previous result (each object once per pass, even
+  if it was returned under several keys) together with its `TextureSource`,
+  so a view onto a shared atlas must not be returned.
 - **`DependencyProvider`** — injects services (`renderer`, `soundManager`)
   into components via the `componentDependencies` map.
 
@@ -555,12 +571,15 @@ rather than the engine-bundled `/sounds/` static copy.
   one-shot finish (a looped sound is still stopped: a loop must go silent
   with its owner). Used by entities that disappear earlier than their sound
   — a detonated bomb still finishes its "planted" sample.
-- **`reset()`** stops every playing instance but **keeps the
+- **`reset()`** stops every playing instance and **keeps looped
   registrations**, only clearing their active-instance ids: registrations
   are owned by entities, which unregister them in their own `destroy()`. On
   a full `CLEAR` the registry is empty anyway; after a partial one a
-  surviving loop is restarted by the next `processAudibility()`. Only
-  `destroy()` clears the registry outright.
+  surviving loop is restarted by the next `processAudibility()`. One-shot
+  registrations are dropped instead: `Howler.stop()` fires no `end` event,
+  so the registration of a sample that already played would survive and be
+  started over from the beginning. Only `destroy()` clears the registry
+  outright.
 
 ## InputListener
 

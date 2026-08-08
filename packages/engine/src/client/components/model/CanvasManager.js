@@ -89,7 +89,12 @@ export default class CanvasManagerModel {
     // нулевой (свёрнутая вкладка/окно) resize уводил бы currentScale в 0, а
     // renderer — в размер 0x0; scale сам не пересчитается до следующего
     // настоящего resize, и полотно останется пустым
-    if (!(screenWidth > 0) || !(screenHeight > 0)) {
+    if (
+      !Number.isFinite(screenWidth) ||
+      screenWidth <= 0 ||
+      !Number.isFinite(screenHeight) ||
+      screenHeight <= 0
+    ) {
       return;
     }
 
@@ -103,7 +108,7 @@ export default class CanvasManagerModel {
           const parts = fixSize.split(':');
 
           width = +parts[0];
-          height = +parts[1] ? parts[1] : parts[0];
+          height = +parts[1] || +parts[0];
         } else {
           // если задано соотношение сторон
           if (aspectRatio) {

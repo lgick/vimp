@@ -468,11 +468,16 @@ export default class SoundManager {
     Howler.stop();
     this._activeInstances.clear();
 
-    // регистрации переживают reset: их владельцы — сущности, которые снимут
-    // их сами в destroy(). При полном CLEAR реестр и так пуст, а при
-    // частичном уцелевший луп перезапустит ближайший processAudibility()
-    for (const regSound of this._registeredSounds.values()) {
-      regSound.activeSoundId = null;
+    // луп переживает reset: его владелец жив, и ближайший
+    // processAudibility() запустит звук заново. Одноразовый — нет:
+    // Howler.stop() не шлёт 'end', регистрация сыгравшего сэмпла осталась
+    // бы в реестре и прозвучала бы второй раз с начала
+    for (const [id, regSound] of this._registeredSounds.entries()) {
+      if (regSound.loop) {
+        regSound.activeSoundId = null;
+      } else {
+        this._registeredSounds.delete(id);
+      }
     }
 
     this._listenerX = 0;

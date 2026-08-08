@@ -32,6 +32,7 @@ import {
   reportFormValidity,
 } from './lib/formBuilder.js';
 import { getHostGateState } from './lib/hostGate.js';
+import { createContextTracker } from './lib/contextTracker.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import {
@@ -164,8 +165,18 @@ const renderContexts = {};
 // контекста (хост её повторно не пришлёт)
 let lastMapData = null;
 
-// рендер снят с тикера на время потери контекста
-let contextLost = false;
+// dev-сборка (Vite подставляет константу): включает отладочный контур этапа 6
+// плана plan/done/ai-debug — рекордер в комнате и window.__vimpDebug. В прод-бандле
+// ветка вырезается сборкой, поведение не меняется
+const isDevBuild =
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;
+
+// рендер снят с тикера на время потери контекста (состояние — по полотнам)
+const contextTracker = createContextTracker();
+
+// renderTick на тикере: Ticker.add дубликаты не отсеивает, а добавить его
+// могут и runModules, и восстановление контекста
+let renderTickAttached = false;
 
 let gameInformer = null;
 let gameInformList = []; // массив игровых сообщений
@@ -855,7 +866,7 @@ function runModules(data) {
   // Рендер-цикл интерполяции
   //==========================================//
 
-  Ticker.shared.add(renderTick);
+  startRenderLoop();
 }
 
 // создает экземпляр игры
@@ -921,19 +932,33 @@ function unpacking(pack) {
   return JSON.parse(pack);
 }
 
+// дольше, чем интерполятор способен удержать буфер: после такой паузы
+// кадры всё равно подрезаны, а часы устарели. Короткий alt-tab ресинка не
+// стоит — он выбрасывает валидный буфер вместе с событийными кадрами
+// (создание/удаление сущностей), и сцена замирает на delay + пару кадров
+const RESYNC_AFTER_HIDDEN_MS = 3000;
+let hiddenAt = null;
+
 // обработчик видимости вкладки
 function handleVisibilityChange() {
   // если вкладка неактивна, выключение звука
   if (document.visibilityState === 'hidden') {
+    hiddenAt = performance.now();
     soundManager.mute();
     // иначе включение звука при возвращении
   } else {
     soundManager.unmute();
 
+    const hiddenMs = hiddenAt === null ? 0 : performance.now() - hiddenAt;
+
+    hiddenAt = null;
+
     // после длинной паузы часы интерполятора устарели: пересеять оффсет
     // точно, а не догонять EMA десятки кадров. Опциональный вызов —
     // старая сборка плагина метода не имеет
-    clientCore?.resync?.();
+    if (hiddenMs >= RESYNC_AFTER_HIDDEN_MS) {
+      clientCore?.resync?.();
+    }
 
     if (isDevBuild) {
       for (const id in renderContexts) {
@@ -959,28 +984,56 @@ function handleVisibilityChange() {
 // потеря WebGL-контекста (сворачивание вкладки, сброс GPU-драйвера): сцена и
 // тикер целы, но все текстуры мертвы — полотно рисовалось бы пустым. Рендер
 // снимаем до восстановления
+function startRenderLoop() {
+  if (renderTickAttached) {
+    return;
+  }
+
+  Ticker.shared.add(renderTick);
+  renderTickAttached = true;
+}
+
+function stopRenderLoop() {
+  if (!renderTickAttached) {
+    return;
+  }
+
+  Ticker.shared.remove(renderTick);
+  renderTickAttached = false;
+}
+
+// id полотна по его canvas — событие контекста приходит от конкретного
+function canvasIdByTarget(target) {
+  return Object.keys(renderContexts).find(
+    id => renderContexts[id].app.canvas === target,
+  );
+}
+
 function handleContextLost(event) {
   // без preventDefault браузер не пришлёт webglcontextrestored
   event.preventDefault();
 
-  if (contextLost) {
+  const id = canvasIdByTarget(event.target);
+
+  if (id === undefined || !contextTracker.markLost(id)) {
     return;
   }
 
-  contextLost = true;
-  Ticker.shared.remove(renderTick);
-  console.warn('[render] WebGL context lost, rendering paused');
+  stopRenderLoop();
+  console.warn(`[render] WebGL context lost (${id}), rendering paused`);
 }
 
 // восстановление контекста: перепекаем ассеты и пересобираем карту (весь
 // видимый контент — RenderTexture без CPU-источника). Танки и динамика
 // восстановятся сами из ближайших кадров
-function handleContextRestored() {
-  if (!contextLost) {
+function handleContextRestored(event) {
+  const id = canvasIdByTarget(event.target);
+
+  // пересобираем сцену только когда живы ВСЕ контексты: перепечка в ещё
+  // мёртвый контекст даёт пустые текстуры, а второго события не будет
+  if (id === undefined || !contextTracker.markRestored(id)) {
     return;
   }
-
-  contextLost = false;
 
   // сущности держат мёртвые текстуры
   for (const p in CTRL) {
@@ -1005,7 +1058,7 @@ function handleContextRestored() {
     applyMapData(lastMapData, { notifyHost: false });
   }
 
-  Ticker.shared.add(renderTick);
+  startRenderLoop();
   console.warn('[render] WebGL context restored, rendering resumed');
 }
 
@@ -1034,7 +1087,21 @@ function handleDisconnect() {
   // глобально, а autoStart вернёт тикер к жизни при первом add() из любого
   // part'а — уже без renderTick. Рендер снят строкой выше, страницу и так
   // убивает location.reload() через 3 с
-  Ticker.shared.remove(renderTick);
+  stopRenderLoop();
+
+  // иначе восстановление контекста вернуло бы рендер уже мёртвой игре
+  for (const id in renderContexts) {
+    if (Object.hasOwn(renderContexts, id)) {
+      const { canvas } = renderContexts[id].app;
+
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+      delete renderContexts[id];
+    }
+  }
+
+  contextTracker.reset();
+  lastMapData = null;
 
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   soundManager.destroy();
@@ -1070,12 +1137,6 @@ let lobby = null;
 let hostController = null;
 let hostConnections = null;
 let hostHeartbeat = null;
-
-// dev-сборка (Vite подставляет константу): включает отладочный контур этапа 6
-// плана plan/done/ai-debug — рекордер в комнате и window.__vimpDebug. В прод-бандле
-// ветка вырезается сборкой, поведение не меняется
-const isDevBuild =
-  typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;
 
 if (isDevBuild) {
   window.__vimpDebug = createDebugApi({

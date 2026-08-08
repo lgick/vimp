@@ -202,7 +202,7 @@ describe('SoundManager.updateSoundData', () => {
 });
 
 describe('SoundManager.reset', () => {
-  it('сохраняет регистрации и обнуляет id воспроизведения', () => {
+  it('сохраняет регистрацию лупа и обнуляет id воспроизведения', () => {
     const ctx = makeRegistryCtx(
       new Map([['s', { sound: {}, config: { priority: 50, loop: true } }]]),
     );
@@ -227,6 +227,20 @@ describe('SoundManager.reset', () => {
     ctx.processAudibility();
 
     expect(ctx._internalPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('снимает регистрацию одноразового звука и не играет его заново', () => {
+    const reg = snd('a', 10, 1, { loop: false, activeSoundId: 42 });
+    const ctx = makeCtx([reg]);
+    ctx.reset = P.reset;
+
+    ctx.reset();
+
+    expect(ctx._registeredSounds.size).toBe(0);
+
+    ctx.processAudibility();
+
+    expect(ctx._internalPlay).not.toHaveBeenCalled();
   });
 });
 
