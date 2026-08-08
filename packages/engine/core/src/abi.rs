@@ -286,7 +286,9 @@ macro_rules! export_client_core_abi {
             }
 
             /// EMA-оценка (serverTime − localNow); NaN, если кадров ещё не
-            /// было.
+            /// было. Это разница часов (`Date.now` хоста против
+            /// `performance.now` клиента), а **не** латентность: за оценку
+            /// RTT её принимать нельзя.
             pub fn offset(&self) -> f64 {
                 self.state.offset().unwrap_or(f64::NAN)
             }

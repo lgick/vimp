@@ -49,9 +49,6 @@ pub trait GameClientDef: Sized {
         local_now: f64,
     );
 
-    /// Оценка задержки (для RTT-компенсации визуальных эффектов).
-    fn set_server_offset(&mut self, offset: Option<f64>);
-
     /// Шаг предикта до текущего рендер-времени.
     fn update(&mut self, local_now: f64);
 
@@ -229,8 +226,6 @@ impl<G: GameClientDef> ClientState<G> {
     /// интерполяция, шаг предикта, запись hot-буфера. Возвращает длину
     /// hot-буфера в f32-элементах.
     pub fn sample(&mut self, local_now: f64) -> usize {
-        self.game.set_server_offset(self.interpolator.offset());
-
         let result = self.interpolator.sample(local_now);
 
         // событийные кадры: свой актор → фильтр дублей → очередь → мир
@@ -547,8 +542,6 @@ mod fixture {
             self.vx = state[3];
             self.vy = state[4];
         }
-
-        fn set_server_offset(&mut self, _offset: Option<f64>) {}
 
         fn update(&mut self, local_now: f64) {
             let dt = self

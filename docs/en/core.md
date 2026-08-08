@@ -136,7 +136,7 @@ must not drift from them.
   destroy queue, the schema-driven `SnapshotPacker`, the handoff skeleton,
   `CoreEvent`.
 - The client half: `trait GameClientDef` — `new`, `on_server_state`,
-  `set_server_offset`, `update`, `track_frame`, `filter_frame_game`,
+  `update`, `track_frame`, `filter_frame_game`,
   `update_world`, `update_world_interpolated`, `render_overlay`,
   `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`,
   `reset`, `cycle_item`, `try_action`, plus the two divergence hooks

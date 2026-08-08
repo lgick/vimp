@@ -138,7 +138,7 @@ String>`; игровой crate маппит их в `JsError`). Статичес
   удаления, schema-driven `SnapshotPacker`, скелетом handoff,
   `CoreEvent`.
 - Клиентская половина: `trait GameClientDef` — `new`, `on_server_state`,
-  `set_server_offset`, `update`, `track_frame`, `filter_frame_game`,
+  `update`, `track_frame`, `filter_frame_game`,
   `update_world`, `update_world_interpolated`, `render_overlay`,
   `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`,
   `reset`, `cycle_item`, `try_action` плюс два хука детектора рассинхрона

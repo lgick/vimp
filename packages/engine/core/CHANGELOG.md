@@ -38,6 +38,29 @@ A game crate that reads `my_game_id()` right after a `CLEAR` now gets
 that keeps its own copy of the local actor's identity should clear it in its
 `reset()` too (this is what `TanksClient` does with `my_tank_meta`).
 
+### ⚠️ Breaking — `GameClientDef::set_server_offset` removed
+
+The method handed the interpolator's offset to the game half once per render
+tick, documented as "a latency estimate for RTT compensation of visual
+effects". That description was wrong and the API existed only to serve it:
+the offset is `serverTime − localNow`, where `serverTime` is the host's
+`Date.now()` and `localNow` is the client's `performance.now()` — a clock
+difference on the order of 1e12 ms, not a network delay. A game that took it
+for a latency and extrapolated a spawn position by `velocity × offset` threw
+the entity out of the world (visible only while moving; standing still the
+term is zero). Nothing else needed the hook: reconciliation already receives
+the offset as an argument of `on_server_state`, and `ClientState::offset()`
+(ABI `offset()`) still exposes it for diagnostics, now documented as a clock
+difference.
+
+### Migration
+
+Delete `set_server_offset` from every `impl GameClientDef` — no replacement
+call is needed. A game that used it to compensate a locally spawned entity's
+position should spawn at the predicted position and let the authoritative
+row correct it once on confirmation (rename it to the local id instead of
+dropping it, so the entity is updated rather than recreated).
+
 ## [0.2.1] — 2026-08-05
 
 ### Fixed

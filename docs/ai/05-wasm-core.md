@@ -138,7 +138,6 @@ pub trait GameClientDef: Sized {
 
     fn on_server_state(&mut self, state: [f32; PLAYER_STATE_LEN], centering: bool,
                        server_time: f64, offset: f64, local_now: f64);
-    fn set_server_offset(&mut self, offset: Option<f64>);
     fn update(&mut self, local_now: f64);
     fn track_frame(&mut self, my_game_id: Option<u32>, frame: &FrameData);
     fn filter_frame_game(&mut self, game: &mut Map<String, Value>,
@@ -220,7 +219,10 @@ zero-copy.
 ### `ClientCore` — generated method list
 
 `push_frame(bytes, localNow) -> bool`, `my_game_id() -> i32` (`-1` until the
-first player block), `offset()`, `sample(localNow) -> usize` (hot buffer
+first player block), `offset()` (EMA of `serverTime − localNow` — a clock
+difference between the host's `Date.now` and the client's `performance.now`,
+**not** a latency: never use it as an RTT estimate),
+`sample(localNow) -> usize` (hot buffer
 length), `hot_ptr()`, `hot_values()`, `take_frames()` (→ JSON),
 `apply_input(action, keyName, localNow)`, `set_active`, `set_map`, `reset`
 (the world is gone: buffer, predictor and `my_game_id` all cleared),

@@ -450,7 +450,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
   schema-driven `SnapshotPacker`, handoff-каркас, `CoreEvent`.
 - Клиентская половина: `trait GameClientDef { type Config;
   fn new(cfg, engine_cfg); fn on_server_state(state, centering, server_time,
-  offset, local_now); fn set_server_offset(offset); fn update(local_now);
+  offset, local_now); fn update(local_now);
   fn track_frame(my_game_id, frame); fn filter_frame_game(game, my_game_id,
   local_now); fn update_world(snapshot); fn update_world_interpolated(game);
   fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
