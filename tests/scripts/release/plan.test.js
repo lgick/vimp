@@ -226,6 +226,31 @@ describe('decide', () => {
     expect(plan.warnings).toEqual([]);
   });
 
+  // симметрия: журнал крейта блокирует так же, как журнал движка — пары
+  // ⚠️ Breaking + Migration живут как раз в core/CHANGELOG.md
+  it('прокидывает в общий список проблемы журнала крейта', () => {
+    const plan = decide(
+      input({
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          changelogFile: 'packages/engine/core/CHANGELOG.md',
+          unreleased: {
+            present: true,
+            isEmpty: false,
+            sections: ['⚠️ Breaking — что-то'],
+          },
+        },
+      }),
+    );
+
+    expect(plan.crate.publish).toBe(true);
+    expect(plan.problems).toEqual([
+      'packages/engine/core/CHANGELOG.md: есть ### ⚠️ Breaking, но нет ### Migration',
+    ]);
+  });
+
   // журнал движка сломан, но движок не публикуется — релиз крейта из-за
   // этого блокировать нельзя, а вот молчать нельзя тем более: `## Added`
   // вместо `### Added` сам обнуляет секцию и сам же гасит publish
