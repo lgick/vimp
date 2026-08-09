@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-08-09
+
 Items marked *(app shell)* live in `src/client/**`, which is outside the
 package `files`: they change the engine app, not the published artifact.
 
@@ -290,6 +292,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.7.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.7.0
 [0.6.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.6.0
 [0.5.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.5.0
 [0.4.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.4.0
