@@ -1,6 +1,6 @@
 {
   "name": "vimp-engine",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "VIMP — движок-приложение (мастер, P2P-транспорт, Worker-хост, мета, MVC-каркас клиента)",
   "license": "MIT",
   "repository": {
