@@ -209,17 +209,17 @@ export function suggestLevel(sections, version) {
 
     if (level && LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(top)) {
       top = level;
-      winner = name;
+      // заголовок как он написан в журнале, только без уточнения: значок
+      // дописывать за автора нельзя — искать он будет свою строку
+      winner = section.replace(HEADING_SUFFIX, '').trim();
     }
   }
 
   return {
     level: top === 'breaking' ? levelForBreaking(version) : top,
     // подписывается победивший заголовок, а не уровень: разработчик пойдёт
-    // искать в журнале именно его. ⚠️ не часть имени, но в журналах он есть
-    reason: winner
-      ? `### ${winner === 'Breaking' ? '⚠️ Breaking' : winner}`
-      : 'без ### Added и ### ⚠️ Breaking',
+    // искать в журнале именно его
+    reason: winner ? `### ${winner}` : 'без ### Added и ### ⚠️ Breaking',
   };
 }
 

@@ -165,12 +165,12 @@ blocks nobody:
   stop the release too — each of them would otherwise leave the section
   headingless and quietly settle on patch. An empty `[Unreleased]` is fine:
   a change to fixtures or `bin/` is not an entry.
-- **Examples inside code fences are not parsed** (``` ``` ``` or `~~~`), so a
-  `Migration` section may show a changelog snippet without moving the level.
 - A journal belonging to an artifact that is **not** being published only
   warns — but it does warn. A `##` written where a `###` was meant empties the
   section, and an empty section is what makes the artifact skippable, so the
   defect would otherwise hide itself behind "nothing changed since X.Y.Z".
+- **Examples inside code fences are not parsed** (``` ``` ``` or `~~~`), so a
+  `Migration` section may show a changelog snippet without moving the level.
 
 What it cannot check — and the reason the level is chosen this early:
 

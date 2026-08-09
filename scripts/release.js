@@ -377,10 +377,12 @@ async function main(argv) {
   const artifacts = decide({ ...scoped, games: [] });
 
   // дефект журнала артефакта, который решено не публиковать: не блокирует, но
-  // вполне может быть причиной самого решения
-  artifacts.warnings.forEach(problem =>
-    ui.error(`внимание: ${problem} (артефакт не публикуется — возможно, из-за этого)`),
-  );
+  // вполне может быть причиной самого решения. Форма как у reportProblems —
+  // шапка и пункты, а не длинный хвост в каждой строке
+  if (artifacts.warnings.length > 0) {
+    ui.error('журнал артефакта, который не публикуется — возможно, поэтому и не публикуется:');
+    artifacts.warnings.forEach(problem => ui.raw(`  - ${problem}`));
+  }
 
   // нарушения контракта заголовков [Unreleased] собраны в decide(), который
   // под тестами. Контракт описан в docs/en/publishing.md

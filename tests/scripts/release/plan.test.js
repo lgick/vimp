@@ -221,6 +221,9 @@ describe('decide', () => {
     );
     expect(plan.problems).toEqual(plan.engine.problems);
     expect(plan.crate.problems).toEqual([]);
+    // публикуемый артефакт блокирует, а не предупреждает: иначе одна опечатка
+    // приехала бы двумя противоречащими сообщениями
+    expect(plan.warnings).toEqual([]);
   });
 
   // журнал движка сломан, но движок не публикуется — релиз крейта из-за

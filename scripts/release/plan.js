@@ -65,6 +65,7 @@ export function decide(input) {
   });
 
   const publishedGames = games.filter(game => game.publish);
+  const releasable = [crate, engine];
 
   return {
     crate,
@@ -72,13 +73,13 @@ export function decide(input) {
     games,
     // журнал непубликуемого артефакта релиз не блокирует: опечатка в чужом
     // CHANGELOG не должна мешать выпустить один крейт
-    problems: [crate, engine]
+    problems: releasable
       .filter(artifact => artifact.publish)
       .flatMap(artifact => artifact.problems ?? []),
     // …но и не замалчивается: `## Added` вместо `### Added` сам делает секцию
     // пустой, а пустая секция при неизменённых файлах и даёт publish: false —
     // дефект спрятал бы себя, и релиз молча «не потребовался»
-    warnings: [crate, engine]
+    warnings: releasable
       .filter(artifact => !artifact.publish)
       .flatMap(artifact => artifact.problems ?? []),
     prod: {
