@@ -13,6 +13,8 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-09
+
 ### Added
 
 - `ClientState::resync()` — clears the network half only (interpolation
@@ -97,6 +99,7 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.3.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.3.0
 [0.2.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.2.1
 [0.2.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.2.0
 [0.1.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.1.0
