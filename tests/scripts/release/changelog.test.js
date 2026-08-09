@@ -1,11 +1,18 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import { describe, it, expect } from 'vitest';
 
 import {
   parseUnreleased,
+  sectionName,
   suggestLevel,
+  validateSections,
   releaseUnreleased,
   releaseLink,
 } from '../../../scripts/release/changelog.js';
+
+const ROOT = path.resolve(import.meta.dirname, '../../..');
 
 // Фрагменты повторяют реальные packages/engine/CHANGELOG.md и
 // packages/engine/core/CHANGELOG.md: длинное тире в заголовке релиза,
@@ -75,6 +82,82 @@ describe('changelog', () => {
     expect(suggestLevel(['Changed', 'Fixed'], '0.6.0').level).toBe('patch');
     expect(suggestLevel(['⚠️ Breaking'], '1.2.0').level).toBe('major');
   });
+
+  it('остальные заголовки списка дают patch', () => {
+    for (const section of ['Removed', 'Deprecated', 'Security']) {
+      expect(suggestLevel([section], '0.6.0').level).toBe('patch');
+    }
+  });
+});
+
+describe('sectionName', () => {
+  it('снимает эмодзи и уточнение после тире или в скобках', () => {
+    expect(sectionName('⚠️ Breaking — `reset()` также чистит `my_game_id`')).toBe(
+      'Breaking',
+    );
+    expect(sectionName('Migration (game plugins)')).toBe('Migration');
+    expect(sectionName('Added')).toBe('Added');
+  });
+
+  // незнакомое имя возвращается как есть: отбраковка — дело validateSections,
+  // и в сообщении о проблеме должно быть видно, что именно написано в журнале
+  it('незнакомое имя возвращает как есть', () => {
+    expect(sectionName('Improved')).toBe('Improved');
+    expect(sectionName('  ')).toBeNull();
+  });
+});
+
+describe('validateSections', () => {
+  it('принимает реальный набор заголовков', () => {
+    expect(validateSections(parseUnreleased(CORE).sections)).toEqual([]);
+    expect(validateSections(['Added', 'Changed'])).toEqual([]);
+  });
+
+  // в core/CHANGELOG.md таких пар две в одной секции — проверка по наличию
+  it('не считает проблемой две пары Breaking + Migration', () => {
+    expect(
+      validateSections([
+        '⚠️ Breaking — первое',
+        'Migration',
+        '⚠️ Breaking — второе',
+        'Migration',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('отбраковывает заголовок вне списка', () => {
+    const problems = validateSections(['Improved']);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('«### Improved» не из списка');
+  });
+
+  it('требует пару Breaking + Migration в обе стороны', () => {
+    expect(validateSections(['⚠️ Breaking'])).toEqual([
+      'есть ### ⚠️ Breaking, но нет ### Migration',
+    ]);
+    expect(validateSections(['Migration'])).toEqual([
+      'есть ### Migration, но нет ### ⚠️ Breaking',
+    ]);
+  });
+
+  // правило из docs/en/publishing.md проверяется на живых журналах, иначе оно
+  // остаётся пожеланием: релиз узнал бы о нарушении только в момент публикации
+  it('живые журналы репозитория проходят контракт', async () => {
+    for (const file of [
+      'packages/engine/CHANGELOG.md',
+      'packages/engine/core/CHANGELOG.md',
+    ]) {
+      const text = await readFile(path.join(ROOT, file), 'utf8');
+
+      expect({ file, problems: validateSections(parseUnreleased(text).sections) }).toEqual(
+        { file, problems: [] },
+      );
+    }
+  });
+});
+
+describe('changelog', () => {
 
   it('датирует секцию и вставляет ссылку сверху блока', () => {
     const next = releaseUnreleased(CORE, {

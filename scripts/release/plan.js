@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { capture } from './shell.js';
 import { compareVersions, increment } from './semver.js';
-import { parseUnreleased, suggestLevel } from './changelog.js';
+import { parseUnreleased, suggestLevel, validateSections } from './changelog.js';
 import { npmVersion, crateVersion } from './registry.js';
 
 // «Что публиковать» выводится из трёх независимых сигналов: изменённые пути
@@ -91,6 +91,9 @@ function decideArtifact(artifact, name) {
 
   const { local, published, changed, unreleased } = artifact;
   const ahead = published === null || compareVersions(local, published) > 0;
+  // контракт заголовков проверяется и на пути «версия поднята руками»:
+  // журнал всё равно датируется при публикации
+  const problems = validateSections(unreleased?.sections ?? []);
 
   // версия уже поднята, но не опубликована — публикуем как есть, без бампа
   if (ahead) {
@@ -100,6 +103,7 @@ function decideArtifact(artifact, name) {
       bump: false,
       current: local,
       target: local,
+      problems,
       reason: published
         ? `локальная ${local} > опубликованной ${published}`
         : 'ещё не публиковался',
@@ -113,6 +117,7 @@ function decideArtifact(artifact, name) {
       name,
       publish: false,
       current: local,
+      problems,
       reason: `нет изменений с ${published}`,
     };
   }
@@ -134,6 +139,7 @@ function decideArtifact(artifact, name) {
     level: suggestion.level,
     current: local,
     target: increment(local, suggestion.level),
+    problems,
     reason: signals.join('; '),
   };
 }

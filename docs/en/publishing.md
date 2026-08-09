@@ -22,12 +22,12 @@ What it decides on its own:
   below apply: a crate release forces every game to be rebuilt and
   republished, an `ENGINE_API_VERSION` bump makes the game **required** and
   pushes production strictly last.
-- **Which version to suggest** — from the sub-headings of `[Unreleased]`:
-  `### ⚠️ Breaking` → minor in `0.x` (major from `1.0`), `### Added` →
-  minor, anything else → patch. Enter accepts, or type
-  `patch`/`minor`/`major`/an explicit version. Games have no changelog, so
-  their suggestion follows the crate/`ENGINE_API_VERSION` bump and is always
-  confirmed.
+- **Which version to suggest** — from the sub-headings of `[Unreleased]`, a
+  closed list that fixes the level while the code is written; see
+  [Changelog headings set the version](#changelog-headings-set-the-version).
+  Enter accepts, or type `patch`/`minor`/`major`/an explicit version. Games
+  have no changelog, so their suggestion follows the
+  crate/`ENGINE_API_VERSION` bump and is always confirmed.
 - **Which game plugins exist on this machine** — from `npm link` symlinks,
   the global link registry and sibling directories. Every candidate is
   validated (scope, an `X.Y.Z` version, `vimp-engine` dependency,
@@ -127,6 +127,50 @@ The developer sets versions and runs the releases. Bump rules:
 
 A crate bump has to be repeated by hand in the game:
 `vimp-tanks/core/Cargo.toml` → `vimp-engine-core = "X.Y.Z"`.
+
+## Changelog headings set the version
+
+The sub-heading an entry lands under is not cosmetic: it **is** the release
+level, chosen while the code is written, and `npm run release` derives the
+exact number from it (current version + level). The list is closed — the six
+Keep a Changelog names plus two of this project's own:
+
+| Sub-heading | Level | Use for |
+| --- | --- | --- |
+| `### ⚠️ Breaking` | minor in `0.x`, major from `1.0` | anything that can reject a plugin or config which loaded before |
+| `### Added` | minor | a new public API or behaviour |
+| `### Changed` | patch | a change that cannot break a consumer |
+| `### Deprecated` | patch | an announced future removal |
+| `### Removed` | patch | a removal that cannot break a consumer |
+| `### Fixed` | patch | a bug fix |
+| `### Security` | patch | a closed vulnerability |
+| `### Migration` | — | the mandatory companion of `⚠️ Breaking`; never stands alone |
+
+What the script enforces, in preflight, before anything is built or
+published:
+
+- **A heading outside the list stops the release.** An unknown name would
+  otherwise fall through to patch and silently ship an under-numbered
+  release.
+- **`⚠️ Breaking` and `### Migration` come as a pair**, in both directions.
+  One section may hold several such pairs — `core/CHANGELOG.md` does.
+- A heading may carry a clarification after ` — ` or in brackets:
+  `### ⚠️ Breaking — reset() also clears my_game_id`,
+  `### Migration (game plugins)`.
+
+What it cannot check — and the reason the level is chosen this early:
+
+- A new public export goes under `Added`, not `Changed`. That is exactly the
+  difference between a minor and a patch release.
+- A removal that can break a plugin goes under `⚠️ Breaking` + `Migration`,
+  not under `Removed`.
+- Tests, refactors and `docs/` are not entries at all.
+
+The number itself is never written into `[Unreleased]`: the heading is the
+single source of the level, and the script computes the number at release
+time. Games have no changelog — their level comes from propagation (a crate
+release or a new `ENGINE_API_VERSION` → minor, otherwise patch) and is always
+confirmed by hand.
 
 ## Step 0: unlink the local checkouts (before any release)
 

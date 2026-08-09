@@ -191,6 +191,26 @@ describe('decide', () => {
     expect(plan.games[0].bump).toBe(false);
   });
 
+  // нарушение контракта заголовков доезжает до preflight и останавливает
+  // релиз до первой изменяющей команды
+  it('прокидывает проблемы заголовков в артефакт', () => {
+    const plan = decide(
+      input({
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: true,
+          unreleased: { isEmpty: false, sections: ['Improved'] },
+        },
+      }),
+    );
+
+    expect(plan.engine.publish).toBe(true);
+    expect(plan.engine.problems).toHaveLength(1);
+    expect(plan.engine.problems[0]).toContain('«### Improved» не из списка');
+    expect(plan.crate.problems).toEqual([]);
+  });
+
   it('игнорирует артефакт, исключённый флагом --only', () => {
     const plan = decide(input({ crate: null }));
 

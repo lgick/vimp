@@ -24,6 +24,12 @@ ABI macros (`export_game_core_abi!`/`export_client_core_abi!`) and through
 trait methods that have defaults, and production behaviour is unchanged
 (`ENGINE_API_VERSION` is not bumped).
 
+**Invariant**: `packages/engine/src/devtools/` and
+`packages/engine/bin/vimp-sim.js` are Node-only — they use `node:` built-ins
+freely and must never be reachable from the app bundle. Nothing under
+`src/client/` or `src/host/` may import them; the browser half below talks to
+the runner through recorded scenario files, not through imports.
+
 ## The loop in one command
 
 ```bash

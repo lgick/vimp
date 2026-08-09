@@ -49,7 +49,9 @@ const USAGE = `Использование: npm run release -- [флаги]
     опубликованной версии и по непустой секции [Unreleased]; у игры те же
     сигналы — своя неопубликованная версия и коммиты после тега vX.Y.Z;
   · какой инкремент предложить — по под-заголовкам [Unreleased]:
-    ⚠️ Breaking → minor в 0.x, Added → minor, иначе patch;
+    ⚠️ Breaking → minor в 0.x (major от 1.0), Added → minor, иначе patch.
+    Список заголовков закрыт, ⚠️ Breaking идёт только вместе с Migration —
+    нарушение останавливает релиз в preflight (docs/en/publishing.md);
   · какие игры-плагины есть на машине — по npm link и соседним каталогам;
     каждая подтверждается отдельно.
 
@@ -92,8 +94,8 @@ function parseFlags(argv) {
   return { ...parsed.values, only };
 }
 
-async function preflight(root, { needsRust, games }) {
-  const problems = [];
+async function preflight(root, { needsRust, games, changelog = [] }) {
+  const problems = [...changelog];
 
   const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
     cwd: root,
@@ -160,6 +162,22 @@ async function preflight(root, { needsRust, games }) {
   }
 
   return problems;
+}
+
+// Нарушения контракта заголовков [Unreleased] — только для того, что реально
+// публикуется: опечатка в журнале движка не должна блокировать релиз одного
+// крейта. Контракт описан в docs/en/publishing.md.
+function changelogProblems(decision) {
+  const journals = [
+    ['packages/engine/core/CHANGELOG.md', decision.crate],
+    ['packages/engine/CHANGELOG.md', decision.engine],
+  ];
+
+  return journals.flatMap(([file, artifact]) =>
+    artifact.publish
+      ? (artifact.problems ?? []).map(problem => `${file}: ${problem}`)
+      : [],
+  );
 }
 
 // Полное состояние игры: валидация файлов, git, опубликованная версия и
@@ -352,6 +370,7 @@ async function main(argv) {
   const problems = await preflight(root, {
     needsRust: decision.crate.publish || decision.games.some(game => game.publish),
     games: decision.games.filter(game => game.publish),
+    changelog: changelogProblems(decision),
   });
 
   if (problems.length) {

@@ -50,25 +50,86 @@ export function parseUnreleased(text) {
   };
 }
 
-function isBreaking(section) {
-  // эмодзи-предупреждение перед словом отбрасывается вместе с пробелами
-  return /^Breaking/i.test(section.replace(/^(?:⚠️?|\s)+/u, ''));
+// Закрытый список под-заголовков [Unreleased] и уровень, который каждый
+// задаёт. Это контракт, а не подсказка: заголовок выбирается в момент правки
+// кода и тем самым фиксирует версию релиза (docs/en/publishing.md →
+// «Changelog headings set the version»). `Breaking` разрешается в minor или
+// major по текущей версии, `Migration` уровня не задаёт вовсе.
+export const SECTION_LEVELS = new Map([
+  ['Breaking', 'breaking'],
+  ['Added', 'minor'],
+  ['Changed', 'patch'],
+  ['Deprecated', 'patch'],
+  ['Removed', 'patch'],
+  ['Fixed', 'patch'],
+  ['Security', 'patch'],
+  ['Migration', null],
+]);
+
+// уточнение после ` — ` или в скобках — обе формы в ходу:
+// `### ⚠️ Breaking — reset() also clears my_game_id`, `### Migration (game plugins)`
+const HEADING_SUFFIX = /\s+[—(].*$/u;
+
+// Имя заголовка без эмодзи-предупреждения и без уточнения. Незнакомое слово
+// возвращается как есть — отбраковка это дело validateSections.
+export function sectionName(heading) {
+  const bare = String(heading)
+    .replace(/^(?:⚠️?|\s)+/u, '')
+    .replace(HEADING_SUFFIX, '')
+    .trim();
+
+  return bare === '' ? null : bare;
 }
 
-// Предложение инкремента по содержимому [Unreleased]:
-//   ⚠️ Breaking → minor для 0.x / major для >=1.0
-//   Added       → minor
-//   иначе       → patch
+// Проверка секции против контракта. Незнакомый заголовок молча падал бы в
+// patch, то есть занижал релиз, поэтому релиз на нём останавливается
+// (release.js → preflight).
+export function validateSections(sections) {
+  const problems = [];
+  const names = [];
+
+  for (const section of sections) {
+    const name = sectionName(section);
+
+    if (name === null || !SECTION_LEVELS.has(name)) {
+      problems.push(
+        `заголовок «### ${section}» не из списка (${[...SECTION_LEVELS.keys()].join(', ')})`,
+      );
+      continue;
+    }
+
+    names.push(name);
+  }
+
+  // пара обязательна в обе стороны: миграция без ломающего изменения ничего
+  // не описывает, ломающее без миграции оставляет потребителя без инструкции.
+  // Проверка по наличию, а не по парности: в core/CHANGELOG.md таких пар две
+  if (names.includes('Breaking') && !names.includes('Migration')) {
+    problems.push('есть ### ⚠️ Breaking, но нет ### Migration');
+  }
+
+  if (names.includes('Migration') && !names.includes('Breaking')) {
+    problems.push('есть ### Migration, но нет ### ⚠️ Breaking');
+  }
+
+  return problems;
+}
+
+// Предложение инкремента по содержимому [Unreleased]: старший заголовок
+// секции и решает. Неизвестные имена сюда не доходят — их снимает
+// validateSections до начала работ.
 export function suggestLevel(sections, version) {
-  if (sections.some(isBreaking)) {
+  const names = sections.map(sectionName);
+
+  if (names.includes('Breaking')) {
     return { level: levelForBreaking(version), reason: '### ⚠️ Breaking' };
   }
 
-  if (sections.some(section => /^Added\b/i.test(section))) {
+  if (names.includes('Added')) {
     return { level: 'minor', reason: '### Added' };
   }
 
-  return { level: 'patch', reason: 'только Changed/Fixed/Removed' };
+  return { level: 'patch', reason: 'без ### Added и ### ⚠️ Breaking' };
 }
 
 export function tagFor(artifact, version) {
