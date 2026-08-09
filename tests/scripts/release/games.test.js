@@ -51,6 +51,23 @@ describe('validateGame', () => {
     expect(info.name).toBe('@vimp-games/tanks');
     expect(info.version).toBe('0.4.2');
     expect(info.scripts.build).toBe('vite build');
+    // по пину видно, на каком ядре собрана игра (decide → required)
+    expect(info.corePin).toBe('0.2.1');
+  });
+
+  // форма-таблица (`{ version = "…" }`) шагом B не переписывается, поэтому и
+  // отставание по ней не заявляется: иначе план обещал бы починку, которой
+  // не будет
+  it('не выдумывает пин, которого не умеет переписать', async () => {
+    const dir = await makeGame('table-pin', {
+      pkg: validPkg,
+      cargo: '[dependencies]\nvimp-engine-core = { version = "0.2.1" }\n',
+    });
+
+    const info = await validateGame(dir);
+
+    expect(info.valid).toBe(true);
+    expect(info.corePin).toBe(null);
   });
 
   it('отбраковывает плагин без core/Cargo.toml', async () => {

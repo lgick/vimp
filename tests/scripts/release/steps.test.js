@@ -3,7 +3,13 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { checkTarball, checkManifest } from '../../../scripts/release/steps.js';
+import { readFile } from 'node:fs/promises';
+
+import {
+  checkTarball,
+  checkManifest,
+  gameCommitPaths,
+} from '../../../scripts/release/steps.js';
 
 let root;
 
@@ -112,5 +118,43 @@ describe('checkManifest', () => {
     const dir = await writeManifest('missing', { engineApi: 3, entries: {} });
 
     await expect(checkManifest({ dir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
+  });
+});
+
+describe('gameCommitPaths', () => {
+  it('добавляет package-lock.json, когда он есть', async () => {
+    const dir = path.join(root, 'with-lock');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'package-lock.json'), '{}');
+
+    expect(await gameCommitPaths(dir)).toEqual([
+      'package.json',
+      'core/Cargo.toml',
+      'Cargo.lock',
+      'package-lock.json',
+    ]);
+  });
+
+  // `git add -- package-lock.json` по несуществующему пути падает, а это уже
+  // после публикации: откатывать пришлось бы руками
+  it('не просит git добавить отсутствующий lock-файл', async () => {
+    const dir = path.join(root, 'no-lock');
+    await mkdir(dir, { recursive: true });
+
+    expect(await gameCommitPaths(dir)).not.toContain('package-lock.json');
+  });
+});
+
+// Публикация обязана идти через shell.publish: с захваченными потоками npm и
+// cargo при 2FA падают с EOTP, не успев спросить одноразовый код.
+describe('режим запуска публикации', () => {
+  it('ни одна publish-команда не уезжает в захваченный write', async () => {
+    const source = await readFile(
+      new URL('../../../scripts/release/steps.js', import.meta.url),
+      'utf8',
+    );
+
+    expect(source.match(/shell\.write\([^)]*'publish'[^)]*\)/g)).toBe(null);
+    expect(source.match(/shell\.publish\(/g)?.length).toBeGreaterThan(0);
   });
 });

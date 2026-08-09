@@ -13,6 +13,28 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+async function exists(file) {
+  try {
+    await readFile(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Что коммитится после сборки игры. package-lock.json правится шагом B
+// (`npm i -D vimp-engine@…`), но есть не у всякой игры, а `git add --` по
+// несуществующему пути падает — уже после публикации.
+export async function gameCommitPaths(dir) {
+  const paths = ['package.json', 'core/Cargo.toml', 'Cargo.lock'];
+
+  if (await exists(path.join(dir, 'package-lock.json'))) {
+    paths.push('package-lock.json');
+  }
+
+  return paths;
+}
+
 async function edit(file, transform, { dryRun }) {
   const before = await readFile(file, 'utf8');
   const after = transform(before);
@@ -178,7 +200,7 @@ export async function publishCrate({ shell, root, decision, report }) {
     ['publish', '-p', CRATE_NAME, '--dry-run'],
     { cwd: root },
   );
-  await shell.write('cargo', ['publish', '-p', CRATE_NAME], { cwd: root });
+  await shell.publish('cargo', ['publish', '-p', CRATE_NAME], { cwd: root });
 
   const tagName = `${CRATE_NAME}@${target}`;
   await tag(shell, root, tagName);
@@ -239,7 +261,7 @@ export async function publishEngine({ shell, root, decision, games, report }) {
     ['publish', '-w', ENGINE_NAME, '--dry-run'],
     { cwd: root },
   );
-  await shell.write('npm', ['publish', '-w', ENGINE_NAME], { cwd: root });
+  await shell.publish('npm', ['publish', '-w', ENGINE_NAME], { cwd: root });
 
   const tagName = `${ENGINE_NAME}@${target}`;
   await tag(shell, root, tagName);
@@ -380,17 +402,18 @@ export async function publishGame({
     });
   }
 
-  await commit(shell, dir, `chore: release ${game.target}`, [
-    'package.json',
-    'core/Cargo.toml',
-    'Cargo.lock',
-  ]);
+  await commit(
+    shell,
+    dir,
+    `chore: release ${game.target}`,
+    await gameCommitPaths(dir),
+  );
   await tag(shell, dir, `v${game.target}`);
 
   await shell.check('npm publish --dry-run', 'npm', ['publish', '--dry-run'], {
     cwd: dir,
   });
-  await shell.write('npm', ['publish'], { cwd: dir });
+  await shell.publish('npm', ['publish'], { cwd: dir });
 
   // пуш игрового репозитория ничего не деплоит — в отличие от vimp
   await shell.write('git', ['push'], { cwd: dir });

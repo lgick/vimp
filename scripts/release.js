@@ -338,7 +338,13 @@ async function main(argv) {
 
   const root = path.resolve(import.meta.dirname, '..');
   const engineDir = path.join(root, 'packages', 'engine');
-  const shell = createShell({ dryRun: args['dry-run'], log: ui.raw });
+  // releaseStdin: перед командой с живым вводом readline закрывается, иначе
+  // одноразовый код 2FA прочитает родитель, а не npm
+  const shell = createShell({
+    dryRun: args['dry-run'],
+    log: ui.raw,
+    releaseStdin: ui.closePrompts,
+  });
 
   if (args['dry-run']) {
     ui.log('режим --dry-run: изменяющие команды не выполняются');
@@ -434,22 +440,16 @@ async function main(argv) {
       continue;
     }
 
-    // у игр CHANGELOG нет: предложение опирается на бамп крейта или
-    // ENGINE_API_VERSION, и всегда подтверждается
-    const level =
-      decision.crate.publish || collected.engineApiChanged ? 'minor' : 'patch';
-
+    // уровень и причина посчитаны в decide() — единственном месте, где
+    // сигналы игры сводятся вместе; у игр CHANGELOG нет, и версия всегда
+    // подтверждается руками
     game.target = await askVersion(
       game.name,
       {
         current: game.version,
-        level,
+        level: game.level,
         published: game.published,
-        reason: decision.crate.publish
-          ? 'пересборка на новом крейте'
-          : collected.engineApiChanged
-            ? 'новый ENGINE_API_VERSION'
-            : 'изменения игры',
+        reason: game.reason,
       },
       args,
     );
@@ -557,8 +557,11 @@ async function main(argv) {
       await publishGame({
         shell,
         game,
-        crateVersion: decision.crate.publish ? decision.crate.target : null,
-        engineVersion: decision.engine.publish ? decision.engine.target : null,
+        // не «что публикуется в этом прогоне», а что реально лежит в
+        // реестрах: после прерванного прогона крейт уже опубликован, и игра
+        // собралась бы на старом ядре со старым пином в тарболе
+        crateVersion: decision.crateVersion,
+        engineVersion: decision.engineVersion,
         engineApi,
         report,
       });

@@ -121,6 +121,95 @@ describe('decide', () => {
     expect(plan.prod.push).toBe(true);
   });
 
+  // против чего собирается игра: не «что публикуется в этом прогоне», а что
+  // лежит в реестре — иначе прерванный прогон соберёт её на старом ядре
+  it('берёт версии сборки игры из реестра, когда артефакты не публикуются', () => {
+    const plan = decide(input());
+
+    expect(plan.crateVersion).toBe('0.2.1');
+    expect(plan.engineVersion).toBe('0.6.0');
+  });
+
+  it('берёт версии сборки игры из плана, когда артефакты публикуются', () => {
+    const plan = decide(
+      input({
+        crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: true,
+          unreleased: added,
+        },
+      }),
+    );
+
+    expect(plan.crateVersion).toBe('0.3.0');
+    expect(plan.engineVersion).toBe('0.7.0');
+  });
+
+  // ровно состояние после прерванного релиза: крейт уже в реестре, publish у
+  // него false, а игра осталась на старом пине
+  it('делает игру обязательной, когда её ядро отстало от крейта в реестре', () => {
+    const plan = decide(
+      input({
+        crate: { local: '0.3.0', published: '0.3.0', changed: false, unreleased: quiet },
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            changed: false,
+            corePin: '0.2.1',
+          },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(true);
+    expect(plan.games[0].required).toBe(true);
+    // patch здесь занизил бы релиз: игра уезжает на другом ядре
+    expect(plan.games[0].level).toBe('minor');
+    expect(plan.games[0].reason).toBe(
+      'ядро игры на 0.2.1, в реестре 0.3.0 → пересборка',
+    );
+  });
+
+  it('не трогает игру, чьё ядро совпадает с крейтом в реестре', () => {
+    const plan = decide(
+      input({
+        crate: { local: '0.3.0', published: '0.3.0', changed: false, unreleased: quiet },
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            changed: false,
+            corePin: '0.3.0',
+          },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(false);
+    expect(plan.games[0].required).toBe(false);
+    expect(plan.games[0].level).toBe('patch');
+  });
+
+  // при бампе крейта причина уже названа, дублировать её пином не нужно
+  it('не дублирует причину, когда крейт публикуется в этом же прогоне', () => {
+    const plan = decide(
+      input({
+        crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
+        games: [
+          { name: '@vimp-games/tanks', version: '0.4.2', corePin: '0.2.1' },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].reason).toBe('крейт публикуется → игру нужно пересобрать');
+    expect(plan.games[0].level).toBe('minor');
+  });
+
   it('не трогает игру без изменений и без неопубликованной версии', () => {
     const plan = decide(
       input({

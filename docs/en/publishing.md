@@ -27,7 +27,9 @@ What it decides on its own:
   [Changelog headings set the version](#changelog-headings-set-the-version).
   Enter accepts, or type `patch`/`minor`/`major`/an explicit version. Games
   have no changelog, so their suggestion follows the
-  crate/`ENGINE_API_VERSION` bump and is always confirmed.
+  crate/`ENGINE_API_VERSION` bump — or a `vimp-engine-core` pin in
+  `core/Cargo.toml` that lags behind the crate in the registry, which is what
+  an interrupted run leaves behind — and is always confirmed.
 - **Which game plugins exist on this machine** — from `npm link` symlinks,
   the global link registry and sibling directories. Every candidate is
   validated (scope, an `X.Y.Z` version, `vimp-engine` dependency,
@@ -39,7 +41,13 @@ and restores exactly those pairs afterwards — including on failure and on
 Ctrl-C; checks the npm/cargo logins only for the registries it will actually
 publish to; runs every check with captured output (one status line each, the
 full log printed only on failure — a failed check stops the run **before**
-publishing). It never pushes `main` until the last step, where it prints the
+publishing). The `npm publish` / `cargo publish` commands are the exception:
+they run attached to this terminal, so a registry can ask for a 2FA one-time
+code or open a browser — with the output captured they have no stdin and fail
+with `EOTP` instead of asking. A game is always rebuilt against the versions
+that are **live in the registry**, not the ones this run happens to publish,
+so an interrupted release cannot leave the plugin pinned to an older core.
+It never pushes `main` until the last step, where it prints the
 outgoing commits and asks for an explicit confirmation, because that push
 **is** the production deploy.
 

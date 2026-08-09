@@ -3,8 +3,8 @@ import { spawn } from 'node:child_process';
 // Запуск внешних команд для релиз-скрипта. Два режима вывода:
 //   - захват (capture) — обычный случай: в консоли одна строка со статусом,
 //     полный вывод показывается только при падении;
-//   - наследование (interactive) — только для `npm login`/`cargo login`,
-//     где человеку нужен живой ввод.
+//   - наследование (interactive) — для `npm login`/`cargo login` и для самой
+//     публикации, где человеку нужен живой ввод.
 
 export class CommandError extends Error {
   constructor({ command, cwd, code, output }) {
@@ -109,8 +109,10 @@ function formatDuration(ms) {
 }
 
 // dryRun гасит только изменяющие команды (write); чтение и проверки идут
-// всегда — иначе прогон не докажет, что релиз пройдёт
-export function createShell({ dryRun = false, log = () => {} } = {}) {
+// всегда — иначе прогон не докажет, что релиз пройдёт.
+// releaseStdin вызывается перед каждой командой с живым вводом: родительский
+// readline читает тот же stdin и съел бы то, что человек печатает ребёнку.
+export function createShell({ dryRun = false, log = () => {}, releaseStdin } = {}) {
   // read — только чтение состояния (git rev-parse, git diff --cached):
   // выполняется всегда, включая dry-run
   async function read(command, args, options = {}) {
@@ -146,5 +148,39 @@ export function createShell({ dryRun = false, log = () => {} } = {}) {
     }
   }
 
-  return { dryRun, read, write, check, interactive };
+  async function runInteractive(command, args, options = {}) {
+    releaseStdin?.();
+    return interactive(command, args, options);
+  }
+
+  // Публикация в реестр: изменяющая команда, но с живым терминалом. При 2FA
+  // npm и cargo спрашивают одноразовый код или открывают браузер, а с
+  // захваченными потоками у команды нет ни stdin, ни TTY — она падает с
+  // EOTP вместо запроса. Вывод идёт прямо в консоль, поэтому в отчёте о
+  // падении остаётся только команда.
+  async function publish(command, args, options = {}) {
+    const line = formatCommand(command, args);
+
+    if (dryRun) {
+      log(`  · dry-run, skipped: ${line}${options.cwd ? ` (${options.cwd})` : ''}`);
+      return { code: 0, stdout: '', stderr: '', output: '', skipped: true };
+    }
+
+    log(`  · ${line}`);
+
+    const { code } = await runInteractive(command, args, options);
+
+    if (code !== 0) {
+      throw new CommandError({
+        command: line,
+        cwd: options.cwd ?? process.cwd(),
+        code,
+        output: '(вывод команды выше — она печаталась прямо в этот терминал)',
+      });
+    }
+
+    return { code, stdout: '', stderr: '', output: '' };
+  }
+
+  return { dryRun, read, write, check, publish, interactive: runInteractive };
 }

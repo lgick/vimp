@@ -19,11 +19,29 @@ export function decide(input) {
   const crate = decideArtifact(input.crate, CRATE_NAME);
   const engine = decideArtifact(input.engine, ENGINE_NAME);
 
+  // Версии, на которых игра будет собрана: свежие, если артефакт публикуется
+  // в этом прогоне, иначе те, что уже лежат в реестре. Брать локальные нельзя
+  // — `cargo update --precise` и `npm i -D` ходят в реестр, а «publish в этом
+  // прогоне» само по себе непригодно: после прерванного прогона крейт уже
+  // опубликован, publish у него false, и игра собралась бы на старом ядре
+  const crateVersion = crate.publish
+    ? crate.target
+    : (input.crate?.published ?? null);
+  const engineVersion = engine.publish
+    ? engine.target
+    : (input.engine?.published ?? null);
+
   // у игры те же три сигнала, что у крейта и движка: своя неопубликованная
   // версия, свои коммиты после тега — плюс распространение сверху. Без этого
   // строка «Game only → ✅» из publishing.md была бы недостижима
   const games = (input.games ?? []).map(game => {
-    const required = crate.publish || input.engineApiChanged === true;
+    // пин, отставший от крейта в реестре, означает, что опубликованная игра
+    // собрана на старом ядре: пересборка обязательна так же, как при бампе
+    const coreStale =
+      crateVersion !== null &&
+      typeof game.corePin === 'string' &&
+      game.corePin !== crateVersion;
+    const required = crate.publish || input.engineApiChanged === true || coreStale;
     const ahead =
       game.published === null ||
       (game.published !== undefined &&
@@ -36,6 +54,13 @@ export function decide(input) {
     }
     if (input.engineApiChanged) {
       reasons.push('изменился ENGINE_API_VERSION → публикация обязательна');
+    }
+    // при bump крейта причина уже названа выше — здесь остаётся случай, когда
+    // крейт опубликован раньше, а игра за ним не поехала
+    if (coreStale && !crate.publish) {
+      reasons.push(
+        `ядро игры на ${game.corePin}, в реестре ${crateVersion} → пересборка`,
+      );
     }
     if (!required && engine.publish) {
       reasons.push('движок публикуется → можно обновить и игру');
@@ -60,6 +85,9 @@ export function decide(input) {
       // версия уже поднята руками — публикуем как есть
       bump: !ahead,
       required,
+      // у игр CHANGELOG нет, уровень выводить не из чего: обязательная
+      // пересборка — minor, всё остальное — patch. Всегда подтверждается
+      level: required ? 'minor' : 'patch',
       reason: reasons.join('; '),
     };
   });
@@ -71,6 +99,10 @@ export function decide(input) {
     crate,
     engine,
     games,
+    // против чего собирается игра — считается здесь, чтобы шаг B и причина в
+    // плане не разошлись
+    crateVersion,
+    engineVersion,
     // журнал непубликуемого артефакта релиз не блокирует: опечатка в чужом
     // CHANGELOG не должна мешать выпустить один крейт
     problems: releasable

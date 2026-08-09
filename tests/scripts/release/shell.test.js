@@ -72,4 +72,52 @@ describe('shell', () => {
       shell.check('fail', 'node', ['-e', 'process.exit(2)']),
     ).rejects.toBeInstanceOf(CommandError);
   });
+
+  // публикация идёт с живым терминалом: при 2FA npm сам спрашивает
+  // одноразовый код, а с захваченными потоками падал бы с EOTP
+  it('publish отдаёт stdin команде и логирует её', async () => {
+    const lines = [];
+    const released = [];
+    const shell = createShell({
+      log: line => lines.push(line),
+      releaseStdin: () => released.push('closed'),
+    });
+
+    const result = await shell.publish('node', ['-e', 'process.exit(0)']);
+
+    expect(result.code).toBe(0);
+    expect(released).toEqual(['closed']);
+    expect(lines.at(-1)).toContain('node');
+  });
+
+  // без исключения релиз поехал бы дальше — ставить тег и пушить прод по
+  // неопубликованному пакету
+  it('publish падает CommandError на ненулевом коде', async () => {
+    const shell = createShell({ releaseStdin: () => {} });
+    const failing = shell.publish('node', ['-e', 'process.exit(5)'], {
+      cwd: process.cwd(),
+    });
+
+    await expect(failing).rejects.toBeInstanceOf(CommandError);
+
+    const error = await failing.catch(caught => caught);
+
+    expect(error.code).toBe(5);
+    expect(error.cwd).toBe(process.cwd());
+    // вывод шёл в терминал, в отчёте остаётся команда
+    expect(error.format()).toContain('exit:    5');
+  });
+
+  it('publish в dry-run ничего не запускает', async () => {
+    const released = [];
+    const shell = createShell({
+      dryRun: true,
+      releaseStdin: () => released.push('closed'),
+    });
+
+    const result = await shell.publish('node', ['-e', 'process.exit(1)']);
+
+    expect(result.skipped).toBe(true);
+    expect(released).toEqual([]);
+  });
 });

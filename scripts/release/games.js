@@ -9,6 +9,8 @@ import { isVersion } from './semver.js';
 // человека — список ниже только сокращает ручной ввод путей.
 
 const SCOPE = '@vimp-games';
+// `vimp-engine-core = "0.3.0"` в core/Cargo.toml игры
+const CORE_PIN = /^\s*vimp-engine-core\s*=\s*"([^"]+)"/m;
 
 async function readJson(file) {
   try {
@@ -175,6 +177,10 @@ export async function validateGame(dir) {
     name,
     version: pkg.version ?? null,
     scripts: pkg.scripts ?? {},
+    // пин на крейт: по нему видно, собрана ли игра на актуальном ядре.
+    // Форма ровно та, которую умеет переписывать шаг B (steps.js), иначе
+    // отставание нашлось бы, а починить его скрипт бы не смог
+    corePin: cargo ? (CORE_PIN.exec(cargo)?.[1] ?? null) : null,
     valid: problems.length === 0,
     problems,
   };
