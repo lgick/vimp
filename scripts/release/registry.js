@@ -8,24 +8,41 @@ import { compareVersions, isVersion } from './semver.js';
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 180000;
 
-export async function npmVersion(name, options = {}) {
-  const { code, output } = await capture(
-    'npm',
-    ['view', name, 'version', '--json'],
-    { allowFailure: true, cwd: options.cwd },
-  );
-
-  if (code !== 0) {
-    return null; // пакет ещё не опубликован (E404) либо реестр недоступен
-  }
+// Разбор ответа `npm view --json` отдельно от вызова: «пакета нет» (E404)
+// обязано отличаться от «реестр не ответил». Иначе сетевой сбой читается как
+// «ещё не публиковался» и скрипт публикует поверх уже опубликованного.
+export function parseNpmView(name, { code, stdout, stderr }) {
+  let parsed = null;
 
   try {
-    const value = JSON.parse(output);
-    const version = Array.isArray(value) ? value.at(-1) : value;
-    return isVersion(version) ? version : null;
+    parsed = JSON.parse(stdout.trim());
   } catch {
-    return null;
+    parsed = null;
   }
+
+  if (code !== 0) {
+    if (parsed?.error?.code === 'E404') {
+      return null;
+    }
+
+    throw new Error(
+      `npm view ${name} не ответил (код ${code}): ` +
+        `${(stderr || stdout).trim() || 'без вывода'}`,
+    );
+  }
+
+  const version = Array.isArray(parsed) ? parsed.at(-1) : parsed;
+
+  return isVersion(version) ? version : null;
+}
+
+export async function npmVersion(name, options = {}) {
+  const result = await capture('npm', ['view', name, 'version', '--json'], {
+    allowFailure: true,
+    cwd: options.cwd,
+  });
+
+  return parseNpmView(name, result);
 }
 
 // Путь в sparse-индексе crates.io: 1/2/3 символа — особые случаи, дальше
@@ -54,12 +71,18 @@ export async function crateVersion(name) {
 
   try {
     response = await fetch(url);
-  } catch {
+  } catch (error) {
+    throw new Error(`index.crates.io недоступен (${name}): ${error.message}`);
+  }
+
+  // 404 — крейта в индексе нет, это валидный ответ; всё остальное значит,
+  // что мы просто не знаем опубликованную версию, и молчать нельзя
+  if (response.status === 404) {
     return null;
   }
 
   if (!response.ok) {
-    return null;
+    throw new Error(`index.crates.io ответил ${response.status} на ${name}`);
   }
 
   const body = await response.text();
@@ -87,7 +110,8 @@ async function waitFor(read, version, label, log) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   for (;;) {
-    const published = await read();
+    // пока ждём, отказ реестра — это не приговор, а повод повторить
+    const published = await read().catch(() => null);
 
     if (published && compareVersions(published, version) >= 0) {
       return true;

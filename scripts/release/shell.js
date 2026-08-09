@@ -30,8 +30,12 @@ export class CommandError extends Error {
   }
 }
 
+// аргумент с пробелами берётся в кавычки: строка идёт в отчёт о падении и
+// должна читаться как команда, которую можно повторить руками
 export function formatCommand(command, args = []) {
-  return [command, ...args].join(' ');
+  return [command, ...args]
+    .map(part => (/\s/.test(part) ? `"${part}"` : part))
+    .join(' ');
 }
 
 export function capture(command, args = [], options = {}) {
@@ -44,12 +48,19 @@ export function capture(command, args = [], options = {}) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    // потоки копятся раздельно: `npm --json` пишет ответ в stdout, а любое
+    // предупреждение — в stderr, и склейка ломала бы JSON.parse. Слитый
+    // `output` остаётся только для отчёта о падении
+    let stdout = '';
+    let stderr = '';
     let output = '';
 
     child.stdout.on('data', chunk => {
+      stdout += chunk;
       output += chunk;
     });
     child.stderr.on('data', chunk => {
+      stderr += chunk;
       output += chunk;
     });
 
@@ -66,7 +77,7 @@ export function capture(command, args = [], options = {}) {
 
     child.on('close', code => {
       if (code === 0 || options.allowFailure) {
-        resolve({ code, output });
+        resolve({ code, stdout, stderr, output });
         return;
       }
 
@@ -100,8 +111,8 @@ function formatDuration(ms) {
 // dryRun гасит только изменяющие команды (write); чтение и проверки идут
 // всегда — иначе прогон не докажет, что релиз пройдёт
 export function createShell({ dryRun = false, log = () => {} } = {}) {
-  const performed = [];
-
+  // read — только чтение состояния (git rev-parse, git diff --cached):
+  // выполняется всегда, включая dry-run
   async function read(command, args, options = {}) {
     return capture(command, args, options);
   }
@@ -111,28 +122,29 @@ export function createShell({ dryRun = false, log = () => {} } = {}) {
 
     if (dryRun) {
       log(`  · dry-run, skipped: ${line}${options.cwd ? ` (${options.cwd})` : ''}`);
-      return { code: 0, output: '', skipped: true };
+      return { code: 0, stdout: '', stderr: '', output: '', skipped: true };
     }
 
-    performed.push(line);
-    const result = await capture(command, args, options);
     log(`  · ${line}`);
-    return result;
+    return capture(command, args, options);
   }
 
-  // проверка (тесты/линт/сборка) — выполняется и в dry-run
+  // проверка (тесты/линт/сборка) — выполняется и в dry-run. Строка статуса
+  // печатается до запуска: иначе консоль молчит всё время долгой команды
   async function check(label, command, args, options = {}) {
     const started = Date.now();
 
+    log(`  ▸ ${label} …`);
+
     try {
       const result = await capture(command, args, options);
-      log(`  ▸ ${label} … ok (${formatDuration(Date.now() - started)})`);
+      log(`    ok (${formatDuration(Date.now() - started)})`);
       return result;
     } catch (error) {
-      log(`  ▸ ${label} … FAILED (${formatDuration(Date.now() - started)})`);
+      log(`    FAILED (${formatDuration(Date.now() - started)})`);
       throw error;
     }
   }
 
-  return { dryRun, read, write, check, interactive, performed };
+  return { dryRun, read, write, check, interactive };
 }

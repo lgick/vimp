@@ -115,13 +115,80 @@ describe('decide', () => {
     expect(plan.prod.push).toBe(true);
   });
 
-  it('не трогает игры, когда движок и крейт не публикуются', () => {
+  it('не трогает игру без изменений и без неопубликованной версии', () => {
     const plan = decide(
-      input({ games: [{ name: '@vimp-games/tanks', version: '0.4.2' }] }),
+      input({
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            changed: false,
+          },
+        ],
+      }),
     );
 
     expect(plan.games[0].publish).toBe(false);
     expect(plan.prod.push).toBe(false);
+  });
+
+  it('публикует игру, у которой версия поднята руками, но не уехала', () => {
+    const plan = decide(
+      input({
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.5.0',
+            published: '0.4.2',
+            changed: false,
+          },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(true);
+    expect(plan.games[0].required).toBe(false);
+    expect(plan.games[0].bump).toBe(false);
+    expect(plan.prod.push).toBe(true);
+  });
+
+  it('публикует игру по её собственным коммитам после тега версии', () => {
+    const plan = decide(
+      input({
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            changed: true,
+          },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(true);
+    expect(plan.games[0].bump).toBe(true);
+    expect(plan.games[0].reason).toMatch(/коммиты после тега/);
+    expect(plan.prod.push).toBe(true);
+  });
+
+  it('публикует игру, которой ещё нет в npm', () => {
+    const plan = decide(
+      input({
+        games: [
+          {
+            name: '@vimp-games/street-fighters',
+            version: '0.1.0',
+            published: null,
+            changed: false,
+          },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(true);
+    expect(plan.games[0].bump).toBe(false);
   });
 
   it('игнорирует артефакт, исключённый флагом --only', () => {

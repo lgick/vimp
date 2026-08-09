@@ -50,7 +50,7 @@ describe('validateGame', () => {
     expect(info.valid).toBe(true);
     expect(info.name).toBe('@vimp-games/tanks');
     expect(info.version).toBe('0.4.2');
-    expect(info.hasCargo).toBe(true);
+    expect(info.scripts.build).toBe('vite build');
   });
 
   it('отбраковывает плагин без core/Cargo.toml', async () => {
@@ -59,7 +59,6 @@ describe('validateGame', () => {
 
     expect(info.valid).toBe(false);
     expect(info.problems).toContain('нет core/Cargo.toml');
-    expect(info.hasCargo).toBe(false);
   });
 
   it('отбраковывает Cargo.toml без vimp-engine-core', async () => {

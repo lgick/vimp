@@ -19,8 +19,16 @@ export function decide(input) {
   const crate = decideArtifact(input.crate, CRATE_NAME);
   const engine = decideArtifact(input.engine, ENGINE_NAME);
 
+  // у игры те же три сигнала, что у крейта и движка: своя неопубликованная
+  // версия, свои коммиты после тега — плюс распространение сверху. Без этого
+  // строка «Game only → ✅» из publishing.md была бы недостижима
   const games = (input.games ?? []).map(game => {
     const required = crate.publish || input.engineApiChanged === true;
+    const ahead =
+      game.published === null ||
+      (game.published !== undefined &&
+        compareVersions(game.version, game.published) > 0);
+    const ownChanges = game.changed === true;
     const reasons = [];
 
     if (crate.publish) {
@@ -32,13 +40,25 @@ export function decide(input) {
     if (!required && engine.publish) {
       reasons.push('движок публикуется → можно обновить и игру');
     }
-    if (!required && !engine.publish) {
-      reasons.push('изменений в движке нет');
+    if (!required && ahead) {
+      reasons.push(
+        game.published === null
+          ? 'ещё не публиковалась'
+          : `локальная ${game.version} > опубликованной ${game.published}`,
+      );
+    }
+    if (!required && !ahead && ownChanges) {
+      reasons.push('есть коммиты после тега версии');
+    }
+    if (!required && !engine.publish && !ahead && !ownChanges) {
+      reasons.push('изменений нет');
     }
 
     return {
       ...game,
-      publish: required || engine.publish,
+      publish: required || engine.publish || ahead || ownChanges,
+      // версия уже поднята руками — публикуем как есть
+      bump: !ahead,
       required,
       reason: reasons.join('; '),
     };
@@ -119,12 +139,12 @@ function decideArtifact(artifact, name) {
 }
 
 async function git(root, args) {
-  const { code, output } = await capture('git', args, {
+  const { code, stdout } = await capture('git', args, {
     cwd: root,
     allowFailure: true,
   });
 
-  return code === 0 ? output.trim() : null;
+  return code === 0 ? stdout.trim() : null;
 }
 
 // Базовая точка сравнения: тег релиза, а пока тегов нет — коммит, в котором
@@ -213,7 +233,15 @@ export async function collect(root) {
   });
 
   const cratePaths = ['packages/engine/core'];
-  // скоуп npm-пакета берётся из его же поля files, а не хардкодится
+
+  // скоуп npm-пакета берётся из его же поля files, а не хардкодится —
+  // без него детект движка был бы неверным, поэтому падаем внятно
+  if (!Array.isArray(enginePkg.files) || enginePkg.files.length === 0) {
+    throw new Error(
+      'в packages/engine/package.json нет непустого поля files — по нему определяется скоуп пакета',
+    );
+  }
+
   const enginePaths = enginePkg.files.map(entry => `packages/engine/${entry}`);
 
   const crateChangelog = await readFile(

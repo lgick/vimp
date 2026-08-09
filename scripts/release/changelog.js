@@ -6,9 +6,12 @@ import { levelForBreaking } from './semver.js';
 
 const EM_DASH = '—';
 const UNRELEASED_HEADING = /^##\s+\[Unreleased\]\s*$/;
-const RELEASE_HEADING = /^##\s+\[\d+\.\d+\.\d+\]/;
+// секция кончается на любом следующем `## ` или на блоке ссылок внизу:
+// в журнале нового пакета релизных заголовков ещё нет вовсе
+const NEXT_HEADING = /^##\s+/;
+const ANY_LINK_REF = /^\[[^\]]+\]:\s/;
 const SUB_HEADING = /^###\s+(.*)$/;
-const LINK_REF = /^\[\d+\.\d+\.\d+\]:\s/;
+const VERSION_LINK_REF = /^\[\d+\.\d+\.\d+\]:\s/;
 
 // Секция [Unreleased]: её текст, список под-заголовков и признак пустоты.
 export function parseUnreleased(text) {
@@ -22,7 +25,7 @@ export function parseUnreleased(text) {
   let end = lines.length;
 
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (RELEASE_HEADING.test(lines[index])) {
+    if (NEXT_HEADING.test(lines[index]) || ANY_LINK_REF.test(lines[index])) {
       end = index;
       break;
     }
@@ -48,7 +51,8 @@ export function parseUnreleased(text) {
 }
 
 function isBreaking(section) {
-  return /^(⚠️\s*)?Breaking/i.test(section.replace(/^⚠️?\s*/, ''));
+  // эмодзи-предупреждение перед словом отбрасывается вместе с пробелами
+  return /^Breaking/i.test(section.replace(/^(?:⚠️?|\s)+/u, ''));
 }
 
 // Предложение инкремента по содержимому [Unreleased]:
@@ -84,10 +88,18 @@ export function releaseUnreleased(text, { version, date, repoUrl, artifact }) {
     throw new Error('CHANGELOG has no "## [Unreleased]" section');
   }
 
-  lines[headingIndex] = `## [${version}] ${EM_DASH} ${date}`;
+  // [Unreleased] остаётся на месте пустой: это конвенция обоих журналов и
+  // третий сигнал детекта для следующего релиза
+  lines.splice(
+    headingIndex,
+    1,
+    '## [Unreleased]',
+    '',
+    `## [${version}] ${EM_DASH} ${date}`,
+  );
 
   const linkLine = releaseLink(repoUrl, artifact, version);
-  const firstLinkIndex = lines.findIndex(line => LINK_REF.test(line));
+  const firstLinkIndex = lines.findIndex(line => VERSION_LINK_REF.test(line));
 
   if (firstLinkIndex === -1) {
     // блока ссылок ещё нет — заводим его в конце файла

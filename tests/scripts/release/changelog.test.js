@@ -85,7 +85,13 @@ describe('changelog', () => {
     });
 
     expect(next).toContain('## [0.3.0] — 2026-08-09');
-    expect(next).not.toContain('## [Unreleased]');
+
+    // [Unreleased] остаётся, но становится пустой — иначе следующий релиз
+    // теряет третий сигнал детекта
+    const again = parseUnreleased(next);
+
+    expect(again.present).toBe(true);
+    expect(again.isEmpty).toBe(true);
 
     const links = next
       .split('\n')

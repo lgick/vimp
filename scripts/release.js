@@ -6,11 +6,17 @@ import { parseArgs } from 'node:util';
 import * as ui from './release/ui.js';
 import { createShell, capture, CommandError } from './release/shell.js';
 import { collect, decide, readEngineApiVersion, CRATE_NAME } from './release/plan.js';
-import { discoverGames, validateGame, checkGitState } from './release/games.js';
+import {
+  discoverGames,
+  validateGame,
+  checkGitState,
+  collectGameState,
+  findCratePatches,
+} from './release/games.js';
 import { observeLinks, buildLinkPlan } from './release/links.js';
 import { ensureNpmLogin, ensureCargoLogin } from './release/auth.js';
 import { npmVersion } from './release/registry.js';
-import { increment, isVersion } from './release/semver.js';
+import { increment, isVersion, compareVersions } from './release/semver.js';
 import {
   publishCrate,
   publishEngine,
@@ -29,15 +35,18 @@ const USAGE = `Использование: npm run release -- [флаги]
 
   --dry-run            всё показать и проверить, ничего не публиковать
   --only=<список>      подмножество шагов: crate,engine,games,prod
+  --game=<путь>        игра для неинтерактивного режима (можно повторять)
   --relink             только вернуть локальные npm link и выйти
-  --yes                принять предложенные версии (пуш в main всё равно
-                       спрашивается отдельно)
+  --yes                принять предложенные версии и план целиком; игры при
+                       этом берутся только из --game, а пуш в main всё равно
+                       спрашивается отдельно
   --help
 
 Что скрипт решает сам:
   · какие артефакты публиковать — по изменённым путям от базовой точки
     (тег релиза либо коммит с текущей версией), по разнице локальной и
-    опубликованной версии и по непустой секции [Unreleased];
+    опубликованной версии и по непустой секции [Unreleased]; у игры те же
+    сигналы — своя неопубликованная версия и коммиты после тега vX.Y.Z;
   · какой инкремент предложить — по под-заголовкам [Unreleased]:
     ⚠️ Breaking → minor в 0.x, Added → minor, иначе patch;
   · какие игры-плагины есть на машине — по npm link и соседним каталогам;
@@ -59,6 +68,7 @@ function parseFlags(argv) {
       options: {
         'dry-run': { type: 'boolean', default: false },
         only: { type: 'string' },
+        game: { type: 'string', multiple: true, default: [] },
         relink: { type: 'boolean', default: false },
         yes: { type: 'boolean', default: false },
         help: { type: 'boolean', default: false },
@@ -81,7 +91,7 @@ function parseFlags(argv) {
   return { ...parsed.values, only };
 }
 
-async function preflight(root, { needsRust }) {
+async function preflight(root, { needsRust, games }) {
   const problems = [];
 
   const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -89,40 +99,40 @@ async function preflight(root, { needsRust }) {
     allowFailure: true,
   });
 
-  if (branch.output.trim() !== 'main') {
-    problems.push(`ветка ${branch.output.trim()}, а релиз идёт с main`);
+  if (branch.stdout.trim() !== 'main') {
+    problems.push(`ветка ${branch.stdout.trim()}, а релиз идёт с main`);
   }
 
   const status = await capture('git', ['status', '--short'], { cwd: root });
 
-  if (status.output.trim() !== '') {
+  if (status.stdout.trim() !== '') {
     problems.push('рабочее дерево не чистое');
   }
 
   await capture('git', ['fetch'], { cwd: root, allowFailure: true });
 
-  const behind = await capture(
-    'git',
-    ['rev-list', '--count', 'HEAD..@{u}'],
-    { cwd: root, allowFailure: true },
-  );
+  const behind = await capture('git', ['rev-list', '--count', 'HEAD..@{u}'], {
+    cwd: root,
+    allowFailure: true,
+  });
 
-  if (behind.code === 0 && Number(behind.output.trim()) > 0) {
-    problems.push(`отставание от remote на ${behind.output.trim()} коммит(ов)`);
+  if (behind.code === 0 && Number(behind.stdout.trim()) > 0) {
+    problems.push(`отставание от remote на ${behind.stdout.trim()} коммит(ов)`);
   }
 
-  // локальный [patch.crates-io] публикует крейт, собранный против кода,
-  // которого нет ни у кого больше
-  for (const file of ['Cargo.toml', 'packages/engine/core/Cargo.toml']) {
-    try {
-      const text = await readFile(path.join(root, file), 'utf8');
+  // локальный [patch.crates-io] — и в vimp, и в каждой игре: скрипт собирает
+  // и публикует WASM-ядро игры тоже
+  problems.push(
+    ...(await findCratePatches(root, [
+      'Cargo.toml',
+      'packages/engine/core/Cargo.toml',
+    ])),
+  );
 
-      if (text.includes('[patch.crates-io]')) {
-        problems.push(`${file} содержит [patch.crates-io]`);
-      }
-    } catch {
-      // отсутствующий файл — не проблема этой проверки
-    }
+  for (const game of games) {
+    problems.push(
+      ...(await findCratePatches(game.dir, ['Cargo.toml', 'core/Cargo.toml'])),
+    );
   }
 
   if (needsRust) {
@@ -138,12 +148,53 @@ async function preflight(root, { needsRust }) {
   return problems;
 }
 
-async function selectGames(root, { yes }) {
-  const candidates = await discoverGames(root);
+// Полное состояние игры: валидация файлов, git, опубликованная версия и
+// собственные изменения от тега версии.
+async function describeGame(dir) {
+  const info = await validateGame(dir);
+
+  if (!info.valid) {
+    return info;
+  }
+
+  const published = await npmVersion(info.name);
+  const git = await checkGitState(info.dir);
+  const state = await collectGameState(info.dir, info.version);
+
+  return { ...info, published, git, changed: state.changed, base: state.base };
+}
+
+// В неинтерактивном режиме (--yes) выбор игр делается только явными --game:
+// молча опубликовать всё, что нашлось на машине, — не то, о чём просили.
+async function selectGames(root, { yes, explicit }) {
   const selected = [];
 
+  for (const dir of explicit) {
+    const info = await describeGame(path.resolve(dir));
+
+    if (!info.valid) {
+      throw new UsageError(`--game ${dir}: ${info.problems.join(', ')}`);
+    }
+
+    selected.push(info);
+  }
+
+  if (yes) {
+    if (explicit.length === 0) {
+      ui.log('--yes без --game: игры в релиз не включаются');
+    }
+
+    return selected;
+  }
+
+  const candidates = await discoverGames(root);
+
   for (const candidate of candidates) {
-    const info = await validateGame(candidate.dir);
+    if (selected.some(game => game.dir === candidate.dir)) {
+      continue;
+    }
+
+    const info = await describeGame(candidate.dir);
 
     if (!info.valid) {
       ui.log(
@@ -152,72 +203,67 @@ async function selectGames(root, { yes }) {
       continue;
     }
 
-    const published = await npmVersion(info.name);
-    const git = await checkGitState(info.dir);
-
     ui.log(
       `игра ${info.name} — ${info.dir}\n` +
-        `          локальная ${info.version}, в npm ${published ?? '—'} (${candidate.source})`,
+        `          локальная ${info.version}, в npm ${info.published ?? '—'}, ` +
+        `${info.changed ? 'есть' : 'нет'} коммитов после ${info.base ?? 'тега версии (тега нет)'} ` +
+        `(${candidate.source})`,
     );
 
-    if (git.problems.length) {
+    if (info.git.problems.length) {
       // публиковать из грязного дерева можно только осознанно: в тарбол
       // уедет то, что лежит на диске, а тег встанет на другой коммит
-      ui.error(`  внимание: ${git.problems.join(', ')}`);
+      ui.error(`  внимание: ${info.git.problems.join(', ')}`);
     }
 
-    const take = yes
-      ? git.problems.length === 0
-      : await ui.confirm(
-          'Включить эту игру в релиз?',
-          git.problems.length === 0,
-        );
-
-    if (take) {
-      selected.push({ ...info, published });
+    if (await ui.confirm('Включить эту игру в релиз?', info.git.problems.length === 0)) {
+      selected.push(info);
     }
   }
 
-  if (!yes) {
-    const extra = await ui.ask('Путь к ещё одной игре (пусто — пропустить)', '');
+  const extra = await ui.ask('Путь к ещё одной игре (пусто — пропустить)', '');
 
-    if (extra !== '') {
-      const info = await validateGame(path.resolve(extra));
+  if (extra !== '') {
+    const info = await describeGame(path.resolve(extra));
 
-      if (info.valid) {
-        selected.push({ ...info, published: await npmVersion(info.name) });
-      } else {
-        ui.error(`не годится: ${info.problems.join(', ')}`);
-      }
+    if (info.valid) {
+      selected.push(info);
+    } else {
+      ui.error(`не годится: ${info.problems.join(', ')}`);
     }
   }
 
   return selected;
 }
 
-async function askVersion(label, current, level, reason, { yes }) {
+async function askVersion(label, { current, level, reason, published }, { yes }) {
   const suggested = increment(current, level);
 
   ui.log(`${label}: ${current} → ${suggested} (${reason})`);
 
-  if (yes) {
-    return suggested;
-  }
+  const answer = yes
+    ? suggested
+    : await ui.ask('Enter — принять, либо patch/minor/major/своя версия', suggested);
 
-  const answer = await ui.ask(
-    'Enter — принять, либо patch/minor/major/своя версия',
-    suggested,
-  );
+  const target = ['patch', 'minor', 'major'].includes(answer)
+    ? increment(current, answer)
+    : answer;
 
-  if (['patch', 'minor', 'major'].includes(answer)) {
-    return increment(current, answer);
-  }
-
-  if (!isVersion(answer)) {
+  if (!isVersion(target)) {
     throw new UsageError(`не версия и не уровень инкремента: ${answer}`);
   }
 
-  return answer;
+  // опечатка в версии дошла бы до publish и упала там с 403 — уже после
+  // правки файлов, коммита и тега, откатывать которые пришлось бы руками
+  if (compareVersions(target, current) <= 0) {
+    throw new UsageError(`${target} не больше текущей ${current}`);
+  }
+
+  if (published && compareVersions(target, published) <= 0) {
+    throw new UsageError(`${target} не больше опубликованной ${published}`);
+  }
+
+  return target;
 }
 
 async function runSteps(steps, shell) {
@@ -246,7 +292,7 @@ async function main(argv) {
   // --relink: аварийное восстановление после SIGKILL, когда обработчики
   // возврата линков не отработали
   if (args.relink) {
-    const games = await selectGames(root, { yes: args.yes });
+    const games = await selectGames(root, { yes: args.yes, explicit: args.game });
     const plan = buildLinkPlan(
       games.map(game => ({ ...game, gameLinked: true, engineLinked: true })),
       { root, engineDir },
@@ -261,7 +307,7 @@ async function main(argv) {
 
   const collected = await collect(root);
   const games = args.only.includes('games')
-    ? await selectGames(root, { yes: args.yes })
+    ? await selectGames(root, { yes: args.yes, explicit: args.game })
     : [];
 
   const decision = decide({
@@ -273,6 +319,7 @@ async function main(argv) {
 
   const problems = await preflight(root, {
     needsRust: decision.crate.publish || decision.games.some(game => game.publish),
+    games: decision.games.filter(game => game.publish),
   });
 
   if (problems.length) {
@@ -285,9 +332,7 @@ async function main(argv) {
   if (decision.crate.publish && decision.crate.bump) {
     decision.crate.target = await askVersion(
       CRATE_NAME,
-      decision.crate.current,
-      decision.crate.level,
-      decision.crate.reason,
+      { ...decision.crate, published: collected.crate.published },
       args,
     );
   }
@@ -295,9 +340,7 @@ async function main(argv) {
   if (decision.engine.publish && decision.engine.bump) {
     decision.engine.target = await askVersion(
       'vimp-engine',
-      decision.engine.current,
-      decision.engine.level,
-      decision.engine.reason,
+      { ...decision.engine, published: collected.engine.published },
       args,
     );
   }
@@ -305,21 +348,30 @@ async function main(argv) {
   const selectedGames = decision.games.filter(game => game.publish);
 
   for (const game of selectedGames) {
+    // версия уже поднята руками — публикуем как есть, вопроса нет
+    if (game.bump === false) {
+      game.target = game.version;
+      ui.log(`${game.name}: публикуется как есть, ${game.version}`);
+      continue;
+    }
+
     // у игр CHANGELOG нет: предложение опирается на бамп крейта или
     // ENGINE_API_VERSION, и всегда подтверждается
-    const level = decision.crate.publish || collected.engineApiChanged
-      ? 'minor'
-      : 'patch';
+    const level =
+      decision.crate.publish || collected.engineApiChanged ? 'minor' : 'patch';
 
     game.target = await askVersion(
       game.name,
-      game.version,
-      level,
-      decision.crate.publish
-        ? 'пересборка на новом крейте'
-        : collected.engineApiChanged
-          ? 'новый ENGINE_API_VERSION'
-          : 'изменения игры',
+      {
+        current: game.version,
+        level,
+        published: game.published,
+        reason: decision.crate.publish
+          ? 'пересборка на новом крейте'
+          : collected.engineApiChanged
+            ? 'новый ENGINE_API_VERSION'
+            : 'изменения игры',
+      },
       args,
     );
   }
@@ -439,7 +491,11 @@ async function main(argv) {
         root,
         games: selectedGames,
         report,
-        tags: report.tags.filter(name => !name.includes(': ')),
+        // из vimp пушатся только его собственные теги: теги игр уже уехали
+        // вместе с `git push --tags` в их репозиториях
+        tags: report.tags
+          .filter(entry => entry.repo === root)
+          .map(entry => entry.name),
       });
     }
   } finally {
@@ -450,7 +506,11 @@ async function main(argv) {
 
   ui.log('готово.');
   ui.raw(`  опубликовано: ${report.published.join(', ') || '—'}`);
-  ui.raw(`  теги:         ${report.tags.join(', ') || '—'}`);
+  const tags = report.tags
+    .map(entry => `${path.basename(entry.repo)}/${entry.name}`)
+    .join(', ');
+
+  ui.raw(`  теги:         ${tags || '—'}`);
   ui.raw(`  прод:         ${report.pushed ? 'запушен' : 'не пушился'}`);
 
   if (report.remaining.length) {

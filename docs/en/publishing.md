@@ -16,10 +16,12 @@ What it decides on its own:
   changed since the base point (the release tag, or the commit where the
   current version was set), the local version against the published one
   (`npm view`, `index.crates.io`), and a non-empty `## [Unreleased]`
-  section. Then the propagation rules of the table below apply: a crate
-  release forces every game to be rebuilt and republished, an
-  `ENGINE_API_VERSION` bump makes the game **required** and pushes
-  production strictly last.
+  section. A game has the same three signals of its own — an unpublished
+  local version and commits after its `vX.Y.Z` tag — so a game-only release
+  works without touching the engine. Then the propagation rules of the table
+  below apply: a crate release forces every game to be rebuilt and
+  republished, an `ENGINE_API_VERSION` bump makes the game **required** and
+  pushes production strictly last.
 - **Which version to suggest** — from the sub-headings of `[Unreleased]`:
   `### ⚠️ Breaking` → minor in `0.x` (major from `1.0`), `### Added` →
   minor, anything else → patch. Enter accepts, or type
@@ -45,8 +47,9 @@ outgoing commits and asks for an explicit confirmation, because that push
 | --- | --- |
 | `--dry-run` | prints and checks everything, publishes and commits nothing |
 | `--only=crate,engine,games,prod` | a subset of the steps |
+| `--game=<path>` | a game for non-interactive runs (repeatable) |
 | `--relink` | only restore the local links and exit (after a `SIGKILL`) |
-| `--yes` | accept the suggested versions; the push to `main` is still asked |
+| `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` is still asked |
 | `--help` | the full description |
 
 There is no flag to skip the checks. There is no state file either: the

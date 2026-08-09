@@ -28,6 +28,19 @@ describe('shell', () => {
     expect(error.format()).toContain('exit:    3');
   });
 
+  it('не смешивает stdout и stderr', async () => {
+    const { stdout, stderr, output } = await capture('node', [
+      '-e',
+      'console.log("{\\"v\\":1}"); console.error("warn")',
+    ]);
+
+    expect(stdout.trim()).toBe('{"v":1}');
+    expect(stderr.trim()).toBe('warn');
+    expect(JSON.parse(stdout)).toEqual({ v: 1 });
+    // слитый вывод остаётся для отчёта о падении
+    expect(output).toContain('warn');
+  });
+
   it('allowFailure отдаёт код вместо исключения', async () => {
     const { code } = await capture('node', ['-e', 'process.exit(7)'], {
       allowFailure: true,
@@ -47,8 +60,9 @@ describe('shell', () => {
 
     const checked = await shell.check('echo', 'node', ['-e', 'console.log("ok")']);
 
-    expect(checked.output.trim()).toBe('ok');
-    expect(lines.at(-1)).toContain('▸ echo');
+    expect(checked.stdout.trim()).toBe('ok');
+    expect(lines.at(-2)).toContain('▸ echo');
+    expect(lines.at(-1)).toContain('ok (');
   });
 
   it('падение проверки пробрасывается и в dry-run', async () => {

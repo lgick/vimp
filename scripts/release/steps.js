@@ -2,8 +2,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import * as ui from './ui.js';
-import { releaseUnreleased } from './changelog.js';
+import { parseUnreleased, releaseUnreleased } from './changelog.js';
 import { waitForCrate, waitForNpm } from './registry.js';
+import { isDirectory } from './games.js';
 import { CRATE_NAME, ENGINE_NAME } from './plan.js';
 
 const REPO_URL = 'https://github.com/lgick/vimp';
@@ -25,11 +26,38 @@ async function edit(file, transform, { dryRun }) {
   ui.log(`  · записан ${file}`);
 }
 
+function bumpJsonVersion(file, version, options) {
+  return edit(
+    file,
+    text => text.replace(/"version":\s*"[^"]+"/, `"version": "${version}"`),
+    options,
+  );
+}
+
+function bumpTomlVersion(file, version, options) {
+  return edit(
+    file,
+    text => text.replace(/^version\s*=\s*"[^"]+"/m, `version = "${version}"`),
+    options,
+  );
+}
+
+// Датирование делается по состоянию журнала, а не по факту бампа версии:
+// версия могла быть поднята руками, а секция [Unreleased] остаться живой —
+// тогда без датирования записи двух релизов склеятся в одну.
 async function dateChangelog(file, { version, artifact, dryRun }) {
+  const text = await readFile(file, 'utf8');
+  const unreleased = parseUnreleased(text);
+
+  if (!unreleased.present || unreleased.isEmpty) {
+    ui.log(`  · [Unreleased] пуста, ${path.basename(file)} не датируется`);
+    return;
+  }
+
   await edit(
     file,
-    text =>
-      releaseUnreleased(text, {
+    source =>
+      releaseUnreleased(source, {
         version,
         date: today(),
         repoUrl: REPO_URL,
@@ -39,40 +67,110 @@ async function dateChangelog(file, { version, artifact, dryRun }) {
   );
 }
 
-async function commit(shell, root, message) {
-  await shell.write('git', ['add', '-A'], { cwd: root });
-  await shell.write('git', ['commit', '-m', message], { cwd: root });
+// Коммит только при наличии staged-изменений: на пути «версия уже поднята
+// руками» править нечего, а `git commit` по пустому индексу падает и
+// обрывает релиз. Пути перечисляются явно — `git add -A` затянул бы и
+// побочные файлы, созданные проверками.
+async function commit(shell, cwd, message, paths) {
+  await shell.write('git', ['add', '--', ...paths], { cwd });
+
+  // `git diff --cached --quiet`: 0 — индекс пуст, 1 — есть что коммитить
+  const staged = await shell.read('git', ['diff', '--cached', '--quiet'], {
+    cwd,
+    allowFailure: true,
+  });
+
+  if (staged.code === 0) {
+    ui.log('  · коммитить нечего, шаг пропущен');
+    return false;
+  }
+
+  await shell.write('git', ['commit', '-m', message], { cwd });
+  return true;
 }
 
-async function tag(shell, root, name) {
-  await shell.write('git', ['tag', name], { cwd: root });
+// Существующий тег — след прерванного прогона: `git tag` упал бы уже после
+// публикации, поэтому спрашиваем заранее.
+async function tag(shell, cwd, name) {
+  const existing = await shell.read(
+    'git',
+    ['rev-parse', '--verify', '--quiet', `refs/tags/${name}`],
+    { cwd, allowFailure: true },
+  );
+
+  if (existing.code === 0) {
+    ui.log(`  · тег ${name} уже существует, повторно не ставится`);
+    return;
+  }
+
+  await shell.write('git', ['tag', name], { cwd });
+}
+
+async function awaitRegistry(wait, label) {
+  if (await wait()) {
+    return;
+  }
+
+  // без версии в реестре следующий шаг (cargo update --precise, npm i -D)
+  // поставит старую копию и упадёт непонятно — это развилка, а не примечание
+  const proceed = await ui.confirm(
+    `${label} ещё не виден в реестре. Продолжать?`,
+    false,
+  );
+
+  if (!proceed) {
+    throw new Error(`прервано: ${label} не появился в реестре`);
+  }
+}
+
+// Прогон vimp-sim по игре, установленной в node_modules движка. Подтверждённый
+// чекаут может не быть зависимостью vimp — такую игру проверит шаг прода
+// после перепина.
+async function simGame(shell, root, game) {
+  const relative = path.join('node_modules', game.name);
+
+  if (!(await isDirectory(path.join(root, relative)))) {
+    ui.log(`  · sim пропущен: ${game.name} не установлен в vimp`);
+    return;
+  }
+
+  await shell.check(
+    `npm run sim -- --game ${relative}`,
+    'npm',
+    ['run', 'sim', '--', '--game', relative, '--no-write'],
+    { cwd: root },
+  );
 }
 
 // ── Step A1: крейт ─────────────────────────────────────────────────────────
 
 export async function publishCrate({ shell, root, decision, report }) {
   const { target } = decision;
-  const cargoPath = path.join(root, 'packages/engine/core/Cargo.toml');
 
   ui.log(`крейт ${CRATE_NAME}: релиз ${target}`);
 
   await shell.check('npm run core:test', 'npm', ['run', 'core:test'], { cwd: root });
 
   if (decision.bump) {
-    await edit(
-      cargoPath,
-      text => text.replace(/^version\s*=\s*"[^"]+"/m, `version = "${target}"`),
+    await bumpTomlVersion(
+      path.join(root, 'packages/engine/core/Cargo.toml'),
+      target,
       { dryRun: shell.dryRun },
     );
-    await dateChangelog(path.join(root, 'packages/engine/core/CHANGELOG.md'), {
-      version: target,
-      artifact: CRATE_NAME,
-      dryRun: shell.dryRun,
-    });
   }
 
+  await dateChangelog(path.join(root, 'packages/engine/core/CHANGELOG.md'), {
+    version: target,
+    artifact: CRATE_NAME,
+    dryRun: shell.dryRun,
+  });
+
   await shell.check('cargo build', 'cargo', ['build'], { cwd: root });
-  await commit(shell, root, `chore: bump ${CRATE_NAME} to ${target}`);
+  await commit(shell, root, `chore: bump ${CRATE_NAME} to ${target}`, [
+    'packages/engine/core/Cargo.toml',
+    'packages/engine/core/CHANGELOG.md',
+    'Cargo.lock',
+  ]);
 
   await shell.check(
     'cargo publish --dry-run',
@@ -86,11 +184,14 @@ export async function publishCrate({ shell, root, decision, report }) {
   await tag(shell, root, tagName);
 
   if (!shell.dryRun) {
-    await waitForCrate(CRATE_NAME, target, ui.log);
+    await awaitRegistry(
+      () => waitForCrate(CRATE_NAME, target, ui.log),
+      `${CRATE_NAME}@${target}`,
+    );
   }
 
   report.published.push(`${CRATE_NAME}@${target} (crates.io)`);
-  report.tags.push(tagName);
+  report.tags.push({ repo: root, name: tagName });
 }
 
 // ── Step A2: движок ────────────────────────────────────────────────────────
@@ -108,33 +209,29 @@ export async function publishEngine({ shell, root, decision, games, report }) {
   await shell.check('npm run sim:check', 'npm', ['run', 'sim:check'], { cwd: root });
 
   for (const game of games) {
-    const installed = path.join('node_modules', game.name);
-
-    await shell.check(
-      `npm run sim -- --game ${installed}`,
-      'npm',
-      ['run', 'sim', '--', '--game', installed, '--no-write'],
-      { cwd: root },
-    );
+    await simGame(shell, root, game);
   }
 
   if (decision.bump) {
-    const pkgPath = path.join(root, 'packages/engine/package.json');
-
-    await edit(
-      pkgPath,
-      text => text.replace(/"version":\s*"[^"]+"/, `"version": "${target}"`),
+    await bumpJsonVersion(
+      path.join(root, 'packages/engine/package.json'),
+      target,
       { dryRun: shell.dryRun },
     );
-    await dateChangelog(path.join(root, 'packages/engine/CHANGELOG.md'), {
-      version: target,
-      artifact: ENGINE_NAME,
-      dryRun: shell.dryRun,
-    });
     await shell.write('npm', ['install'], { cwd: root });
   }
 
-  await commit(shell, root, `chore: bump ${ENGINE_NAME} to ${target}`);
+  await dateChangelog(path.join(root, 'packages/engine/CHANGELOG.md'), {
+    version: target,
+    artifact: ENGINE_NAME,
+    dryRun: shell.dryRun,
+  });
+
+  await commit(shell, root, `chore: bump ${ENGINE_NAME} to ${target}`, [
+    'packages/engine/package.json',
+    'packages/engine/CHANGELOG.md',
+    'package-lock.json',
+  ]);
 
   await shell.check(
     'npm publish --dry-run',
@@ -148,11 +245,14 @@ export async function publishEngine({ shell, root, decision, games, report }) {
   await tag(shell, root, tagName);
 
   if (!shell.dryRun) {
-    await waitForNpm(ENGINE_NAME, target, ui.log);
+    await awaitRegistry(
+      () => waitForNpm(ENGINE_NAME, target, ui.log),
+      `${ENGINE_NAME}@${target}`,
+    );
   }
 
   report.published.push(`${ENGINE_NAME}@${target} (npm)`);
-  report.tags.push(tagName);
+  report.tags.push({ repo: root, name: tagName });
 }
 
 // ── Step B: игра ───────────────────────────────────────────────────────────
@@ -162,15 +262,20 @@ export async function publishEngine({ shell, root, decision, games, report }) {
 // применяет ignore-правила и внутри каталогов из files. Логика повторена
 // здесь, чтобы не зависеть от наличия check:pack у конкретной игры.
 export async function checkTarball({ shell, dir }) {
-  const { output } = await shell.check(
+  const { stdout } = await shell.check(
     'npm pack --dry-run',
     'npm',
     ['pack', '--dry-run', '--json', '--ignore-scripts'],
     { cwd: dir },
   );
 
-  const json = output.slice(output.indexOf('['));
-  const files = JSON.parse(json)[0].files.map(entry => entry.path);
+  let files;
+
+  try {
+    files = JSON.parse(stdout)[0].files.map(entry => entry.path);
+  } catch (error) {
+    throw new Error(`не разобрать вывод npm pack --json: ${error.message}`);
+  }
 
   const missing = [];
 
@@ -203,11 +308,16 @@ export async function checkManifest({ dir, engineApi }) {
     );
   }
 
-  const wasmNode = manifest.entries?.wasmNode ?? '';
+  const wasmNode = manifest.entries?.wasmNode;
 
-  if (!/^\.?\/?(core-node|dist)\//.test(wasmNode.replace(/^\.\//, ''))) {
+  // dist/ — единственный каталог, который пакет везёт: путь наружу означает
+  // ERR_MODULE_NOT_FOUND у игрока, а не у нас
+  if (
+    typeof wasmNode !== 'string' ||
+    !wasmNode.replace(/^\.\//, '').startsWith('core-node/')
+  ) {
     throw new Error(
-      `dist/manifest.json: entries.wasmNode="${wasmNode}" указывает вне dist/`,
+      `dist/manifest.json: entries.wasmNode=${JSON.stringify(wasmNode)} указывает вне dist/core-node/`,
     );
   }
 }
@@ -224,7 +334,7 @@ export async function publishGame({
 
   ui.log(`игра ${game.name}: релиз ${game.target}`);
 
-  if (crateVersion && game.hasCargo) {
+  if (crateVersion) {
     await edit(
       path.join(dir, 'core', 'Cargo.toml'),
       text =>
@@ -252,10 +362,10 @@ export async function publishGame({
   await shell.check('npm run build', 'npm', ['run', 'build'], { cwd: dir });
 
   await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: dir });
-  await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], { cwd: dir });
-  await shell.check('npm run core:test', 'npm', ['run', 'core:test'], { cwd: dir });
 
-  for (const script of ['sim', 'sim:scenarios']) {
+  // набор скриптов у игр разный (у street-fighters нет sim/sim:scenarios) —
+  // гоняем то, что объявлено
+  for (const script of ['test', 'core:test', 'sim', 'sim:scenarios']) {
     if (game.scripts[script]) {
       await shell.check(`npm run ${script}`, 'npm', ['run', script], { cwd: dir });
     }
@@ -264,13 +374,17 @@ export async function publishGame({
   await checkTarball({ shell, dir });
   await checkManifest({ dir, engineApi });
 
-  await edit(
-    path.join(dir, 'package.json'),
-    text => text.replace(/"version":\s*"[^"]+"/, `"version": "${game.target}"`),
-    { dryRun: shell.dryRun },
-  );
+  if (game.bump !== false) {
+    await bumpJsonVersion(path.join(dir, 'package.json'), game.target, {
+      dryRun: shell.dryRun,
+    });
+  }
 
-  await commit(shell, dir, `chore: release ${game.target}`);
+  await commit(shell, dir, `chore: release ${game.target}`, [
+    'package.json',
+    'core/Cargo.toml',
+    'Cargo.lock',
+  ]);
   await tag(shell, dir, `v${game.target}`);
 
   await shell.check('npm publish --dry-run', 'npm', ['publish', '--dry-run'], {
@@ -283,11 +397,14 @@ export async function publishGame({
   await shell.write('git', ['push', '--tags'], { cwd: dir });
 
   if (!shell.dryRun) {
-    await waitForNpm(game.name, game.target, ui.log);
+    await awaitRegistry(
+      () => waitForNpm(game.name, game.target, ui.log),
+      `${game.name}@${game.target}`,
+    );
   }
 
   report.published.push(`${game.name}@${game.target} (npm)`);
-  report.tags.push(`${game.name}: v${game.target}`);
+  report.tags.push({ repo: dir, name: `v${game.target}` });
 }
 
 // ── Step C: прод ───────────────────────────────────────────────────────────
@@ -304,14 +421,7 @@ export async function rollOutProduction({ shell, root, games, report, tags }) {
   });
 
   for (const game of games) {
-    const installed = path.join('node_modules', game.name);
-
-    await shell.check(
-      `npm run sim -- --game ${installed}`,
-      'npm',
-      ['run', 'sim', '--', '--game', installed, '--no-write'],
-      { cwd: root },
-    );
+    await simGame(shell, root, game);
   }
 
   if (games.length) {
@@ -319,17 +429,17 @@ export async function rollOutProduction({ shell, root, games, report, tags }) {
       shell,
       root,
       `chore: bump ${games.map(game => `${game.name} to ${game.target}`).join(', ')}`,
+      ['package.json', 'package-lock.json'],
     );
   }
 
-  const pending = await shell.read(
-    'git',
-    ['log', '--oneline', '@{u}..HEAD'],
-    { cwd: root, allowFailure: true },
-  );
+  const pending = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {
+    cwd: root,
+    allowFailure: true,
+  });
 
   ui.raw('');
-  ui.raw(pending.output.trim() || '  (нечего пушить)');
+  ui.raw(pending.stdout.trim() || '  (нечего пушить)');
   ui.raw('');
 
   const approved = await ui.confirm(

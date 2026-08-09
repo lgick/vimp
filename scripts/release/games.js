@@ -17,7 +17,7 @@ async function readJson(file) {
   }
 }
 
-async function isDirectory(target) {
+export async function isDirectory(target) {
   try {
     return (await stat(target)).isDirectory();
   } catch {
@@ -147,6 +147,8 @@ export async function validateGame(dir) {
     }
   }
 
+  // Rust-ядро обязательно: тарбол проверяется на dist/core-node/*.wasm,
+  // то есть игра без своего крейта нерелизуема этим скриптом в принципе
   const cargoPath = path.join(dir, 'core', 'Cargo.toml');
   let cargo = null;
 
@@ -165,9 +167,34 @@ export async function validateGame(dir) {
     name,
     version: pkg.version ?? null,
     scripts: pkg.scripts ?? {},
-    hasCargo: cargo !== null,
     valid: problems.length === 0,
     problems,
+  };
+}
+
+// Третий сигнал детекта для игры: `dist/` под .gitignore, поэтому диффать
+// по путям бессмысленно — считаем коммиты после тега текущей версии.
+export async function collectGameState(dir, version) {
+  const tag = await capture(
+    'git',
+    ['rev-parse', '--verify', '--quiet', `refs/tags/v${version}^{commit}`],
+    { cwd: dir, allowFailure: true },
+  );
+
+  if (tag.code !== 0) {
+    // тега нет — судить не по чему, считаем изменённой и говорим об этом
+    return { changed: true, base: null };
+  }
+
+  const since = await capture(
+    'git',
+    ['rev-list', '--count', `${tag.stdout.trim()}..HEAD`],
+    { cwd: dir, allowFailure: true },
+  );
+
+  return {
+    changed: since.code === 0 && Number(since.stdout.trim()) > 0,
+    base: `тег v${version}`,
   };
 }
 
@@ -184,15 +211,47 @@ export async function checkGitState(dir) {
     return { problems: ['не git-репозиторий'] };
   }
 
-  if (status.output.trim() !== '') {
+  if (status.stdout.trim() !== '') {
     problems.push('рабочее дерево не чистое');
   }
 
   const remote = await capture('git', ['remote'], { cwd: dir, allowFailure: true });
 
-  if (remote.output.trim() === '') {
+  if (remote.stdout.trim() === '') {
     problems.push('нет remote');
   }
 
+  // без upstream `git push` упадёт уже после npm publish — то есть
+  // необратимый шаг сделан, а коммит и тег остались локально
+  const upstream = await capture(
+    'git',
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+    { cwd: dir, allowFailure: true },
+  );
+
+  if (upstream.code !== 0) {
+    problems.push('у текущей ветки нет upstream (git push не сработает)');
+  }
+
   return { problems };
+}
+
+// Локальный [patch.crates-io] публикует ядро, собранное против крейта,
+// которого нет ни у кого больше — первый пункт «Pitfalls» в publishing.md.
+export async function findCratePatches(dir, files) {
+  const problems = [];
+
+  for (const file of files) {
+    try {
+      const text = await readFile(path.join(dir, file), 'utf8');
+
+      if (text.includes('[patch.crates-io]')) {
+        problems.push(`${path.join(dir, file)} содержит [patch.crates-io]`);
+      }
+    } catch {
+      // отсутствующий файл — не проблема этой проверки
+    }
+  }
+
+  return problems;
 }
