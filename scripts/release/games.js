@@ -2,6 +2,7 @@ import { readFile, readdir, realpath, stat, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { capture } from './shell.js';
+import { isVersion } from './semver.js';
 
 // Обнаружение локальных чекаутов игр-плагинов. Ничего не публикуется «само»:
 // найденный кандидат обязан пройти валидацию и получить подтверждение
@@ -133,6 +134,13 @@ export async function validateGame(dir) {
 
   if (!name.startsWith(`${SCOPE}/`)) {
     problems.push(`имя ${name} вне scope ${SCOPE}/*`);
+  }
+
+  // без версии вида X.Y.Z план дойдёт до `git tag vnull`, а пререлиз уронит
+  // compareVersions посреди планирования — обе ошибки уже после сборки и
+  // коммита, то есть ловить их надо здесь
+  if (!isVersion(pkg.version)) {
+    problems.push(`version=${pkg.version ?? '—'} не вида X.Y.Z`);
   }
 
   const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };

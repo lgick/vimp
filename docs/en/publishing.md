@@ -30,9 +30,9 @@ What it decides on its own:
   confirmed.
 - **Which game plugins exist on this machine** — from `npm link` symlinks,
   the global link registry and sibling directories. Every candidate is
-  validated (scope, `vimp-engine` dependency, `build`/`core:build` scripts,
-  `vimp-engine-core` in `core/Cargo.toml`, clean git tree with a remote) and
-  confirmed one by one.
+  validated (scope, an `X.Y.Z` version, `vimp-engine` dependency,
+  `build`/`core:build` scripts, `vimp-engine-core` in `core/Cargo.toml`,
+  clean git tree with a remote and an upstream) and confirmed one by one.
 
 What it does around the work: drops the local `npm link`s before any build
 and restores exactly those pairs afterwards — including on failure and on
@@ -48,7 +48,7 @@ outgoing commits and asks for an explicit confirmation, because that push
 | `--dry-run` | prints and checks everything, publishes and commits nothing |
 | `--only=crate,engine,games,prod` | a subset of the steps |
 | `--game=<path>` | a game for non-interactive runs (repeatable) |
-| `--relink` | only restore the local links and exit (after a `SIGKILL`) |
+| `--relink` | only restore the local links and exit (after a `SIGKILL`); works offline — it asks no registry |
 | `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` is still asked |
 | `--help` | the full description |
 

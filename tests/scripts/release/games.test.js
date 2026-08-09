@@ -89,6 +89,34 @@ describe('validateGame', () => {
     );
   });
 
+  // без этой проверки план дошёл бы до `git tag vnull` — после сборки,
+  // проверок тарбола и коммита
+  it('отбраковывает пакет без version', async () => {
+    const dir = await makeGame('no-version', {
+      pkg: { ...validPkg, version: undefined },
+      cargo: '[dependencies]\nvimp-engine-core = "0.2.1"\n',
+    });
+
+    const info = await validateGame(dir);
+
+    expect(info.valid).toBe(false);
+    expect(info.problems).toContain('version=— не вида X.Y.Z');
+  });
+
+  // пререлизы semver.js намеренно не поддерживает: compareVersions бросил бы
+  // голое «not a semver version» посреди планирования
+  it('отбраковывает пререлизную версию', async () => {
+    const dir = await makeGame('prerelease', {
+      pkg: { ...validPkg, version: '0.5.0-rc.1' },
+      cargo: '[dependencies]\nvimp-engine-core = "0.2.1"\n',
+    });
+
+    const info = await validateGame(dir);
+
+    expect(info.valid).toBe(false);
+    expect(info.problems).toContain('version=0.5.0-rc.1 не вида X.Y.Z');
+  });
+
   it('отбраковывает каталог без package.json', async () => {
     const dir = await makeGame('empty', {});
 

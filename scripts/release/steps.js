@@ -135,7 +135,7 @@ async function simGame(shell, root, game) {
   }
 
   await shell.check(
-    `npm run sim -- --game ${relative}`,
+    `npm run sim -- --game ${relative} --no-write`,
     'npm',
     ['run', 'sim', '--', '--game', relative, '--no-write'],
     { cwd: root },

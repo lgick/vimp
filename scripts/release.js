@@ -36,7 +36,8 @@ const USAGE = `Использование: npm run release -- [флаги]
   --dry-run            всё показать и проверить, ничего не публиковать
   --only=<список>      подмножество шагов: crate,engine,games,prod
   --game=<путь>        игра для неинтерактивного режима (можно повторять)
-  --relink             только вернуть локальные npm link и выйти
+  --relink             только вернуть локальные npm link и выйти; в реестры
+                       не ходит, работает без сети
   --yes                принять предложенные версии и план целиком; игры при
                        этом берутся только из --game, а пуш в main всё равно
                        спрашивается отдельно
@@ -111,13 +112,26 @@ async function preflight(root, { needsRust, games }) {
 
   await capture('git', ['fetch'], { cwd: root, allowFailure: true });
 
-  const behind = await capture('git', ['rev-list', '--count', 'HEAD..@{u}'], {
-    cwd: root,
-    allowFailure: true,
-  });
+  // симметрично проверке у игр: без upstream `git push` шага C упадёт
+  // последним действием — уже после всех необратимых публикаций, а до того
+  // `git log @{u}..HEAD` напечатает «нечего пушить», то есть обратное правде
+  const upstream = await capture(
+    'git',
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+    { cwd: root, allowFailure: true },
+  );
 
-  if (behind.code === 0 && Number(behind.stdout.trim()) > 0) {
-    problems.push(`отставание от remote на ${behind.stdout.trim()} коммит(ов)`);
+  if (upstream.code !== 0) {
+    problems.push('у main нет upstream (git push в шаге C не сработает)');
+  } else {
+    const behind = await capture('git', ['rev-list', '--count', 'HEAD..@{u}'], {
+      cwd: root,
+      allowFailure: true,
+    });
+
+    if (behind.code === 0 && Number(behind.stdout.trim()) > 0) {
+      problems.push(`отставание от remote на ${behind.stdout.trim()} коммит(ов)`);
+    }
   }
 
   // локальный [patch.crates-io] — и в vimp, и в каждой игре: скрипт собирает
@@ -150,11 +164,17 @@ async function preflight(root, { needsRust, games }) {
 
 // Полное состояние игры: валидация файлов, git, опубликованная версия и
 // собственные изменения от тега версии.
-async function describeGame(dir) {
+async function describeGame(dir, { registry = true } = {}) {
   const info = await validateGame(dir);
 
   if (!info.valid) {
     return info;
+  }
+
+  // для --relink хватает имени и пути: лезть в реестр на аварийном пути
+  // значит требовать сеть ровно там, где её может не быть, а линки уже рваны
+  if (!registry) {
+    return { ...info, published: undefined, git: { problems: [] }, changed: false, base: null };
   }
 
   const published = await npmVersion(info.name);
@@ -166,11 +186,11 @@ async function describeGame(dir) {
 
 // В неинтерактивном режиме (--yes) выбор игр делается только явными --game:
 // молча опубликовать всё, что нашлось на машине, — не то, о чём просили.
-async function selectGames(root, { yes, explicit }) {
+async function selectGames(root, { yes, explicit, registry = true }) {
   const selected = [];
 
   for (const dir of explicit) {
-    const info = await describeGame(path.resolve(dir));
+    const info = await describeGame(path.resolve(dir), { registry });
 
     if (!info.valid) {
       throw new UsageError(`--game ${dir}: ${info.problems.join(', ')}`);
@@ -194,7 +214,7 @@ async function selectGames(root, { yes, explicit }) {
       continue;
     }
 
-    const info = await describeGame(candidate.dir);
+    const info = await describeGame(candidate.dir, { registry });
 
     if (!info.valid) {
       ui.log(
@@ -203,12 +223,16 @@ async function selectGames(root, { yes, explicit }) {
       continue;
     }
 
-    ui.log(
-      `игра ${info.name} — ${info.dir}\n` +
-        `          локальная ${info.version}, в npm ${info.published ?? '—'}, ` +
-        `${info.changed ? 'есть' : 'нет'} коммитов после ${info.base ?? 'тега версии (тега нет)'} ` +
-        `(${candidate.source})`,
-    );
+    if (registry) {
+      ui.log(
+        `игра ${info.name} — ${info.dir}\n` +
+          `          локальная ${info.version}, в npm ${info.published ?? '—'}, ` +
+          `${info.changed ? 'есть' : 'нет'} коммитов после ${info.base ?? 'тега версии (тега нет)'} ` +
+          `(${candidate.source})`,
+      );
+    } else {
+      ui.log(`игра ${info.name} — ${info.dir} (${candidate.source})`);
+    }
 
     if (info.git.problems.length) {
       // публиковать из грязного дерева можно только осознанно: в тарбол
@@ -216,7 +240,11 @@ async function selectGames(root, { yes, explicit }) {
       ui.error(`  внимание: ${info.git.problems.join(', ')}`);
     }
 
-    if (await ui.confirm('Включить эту игру в релиз?', info.git.problems.length === 0)) {
+    const question = registry
+      ? 'Включить эту игру в релиз?'
+      : 'Вернуть линки этой игре?';
+
+    if (await ui.confirm(question, info.git.problems.length === 0)) {
       selected.push(info);
     }
   }
@@ -224,7 +252,7 @@ async function selectGames(root, { yes, explicit }) {
   const extra = await ui.ask('Путь к ещё одной игре (пусто — пропустить)', '');
 
   if (extra !== '') {
-    const info = await describeGame(path.resolve(extra));
+    const info = await describeGame(path.resolve(extra), { registry });
 
     if (info.valid) {
       selected.push(info);
@@ -292,7 +320,11 @@ async function main(argv) {
   // --relink: аварийное восстановление после SIGKILL, когда обработчики
   // возврата линков не отработали
   if (args.relink) {
-    const games = await selectGames(root, { yes: args.yes, explicit: args.game });
+    const games = await selectGames(root, {
+      yes: args.yes,
+      explicit: args.game,
+      registry: false,
+    });
     const plan = buildLinkPlan(
       games.map(game => ({ ...game, gameLinked: true, engineLinked: true })),
       { root, engineDir },

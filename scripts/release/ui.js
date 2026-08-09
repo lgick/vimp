@@ -39,13 +39,13 @@ export async function ask(question, fallback = '') {
   return answer.trim() === '' ? fallback : answer.trim();
 }
 
-const YES = ['д', 'да', 'y', 'yes'];
-const NO = ['н', 'нет', 'n', 'no'];
+const YES = ['y', 'yes'];
+const NO = ['n', 'no'];
 
 // неизвестный ввод переспрашивается, а не толкуется как «нет»: на вопросе
 // про пуш в прод угадывание обходится дорого
 export async function confirm(question, fallback = true) {
-  const hint = fallback ? 'Д/н' : 'д/Н';
+  const hint = fallback ? 'Y/n' : 'y/N';
 
   for (;;) {
     const answer = (await reader().question(`${PREFIX} ${question} (${hint}): `))
@@ -64,7 +64,7 @@ export async function confirm(question, fallback = true) {
       return false;
     }
 
-    error('ответьте «д» или «н»');
+    error('ответьте «y» или «n»');
   }
 }
 
