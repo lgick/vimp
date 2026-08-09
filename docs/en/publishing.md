@@ -1,5 +1,64 @@
 # Publishing a release
 
+## The short way: `npm run release`
+
+One command replaces the ~25 manual steps below. It runs from the `vimp`
+repository, on a clean `main`, and asks before anything irreversible:
+
+```bash
+npm run release -- --dry-run     # rehearsal: full checks, nothing published
+npm run release
+```
+
+What it decides on its own:
+
+- **Which artifacts to publish** — from three independent signals: paths
+  changed since the base point (the release tag, or the commit where the
+  current version was set), the local version against the published one
+  (`npm view`, `index.crates.io`), and a non-empty `## [Unreleased]`
+  section. Then the propagation rules of the table below apply: a crate
+  release forces every game to be rebuilt and republished, an
+  `ENGINE_API_VERSION` bump makes the game **required** and pushes
+  production strictly last.
+- **Which version to suggest** — from the sub-headings of `[Unreleased]`:
+  `### ⚠️ Breaking` → minor in `0.x` (major from `1.0`), `### Added` →
+  minor, anything else → patch. Enter accepts, or type
+  `patch`/`minor`/`major`/an explicit version. Games have no changelog, so
+  their suggestion follows the crate/`ENGINE_API_VERSION` bump and is always
+  confirmed.
+- **Which game plugins exist on this machine** — from `npm link` symlinks,
+  the global link registry and sibling directories. Every candidate is
+  validated (scope, `vimp-engine` dependency, `build`/`core:build` scripts,
+  `vimp-engine-core` in `core/Cargo.toml`, clean git tree with a remote) and
+  confirmed one by one.
+
+What it does around the work: drops the local `npm link`s before any build
+and restores exactly those pairs afterwards — including on failure and on
+Ctrl-C; checks the npm/cargo logins only for the registries it will actually
+publish to; runs every check with captured output (one status line each, the
+full log printed only on failure — a failed check stops the run **before**
+publishing). It never pushes `main` until the last step, where it prints the
+outgoing commits and asks for an explicit confirmation, because that push
+**is** the production deploy.
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | prints and checks everything, publishes and commits nothing |
+| `--only=crate,engine,games,prod` | a subset of the steps |
+| `--relink` | only restore the local links and exit (after a `SIGKILL`) |
+| `--yes` | accept the suggested versions; the push to `main` is still asked |
+| `--help` | the full description |
+
+There is no flag to skip the checks. There is no state file either: the
+repositories and the registries are the source of truth, so a re-run after a
+failure sees the version that already made it out and does not publish it
+twice.
+
+The steps below are what the script does under the hood — and how to do it
+by hand.
+
+## The artifacts
+
 Four artifacts ship independently, and they depend on each other in one
 fixed order:
 

@@ -1,0 +1,198 @@
+import { readFile, readdir, realpath, stat, lstat } from 'node:fs/promises';
+import path from 'node:path';
+
+import { capture } from './shell.js';
+
+// Обнаружение локальных чекаутов игр-плагинов. Ничего не публикуется «само»:
+// найденный кандидат обязан пройти валидацию и получить подтверждение
+// человека — список ниже только сокращает ручной ввод путей.
+
+const SCOPE = '@vimp-games';
+
+async function readJson(file) {
+  try {
+    return JSON.parse(await readFile(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function isDirectory(target) {
+  try {
+    return (await stat(target)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// Чекаут — это каталог с git и исходниками, а не установленная копия из
+// реестра: отличаем по .git внутри.
+async function isCheckout(dir) {
+  return isDirectory(path.join(dir, '.git'));
+}
+
+async function fromScopeDir(scopeDir, source) {
+  const found = [];
+
+  let entries;
+
+  try {
+    entries = await readdir(scopeDir);
+  } catch {
+    return found;
+  }
+
+  for (const entry of entries) {
+    const target = path.join(scopeDir, entry);
+
+    try {
+      const link = await lstat(target);
+      const resolved = link.isSymbolicLink() ? await realpath(target) : target;
+
+      if (await isCheckout(resolved)) {
+        found.push({ dir: resolved, source });
+      }
+    } catch {
+      // недоступный кандидат просто выпадает из списка
+    }
+  }
+
+  return found;
+}
+
+async function fromSiblings(root) {
+  const parent = path.dirname(root);
+  const found = [];
+
+  let entries;
+
+  try {
+    entries = await readdir(parent);
+  } catch {
+    return found;
+  }
+
+  for (const entry of entries) {
+    const dir = path.join(parent, entry);
+
+    if (dir === root || !(await isDirectory(dir))) {
+      continue;
+    }
+
+    const pkg = await readJson(path.join(dir, 'package.json'));
+
+    if (pkg?.name?.startsWith(`${SCOPE}/`)) {
+      found.push({ dir, source: 'соседний каталог' });
+    }
+  }
+
+  return found;
+}
+
+export async function discoverGames(root) {
+  const globalRoot = await capture('npm', ['root', '-g'], {
+    allowFailure: true,
+  });
+
+  const sources = [
+    ...(await fromScopeDir(
+      path.join(root, 'node_modules', SCOPE),
+      'npm link в vimp',
+    )),
+    ...(globalRoot.code === 0
+      ? await fromScopeDir(
+          path.join(globalRoot.output.trim(), SCOPE),
+          'глобальный npm link',
+        )
+      : []),
+    ...(await fromSiblings(root)),
+  ];
+
+  const unique = new Map();
+
+  for (const candidate of sources) {
+    if (!unique.has(candidate.dir)) {
+      unique.set(candidate.dir, candidate);
+    }
+  }
+
+  return [...unique.values()];
+}
+
+// Валидация кандидата по файлам на диске (без сети и без git — состояние
+// репозитория проверяется отдельно, checkGitState).
+export async function validateGame(dir) {
+  const pkg = await readJson(path.join(dir, 'package.json'));
+  const problems = [];
+
+  if (!pkg) {
+    return { dir, valid: false, problems: ['нет package.json'] };
+  }
+
+  const name = pkg.name ?? '(без имени)';
+
+  if (!name.startsWith(`${SCOPE}/`)) {
+    problems.push(`имя ${name} вне scope ${SCOPE}/*`);
+  }
+
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
+
+  if (!deps['vimp-engine']) {
+    problems.push('vimp-engine отсутствует в зависимостях');
+  }
+
+  for (const script of ['build', 'core:build']) {
+    if (!pkg.scripts?.[script]) {
+      problems.push(`нет скрипта ${script}`);
+    }
+  }
+
+  const cargoPath = path.join(dir, 'core', 'Cargo.toml');
+  let cargo = null;
+
+  try {
+    cargo = await readFile(cargoPath, 'utf8');
+  } catch {
+    problems.push('нет core/Cargo.toml');
+  }
+
+  if (cargo && !/^\s*vimp-engine-core\s*=/m.test(cargo)) {
+    problems.push('core/Cargo.toml не зависит от vimp-engine-core');
+  }
+
+  return {
+    dir,
+    name,
+    version: pkg.version ?? null,
+    scripts: pkg.scripts ?? {},
+    hasCargo: cargo !== null,
+    valid: problems.length === 0,
+    problems,
+  };
+}
+
+// Состояние git-репозитория игры: чистое дерево и настроенный remote.
+export async function checkGitState(dir) {
+  const problems = [];
+
+  const status = await capture('git', ['status', '--short'], {
+    cwd: dir,
+    allowFailure: true,
+  });
+
+  if (status.code !== 0) {
+    return { problems: ['не git-репозиторий'] };
+  }
+
+  if (status.output.trim() !== '') {
+    problems.push('рабочее дерево не чистое');
+  }
+
+  const remote = await capture('git', ['remote'], { cwd: dir, allowFailure: true });
+
+  if (remote.output.trim() === '') {
+    problems.push('нет remote');
+  }
+
+  return { problems };
+}

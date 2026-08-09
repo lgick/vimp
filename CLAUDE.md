@@ -55,7 +55,8 @@ flagged when reporting the work**, unasked — which artifact, which bump
 follow (crate bump → `vimp-tanks/core/Cargo.toml`; `ENGINE_API_VERSION` →
 plugin rebuild + republish), and which pre-publish checks are needed vs.
 actually run. Never edit a `version`, never publish — the developer does
-both. Procedure: `docs/en/publishing.md`.
+both — `npm run release` drives the whole procedure for them. Details:
+`docs/en/publishing.md`.
 
 ## Commands
 

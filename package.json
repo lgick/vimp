@@ -32,7 +32,8 @@
     "core:test": "cargo test --workspace",
     "sim": "node packages/engine/bin/vimp-sim.js",
     "sim:replay": "node packages/engine/bin/vimp-sim.js --scenario",
-    "sim:check": "node packages/engine/bin/vimp-sim.js --no-write"
+    "sim:check": "node packages/engine/bin/vimp-sim.js --no-write",
+    "release": "node scripts/release.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",

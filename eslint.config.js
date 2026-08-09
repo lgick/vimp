@@ -99,7 +99,7 @@ export default [
       'packages/engine/src/lib/**/*.js',
       'packages/engine/src/config/**/*.js',
       'packages/engine/scripts/**/*.mjs',
-      'scripts/*.js',
+      'scripts/**/*.js',
     ],
     languageOptions: {
       ecmaVersion: 'latest',
