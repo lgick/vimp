@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { capture } from './shell.js';
 import { compareVersions, increment } from './semver.js';
-import { parseUnreleased, suggestLevel, validateSections } from './changelog.js';
+import { parseUnreleased, suggestLevel, validateUnreleased } from './changelog.js';
 import { npmVersion, crateVersion } from './registry.js';
 
 // «Что публиковать» выводится из трёх независимых сигналов: изменённые пути
@@ -70,6 +70,11 @@ export function decide(input) {
     crate,
     engine,
     games,
+    // журнал непубликуемого артефакта релиз не блокирует: опечатка в чужом
+    // CHANGELOG не должна мешать выпустить один крейт
+    problems: [crate, engine]
+      .filter(artifact => artifact.publish)
+      .flatMap(artifact => artifact.problems ?? []),
     prod: {
       push: engine.publish || publishedGames.length > 0,
       reason: engine.publish
@@ -89,11 +94,13 @@ function decideArtifact(artifact, name) {
     return { name, publish: false, reason: 'артефакт не рассматривался' };
   }
 
-  const { local, published, changed, unreleased } = artifact;
+  const { local, published, changed, unreleased, changelogFile } = artifact;
   const ahead = published === null || compareVersions(local, published) > 0;
   // контракт заголовков проверяется и на пути «версия поднята руками»:
   // журнал всё равно датируется при публикации
-  const problems = validateSections(unreleased?.sections ?? []);
+  const problems = validateUnreleased(unreleased).map(problem =>
+    changelogFile ? `${changelogFile}: ${problem}` : problem,
+  );
 
   // версия уже поднята, но не опубликована — публикуем как есть, без бампа
   if (ahead) {
@@ -273,6 +280,7 @@ export async function collect(root) {
       published: cratePublished,
       changed: await changedSince(root, crateBase.ref, cratePaths),
       base: crateBase,
+      changelogFile: 'packages/engine/core/CHANGELOG.md',
       unreleased: parseUnreleased(crateChangelog),
     },
     engine: {
@@ -280,6 +288,7 @@ export async function collect(root) {
       published: enginePublished,
       changed: await changedSince(root, engineBase.ref, enginePaths),
       base: engineBase,
+      changelogFile: 'packages/engine/CHANGELOG.md',
       unreleased: parseUnreleased(engineChangelog),
     },
   };

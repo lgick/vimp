@@ -2,9 +2,15 @@ import { describe, it, expect } from 'vitest';
 
 import { decide } from '../../../scripts/release/plan.js';
 
-const quiet = { isEmpty: true, sections: [] };
-const added = { isEmpty: false, sections: ['Added'] };
-const breaking = { isEmpty: false, sections: ['⚠️ Breaking — что-то'] };
+// Форма как у parseUnreleased: без present секция читается как отсутствующая
+const quiet = { present: true, isEmpty: true, sections: [] };
+const added = { present: true, isEmpty: false, sections: ['Added'] };
+// пара Breaking + Migration обязательна — журнал без неё контракт отвергает
+const breaking = {
+  present: true,
+  isEmpty: false,
+  sections: ['⚠️ Breaking — что-то', 'Migration'],
+};
 
 function input(overrides = {}) {
   return {
@@ -193,22 +199,55 @@ describe('decide', () => {
 
   // нарушение контракта заголовков доезжает до preflight и останавливает
   // релиз до первой изменяющей команды
-  it('прокидывает проблемы заголовков в артефакт', () => {
+  it('прокидывает проблемы заголовков в артефакт и в общий список', () => {
     const plan = decide(
       input({
         engine: {
           local: '0.6.0',
           published: '0.6.0',
           changed: true,
-          unreleased: { isEmpty: false, sections: ['Improved'] },
+          changelogFile: 'packages/engine/CHANGELOG.md',
+          unreleased: { present: true, isEmpty: false, sections: ['Improved'] },
         },
       }),
     );
 
     expect(plan.engine.publish).toBe(true);
     expect(plan.engine.problems).toHaveLength(1);
-    expect(plan.engine.problems[0]).toContain('«### Improved» не из списка');
+    // префикс с именем журнала — часть контракта: preflight печатает строку как есть
+    expect(plan.engine.problems[0]).toMatch(
+      /^packages\/engine\/CHANGELOG\.md: заголовок «### Improved» не из списка \(Breaking, /,
+    );
+    expect(plan.problems).toEqual(plan.engine.problems);
     expect(plan.crate.problems).toEqual([]);
+  });
+
+  // журнал движка сломан, но движок не публикуется — релиз крейта из-за
+  // этого блокировать нельзя
+  it('не тянет в общий список проблемы непубликуемого артефакта', () => {
+    const plan = decide(
+      input({
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          changelogFile: 'packages/engine/core/CHANGELOG.md',
+          unreleased: added,
+        },
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: false,
+          changelogFile: 'packages/engine/CHANGELOG.md',
+          unreleased: { present: false, isEmpty: true, sections: [] },
+        },
+      }),
+    );
+
+    expect(plan.crate.publish).toBe(true);
+    expect(plan.engine.publish).toBe(false);
+    expect(plan.engine.problems).toHaveLength(1);
+    expect(plan.problems).toEqual([]);
   });
 
   it('игнорирует артефакт, исключённый флагом --only', () => {

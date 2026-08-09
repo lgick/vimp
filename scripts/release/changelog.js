@@ -9,11 +9,16 @@ const UNRELEASED_HEADING = /^##\s+\[Unreleased\]\s*$/;
 // секция кончается на любом следующем `## ` или на блоке ссылок внизу:
 // в журнале нового пакета релизных заголовков ещё нет вовсе
 const NEXT_HEADING = /^##\s+/;
+const RELEASE_HEADING = /^##\s+\[/;
 const ANY_LINK_REF = /^\[[^\]]+\]:\s/;
 const SUB_HEADING = /^###\s+(.*)$/;
 const VERSION_LINK_REF = /^\[\d+\.\d+\.\d+\]:\s/;
+// ограда блока кода: ``` или ~~~ (CommonMark разрешает до трёх пробелов
+// отступа и любую длину от трёх символов)
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 
 // Секция [Unreleased]: её текст, список под-заголовков и признак пустоты.
+// `terminator` и `openFence` нужны validateUnreleased.
 export function parseUnreleased(text) {
   const lines = text.split('\n');
   const start = lines.findIndex(line => UNRELEASED_HEADING.test(line));
@@ -22,19 +27,36 @@ export function parseUnreleased(text) {
     return { present: false, sections: [], body: '', isEmpty: true };
   }
 
+  const sections = [];
   let end = lines.length;
+  let fence = null;
+  let terminator = null;
 
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (NEXT_HEADING.test(lines[index]) || ANY_LINK_REF.test(lines[index])) {
+    const line = lines[index];
+    const fenced = FENCE.exec(line)?.[1];
+
+    // внутри блока кода строки не разбираются: пример журнала в Migration
+    // иначе читается как настоящие заголовки и меняет уровень релиза
+    if (fence) {
+      if (fenced && fenced[0] === fence[0] && fenced.length >= fence.length) {
+        fence = null;
+      }
+
+      continue;
+    }
+
+    if (fenced) {
+      fence = fenced;
+      continue;
+    }
+
+    if (NEXT_HEADING.test(line) || ANY_LINK_REF.test(line)) {
       end = index;
+      terminator = NEXT_HEADING.test(line) ? line.trim() : null;
       break;
     }
-  }
 
-  const body = lines.slice(start + 1, end).join('\n');
-  const sections = [];
-
-  for (const line of lines.slice(start + 1, end)) {
     const match = SUB_HEADING.exec(line);
 
     if (match) {
@@ -42,11 +64,15 @@ export function parseUnreleased(text) {
     }
   }
 
+  const body = lines.slice(start + 1, end).join('\n').trim();
+
   return {
     present: true,
     sections,
-    body: body.trim(),
-    isEmpty: body.trim() === '',
+    body,
+    isEmpty: body === '',
+    terminator,
+    openFence: fence !== null,
   };
 }
 
@@ -73,7 +99,7 @@ const HEADING_SUFFIX = /\s+[—(].*$/u;
 // Имя заголовка без эмодзи-предупреждения и без уточнения. Незнакомое слово
 // возвращается как есть — отбраковка это дело validateSections.
 export function sectionName(heading) {
-  const bare = String(heading)
+  const bare = heading
     .replace(/^(?:⚠️?|\s)+/u, '')
     .replace(HEADING_SUFFIX, '')
     .trim();
@@ -92,8 +118,12 @@ export function validateSections(sections) {
     const name = sectionName(section);
 
     if (name === null || !SECTION_LEVELS.has(name)) {
+      // хвост про регистр и разделитель: `### added` и `### Added - x` дают
+      // ту же ошибку, что и выдуманное имя, а причина у них другая
       problems.push(
-        `заголовок «### ${section}» не из списка (${[...SECTION_LEVELS.keys()].join(', ')})`,
+        `заголовок «### ${section}» не из списка ` +
+          `(${[...SECTION_LEVELS.keys()].join(', ')}); имя чувствительно к регистру, ` +
+          'уточнение отделяется « — » или круглыми скобками',
       );
       continue;
     }
@@ -115,21 +145,65 @@ export function validateSections(sections) {
   return problems;
 }
 
-// Предложение инкремента по содержимому [Unreleased]: старший заголовок
-// секции и решает. Неизвестные имена сюда не доходят — их снимает
+// Проверка секции целиком. Отдельно от validateSections потому, что три
+// способа не дать парсеру найти ни одного заголовка — `## Added` вместо
+// `### Added`, записи списком без заголовка, отсутствующая секция — молча
+// давали бы patch, то есть ровно ту дыру, которую контракт закрывает.
+export function validateUnreleased(unreleased) {
+  if (!unreleased?.present) {
+    return ['нет секции ## [Unreleased] — уровень релиза выводить не из чего'];
+  }
+
+  const problems = validateSections(unreleased.sections);
+
+  if (unreleased.openFence) {
+    problems.push(
+      'в [Unreleased] не закрыт блок кода — секция дочитана до конца файла',
+    );
+  }
+
+  if (unreleased.terminator && !RELEASE_HEADING.test(unreleased.terminator)) {
+    problems.push(
+      `секция [Unreleased] оборвана заголовком «${unreleased.terminator}» — вероятно, ### написан как ##`,
+    );
+  }
+
+  // пустая секция при изменённых файлах законна (правка только фикстур или
+  // bin/), а вот текст без единого заголовка уехал бы в patch
+  if (!unreleased.isEmpty && unreleased.sections.length === 0) {
+    problems.push('в [Unreleased] есть записи, но нет ни одного ### под-заголовка');
+  }
+
+  return problems;
+}
+
+// Старшинство уровней: старший заголовок секции и решает.
+const LEVEL_ORDER = ['patch', 'minor', 'breaking'];
+const LEVEL_REASON = new Map([
+  ['breaking', '### ⚠️ Breaking'],
+  ['minor', '### Added'],
+  ['patch', 'без ### Added и ### ⚠️ Breaking'],
+]);
+
+// Предложение инкремента по содержимому [Unreleased]. Уровни берутся из
+// SECTION_LEVELS, чтобы новый заголовок заводился одной строкой в карте, а
+// не правкой в двух местах. Неизвестные имена сюда не доходят — их снимает
 // validateSections до начала работ.
 export function suggestLevel(sections, version) {
-  const names = sections.map(sectionName);
+  let top = 'patch';
 
-  if (names.includes('Breaking')) {
-    return { level: levelForBreaking(version), reason: '### ⚠️ Breaking' };
+  for (const section of sections) {
+    const level = SECTION_LEVELS.get(sectionName(section));
+
+    if (level && LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(top)) {
+      top = level;
+    }
   }
 
-  if (names.includes('Added')) {
-    return { level: 'minor', reason: '### Added' };
-  }
-
-  return { level: 'patch', reason: 'без ### Added и ### ⚠️ Breaking' };
+  return {
+    level: top === 'breaking' ? levelForBreaking(version) : top,
+    reason: LEVEL_REASON.get(top),
+  };
 }
 
 export function tagFor(artifact, version) {

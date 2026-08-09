@@ -94,7 +94,10 @@ function parseFlags(argv) {
   return { ...parsed.values, only };
 }
 
-async function preflight(root, { needsRust, games, changelog = [] }) {
+// Всё, что не зависит от выбора игр: гоняется до опроса, чтобы не заставлять
+// отвечать на десяток вопросов ради «дерево не чистое». Проблемы контракта
+// заголовков приезжают сюда же — список отказа остаётся одним.
+async function preflightRepo(root, { changelog = [] }) {
   const problems = [...changelog];
 
   const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -136,8 +139,8 @@ async function preflight(root, { needsRust, games, changelog = [] }) {
     }
   }
 
-  // локальный [patch.crates-io] — и в vimp, и в каждой игре: скрипт собирает
-  // и публикует WASM-ядро игры тоже
+  // локальный [patch.crates-io] публикует ядро, собранное против крейта,
+  // которого нет ни у кого больше
   problems.push(
     ...(await findCratePatches(root, [
       'Cargo.toml',
@@ -145,6 +148,15 @@ async function preflight(root, { needsRust, games, changelog = [] }) {
     ])),
   );
 
+  return problems;
+}
+
+// Остаток проверок, известный только после выбора игр.
+async function preflightGames(games, { needsRust }) {
+  const problems = [];
+
+  // [patch.crates-io] проверяется и в каждой игре: скрипт собирает и
+  // публикует их WASM-ядра тоже
   for (const game of games) {
     problems.push(
       ...(await findCratePatches(game.dir, ['Cargo.toml', 'core/Cargo.toml'])),
@@ -162,22 +174,6 @@ async function preflight(root, { needsRust, games, changelog = [] }) {
   }
 
   return problems;
-}
-
-// Нарушения контракта заголовков [Unreleased] — только для того, что реально
-// публикуется: опечатка в журнале движка не должна блокировать релиз одного
-// крейта. Контракт описан в docs/en/publishing.md.
-function changelogProblems(decision) {
-  const journals = [
-    ['packages/engine/core/CHANGELOG.md', decision.crate],
-    ['packages/engine/CHANGELOG.md', decision.engine],
-  ];
-
-  return journals.flatMap(([file, artifact]) =>
-    artifact.publish
-      ? (artifact.problems ?? []).map(problem => `${file}: ${problem}`)
-      : [],
-  );
 }
 
 // Полное состояние игры: валидация файлов, git, опубликованная версия и
@@ -312,6 +308,19 @@ async function askVersion(label, { current, level, reason, published }, { yes })
   return target;
 }
 
+// Единственный формат отказа до начала работ: список причин и выход с 1.
+// Возвращает true, если релиз останавливается
+function reportProblems(problems) {
+  if (problems.length === 0) {
+    return false;
+  }
+
+  ui.error('preflight не пройден:');
+  problems.forEach(problem => ui.raw(`  - ${problem}`));
+
+  return true;
+}
+
 async function runSteps(steps, shell) {
   for (const step of steps) {
     ui.log(`  · ${step.label}`);
@@ -356,26 +365,39 @@ async function main(argv) {
   ui.log('сбор состояния репозитория и реестров…');
 
   const collected = await collect(root);
+  const scoped = {
+    crate: args.only.includes('crate') ? collected.crate : null,
+    engine: args.only.includes('engine') ? collected.engine : null,
+    engineApiChanged: collected.engineApiChanged,
+  };
+
+  // Решение по крейту и движку от игр не зависит, а вопросов про игры бывает
+  // с десяток: сперва всё, что можно проверить без них. decide() чистая,
+  // второй вызов ниже ничего не стоит
+  const artifacts = decide({ ...scoped, games: [] });
+
+  if (
+    reportProblems(
+      // нарушения контракта заголовков [Unreleased]; собраны в decide(),
+      // который под тестами. Контракт описан в docs/en/publishing.md
+      await preflightRepo(root, { changelog: artifacts.problems }),
+    )
+  ) {
+    return 1;
+  }
+
   const games = args.only.includes('games')
     ? await selectGames(root, { yes: args.yes, explicit: args.game })
     : [];
 
-  const decision = decide({
-    crate: args.only.includes('crate') ? collected.crate : null,
-    engine: args.only.includes('engine') ? collected.engine : null,
-    engineApiChanged: collected.engineApiChanged,
-    games,
+  const decision = decide({ ...scoped, games });
+  const publishedGames = decision.games.filter(game => game.publish);
+
+  const problems = await preflightGames(publishedGames, {
+    needsRust: decision.crate.publish || publishedGames.length > 0,
   });
 
-  const problems = await preflight(root, {
-    needsRust: decision.crate.publish || decision.games.some(game => game.publish),
-    games: decision.games.filter(game => game.publish),
-    changelog: changelogProblems(decision),
-  });
-
-  if (problems.length) {
-    ui.error('preflight не пройден:');
-    problems.forEach(problem => ui.raw(`  - ${problem}`));
+  if (reportProblems(problems)) {
     return 1;
   }
 

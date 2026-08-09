@@ -146,17 +146,27 @@ Keep a Changelog names plus two of this project's own:
 | `### Security` | patch | a closed vulnerability |
 | `### Migration` | — | the mandatory companion of `⚠️ Breaking`; never stands alone |
 
-What the script enforces, in preflight, before anything is built or
-published:
+What the script enforces in preflight, before anything is built or published
+— for the artifacts of that run only, so a typo in a journal that stays put
+blocks nobody:
 
 - **A heading outside the list stops the release.** An unknown name would
   otherwise fall through to patch and silently ship an under-numbered
   release.
 - **`⚠️ Breaking` and `### Migration` come as a pair**, in both directions.
   One section may hold several such pairs — `core/CHANGELOG.md` does.
-- A heading may carry a clarification after ` — ` or in brackets:
+- A heading may carry a clarification after ` — ` or in round brackets:
   `### ⚠️ Breaking — reset() also clears my_game_id`,
-  `### Migration (game plugins)`.
+  `### Migration (game plugins)`. Names are case-sensitive; the `⚠️` itself
+  is optional for the parser, but both journals carry it — keep to the form
+  in the table.
+- **Every entry sits under a `###` heading.** Text with no heading above it,
+  a `##` where a `###` was meant, and a missing `[Unreleased]` section all
+  stop the release too — each of them would otherwise leave the section
+  headingless and quietly settle on patch. An empty `[Unreleased]` is fine:
+  a change to fixtures or `bin/` is not an entry.
+- **Examples inside code fences are not parsed** (``` ``` ``` or `~~~`), so a
+  `Migration` section may show a changelog snippet without moving the level.
 
 What it cannot check — and the reason the level is chosen this early:
 
