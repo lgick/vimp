@@ -24,7 +24,16 @@ export function parseUnreleased(text) {
   const start = lines.findIndex(line => UNRELEASED_HEADING.test(line));
 
   if (start === -1) {
-    return { present: false, sections: [], body: '', isEmpty: true };
+    // форма возврата одна на оба выхода: потребитель не должен различать
+    // «секции нет» и «поля не заполнены»
+    return {
+      present: false,
+      sections: [],
+      body: '',
+      isEmpty: true,
+      terminator: null,
+      openFence: false,
+    };
   }
 
   const sections = [];
@@ -113,22 +122,28 @@ export function sectionName(heading) {
 export function validateSections(sections) {
   const problems = [];
   const names = [];
+  let unknown = 0;
 
   for (const section of sections) {
     const name = sectionName(section);
 
     if (name === null || !SECTION_LEVELS.has(name)) {
-      // хвост про регистр и разделитель: `### added` и `### Added - x` дают
-      // ту же ошибку, что и выдуманное имя, а причина у них другая
-      problems.push(
-        `заголовок «### ${section}» не из списка ` +
-          `(${[...SECTION_LEVELS.keys()].join(', ')}); имя чувствительно к регистру, ` +
-          'уточнение отделяется « — » или круглыми скобками',
-      );
+      problems.push(`заголовок «### ${section}» не из списка`);
+      unknown += 1;
       continue;
     }
 
     names.push(name);
+  }
+
+  // подсказка одна на секцию, а не хвостом к каждому заголовку: `### added` и
+  // `### Added - x` отбраковываются как выдуманное имя, хотя причина у них в
+  // регистре и разделителе
+  if (unknown > 0) {
+    problems.push(
+      `допустимые заголовки: ${[...SECTION_LEVELS.keys()].join(', ')}; ` +
+        'имя чувствительно к регистру, уточнение отделяется « — » или круглыми скобками',
+    );
   }
 
   // пара обязательна в обе стороны: миграция без ломающего изменения ничего
@@ -179,11 +194,6 @@ export function validateUnreleased(unreleased) {
 
 // Старшинство уровней: старший заголовок секции и решает.
 const LEVEL_ORDER = ['patch', 'minor', 'breaking'];
-const LEVEL_REASON = new Map([
-  ['breaking', '### ⚠️ Breaking'],
-  ['minor', '### Added'],
-  ['patch', 'без ### Added и ### ⚠️ Breaking'],
-]);
 
 // Предложение инкремента по содержимому [Unreleased]. Уровни берутся из
 // SECTION_LEVELS, чтобы новый заголовок заводился одной строкой в карте, а
@@ -191,18 +201,25 @@ const LEVEL_REASON = new Map([
 // validateSections до начала работ.
 export function suggestLevel(sections, version) {
   let top = 'patch';
+  let winner = null;
 
   for (const section of sections) {
-    const level = SECTION_LEVELS.get(sectionName(section));
+    const name = sectionName(section);
+    const level = SECTION_LEVELS.get(name);
 
     if (level && LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(top)) {
       top = level;
+      winner = name;
     }
   }
 
   return {
     level: top === 'breaking' ? levelForBreaking(version) : top,
-    reason: LEVEL_REASON.get(top),
+    // подписывается победивший заголовок, а не уровень: разработчик пойдёт
+    // искать в журнале именно его. ⚠️ не часть имени, но в журналах он есть
+    reason: winner
+      ? `### ${winner === 'Breaking' ? '⚠️ Breaking' : winner}`
+      : 'без ### Added и ### ⚠️ Breaking',
   };
 }
 

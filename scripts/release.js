@@ -97,7 +97,7 @@ function parseFlags(argv) {
 // Всё, что не зависит от выбора игр: гоняется до опроса, чтобы не заставлять
 // отвечать на десяток вопросов ради «дерево не чистое». Проблемы контракта
 // заголовков приезжают сюда же — список отказа остаётся одним.
-async function preflightRepo(root, { changelog = [] }) {
+async function preflightRepo(root, { changelog }) {
   const problems = [...changelog];
 
   const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -376,13 +376,17 @@ async function main(argv) {
   // второй вызов ниже ничего не стоит
   const artifacts = decide({ ...scoped, games: [] });
 
-  if (
-    reportProblems(
-      // нарушения контракта заголовков [Unreleased]; собраны в decide(),
-      // который под тестами. Контракт описан в docs/en/publishing.md
-      await preflightRepo(root, { changelog: artifacts.problems }),
-    )
-  ) {
+  // дефект журнала артефакта, который решено не публиковать: не блокирует, но
+  // вполне может быть причиной самого решения
+  artifacts.warnings.forEach(problem =>
+    ui.error(`внимание: ${problem} (артефакт не публикуется — возможно, из-за этого)`),
+  );
+
+  // нарушения контракта заголовков [Unreleased] собраны в decide(), который
+  // под тестами. Контракт описан в docs/en/publishing.md
+  const repoProblems = await preflightRepo(root, { changelog: artifacts.problems });
+
+  if (reportProblems(repoProblems)) {
     return 1;
   }
 
@@ -393,11 +397,11 @@ async function main(argv) {
   const decision = decide({ ...scoped, games });
   const publishedGames = decision.games.filter(game => game.publish);
 
-  const problems = await preflightGames(publishedGames, {
+  const gameProblems = await preflightGames(publishedGames, {
     needsRust: decision.crate.publish || publishedGames.length > 0,
   });
 
-  if (reportProblems(problems)) {
+  if (reportProblems(gameProblems)) {
     return 1;
   }
 

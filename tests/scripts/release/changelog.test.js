@@ -78,6 +78,19 @@ describe('changelog', () => {
     expect(parseUnreleased('# Changelog\n').present).toBe(false);
   });
 
+  // ранний выход не должен отдавать урезанный объект: потребитель ждёт
+  // terminator/openFence и получил бы undefined там, где рассчитывал на null
+  it('отдаёт ту же форму, когда секции нет', () => {
+    expect(parseUnreleased('# Changelog\n')).toEqual({
+      present: false,
+      sections: [],
+      body: '',
+      isEmpty: true,
+      terminator: null,
+      openFence: false,
+    });
+  });
+
   it('предлагает инкремент по под-заголовкам', () => {
     expect(suggestLevel(parseUnreleased(CORE).sections, '0.2.1').level).toBe('minor');
     expect(suggestLevel(['Added'], '0.6.0').level).toBe('minor');
@@ -101,6 +114,34 @@ describe('changelog', () => {
         name,
         level: expected,
       });
+    }
+  });
+
+  // reason разработчик видит дважды: в таблице плана и в вопросе про версию —
+  // и по нему идёт искать секцию в журнале
+  it('подписывает уровень заголовком, который его задал', () => {
+    expect(suggestLevel(['Fixed', 'Added'], '0.6.0').reason).toBe('### Added');
+    expect(suggestLevel(['⚠️ Breaking — x', 'Migration'], '0.6.0').reason).toBe(
+      '### ⚠️ Breaking',
+    );
+    expect(suggestLevel(['Changed', 'Fixed'], '0.6.0').reason).toBe(
+      'без ### Added и ### ⚠️ Breaking',
+    );
+  });
+
+  // обещание карты — «новый заголовок заводится одной строкой»: приехать
+  // должны и уровень, и подпись, иначе разработчика пошлют искать секцию,
+  // которой в журнале нет
+  it('подписывает заголовок, добавленный в карту', () => {
+    SECTION_LEVELS.set('Performance', 'minor');
+
+    try {
+      expect(suggestLevel(['Performance'], '0.6.0')).toEqual({
+        level: 'minor',
+        reason: '### Performance',
+      });
+    } finally {
+      SECTION_LEVELS.delete('Performance');
     }
   });
 
@@ -226,21 +267,29 @@ describe('validateSections', () => {
   });
 
   it('отбраковывает заголовок вне списка', () => {
-    const problems = validateSections(['Improved']);
-
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('«### Improved» не из списка');
+    expect(validateSections(['Improved'])[0]).toBe(
+      'заголовок «### Improved» не из списка',
+    );
   });
 
   // регистр и разделитель — самые вероятные причины отбраковки, и по одному
   // «не из списка» их не отличить
   it('подсказывает про регистр и разделитель', () => {
     for (const section of ['added', 'Added - x']) {
-      const [problem] = validateSections([section]);
+      const hint = validateSections([section]).at(-1);
 
-      expect(problem).toContain('чувствительно к регистру');
-      expect(problem).toContain('« — » или круглыми скобками');
+      expect(hint).toContain('чувствительно к регистру');
+      expect(hint).toContain('« — » или круглыми скобками');
     }
+  });
+
+  // подсказка длиннее самой проблемы: на трёх заголовках её повтор превратил
+  // бы список отказа в три одинаковых абзаца
+  it('подсказку печатает один раз на секцию', () => {
+    const problems = validateSections(['Improved', 'Perf', 'Docs']);
+
+    expect(problems).toHaveLength(4);
+    expect(problems.filter(problem => problem.includes('регистру'))).toHaveLength(1);
   });
 
   it('требует пару Breaking + Migration в обе стороны', () => {

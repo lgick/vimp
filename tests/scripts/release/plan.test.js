@@ -213,17 +213,19 @@ describe('decide', () => {
     );
 
     expect(plan.engine.publish).toBe(true);
-    expect(plan.engine.problems).toHaveLength(1);
+    // проблема и подсказка про допустимые имена
+    expect(plan.engine.problems).toHaveLength(2);
     // префикс с именем журнала — часть контракта: preflight печатает строку как есть
-    expect(plan.engine.problems[0]).toMatch(
-      /^packages\/engine\/CHANGELOG\.md: заголовок «### Improved» не из списка \(Breaking, /,
+    expect(plan.engine.problems[0]).toBe(
+      'packages/engine/CHANGELOG.md: заголовок «### Improved» не из списка',
     );
     expect(plan.problems).toEqual(plan.engine.problems);
     expect(plan.crate.problems).toEqual([]);
   });
 
   // журнал движка сломан, но движок не публикуется — релиз крейта из-за
-  // этого блокировать нельзя
+  // этого блокировать нельзя, а вот молчать нельзя тем более: `## Added`
+  // вместо `### Added` сам обнуляет секцию и сам же гасит publish
   it('не тянет в общий список проблемы непубликуемого артефакта', () => {
     const plan = decide(
       input({
@@ -248,6 +250,34 @@ describe('decide', () => {
     expect(plan.engine.publish).toBe(false);
     expect(plan.engine.problems).toHaveLength(1);
     expect(plan.problems).toEqual([]);
+    expect(plan.warnings).toEqual(plan.engine.problems);
+  });
+
+  // тот самый дефект, который прячет сам себя: секция оборвана на `## Added`,
+  // из-за этого пуста, из-за этого publish: false — в problems он бы не попал
+  it('показывает предупреждением дефект, из-за которого артефакт не публикуется', () => {
+    const plan = decide(
+      input({
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: false,
+          changelogFile: 'packages/engine/CHANGELOG.md',
+          unreleased: {
+            present: true,
+            isEmpty: true,
+            sections: [],
+            terminator: '## Added',
+          },
+        },
+      }),
+    );
+
+    expect(plan.engine.publish).toBe(false);
+    expect(plan.problems).toEqual([]);
+    expect(plan.warnings).toEqual([
+      'packages/engine/CHANGELOG.md: секция [Unreleased] оборвана заголовком «## Added» — вероятно, ### написан как ##',
+    ]);
   });
 
   it('игнорирует артефакт, исключённый флагом --only', () => {

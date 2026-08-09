@@ -75,6 +75,12 @@ export function decide(input) {
     problems: [crate, engine]
       .filter(artifact => artifact.publish)
       .flatMap(artifact => artifact.problems ?? []),
+    // …но и не замалчивается: `## Added` вместо `### Added` сам делает секцию
+    // пустой, а пустая секция при неизменённых файлах и даёт publish: false —
+    // дефект спрятал бы себя, и релиз молча «не потребовался»
+    warnings: [crate, engine]
+      .filter(artifact => !artifact.publish)
+      .flatMap(artifact => artifact.problems ?? []),
     prod: {
       push: engine.publish || publishedGames.length > 0,
       reason: engine.publish
