@@ -7,8 +7,6 @@
 //! `#[wasm_bindgen]` рядом со своими типами (wasm-bindgen не умеет
 //! экспортировать generics), engine-crate от wasm-bindgen не зависит вовсе.
 
-// ПРОБА РЕЛИЗА — снять следующим релизом (release-probe).
-
 pub mod abi;
 pub mod client;
 pub mod config;
