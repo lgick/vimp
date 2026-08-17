@@ -121,7 +121,7 @@ export default class InlineHostBridge {
     }
 
     if (!this._portMachine) {
-      throw new Error('InlineHostBridge: await ready before open()');
+      throw new Error('InlineHostBridge: await ready first');
     }
   }
 

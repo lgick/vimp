@@ -241,7 +241,12 @@ before commands. The host has no chat rate limit (only a length limit,
   right before the channel closes (see
   [network.md](network.md#rtt-pingpong-and-kicks)). `techInformList` has a
   bundle default (`packages/engine/src/config/clientDefaults.js`) — a full-room refusal arrives
-  before `CONFIG_DATA`.
+  before `CONFIG_DATA`. The reload is skipped in `solo` (there is no lobby to
+  return to) and on a dedicated server's policy close codes — 4008 (handshake
+  timeout) and 4009 (connection rate limit), `POLICY_CLOSE_INFORMS`: reloading
+  would only trip the same limit or restart the same timer, so the client
+  shows the reason and stays put (see
+  [dedicated.md](dedicated.md#game-websocket)).
 - **WebRTC unavailable** (`ensureWebRtcAvailable`): if `RTCPeerConnection`
   is unavailable (Firefox with `media.peerconnection.enabled = false`,
   resist fingerprinting, etc.), `connectToHost`/`connectAsHost` show a

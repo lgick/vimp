@@ -38,7 +38,10 @@ export default class WebSocketTransport {
 
     this._ws.onopen = () => this.publisher.emit('open');
     this._ws.onmessage = event => this.publisher.emit('message', event.data);
-    this._ws.onclose = () => this._emitClose();
+    // код закрытия уезжает подписчику: политические отказы сервера (лимит
+    // подключений, таймаут хендшейка) клиент лечить перезагрузкой не должен —
+    // см. handleDisconnect в main.js
+    this._ws.onclose = event => this._emitClose(event?.code);
     // ошибка сокета всегда сопровождается close — отдельного события наружу
     // не даём, иначе клиент погасил бы матч дважды
     this._ws.onerror = () => {};
@@ -64,12 +67,12 @@ export default class WebSocketTransport {
     this._emitClose();
   }
 
-  _emitClose() {
+  _emitClose(code) {
     if (this._closed) {
       return;
     }
 
     this._closed = true;
-    this.publisher.emit('close');
+    this.publisher.emit('close', code);
   }
 }

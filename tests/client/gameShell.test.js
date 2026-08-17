@@ -16,12 +16,17 @@ const PUG_FILES = ['panel', 'chat', 'stat', 'auth', 'informer'];
 
 const readRepoFile = path => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-// [селектор, тело] верхнего уровня. Разбор намеренно грубый: вложенные
-// @media/@keyframes отсеиваются (в них нет правил вида `#id`), а комментарии
-// снимаются до разбора — иначе текст про `body > *` попал бы в проверки
+// [селектор, тело] всех правил таблицы. Разбор грубый, но полный: сначала
+// снимаются комментарии (иначе текст про `body > *` попал бы в проверки),
+// затем разворачиваются вложенные at-правила (@media/@supports/@keyframes) —
+// раньше они просто отбрасывались, и правило внутри @media проходило бы мимо
+// проверок незамеченным (review-3.md, R3-5)
 const cssRules = source =>
   source
     .replace(/\/\*[\s\S]*?\*\//g, '')
+    // тело at-правила поднимается на верхний уровень вместе со своими
+    // правилами, сам заголовок (@media …) выбрасывается
+    .replace(/@[\w-]+[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g, '$1')
     .split('}')
     .map(chunk => chunk.split('{'))
     .filter(parts => parts.length === 2)
@@ -126,6 +131,22 @@ describe('gameShell', () => {
     const html = readRepoFile('packages/engine/index.html').replace(/\s+/g, ' ');
 
     expect(html).toMatch(/body > \* \{ display: none; \}/);
+  });
+
+  // сам парсер: правило, спрятанное в @media, обязано доезжать до проверок
+  // ниже — иначе страховка от P1-1 имеет слепое пятно (review-3.md, R3-5)
+  it('разбор CSS видит правила внутри at-правил', () => {
+    const rules = cssRules(
+      '#a { color: red; } @media (max-width: 1px) { #stat { display: block; } #b { color: blue; } } #c { color: green; }',
+    );
+
+    expect(rules).toContainEqual(['#stat', 'display: block;']);
+    expect(rules.map(([selector]) => selector)).toEqual([
+      '#a',
+      '#stat',
+      '#b',
+      '#c',
+    ]);
   });
 
   it('первый уровень каркаса не объявляет своего display', () => {

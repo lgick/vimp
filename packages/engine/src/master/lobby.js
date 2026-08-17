@@ -125,6 +125,9 @@ const signaling = new SignalingServer(registry, {
   regionHeader: config.get('master:regionHeader'),
   heartbeatTimeout: config.get('master:host:heartbeatTimeout'),
   pingLimiter: new RateLimiter(config.get('master:pingRateLimit')),
+  // в проде мастер стоит за Nginx деплоя, который перезаписывает X-Real-IP;
+  // в dev процесс смотрит в браузер напрямую и заголовкам верить нельзя
+  trustProxy: isProduction,
   codeVersion: workerCatalog.version,
   gameCatalog,
   // server-rating этап 2: идентичность хостера/голосующего — Bearer

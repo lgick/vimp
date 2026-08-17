@@ -155,12 +155,18 @@ voter)`**: мнение гостя о хостере может меняться
 | `GET /leaderboard?game=&limit=` (без авторизации — lobby-page-plan) | `{ leaderboard: [{nick, rank, place}], total }` — топ-`limit` (клампится в `1..100`, дефолт `10`) по `ratings` для `game`, только `rank > 0 AND nick IS NOT NULL`, сортировка `rank DESC, nick ASC`. `place` — competition ranking (`RANK() OVER (ORDER BY rank DESC)`): игроки с одинаковым `rank` делят `place`, следующее отличное значение перескакивает на размер группы — согласовано с определением `GET /placement` ниже, а не плоский порядковый номер строки (code review M3: список и плашка позиции вызывающего должны совпадать). `total` и `place` считаются оконными функциями над всем набором, прошедшим `WHERE`, ещё до `LIMIT`, в том же запросе, что и страница (code review L1 — один round-trip вместо отдельного `COUNT(*)`). Без авторизации: показывается в лобби до логина, тот же уровень доверия, что и `GET /host-rating/:hosterUserId`. `400 gameRequired`, если `game` не передан |
 | `GET /placement?game=` (Bearer identity-токен — lobby-page-plan) | `{ placement, total, rank }` для вызывающего: `rank` — его закэшированные очки (`0`, если не ранжирован), `total` — тот же счётчик ранжированных игроков, что и в `/leaderboard`, `placement` — та же competition-ranking позиция, что и `place` в `/leaderboard` (`(COUNT(*) WHERE rank > мой) + 1`), либо `null`, если `rank` равен `0` (ещё не ранжирован) |
 
-Ключ rate-limit'а — IP клиента из `X-Forwarded-For` (первый адрес) с
-фолбэком на `req.socket.remoteAddress` (`clientIp()` в `src/main.js`), а не
-`req.ip`/`trust proxy` из Express — тот же приём, что и у мастера в
-`SignalingServer.handleConnection`, и по той же причине: за Nginx (прод-топология,
-см. [deployment.md](deployment.md)) `req.ip` сам по себе указывал бы на адрес
-Nginx, и лимит схлопнулся бы в один общий бакет на всех клиентов сразу.
+Ключ rate-limit'а — IP клиента из `clientIp()` (`src/lib/clientIp.js`, копия
+движкового хелпера), а не `req.ip`/`trust proxy` из Express: за Nginx
+(прод-топология, см. [deployment.md](deployment.md)) `req.ip` сам по себе
+указывал бы на адрес Nginx, и лимит схлопнулся бы в один общий бакет на всех
+клиентов сразу. В проде адрес берётся из `X-Real-IP` (Nginx деплоя ставит его
+из `$remote_addr`, перезаписывая присланное клиентом), вне прода — из
+`req.socket.remoteAddress`. `X-Forwarded-For` не используется намеренно: тот
+же Nginx ставит его через `$proxy_add_x_forwarded_for`, то есть *дописывает*
+реальный адрес к клиентскому, поэтому первый адрес списка задаёт сам клиент —
+ключ по нему снимал бы лимиты перебора ников и старта OAuth одним заголовком.
+Тот же приём и по той же причине — у мастера в
+`SignalingServer.handleConnection` и у dedicated-сервера.
 
 Identity JWT (`src/lib/jwt.js`) несёт `sub` (id пользователя) и `nick`,
 подписан RS256, короткоживущий (`config.jwt.expiresIn`, 4 часа по

@@ -339,6 +339,90 @@ describe('register_host', () => {
     expect(second.ws.lastSent()).toEqual({ type: 'error', code: 'hostLimit' });
   });
 
+  // review-3.md (R3-1): Nginx деплоя ставит X-Forwarded-For через
+  // $proxy_add_x_forwarded_for, то есть ДОПИСЫВАЕТ реальный адрес к
+  // клиентскому. Ключом лимитов он быть не может: иначе свой заголовок на
+  // каждое соединение снимает и «одну комнату на IP», и лимит пингов
+  it('X-Forwarded-For адрес не подменяет', async () => {
+    await connectHost();
+
+    const ws = new FakeWs();
+
+    signaling.handleConnection(ws, {
+      headers: {
+        origin: 'https://localhost:3001',
+        'x-region': 'EU',
+        'x-forwarded-for': '8.8.8.8',
+        // без trustProxy не считается и X-Real-IP
+        'x-real-ip': '9.9.9.9',
+      },
+      socket: { remoteAddress: '1.1.1.1' },
+    });
+    await nextTick();
+
+    ws.message({ type: 'register_host', name: 'Second', token: signToken(2) });
+    await flushAsync();
+
+    expect(ws.lastSent()).toEqual({ type: 'error', code: 'hostLimit' });
+  });
+
+  // за прод-Nginx адрес приходит в X-Real-IP (его прокси перезаписывает), и
+  // соединения с разными X-Real-IP — разные клиенты, хотя сокет один и тот же
+  it('с trustProxy ключом становится X-Real-IP', async () => {
+    const proxied = new SignalingServer(new HostRegistry({ maxPlayersLimit: 8 }), {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      heartbeatTimeout: 1000,
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      trustProxy: true,
+      jwksProxy,
+      hostRatingProxy,
+      issuer: ISSUER,
+    });
+
+    const register = async (realIp, userId) => {
+      const ws = new FakeWs();
+
+      proxied.handleConnection(ws, {
+        headers: {
+          origin: 'https://localhost:3001',
+          'x-region': 'EU',
+          'x-real-ip': realIp,
+        },
+        socket: { remoteAddress: '1.1.1.1' },
+      });
+      await nextTick();
+
+      ws.message({
+        type: 'register_host',
+        name: `Room ${userId}`,
+        token: signToken(userId),
+      });
+      await proxied.idle();
+
+      return ws.lastSent();
+    };
+
+    expect((await register('7.7.7.7', 1)).type).toBe('host_registered');
+    expect((await register('8.8.8.8', 2)).type).toBe('host_registered');
+    expect(await register('8.8.8.8', 3)).toEqual({
+      type: 'error',
+      code: 'hostLimit',
+    });
+  });
+
+  it('обрывает соединение без адреса сокета', () => {
+    const ws = new FakeWs();
+
+    signaling.handleConnection(ws, {
+      headers: { origin: 'https://localhost:3001' },
+      socket: {},
+    });
+
+    expect(ws.terminated).toBe(true);
+  });
+
   it('gameId/gameVersion сохраняются и эхо gameId идёт в host_registered', async () => {
     const { ws } = await connect({ ip: '2.2.2.2' });
 

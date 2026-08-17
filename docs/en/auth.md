@@ -154,13 +154,19 @@ also reverted by the snapshot restore.
 | `GET /leaderboard?game=&limit=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank, place}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`. `place` is a competition ranking (`RANK() OVER (ORDER BY rank DESC)`) — tied `rank` values share a `place`, the next distinct value skips ahead by the tie's size — matching `GET /placement`'s definition below, not the row's plain 1-based index (code review M3: the two must agree, since the client shows the caller's own placement next to this same list). `total` and `place` both come from window functions computed over the whole `WHERE`-matched set before `LIMIT`, in the same query as the page (code review L1 — one round trip instead of a separate `COUNT(*)`). Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing |
 | `GET /placement?game=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is the same competition-ranking position as `/leaderboard`'s `place` (`(COUNT(*) WHERE rank > mine) + 1`) or `null` if `rank` is `0` (not yet ranked) |
 
-Rate limiting keys on the client IP taken from `X-Forwarded-For` (first hop)
-with a `req.socket.remoteAddress` fallback (`clientIp()` in `src/main.js`) —
-not Express's `req.ip`/`trust proxy` — the same convention the master uses
-in `SignalingServer.handleConnection` for the same reason: behind Nginx
-(production topology, see [deployment.md](deployment.md)), `req.ip` alone
-would resolve to Nginx's address and collapse the limit into one shared
-bucket for every client.
+Rate limiting keys on the client IP from `clientIp()` (`src/lib/clientIp.js`,
+a copy of the engine helper) rather than Express's `req.ip`/`trust proxy`:
+behind Nginx (production topology, see [deployment.md](deployment.md)),
+`req.ip` alone would resolve to Nginx's address and collapse the limit into
+one shared bucket for every client. In production the address comes from
+`X-Real-IP` (the deploy's Nginx sets it from `$remote_addr`, overwriting
+whatever the client sent), outside production from `req.socket.remoteAddress`.
+`X-Forwarded-For` is deliberately not used: the same Nginx sets it with
+`$proxy_add_x_forwarded_for`, which *appends* the real address to the client's
+own, so the first hop is client-controlled — keying on it would lift both the
+nick-guessing and the OAuth-start limits with a single header. The master
+(`SignalingServer.handleConnection`) and the dedicated server use the same
+convention for the same reason.
 
 The identity JWT (`src/lib/jwt.js`) carries `sub` (user id) and `nick`,
 signed RS256, short-lived (`config.jwt.expiresIn`, 4 hours by default — long

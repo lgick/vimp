@@ -132,18 +132,28 @@ four limits:
 | connection rate | 30 per minute per address | every connection costs a `CONFIG_DATA` payload *before* any authentication, so without a cap the socket is an amplifier. Rejected with close code 4009 |
 | handshake timeout | 120 s | a connection that never became a participant takes no room slot but holds a socket — a trivial slowloris. Closed with code 4008 |
 
-The connection rate keys on the client address, read the same way as in the
-master's signaling server: the first hop of `X-Forwarded-For` behind Nginx
-(which the deploy config sets), the socket address otherwise. The header is
-client-controlled on a direct connection — the same trade-off the master and
-the auth service already make.
+The connection rate keys on the client address from `clientIp()`
+(`src/lib/clientIp.js`, shared with the master): the socket address, or
+`X-Real-IP` in production, where the deploy's Nginx overwrites that header with
+`$remote_addr`. `X-Forwarded-For` is deliberately not used — Nginx sets it with
+`$proxy_add_x_forwarded_for`, which *appends* the real address to whatever the
+client sent, so its first hop is client-controlled: keying on it would let one
+header per connection lift the limit entirely, and let an attacker fill a
+chosen player's bucket to keep them out. A connection whose address cannot be
+determined at all (an already-broken socket) is terminated rather than sharing
+one bucket with every other such connection.
 
 The handshake timeout is deliberately generous: a participant appears only
 after `AUTH_RESPONSE`, so the window covers the client's WebGL init and asset
 baking (`CONFIG_READY` is sent after them) **plus the player typing a
-nickname**, and the engine client reloads the page after a disconnect — a tight
-timeout would put a slow player in a reload loop. The player sees the generic
-"connection closed" message, not the reason.
+nickname**.
+
+Both refusals close the socket with a code the client understands: on 4008 and
+4009 it shows the reason as text and **stays put** instead of reloading after
+3 s the way it does on an ordinary disconnect (`POLICY_CLOSE_INFORMS` in
+`client/main.js`). Reloading would not help in either case — it would spend
+another connection against the same limit, or restart the same handshake
+timer, and an abandoned tab would reload forever.
 
 ## Identity and profiles
 

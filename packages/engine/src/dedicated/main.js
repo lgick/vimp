@@ -7,6 +7,7 @@ import ViteExpress from 'vite-express';
 import { WebSocketServer } from 'ws';
 import { applyMasterEnv, readDedicatedRoom } from '../config/env.js';
 import wsports from '../config/wsports.js';
+import { clientIp } from '../lib/clientIp.js';
 import config from '../lib/config.js';
 import { createHostRuntime } from '../lib/createHostRuntime.js';
 import { loadGamePackage } from '../lib/loadGamePackage.js';
@@ -70,8 +71,9 @@ const HANDSHAKE_TIMEOUT = 120000;
 
 // подключений с одного адреса за минуту: игровой сокет открывается один раз
 // на вкладку (плюс перезагрузки), а до аутентификации каждое соединение уже
-// стоит серверу CONFIG_DATA — без лимита это усилитель. Ключ — тот же, что у
-// сигналинга: X-Forwarded-For (первый адрес) за Nginx, иначе адрес сокета
+// стоит серверу CONFIG_DATA — без лимита это усилитель. Ключ даёт clientIp:
+// адрес сокета, за прод-Nginx — перезаписанный им X-Real-IP (X-Forwarded-For
+// не годится, там первый адрес пишет сам клиент — см. lib/clientIp.js)
 const CONNECTION_LIMIT = { limit: 30, windowMs: 60000 };
 
 /**
@@ -266,10 +268,15 @@ export async function startDedicatedServer({
       return;
     }
 
-    // частота подключений с адреса: за Nginx реальный адрес приходит в
-    // X-Forwarded-For (тот же разбор, что в SignalingServer)
-    const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const ip = String(ipHeader ?? '').split(',')[0].trim();
+    // частота подключений с адреса
+    const ip = clientIp(req, { trustProxy: isProduction });
+
+    // адреса нет только у уже разорванного сокета: общий бакет '' для таких
+    // соединений был бы дырой в лимите
+    if (!ip) {
+      ws.terminate();
+      return;
+    }
 
     if (!connectionLimiter.consume(ip)) {
       console.warn(`[dedicated] connection rate limit for ${ip}`);

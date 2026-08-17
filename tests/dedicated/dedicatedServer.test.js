@@ -310,6 +310,43 @@ describe('dedicated-сервер', () => {
     expect(res.status).toBe(200);
   });
 
+  // review-3.md (R3-1): Nginx деплоя дописывает реальный адрес к клиентскому
+  // X-Forwarded-For, поэтому ключом лимита он быть не может — иначе свой
+  // заголовок на каждое соединение снимает лимит целиком
+  it('подделанные заголовки адреса не дают нового бакета', async () => {
+    const { port } = await start();
+    const url = `ws://localhost:${port}/game`;
+    const held = [];
+    const spoofed = i => ({
+      origin: `http://localhost:${port}`,
+      headers: {
+        'x-forwarded-for': `10.0.0.${i}`,
+        // вне прода (NODE_ENV=test) не считается и X-Real-IP
+        'x-real-ip': `10.1.0.${i}`,
+      },
+    });
+
+    for (let i = 0; i < 30; i += 1) {
+      const ws = new WebSocket(url, spoofed(i));
+
+      await new Promise((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+
+      held.push(ws);
+    }
+
+    const extra = new WebSocket(url, spoofed(99));
+    const code = await new Promise(resolve => extra.on('close', resolve));
+
+    expect(code).toBe(4009);
+
+    for (const ws of held) {
+      ws.close();
+    }
+  });
+
   it('соединение без Origin закрывается', async () => {
     const { port } = await start();
     const ws = new WebSocket(`ws://localhost:${port}/game`);

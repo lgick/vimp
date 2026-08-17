@@ -150,6 +150,19 @@ bumps the minor version).
   on the WebSocket server): `ws` emits `'error'` on the socket itself
   (ECONNRESET, a malformed frame), and without a listener one broken client
   was an `uncaughtException` that took the whole match down.
+- Rate limits no longer key on `X-Forwarded-For`. The deploy's Nginx sets that
+  header with `$proxy_add_x_forwarded_for`, which *appends* the real address to
+  whatever the client sent, so the first hop — the value the master's signaling
+  server and the auth service used as their key — is written by the client:
+  one header per request lifted the ping limit, the "one room per IP" rule and
+  the auth service's nick-guessing and OAuth-start limits, and filling another
+  address's bucket kept that person from hosting or signing in. The address now
+  comes from the new `vimp-engine/lib/clientIp.js` — the socket address, or
+  `X-Real-IP` when a `trustProxy` flag is set (production), where the same
+  Nginx overwrites that header with `$remote_addr`. A signaling connection
+  whose address cannot be determined is terminated instead of sharing one
+  bucket with every other such connection, which also removes a `TypeError` on
+  a socket that is already gone.
 
 ## [0.7.0] — 2026-08-09
 

@@ -141,8 +141,10 @@ first level and is shown by a type or class rule (`canvas { display: block }`)
 will lose to it — target it by id.
 
 `style.css` is a page-level stylesheet, not a scoped one: importing the SDK
-also gives the embedding page `html, body { width: 100%; height: 100% }` and
-the engine's `body` background, color and font. Reserve the page for the game.
+also gives the embedding page `html, body { width: 100%; height: 100% }`, the
+engine's `body` background, color and font, and `* { user-select: none }` —
+which disables text selection across the whole page, not just inside the
+container. Reserve the page for the game.
 
 ### wasmUrl and assets
 

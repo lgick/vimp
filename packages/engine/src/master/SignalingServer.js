@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { clientIp } from '../lib/clientIp.js';
 import { verifyIdentityToken } from '../lib/jwt.js';
 
 // Signaling Server: маршрутизация WebRTC-координации между клиентами
@@ -12,6 +13,11 @@ export default class SignalingServer {
     this._heartbeatTimeout = options.heartbeatTimeout;
     this._pingLimiter = options.pingLimiter;
     this._checkOrigin = options.checkOrigin;
+    // стоит ли перед мастером прод-Nginx: от этого зависит, откуда берётся
+    // адрес клиента (lib/clientIp.js). Он ключ и лимита пингов, и правила
+    // «не больше одной комнаты с одного IP» — ошибиться тут значит отдать
+    // оба ограничения тому, кто просто пришлёт свой заголовок
+    this._trustProxy = options.trustProxy ?? false;
     this._mapsVersion = options.mapsVersion ?? null;
     this._codeVersion = options.codeVersion ?? null;
     // per-game mapsVersion (Этап 6.2) — хост объявляет gameId в
@@ -59,12 +65,18 @@ export default class SignalingServer {
   }
 
   handleConnection(ws, req) {
-    const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const ip = ipHeader.split(',')[0].trim();
+    const ip = clientIp(req, { trustProxy: this._trustProxy });
     const requestOrigin = req.headers.origin;
 
     // если origin вообще не пришел (это скорее всего бот)
     if (!requestOrigin) {
+      ws.terminate();
+      return;
+    }
+
+    // адреса нет только у уже разорванного сокета: общий бакет '' раздал бы
+    // всем таким соединениям один лимит пингов и одну квоту комнат
+    if (!ip) {
       ws.terminate();
       return;
     }

@@ -1175,9 +1175,22 @@ function handleMessage(data) {
   socketMethods[msg[0]](msg[1]);
 }
 
+// отказы политики dedicated-сервера (src/dedicated/main.js): перезагрузка их
+// не лечит — лимит частоты подключений съел бы ей же очередное соединение, а
+// таймаут хендшейка запустился бы заново, и брошенная вкладка перезагружалась
+// бы вечно. Показываем причину текстом и остаёмся на месте. Текст здесь, а не
+// в techInformList: список переопределяет игра, движковый индекс у неё дал бы
+// «Unknown error»
+const POLICY_CLOSE_INFORMS = {
+  4008: 'Idle connection closed before the match started. Reload the page when you are ready to play.',
+  4009: 'Too many connections from your address. Wait a minute and reload the page.',
+};
+
 // разрыв P2P: выход хоста = смерть комнаты (host-migration нет). Останавливаем
-// рендер, показываем заглушку и возвращаемся в лобби перезагрузкой
-function handleDisconnect() {
+// рендер, показываем заглушку и возвращаемся в лобби перезагрузкой. closeCode
+// приходит только от WebSocket-транспорта (dedicated), остальные транспорты
+// эмитят close без него
+function handleDisconnect(closeCode) {
   // app.stop() здесь не зовём: при sharedTicker это Ticker.shared.stop()
   // глобально, а autoStart вернёт тикер к жизни при первом add() из любого
   // part'а — уже без renderTick. Рендер снят строкой выше, страницу и так
@@ -1218,18 +1231,22 @@ function handleDisconnect() {
   inlineHost?.destroy();
   inlineHost = null;
 
+  const policyInform = POLICY_CLOSE_INFORMS[closeCode];
+
   // терминальную причину закрытия (кик, полная комната) не затираем
   if (!terminalInformShown) {
     socketMethods[PS_TECH_INFORM_DATA](
-      isLobbyMode
-        ? 'Host left — the room is closed. Returning to lobby…'
-        : 'The match is over — connection to the host is closed.',
+      policyInform ??
+        (isLobbyMode
+          ? 'Host left — the room is closed. Returning to lobby…'
+          : 'The match is over — connection to the host is closed.'),
     );
   }
 
   // в solo перезагружаться некуда: лобби нет, а матч поднимается с нуля.
-  // В dedicated сервер жив — переподключение перезагрузкой уместно
-  if (bootMode !== 'solo') {
+  // В dedicated сервер жив — переподключение перезагрузкой уместно, но не
+  // тогда, когда он сам нас и отбил по политике (см. POLICY_CLOSE_INFORMS)
+  if (bootMode !== 'solo' && !policyInform) {
     setTimeout(() => location.reload(), 3000);
   }
 }

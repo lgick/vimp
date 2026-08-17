@@ -36,9 +36,9 @@ class FakeSocket {
     this.onmessage({ data });
   }
 
-  emitClose() {
+  emitClose(code) {
     this.readyState = CLOSED;
-    this.onclose();
+    this.onclose({ code });
   }
 }
 
@@ -85,6 +85,30 @@ describe('WebSocketTransport', () => {
     expect(message).toHaveBeenNthCalledWith(1, '[0,null]');
     expect(message).toHaveBeenNthCalledWith(2, buffer);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  // review-3.md (R3-3): по коду клиент решает, перезагружаться ли —
+  // политические отказы сервера (4008/4009) перезагрузка только зациклит
+  it('доставляет код закрытия подписчику', () => {
+    const close = vi.fn();
+
+    transport.publisher.on('close', close);
+    transport.connect();
+    socket.emitOpen();
+    socket.emitClose(4009);
+
+    expect(close).toHaveBeenCalledWith(4009);
+  });
+
+  it('свой close() кода не выдумывает', () => {
+    const close = vi.fn();
+
+    transport.publisher.on('close', close);
+    transport.connect();
+    socket.emitOpen();
+    transport.close();
+
+    expect(close).toHaveBeenCalledWith(undefined);
   });
 
   it('шлёт строки и бинарь только после open', () => {
