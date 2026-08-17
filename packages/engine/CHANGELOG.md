@@ -9,6 +9,44 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- The engine no longer serves any game image. `packages/engine/public/img/`
+  (`tiles.png`, `tiles2.png`, `tiles3.png`, `b1.png`, `bob.jpg`,
+  `stalin.jpg`) is gone, and with it the `/img/<name>` URL a plugin's `Map`
+  part could rely on. Those files were never referenced by a single line of
+  engine code — they were the tanks plugin's assets sitting in the engine's
+  Vite `public/`, reachable only because the engine happens to serve that
+  directory at the site root. A plugin that still requests `/img/*` gets a
+  404 and renders an empty canvas with nothing in the console. Images now
+  travel in the plugin package exactly as sounds already do.
+
+### Added
+
+- `assetsBase` in the client's `DependencyProvider` service pool
+  (`renderer`, `soundManager`, `assetsBase`). It carries the active game's
+  asset base from its manifest, so a part that draws from image files builds
+  its own URLs — `${assetsBase}img/<file>` — the same way `SoundManager`
+  resolves `${assetsBase}sounds/`. Declared like any other service, in the
+  game's `parts.componentDependencies`. The engine keeps knowing nothing
+  about file names or the layout inside the package.
+
+### Migration
+
+For a plugin that loaded images from the engine's `/img/`:
+
+1. Move the files into your package (`assets/img/`) and copy them to
+   `dist/img/` in the build — mirroring the sounds pipeline.
+2. Declare the service in the client config:
+   `componentDependencies: { assetsBase: ['Map'] }`.
+3. Build the URL from it: `` `${dependencies.assetsBase}img/${data.spriteSheet.img}` ``
+   instead of `` `/img/${data.spriteSheet.img}` ``. Throw when the service is
+   missing — `undefined` as a base silently produces a blank map.
+
+`ENGINE_API_VERSION` is unchanged (3): the addition is purely additive and
+no manifest or plugin is rejected at load time. A plugin that keeps the old
+URLs still loads — it just has nothing to draw.
+
 ## [0.8.0] — 2026-08-17
 
 ### Added

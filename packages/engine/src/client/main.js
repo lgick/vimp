@@ -345,6 +345,11 @@ socketMethods[PS_CONFIG_DATA] = async data => {
     const availableServices = {
       renderer: app.renderer,
       soundManager,
+      // база ассетов игры — тем же каналом, что и путь к звукам (см. выше):
+      // картинки карт живут в пакете игры (dist/img/), движок их не раздаёт.
+      // part, объявивший сервис в componentDependencies, строит URL сам —
+      // движок не знает ни имён файлов, ни их раскладки внутри пакета
+      assetsBase: activeGameManifest.assetsBase,
     };
 
     // если есть данные для запекания компонентов

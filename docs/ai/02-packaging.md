@@ -25,8 +25,10 @@ my-game/
 │  ├─ data/                  # models.js, weapons.js, maps/
 │  └─ client/parts|bakers/   # PixiJS render classes and texture bakers
 ├─ scripts/                  # build-game-manifest.js, export-maps.js, …
-├─ assets/                   # raw sound sources (pre-processing input)
-├─ build/                    # intermediate (processed sounds) — gitignored
+├─ assets/                   # authored inputs: audio-raw/ (pre-processing)
+│                            # and img/ (tile sheets, dynamic-body sprites)
+├─ build/                    # intermediate (processed sounds, staged images)
+│                            # — gitignored
 └─ dist/                     # published output — gitignored in the repo
 ```
 
@@ -44,9 +46,10 @@ my-game/
     "build": "rm -rf dist && npm run build:client && npm run build:host && npm run build:assets && npm run build:manifest",
     "build:client": "vite build --mode client",
     "build:host": "vite build --mode host",
-    "build:assets": "node ./scripts/export-maps.js && node ./scripts/copy-game-sounds.js",
+    "build:assets": "node ./scripts/export-maps.js && node ./scripts/copy-game-sounds.js && node ./scripts/copy-game-images.js",
     "build:manifest": "node ./scripts/build-game-manifest.js",
     "audio:process": "node ./scripts/process-audio.js",
+    "predev": "node ./scripts/copy-game-images.js",
     "core:build": "npm run core:build:web && npm run core:build:node",
     "core:build:web": "wasm-pack build core --release --target web --out-dir pkg-web",
     "core:build:node": "wasm-pack build core --release --target nodejs --out-dir pkg-node",
@@ -256,10 +259,15 @@ wasm-pack build core --release --target nodejs --out-dir pkg-node  # tests
 | `export-maps.js` | serialises `src/data/maps/*.js` into `dist/maps/<name>.json` (the file name is the map name; spaces are allowed and URL-decoded on write) |
 | `process-audio.js` | ffmpeg pipeline: normalises loudness (EBU R128) and emits **both** `.webm` and `.mp3` for every sound into `build/sounds/` |
 | `copy-game-sounds.js` | wipes and copies `build/sounds/` → `dist/sounds/` |
-| `build-game-manifest.js` | hashes the bundles, collects map names, applies `rangeToPattern` to numeric room fields, copies `core/pkg-node/` → `dist/core-node/` (if built) and writes `dist/manifest.json` |
+| `copy-game-images.js` | copies `assets/img/` → `build/img/` (dev root) and → `dist/img/` (packaged asset); images need no processing step, so there is no ffmpeg-like stage between them |
+| `build-game-manifest.js` | hashes the bundles, collects map names, **verifies every image a map names exists in `dist/img/`**, applies `rangeToPattern` to numeric room fields, copies `core/pkg-node/` → `dist/core-node/` (if built) and writes `dist/manifest.json` |
 
 Sound files must exist as **`webm` + `mp3` pairs** — the client's codec list
 is `['webm', 'mp3']` and it picks per browser support.
+
+Run `copy-game-images.js` from `predev` as well as from `build:assets`: the
+standalone launch reads images from `build/img/`, and a developer without
+ffmpeg must still see the map.
 
 ## `dist/` layout
 
@@ -277,6 +285,9 @@ dist/
 ├─ maps/
 │  ├─ canopy.json
 │  └─ pool mini.json
+├─ img/                       # tile sheets and dynamic-body sprites
+│  ├─ tiles.png               # named by spriteSheet.img / physicsDynamic[].img
+│  └─ crate.png
 └─ sounds/
    ├─ shot.webm
    └─ shot.mp3

@@ -37,7 +37,8 @@ under `node_modules/`; the engine never imports it statically (ESLint
 ```
 packages/engine/ — vimp-engine: the engine application (npm workspace)
   index.html / vite.config.js — the engine's Vite root
-  public/        — static assets (sounds, favicon)
+  public/        — engine statics only: favicon + generated vendor/pixi/
+                   (no game assets — sounds and images ship in the plugin)
   src/
     master/      — master server (entry point): room registry, REST,
                    signaling, map/game catalog (docs/master.md)

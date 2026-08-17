@@ -56,7 +56,8 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
     "wasm":   "/games/tanks/core-<hash>.wasm",  // единый hashed .wasm обоих entry (общий HTTP-кеш)
     "wasmNode": "./core-node/index.js"          // ОПЦИОНАЛЬНО: node-сборка ядра внутри dist/, для `npm run sim` и dedicated-сервера
   },
-  "assetsBase": "/games/tanks/",           // база звуков/ассетов
+  "assetsBase": "/games/tanks/",           // база собственных ассетов пакета:
+                                           // sounds/ и img/ (см. ниже)
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
@@ -127,6 +128,19 @@ async createCore(coreConfigJson, { wasmUrl }) {
 keysets) в манифест **не входят** — едут кодом плагинов и, как сейчас,
 данными CONFIG_DATA (порт 0) от хоста: клиентские данные игры всегда
 согласованы с хостом комнаты.
+
+`assetsBase` — корень **всего, что пакет везёт файлами**; по соглашению это
+два каталога внутри `dist/`:
+
+| Путь | Содержимое | Кто разрешает |
+| --- | --- | --- |
+| `${assetsBase}sounds/` | пара `webm`+`mp3` на каждый звук | движок (`SoundManager`, он перезаписывает `sounds.path`) |
+| `${assetsBase}img/` | тайл-листы и спрайты динамических тел карт | собственный part плагина, через сервис `assetsBase` |
+
+Движок **не раздаёт ни одного игрового файла**: имя из `spriteSheet.img`
+карты разрешается относительно пакета плагина, а не бандла движка. База
+доезжает до part'а сервисом `assetsBase` — объявите его в
+`componentDependencies` (см. [client.md](client.md), «Провайдеры»).
 
 ## Схема формы
 

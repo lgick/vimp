@@ -141,16 +141,19 @@ export default defineConfig(({ command, mode }) => {
 - `CHANGELOG.md` игры: `### Added` (локальный автономный запуск).
 - `CLAUDE.md` игры: команда `npm run dev` в списке команд.
 
-## Отложено (отдельная задача, вне Этапа 6)
+## Отложено → закрыто отдельным планом
 
-**Тайлы карт в standalone.** `src/client/parts/Map.js` просит текстуры по
+**Тайлы карт в standalone.** `src/client/parts/Map.js` просил текстуры по
 абсолютному пути `/img/<file>.png` (`tiles.png`, `tiles3.png`, `b1.png` —
-их требуют все три карты). Файлы лежат в `packages/engine/public/img/`
+их требуют все три карты). Файлы лежали в `packages/engine/public/img/`
 движка и в npm-пакет `vimp-engine` не публикуются (`files` их не включает),
-поэтому в `npm run dev` отдавать их некому: матч играется, ботов видно на
-радаре, но полотно карты пустое, а в консоли — `Failed to load
-/img/tiles.png`. Решение (перенести png в `vimp-tanks/public/img/` +
-`publicDir` в dev-ветке конфига, либо иначе) вынесено в отдельную задачу.
+поэтому в `npm run dev` отдавать их было некому: матч играется, ботов видно
+на радаре, но полотно карты пустое, а в консоли — `Failed to load
+/img/tiles.png`.
+
+Задача вынесена в отдельное направление
+[plan/game-assets-move.md](../../game-assets-move.md): картинки переезжают в
+пакет игры и приезжают через `assetsBase`, как звуки.
 
 ## Приёмка этапа
 

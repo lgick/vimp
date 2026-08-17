@@ -667,8 +667,13 @@ data, calls `update(data)` on an existing one, or removes it (`null`).
   re-baking destroys the previous result (each object once per pass, even
   if it was returned under several keys) together with its `TextureSource`,
   so a view onto a shared atlas must not be returned.
-- **`DependencyProvider`** — injects services (`renderer`, `soundManager`)
-  into components via the `componentDependencies` map.
+- **`DependencyProvider`** — injects services (`renderer`, `soundManager`,
+  `assetsBase`) into components via the `componentDependencies` map.
+  `assetsBase` is the active game's asset base taken from its manifest: a
+  part that draws from image files builds its own URLs as
+  `${assetsBase}img/<file>`, the same way sounds resolve to
+  `${assetsBase}sounds/`. The engine ships no game images — they travel in
+  the plugin package (`dist/img/`).
 
 ## SoundManager
 

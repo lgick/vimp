@@ -47,8 +47,11 @@ Create the repository layout from `02-packaging.md`: `package.json`,
 `vite.config.js`, `vitest.config.js`, `eslint.config.js`, `Cargo.toml`,
 `core/`, `src/`, `scripts/`, `assets/`.
 
-Copy the four build scripts (`export-maps.js`, `process-audio.js`,
-`copy-game-sounds.js`, `build-game-manifest.js`) and adapt the id and paths.
+Copy the five build scripts (`export-maps.js`, `process-audio.js`,
+`copy-game-sounds.js`, `copy-game-images.js`, `build-game-manifest.js`) and
+adapt the id and paths. `assets/` holds two authored inputs: `audio-raw/` and
+`img/` — the tile sheets and dynamic-body sprites your maps name. The engine
+ships none of those.
 
 ## Step 4 — configuration
 
@@ -59,7 +62,9 @@ Write the config layer first; it is the contract everything else implements.
 3. `src/config/game.js` — `HostPlugin.gameConfig` (imports the above).
 4. `src/config/client.js` — the client half.
 5. `src/config/auth.js` — the auth screen.
-6. `src/data/maps/*.js` — at least one map with full `respawns`.
+6. `src/data/maps/*.js` — at least one map with full `respawns`; every
+   `spriteSheet.img` and `physicsDynamic[].img` it names must exist in
+   `assets/img/`.
 7. `src/config/sounds.js` — the sound registry.
 
 Cross-check as you go: panel keys match on both halves; `playerKeys` names
@@ -148,7 +153,9 @@ await startStandaloneGame({
   clientPlugin,
   wasmUrl,
   container: document.getElementById('game'), // full-screen, position: relative
-  assetsBase: '/assets/',
+  // dev root of your own assets: the client reads `${assetsBase}img/` and
+  // `${assetsBase}sounds/`, both staged into build/ by the copy scripts
+  assetsBase: '/build/',
   playerName: 'dev',
   startupVotes: [['teamChange', 'team1']], // leave the spectators first…
   startupCommands: ['/bot 4'], // …only then your own chat commands
@@ -221,6 +228,7 @@ Open two browser tabs against the local master:
 | `src/client/**`, `src/host/**` (JS) | dev: nothing (HMR); prod: `npm run build` |
 | Maps (`src/data/maps/*`) | `npm run build:assets && npm run build:manifest` (the master reads `dist/maps/`) |
 | Sounds (raw assets) | `npm run audio:process && npm run build:assets && npm run build:manifest` |
+| Images (`assets/img/*`) | `npm run build:assets && npm run build:manifest`; in dev `predev` already staged `build/img/` |
 | Rust core | `npm run core:build` (+ reload; prod also `npm run build`) |
 | `roomForm` / `roomDefaults` | `npm run build:manifest` |
 | Anything, before the **first** master start | full `npm run core:build && npm run build` |

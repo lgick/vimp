@@ -65,9 +65,10 @@ COPY packages/engine/package.json ./packages/engine/
 
 RUN npm ci --omit=dev
 
-# фронтенд движка (vite build; public копируется Vite внутрь dist)
+# фронтенд движка (vite build; public копируется Vite внутрь dist).
+# Сырой public/ в рантайме не нужен: vite-express раздаёт статику строго из
+# build.outDir и в publicDir не заглядывает
 COPY --from=builder /app/packages/engine/dist ./packages/engine/dist
-COPY --from=builder /app/packages/engine/public ./packages/engine/public
 
 # мастер-сервер движка (лобби + сигналинг WebRTC + каталоги)
 COPY --from=builder /app/packages/engine/src/config ./packages/engine/src/config

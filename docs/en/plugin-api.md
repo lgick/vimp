@@ -57,7 +57,8 @@ map JSON (a `maps:export` product of the game build).
     "wasm":   "/games/tanks/core-<hash>.wasm",  // single hashed .wasm for both entries (shared HTTP cache)
     "wasmNode": "./core-node/index.js"          // OPTIONAL: Node build of the core inside dist/, for `npm run sim` and the dedicated server
   },
-  "assetsBase": "/games/tanks/",           // base for sounds/assets
+  "assetsBase": "/games/tanks/",           // base for the package's own assets:
+                                           // sounds/ and img/ (see below)
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
@@ -130,6 +131,19 @@ the **host** — `entries.host` (dynamic import inside the Worker) +
 schemas (panel, texts, keysets) are **not** part of the manifest — they
 travel as plugin code and, as today, as CONFIG_DATA (port 0) from the host,
 so the client's game data is always consistent with the room's host.
+
+`assetsBase` is the root of **everything the package ships as a file**, by
+convention two directories inside `dist/`:
+
+| Path | Contents | Who resolves it |
+| --- | --- | --- |
+| `${assetsBase}sounds/` | the `webm`+`mp3` pair of every sound | the engine (`SoundManager`, it overwrites `sounds.path`) |
+| `${assetsBase}img/` | tile sheets and dynamic-body sprites of the maps | the plugin's own part, from the `assetsBase` service |
+
+The engine serves **no game files of its own**: a map's `spriteSheet.img`
+name is resolved against the plugin's package, not against the engine's
+bundle. The base reaches a part through the `assetsBase` service — declare
+it in `componentDependencies` (see [client.md](client.md), "Providers").
 
 ## Form schema
 

@@ -45,7 +45,10 @@ export default {
     arena: {
       setId: 'm1',
       scale: 1,
-      spriteSheet: { img: 'tiles.png', frames: [[0, 0, 32, 32]] },
+      // имя файла — инертные данные: фикстура host-only, рендера в ней нет
+      // и картинку никто не грузит. Реальные тайлы везёт пакет игры
+      // (`${assetsBase}img/`), движок картинок не раздаёт
+      spriteSheet: { img: 'fixture-tiles.png', frames: [[0, 0, 32, 32]] },
       layers: { 1: [0] },
       physicsStatic: [1],
       physicsDynamic: [],

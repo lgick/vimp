@@ -55,6 +55,8 @@ export default {
     arena: {
       setId: 'm1',
       scale: 1,
+      // the file lives in your package: assets/img/tiles.png -> dist/img/,
+      // fetched by the Map part as `${assetsBase}img/tiles.png`
       spriteSheet: { img: 'tiles.png', frames: [[0, 0, 32, 32]] },
       layers: { 1: [0] },
       physicsStatic: [1],
@@ -626,6 +628,8 @@ parts: {
   },
   componentDependencies: {
     renderer:     ['Map'],
+    // the package's asset base: Map builds `${assetsBase}img/<file>` from it
+    assetsBase:   ['Map'],
     soundManager: ['ExplosionEffect', 'ShotEffect', 'Bomb', 'Tank'],
   },
   sounds,

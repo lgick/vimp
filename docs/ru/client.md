@@ -247,7 +247,7 @@ wasm-bindgen класс `ClientCore` из того же WASM-бинаря,
 ### Провайдеры
 
 - **`BakingProvider`** ([providers/BakingProvider.js](../../packages/engine/src/client/providers/BakingProvider.js)) — однократная генерация процедурных текстур при старте по конфигу `bakedAssets`; функции запекания — в [`src/client/bakers/` игры-плагина](https://github.com/lgick/vimp-tanks/tree/main/src/client/bakers) (например, в `vimp-tanks`; фиксированного интерфейса нет, ориентироваться на существующие). Пекарь владеет тем, что вернул: перепечка уничтожает прежний результат (каждый объект ровно один раз за проход, даже если он лежал под несколькими ключами) вместе с его `TextureSource`, поэтому возвращать вьюху на общий атлас нельзя.
-- **`DependencyProvider`** — инъекция сервисов (`renderer`, `soundManager`) в компоненты по карте `componentDependencies`.
+- **`DependencyProvider`** — инъекция сервисов (`renderer`, `soundManager`, `assetsBase`) в компоненты по карте `componentDependencies`. `assetsBase` — база ассетов активной игры из её манифеста: part, рисующий из файлов-картинок, строит URL сам как `${assetsBase}img/<file>` — тем же способом, каким разрешаются звуки (`${assetsBase}sounds/`). Картинок игры движок не везёт: они едут в пакете плагина (`dist/img/`).
 
 ## SoundManager
 

@@ -154,9 +154,14 @@ every item here fails **silently** or with an error far from its cause.
 
 ## Assets and maps
 
-- [ ] Tile sheets and dynamic-object images load from the **engine's**
-      `public/img/` (`/img/<name>`), not from your `assetsBase`. Sounds come
-      from `${assetsBase}sounds/`.
+- [ ] Tile sheets and dynamic-object images ship in **your** package
+      (`dist/img/`) and load from `${assetsBase}img/`, exactly like sounds
+      load from `${assetsBase}sounds/`. The engine serves no game images.
+- [ ] The part that loads images must declare `assetsBase` in
+      `componentDependencies` — an undeclared service is silently `undefined`,
+      and the map renders as a blank canvas with nothing in the console.
+- [ ] A map naming an image that is not in `dist/img/` fails silently at
+      runtime. Catch it in the manifest build instead.
 - [ ] Every sound exists as a **`webm` + `mp3` pair**; a missing `.mp3`
       breaks Safari.
 - [ ] Do not set `sounds.path` — the engine overwrites it.

@@ -37,7 +37,8 @@ VIMP — **P2P**-движок для многопользовательских 
 ```
 packages/engine/ — vimp-engine: движок-приложение (npm workspace)
   index.html / vite.config.js — Vite-root движка
-  public/        — статика (звуки, favicon)
+  public/        — только статика движка: favicon + генерируемый vendor/pixi/
+                   (игровых ассетов нет: звуки и картинки едут в плагине)
   src/
     master/      — мастер-сервер (точка входа): реестр комнат, REST,
                    сигналинг, каталог карт (docs/master.md)

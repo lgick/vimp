@@ -24,7 +24,14 @@ A plugin is four artifacts built into one `dist/`:
 | Host plugin (`HostPlugin`) | the room creator's Web Worker | JS (Worker-safe, no DOM) |
 | Client plugin (`ClientPlugin`) | every player's main thread | JS + PixiJS |
 | WASM core (host + client halves) | both, as one `.wasm` | Rust |
-| `manifest.json` + maps + sounds | served by the master | generated |
+| `manifest.json` + maps + sounds + images | served by the master | generated |
+
+**Every asset the game needs is yours.** Tile sheets, dynamic-body sprites,
+sounds, maps and configs all ship inside your package's `dist/` and reach the
+client through the manifest's `assetsBase` (`${assetsBase}img/`,
+`${assetsBase}sounds/`). The engine serves no game file of any kind — there
+is no shared tile library to draw on, so plan for authoring or sourcing your
+own images from the start. See [`07-maps-and-assets.md`](07-maps-and-assets.md).
 
 ## How to use this guide
 
@@ -65,7 +72,7 @@ an error far from the cause.
 | [`04-client-plugin.md`](04-client-plugin.md) | `ClientPlugin` surface, parts, bakers, canvases, panel, stat, chat/vote UI, input, sound, hooks, auth screen |
 | [`05-wasm-core.md`](05-wasm-core.md) | Rust crate, `GameDef`/`GameSim`/`GameClientDef`, ABI macros, init JSON, events, determinism, prediction |
 | [`06-snapshot-protocol.md`](06-snapshot-protocol.md) | Snapshot schema, the four kinds, frame v3 byte layout, hot buffer, all ports |
-| [`07-maps-and-assets.md`](07-maps-and-assets.md) | Map JSON, scaling cascade, respawns, tile images, sound pipeline, baked assets |
+| [`07-maps-and-assets.md`](07-maps-and-assets.md) | Map JSON, scaling cascade, respawns, tile images and the image pipeline, sound pipeline, baked assets |
 | [`08-gameplay-meta.md`](08-gameplay-meta.md) | Engine-owned rules you configure: rounds, scoring, teams, kicks, timers, sound cues, informs |
 | [`09-reference-implementations.md`](09-reference-implementations.md) | Two worked examples: a minimal plugin in full, and tanks excerpts |
 | [`10-pitfalls.md`](10-pitfalls.md) | Invariant and trap checklist — verify against this before finishing |

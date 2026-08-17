@@ -140,12 +140,23 @@ export default function explosionTexture(params, renderer) {
 ```js
 componentDependencies: {
   renderer:     ['Map'],
+  assetsBase:   ['Map'],
   soundManager: ['ExplosionEffect', 'ShotEffect', 'Bomb', 'Tank'],
 }
 ```
 
-The available service pool is fixed: **`renderer`** (the canvas's Pixi
-renderer) and **`soundManager`**. Requesting anything else yields nothing.
+The available service pool is fixed, and it has three entries:
+
+| Service | Value | Used for |
+| --- | --- | --- |
+| `renderer` | the canvas's Pixi renderer | `generateTexture`, baking a map into one sprite |
+| `soundManager` | the engine's `SoundManager` | registering positional voices |
+| `assetsBase` | the active game's asset base, a string | building URLs into **your own** package: `${assetsBase}img/<file>` |
+
+Requesting anything else yields nothing — the key is silently absent from
+`dependencies`. That is why a part depending on `assetsBase` should throw
+with a readable message when it is missing: `${undefined}img/tiles.png`
+loads nothing and reports nothing (see `07-maps-and-assets.md`).
 
 ## Canvases
 

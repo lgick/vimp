@@ -89,29 +89,56 @@ again in a part.
 Give every team the same number of points unless asymmetry is intended, and
 make sure the total covers `roomDefaults.maxPlayers`.
 
-## Images — the location trap
+## Images — you ship them
 
-> Tile sheets and dynamic-object images are loaded from the **engine's**
-> `public/img/` directory, as `/img/<name>`, **not** from your plugin's
-> `assetsBase`.
+> Tile sheets and dynamic-object images are **yours**. The engine serves no
+> game images at all; every file a map names must exist in your own package.
 
-The engine ships `tiles.png`, `tiles2.png`, `tiles3.png`, `b1.png` and a few
-others. A map referencing `spriteSheet.img: 'my-tiles.png'` will 404 unless
-that file exists in the engine's public directory.
+`spriteSheet.img` and `physicsDynamic[].img` are bare file names. Your `Map`
+part turns them into URLs, and the base it uses comes from the engine as the
+**`assetsBase` service** — the same base the sounds resolve against:
 
-Practical consequences:
+```js
+// src/config/client.js — declare the service for the part that needs it
+componentDependencies: {
+  renderer:   ['Map'],
+  assetsBase: ['Map'],
+}
 
-- Prefer the tile sheets the engine already ships.
-- If you need your own tiles, either load them from `assetsBase` in your own
-  `Map` part (you control that code — the `/img/` prefix is a convention of
-  the tanks `Map` part, not an engine API), or get the asset added to the
-  engine's public directory.
-- **Sounds are different**: they come from `${assetsBase}sounds/`, i.e. from
-  your own package's `dist/sounds/`.
+// src/client/parts/Map.js — build the URL
+constructor(data, _assets, dependencies) {
+  // '/games/<id>/img/' in the lobby and on a dedicated server,
+  // whatever `startStandaloneGame({ assetsBase })` was given in dev
+  this._imageBase = `${dependencies.assetsBase}img/`;
+
+  Assets.load(`${this._imageBase}${data.spriteSheet.img}`);
+}
+```
+
+The available service pool is `renderer`, `soundManager` and `assetsBase`; a
+part that asks for a service it did not declare simply gets `undefined`.
+Guard against that explicitly — a missing base produces a request for
+`undefinedimg/tiles.png`, which is a blank canvas with no error at all.
+
+## Image pipeline
+
+1. Keep the source files under `assets/img/` (tracked in git — unlike sounds
+   they need no processing step).
+2. A copy script (`copy-game-images.js`, mirroring `copy-game-sounds.js`)
+   copies them to `build/img/` — the dev root of the standalone launch — and
+   to `dist/img/`, the packaged asset.
+3. Run it from `build:assets` and from `predev`, so `npm run dev` shows the
+   map even before ffmpeg has ever been installed.
+4. Make the manifest build **fail** when a map names an image that is not in
+   `dist/img/`: the engine cannot diagnose this — the part just never gets its
+   texture and the map renders empty.
+5. Add the images to the `check-pack.js` required list: `dist/` is usually
+   gitignored, and npm applies ignore rules inside directories listed in
+   `files`.
 
 ## Sound pipeline
 
-1. Author raw sources under `assets/sounds/`.
+1. Author raw sources under `assets/audio-raw/`.
 2. `npm run audio:process` runs ffmpeg: loudness normalisation to EBU R128 and
    encoding to **both** `.webm` and `.mp3` into `build/sounds/`
    (an intermediate, gitignored directory).

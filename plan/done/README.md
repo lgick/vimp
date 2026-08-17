@@ -32,7 +32,9 @@
   `review.md`–`review-5.md`). Крейт `vimp-engine-core` не тронут,
   `ENGINE_API_VERSION` не менялся; npm `vimp-engine` minor — публикуемый
   клиент вырос до `src/client`/`src/standalone`, добавлен
-  `src/config/closeCodes.js`.
+  `src/config/closeCodes.js`. Единственный отложенный пункт Этапа 6 (тайлы
+  карт в standalone) вынесен в направление I —
+  [plan/game-assets-move.md](../game-assets-move.md).
 
 ## Зафиксированные решения
 
