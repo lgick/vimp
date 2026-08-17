@@ -123,13 +123,27 @@ protocol frames and a binary snapshot frame for the world state (see
 
 Because the process is public, long-lived and has neither a lobby gate nor
 OAuth in front of it, the adapter (not the isomorphic `PortMachine`) enforces
-three limits:
+four limits:
 
 | Limit | Value | Why |
 | --- | --- | --- |
 | `maxPayload` | 64 KB | a legitimate client frame is a chat line, keys or a vote — kilobytes; the `ws` default is 100 MiB, i.e. memory on request |
 | message rate | 300 frames/s per socket | a client peaks at ~60 frames/s (keys + pong); frames over the limit are dropped silently |
-| handshake timeout | 30 s | a connection that never became a participant takes no room slot but holds a socket — a trivial slowloris |
+| connection rate | 30 per minute per address | every connection costs a `CONFIG_DATA` payload *before* any authentication, so without a cap the socket is an amplifier. Rejected with close code 4009 |
+| handshake timeout | 120 s | a connection that never became a participant takes no room slot but holds a socket — a trivial slowloris. Closed with code 4008 |
+
+The connection rate keys on the client address, read the same way as in the
+master's signaling server: the first hop of `X-Forwarded-For` behind Nginx
+(which the deploy config sets), the socket address otherwise. The header is
+client-controlled on a direct connection — the same trade-off the master and
+the auth service already make.
+
+The handshake timeout is deliberately generous: a participant appears only
+after `AUTH_RESPONSE`, so the window covers the client's WebGL init and asset
+baking (`CONFIG_READY` is sent after them) **plus the player typing a
+nickname**, and the engine client reloads the page after a disconnect — a tight
+timeout would put a slow player in a reload loop. The player sees the generic
+"connection closed" message, not the reason.
 
 ## Identity and profiles
 

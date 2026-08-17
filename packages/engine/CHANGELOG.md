@@ -97,8 +97,10 @@ bumps the minor version).
   `createGuestIdentity` and `offlinePlayerData`, serves the master's catalog
   routes for its single game, mirrors the Worker's frame format byte for byte,
   drops unreliable frames above 256 KB of `bufferedAmount`, validates
-  `Origin`, and shuts down gracefully on `SIGTERM`/`SIGINT`. Documented in
-  `docs/en/dedicated.md`.
+  `Origin`, and shuts down gracefully on `SIGTERM`/`SIGINT`. Being public and
+  long-lived, it also caps what an anonymous socket can cost: a 64 KB
+  `maxPayload`, 300 frames/s per socket, 30 connections/minute per address and
+  a 120 s handshake timeout. Documented in `docs/en/dedicated.md`.
 - `src/master/main.js` is now a dispatcher between `src/master/lobby.js` (the
   lobby master, the previous content of `main.js`, unchanged) and
   `src/dedicated/main.js`, so one entry point serves both roles.
@@ -120,16 +122,17 @@ bumps the minor version).
 
 ### Changed
 
-- The page's base CSS rules (`html`/`body`, `body > * { display: none }`,
+- The page's base CSS rules (`html`/`body`, the screen-hiding rule,
   `body.hide-cursor`) moved from the inline `<style>` of
   `packages/engine/index.html` into `src/client/style.css`: a game
   repository has no `index.html` of ours, and without them every engine
   screen would show at once. The CSP hash of the inline importmap is
-  unaffected. The hiding rule now has two forms — `body > *` and
-  `.vimp-shell > *`, the class being set on the boot container by
-  `ensureGameShell` — so the screens stay hidden inside an SDK container as
-  well, while `body > .vimp-shell { display: revert }` keeps a top-level
-  container itself visible.
+  unaffected. The published form of the hiding rule keys on the boot
+  container — `.vimp-shell > *`, the class being set by `ensureGameShell` —
+  so the screens stay hidden inside an SDK container, while the page
+  embedding the SDK keeps its own top-level markup. `index.html` keeps the
+  pre-JS form (`body > *`) inline: until the class is set there is no
+  container to key on, and the pug markup would flash.
 - The runtime-built vote window (`#vote`) is mounted into the boot container
   instead of `document.body`: in `solo` it used to land outside the SDK
   container, where it was both hidden and positioned against the wrong

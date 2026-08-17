@@ -133,12 +133,16 @@ canvases there as well — elements the game already put in its own markup
 (`<canvas id="vimp">`, `#chat`, …) are reused as they are, never moved.
 
 The engine also marks the container with the `vimp-shell` class: `style.css`
-hides `.vimp-shell > *` so the engine's screens do not all show at once, and
-`body > .vimp-shell { display: revert }` keeps the container itself visible. A
-container that is a direct child of `body` therefore needs no `display` rule
-from the page (any `display` set by id still wins). A container nested deeper
-than the first level is not covered by the exemption — the page must give it
-its own `display`.
+hides `.vimp-shell > *` so the engine's screens do not all show at once — each
+of them is revealed by its own module. Nothing hides the container itself, at
+any nesting depth, and the page needs no `display` rule for it. Note that the
+rule is a class selector: an element of your own that sits at the container's
+first level and is shown by a type or class rule (`canvas { display: block }`)
+will lose to it — target it by id.
+
+`style.css` is a page-level stylesheet, not a scoped one: importing the SDK
+also gives the embedding page `html, body { width: 100%; height: 100% }` and
+the engine's `body` background, color and font. Reserve the page for the game.
 
 ### wasmUrl and assets
 
@@ -192,9 +196,9 @@ fully disabled.
 - **The UI is stacked in the top-left corner** — the container is not
   `position: relative` or not full-screen.
 - **Black screen while the match is clearly running** (sound plays, no errors)
-  — the container is hidden: it is nested deeper than the first level of
-  `body`, where `body > .vimp-shell { display: revert }` does not reach. Give
-  it a `display` of its own, or move it up to `body`.
+  — an element of the container's own is covering it, or the game's CSS shows
+  something at the container's first level with a rule weaker than
+  `.vimp-shell > *` (see above) and the engine keeps it hidden.
 - **`/bot` answers "players only"** — `startupVotes` are missing, so the
   player is still a spectator.
 - **`game "<id>" requires engine API vN`** — the plugin and the installed

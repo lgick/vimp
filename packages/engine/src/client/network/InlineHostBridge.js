@@ -113,8 +113,13 @@ export default class InlineHostBridge {
   }
 
   // хост поднимается асинхронно: без ready порт-машины ещё нет, и вызов
-  // упал бы сырым TypeError на null
+  // упал бы сырым TypeError на null. После destroy() порт-машина остаётся, но
+  // хост уже погашен — кадр создал бы участника без таймеров матча
   _assertReady() {
+    if (this._destroyed) {
+      throw new Error('InlineHostBridge: the host is destroyed');
+    }
+
     if (!this._portMachine) {
       throw new Error('InlineHostBridge: await ready before open()');
     }

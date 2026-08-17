@@ -59,8 +59,20 @@ const MAX_PAYLOAD = 64 * 1024;
 const MESSAGE_LIMIT = { limit: 300, windowMs: 1000 };
 
 // соединение, не дошедшее до участника, слота в комнате не занимает
-// (isFull считает getHumans()), но держит сокет и память — slowloris
-const HANDSHAKE_TIMEOUT = 30000;
+// (isFull считает getHumans()), но держит сокет и память — slowloris.
+// Порог щедрый намеренно: участник появляется только после AUTH_RESPONSE, то
+// есть в это время укладываются инициализация WebGL и запекание ассетов у
+// клиента (CONFIG_READY уходит после Promise.all(initPromises)) плюс ввод ника
+// человеком. Закрытие тут заканчивается перезагрузкой страницы у клиента
+// (handleDisconnect в dedicated), так что коротким таймаутом медленный игрок
+// попадал бы в петлю
+const HANDSHAKE_TIMEOUT = 120000;
+
+// подключений с одного адреса за минуту: игровой сокет открывается один раз
+// на вкладку (плюс перезагрузки), а до аутентификации каждое соединение уже
+// стоит серверу CONFIG_DATA — без лимита это усилитель. Ключ — тот же, что у
+// сигналинга: X-Forwarded-For (первый адрес) за Nginx, иначе адрес сокета
+const CONNECTION_LIMIT = { limit: 30, windowMs: 60000 };
 
 /**
  * Поднимает dedicated-сервер: пакет игры, симуляцию, HTTP и игровой WS.
@@ -229,7 +241,11 @@ export async function startDedicatedServer({
   });
 
   const messageLimiter = new RateLimiter(MESSAGE_LIMIT);
-  const limiterSweep = setInterval(() => messageLimiter.sweep(), 60000);
+  const connectionLimiter = new RateLimiter(CONNECTION_LIMIT);
+  const limiterSweep = setInterval(() => {
+    messageLimiter.sweep();
+    connectionLimiter.sweep();
+  }, 60000);
 
   limiterSweep.unref();
 
@@ -247,6 +263,17 @@ export async function startDedicatedServer({
     // origin не пришёл вовсе — это скорее всего бот (как у сигналинга)
     if (!requestOrigin) {
       ws.terminate();
+      return;
+    }
+
+    // частота подключений с адреса: за Nginx реальный адрес приходит в
+    // X-Forwarded-For (тот же разбор, что в SignalingServer)
+    const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = String(ipHeader ?? '').split(',')[0].trim();
+
+    if (!connectionLimiter.consume(ip)) {
+      console.warn(`[dedicated] connection rate limit for ${ip}`);
+      ws.close(4009, 'tooManyConnections');
       return;
     }
 

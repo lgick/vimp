@@ -103,8 +103,11 @@ function normalize(raw) {
   };
 }
 
-function defaultDedicatedWsUrl(wsPath = DEDICATED_WS_PATH) {
+function defaultDedicatedWsUrl(wsPath) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // пустой или отсутствующий путь — это «умолчание», а не корень: `''` дал бы
+  // ws://host, null — ws://hostnull
+  const path = wsPath || DEDICATED_WS_PATH;
 
-  return `${protocol}//${location.host}${wsPath}`;
+  return `${protocol}//${location.host}${path}`;
 }

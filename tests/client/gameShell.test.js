@@ -14,6 +14,19 @@ import {
 
 const PUG_FILES = ['panel', 'chat', 'stat', 'auth', 'informer'];
 
+const readRepoFile = path => readFileSync(resolve(process.cwd(), path), 'utf8');
+
+// [селектор, тело] верхнего уровня. Разбор намеренно грубый: вложенные
+// @media/@keyframes отсеиваются (в них нет правил вида `#id`), а комментарии
+// снимаются до разбора — иначе текст про `body > *` попал бы в проверки
+const cssRules = source =>
+  source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}')
+    .map(chunk => chunk.split('{'))
+    .filter(parts => parts.length === 2)
+    .map(([selector, body]) => [selector.trim(), body.trim()]);
+
 const pugIds = () => {
   const ids = new Set();
 
@@ -90,6 +103,47 @@ describe('gameShell', () => {
 
     for (const id of shellIds()) {
       expect(document.getElementById(id).style.display, id).toBe('');
+    }
+  });
+
+  // каскад CSS happy-dom не считает, поэтому единственная страховка от
+  // повторения P1-1 (чёрный экран в контейнере SDK) — статика
+  it('скрытие экранов: класс-форма в style.css, FOUC-форма в index.html', () => {
+    const rules = cssRules(readRepoFile('packages/engine/src/client/style.css'));
+    const shellRule = rules.find(
+      ([selector]) => selector === `.${SHELL_CLASS} > *`,
+    );
+
+    expect(shellRule, `правило .${SHELL_CLASS} > * в style.css`).toBeDefined();
+    expect(shellRule[1]).toMatch(/display:\s*none/);
+
+    // `body > *` в публикуемой таблице погасило бы и первый уровень страницы,
+    // встраивающей SDK, — там правило целится только в контейнер каркаса
+    expect(rules.map(([selector]) => selector)).not.toContain('body > *');
+
+    // на своей странице оно, наоборот, нужно: до исполнения JS класса на body
+    // ещё нет и pug-разметка мигнула бы
+    const html = readRepoFile('packages/engine/index.html').replace(/\s+/g, ' ');
+
+    expect(html).toMatch(/body > \* \{ display: none; \}/);
+  });
+
+  it('первый уровень каркаса не объявляет своего display', () => {
+    const container = document.createElement('div');
+
+    document.body.appendChild(container);
+    ensureGameShell(container);
+
+    const rules = cssRules(readRepoFile('packages/engine/src/client/style.css'));
+
+    // именно на этом держится скрытие: собственный display у #stat или
+    // #tech-informer перебил бы `.vimp-shell > *` и показал экран сразу
+    for (const child of container.children) {
+      for (const [selector, body] of rules) {
+        if (selector === `#${child.id}`) {
+          expect(body, child.id).not.toMatch(/(^|;)\s*display\s*:/);
+        }
+      }
     }
   });
 

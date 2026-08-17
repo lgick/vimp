@@ -142,4 +142,15 @@ describe('InlineHostBridge', () => {
 
     await bridge.ready;
   });
+
+  it('open и send после destroy отказывают: хост уже погашен', async () => {
+    bridge = makeBridge();
+    await bridge.ready;
+    await bridge.destroy();
+
+    // порт-машина осталась, но матча за ней нет — кадр создал бы участника
+    // без таймеров хоста
+    expect(() => bridge.open('local', {})).toThrow('destroyed');
+    expect(() => bridge.send('local', '[0,null]')).toThrow('destroyed');
+  });
 });

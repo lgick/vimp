@@ -92,21 +92,30 @@ builds the missing ones (`#panel`+`#logo`, `#chat`+`#chat-box`+`#cmd`,
 `#stat`, `#auth`+its form nodes, `#game-informer`, `#tech-informer`) and is
 idempotent: in `lobby` mode, where the markup already exists, it does
 nothing. `#vote` is not created here (`components/view/Vote.js` builds it at
-runtime **inside the boot container**), and neither are the canvases — their sizes arrive in `CONFIG_DATA`,
-so `ensureCanvas(id, size, container)` handles them from the `CONFIG_DATA`
-handler. A `<canvas>` the game already placed in the document is reused as is
-and never moved.
+runtime **inside the boot container**), and neither are the canvases — their
+sizes arrive in `CONFIG_DATA`, so `ensureCanvas(id, size, container)` handles
+them from the `CONFIG_DATA` handler. A `<canvas>` the game already placed in
+the document is reused as is and never moved.
 
 The container **must be full-screen and positioned** (`position: relative`):
 `#panel`, `#stat` and `#vote` are `position: absolute`, and their containing
 block is the nearest positioned ancestor. Visibility of the screens is handled
 by the engine itself: `ensureGameShell` marks the container with the
 `vimp-shell` class (exported as `SHELL_CLASS`), and `style.css` hides
-`body > *, .vimp-shell > *` — each screen is shown by its own module. The
-container itself is exempted by `body > .vimp-shell { display: revert }`, so a
-top-level container needs no `display` from the page; a container nested deeper
-than the first level must be made visible by the page (an id selector beats the
-rule).
+`.vimp-shell > *` — each screen is then shown by its own module (`main.js`
+walks `initIdList` and sets an inline `display`, `AuthView.show`,
+`StatView.show`, the informers). The rule keys on the container and not on
+`body`, so the page embedding the SDK keeps its own markup, and the container
+needs no `display` from the page at any nesting depth. One consequence for a
+game's own CSS: the rule is a class selector, so a top-level element inside the
+container that the game shows with a type or class rule
+(`canvas { display: block }`) loses to it — target such elements by id, or let
+`initIdList` reveal them.
+
+The engine's own page keeps the pre-JS form of that rule (`body > *`) inline in
+`packages/engine/index.html`: until `ensureGameShell` marks `body`, there is no
+`vimp-shell` class and the pug markup would flash. Once it has run, the two
+forms select exactly the same elements.
 
 The two sources of markup must not drift apart: `tests/client/gameShell.test.js`
 scrapes the ids out of the pug includes and compares them with the set the

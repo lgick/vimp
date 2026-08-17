@@ -45,6 +45,14 @@ describe('boot', () => {
     expect(cfg.wsUrl).toBe(`ws://${location.host}/play`);
   });
 
+  it('пустой wsPath не превращает адрес в корень', async () => {
+    const cfg = await resolveBootConfig(async () =>
+      ok({ mode: 'dedicated', wsPath: '' }),
+    );
+
+    expect(cfg.wsUrl).toBe(`ws://${location.host}/game`);
+  });
+
   it('не затирает явный wsUrl сервера', async () => {
     const cfg = await resolveBootConfig(async () =>
       ok({ mode: 'dedicated', wsUrl: 'wss://game.example/ws' }),

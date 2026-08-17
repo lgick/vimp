@@ -6,10 +6,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VIMP</title>
     <!--
-      Базовые правила страницы (html/body, скрытие экранов, hide-cursor)
-      переехали в src/client/style.css: в репозитории игры этого index.html
-      нет, а без них все экраны движка оказались бы видимыми сразу.
+      Базовые правила страницы (html/body, экраны, hide-cursor) переехали в
+      src/client/style.css: в репозитории игры этого index.html нет, а
+      standalone SDK импортирует таблицу целиком.
+
+      Здесь остаётся только защита от FOUC этой страницы: pug-разметка
+      (лобби, форма входа, scoreboard) видима до исполнения JS, а класса
+      vimp-shell на body ещё нет — его ставит ensureGameShell, и дальше
+      скрытие держит правило .vimp-shell первого уровня из style.css,
+      тождественное этому. В style.css такого правила быть не должно: там
+      оно скрывало бы и первый уровень страницы, встраивающей SDK
+      (docs/en/standalone.md). Инлайн разрешён прод-CSP:
+      style-src 'self' 'unsafe-inline' (src/config/master.js).
     -->
+    <style>
+      body > * {
+        display: none;
+      }
+    </style>
   </head>
   <body>
     <pug src="./src/client/views/index.pug" />

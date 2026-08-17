@@ -276,6 +276,40 @@ describe('dedicated-сервер', () => {
     await second.close();
   });
 
+  it('частота подключений с адреса ограничена', async () => {
+    const { port } = await start();
+    const url = `ws://localhost:${port}/game`;
+    const opts = { origin: `http://localhost:${port}` };
+    const held = [];
+
+    // лимит стоит до порт-машины, поэтому хендшейк проходить не нужно: до
+    // аутентификации каждое соединение уже стоит серверу CONFIG_DATA
+    for (let i = 0; i < 30; i += 1) {
+      const ws = new WebSocket(url, opts);
+
+      await new Promise((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+
+      held.push(ws);
+    }
+
+    const extra = new WebSocket(url, opts);
+    const code = await new Promise(resolve => extra.on('close', resolve));
+
+    expect(code).toBe(4009);
+
+    for (const ws of held) {
+      ws.close();
+    }
+
+    // отказ касается только лишнего соединения
+    const res = await fetch(`http://localhost:${port}/config`);
+
+    expect(res.status).toBe(200);
+  });
+
   it('соединение без Origin закрывается', async () => {
     const { port } = await start();
     const ws = new WebSocket(`ws://localhost:${port}/game`);
