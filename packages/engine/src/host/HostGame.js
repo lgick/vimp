@@ -606,22 +606,26 @@ export default class HostGame {
    * shutdown — иначе таймеры держат процесс, а rank/state теряются.
    * @returns {Promise} Завершение финальной синхронизации профилей.
    */
-  destroy() {
+  async destroy() {
     this._timerManager.stopGameTimers();
     this._timerManager.stopIdleCheckTimer();
     this._timerManager.stopAllVoteTimers();
     this._timerManager.stopAllBlockedVoteTimers();
 
     // flushAll до снятия участников: removeUser чистит запись PlayerDataSync,
-    // и после него синхронизировать было бы уже нечего
-    const flushed = this._playerDataSync.flushAll();
+    // и после него синхронизировать было бы уже нечего. Ждём здесь же —
+    // иначе removeUser стартует второй flush с той же накопленной дельтой
+    // (двойной зачёт рейтинга), а destroy разрешился бы раньше, чем эти
+    // запросы уйдут
+    await this._playerDataSync.flushAll();
 
     // getAll() отдаёт копию — снятие внутри цикла реестр не ломает
     for (const user of this._participants.getAll()) {
+      // запись уже синхронизирована — финальный flush внутри removeUser
+      // не нужен и был бы повтором
+      this._playerDataSync.removeUser(user.gameId);
       this.removeUser(user.gameId);
     }
-
-    return flushed;
   }
 
   // ***** эстафета Worker'ов (Этап 5.2) ***** //

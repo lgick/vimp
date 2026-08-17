@@ -149,7 +149,8 @@ is a pluggable strategy, `packages/engine/src/host/identity.js`:
 | `createGuestIdentity({ fallbackPrefix })` | standalone / dedicated | one `name` field | `name` | the form's nickname, `Player_xxxx` as a fallback |
 
 The contract is `{ params, errorField, resolve(data, socketId) }`. `params`
-are appended to the game's `authSchema.params` in both directions: they go out
+go in front of the game's `authSchema.params` in both directions (the nickname
+is the first field a player fills in): they go out
 on `AUTH_DATA` (so a guest nickname field reaches the client form through the
 very same channel as the game's own fields) and they are checked by
 `validateAuth` on `AUTH_RESPONSE`. A rejected `resolve` answers `AUTH_RESULT`

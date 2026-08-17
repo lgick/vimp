@@ -5,6 +5,7 @@ import {
   ensureGameShell,
   ensureCanvas,
   shellIds,
+  SHELL_CLASS,
 } from '../../packages/engine/src/client/views/gameShell.js';
 
 // DOM-каркас игрового интерфейса (Этап 2 плана standalone-sdk). Главное
@@ -65,6 +66,31 @@ describe('gameShell', () => {
     // #vote создаёт в рантайме view/Vote.js, канвасы — CONFIG_DATA
     expect(document.getElementById('vote')).toBeNull();
     expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  it('ставит класс-маркер на контейнер и на body по умолчанию', () => {
+    const container = document.createElement('div');
+
+    document.body.appendChild(container);
+    ensureGameShell(container);
+
+    expect(container.classList.contains(SHELL_CLASS)).toBe(true);
+    expect(document.body.classList.contains(SHELL_CLASS)).toBe(false);
+
+    ensureGameShell();
+
+    expect(document.body.classList.contains(SHELL_CLASS)).toBe(true);
+  });
+
+  it('не задаёт экранам инлайновый display: видимость держит только CSS', () => {
+    const container = document.createElement('div');
+
+    document.body.appendChild(container);
+    ensureGameShell(container);
+
+    for (const id of shellIds()) {
+      expect(document.getElementById(id).style.display, id).toBe('');
+    }
   });
 
   it('идемпотентен: повторный вызов ничего не дублирует', () => {

@@ -39,12 +39,13 @@ export default class PortMachine {
     this._makeSocket = makeSocket;
     this._identity = identity;
 
-    // поля формы = игровые + поля стратегии идентичности. Один и тот же
+    // поля формы = поля стратегии идентичности + игровые. Один и тот же
     // список уходит клиенту (порт 0) и валидируется на порту 1: гостевой ник
-    // доезжает до формы ровно тем же каналом, что игровые поля
+    // доезжает до формы ровно тем же каналом, что игровые поля. Идентичность
+    // идёт первой — ник это первое, что заполняет игрок
     this._authParams = [
-      ...(authSchema.params ?? []),
       ...(identity.params ?? []),
+      ...(authSchema.params ?? []),
     ];
 
     // состояние подключений: socketId → { gameId, methods, enabled }
@@ -166,6 +167,14 @@ export default class PortMachine {
    */
   has(socketId) {
     return this._clients.has(socketId);
+  }
+
+  /**
+   * @param {string} socketId
+   * @returns {boolean} Дошёл ли клиент до созданного участника матча.
+   */
+  hasParticipant(socketId) {
+    return this._clients.get(socketId)?.gameId !== undefined;
   }
 
   /**

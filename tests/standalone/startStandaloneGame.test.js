@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startStandaloneGame } from '../../packages/engine/src/standalone/index.js';
-import { resetBootConfig } from '../../packages/engine/src/client/boot.js';
+import {
+  getBootConfig,
+  resetBootConfig,
+} from '../../packages/engine/src/client/boot.js';
 import { resetHostSingletons } from '../../packages/engine/src/devtools/resetHostSingletons.js';
 import wsports from '../../packages/engine/src/config/wsports.js';
 import hostPlugin from '../../packages/engine/tests/fixtures/miniGame/host/index.js';
@@ -80,7 +83,13 @@ vi.mock('../../packages/engine/src/client/main.js', async () => {
     if (port === PS.CONFIG_DATA) {
       send(PC.CONFIG_READY);
     } else if (port === PS.AUTH_DATA) {
-      send(PC.AUTH_RESPONSE, boot.autoAuth);
+      // ровно как main.js: дефолты схемы, перекрытые autoAuth. Слой дефолтов
+      // обязателен — без него заглушка прячет дефекты сборки autoAuth
+      const defaults = Object.fromEntries(
+        data.params.map(param => [param.name, param.value]),
+      );
+
+      send(PC.AUTH_RESPONSE, { ...defaults, ...boot.autoAuth });
     } else if (port === PS.AUTH_RESULT && !data) {
       // участник досоздаётся асинхронно (playerDataFetch), поэтому
       // MODULES_READY уходит следующим микротаском — у настоящего клиента
@@ -117,7 +126,8 @@ const options = container => ({
   wasmUrl: 'about:blank',
   container,
   playerName: 'Guest',
-  playerModel: 'm1',
+  // playerModel не задан намеренно: параметр необязателен, и модель обязана
+  // прийти из дефолта схемы игры (см. P1 review.md, P2-1)
   startupVotes: [['teamChange', 'team1']],
   startupCommands: ['/spawn 2'],
 });
@@ -166,6 +176,11 @@ describe('startStandaloneGame', () => {
     expect(humans).toHaveLength(1);
     expect(humans[0].name).toBe('Guest');
 
+    // незаданная модель не уехала как undefined: ключа в autoAuth нет вовсе,
+    // иначе он перекрыл бы дефолт схемы и хост ответил 'Property is missing'
+    expect(getBootConfig().autoAuth).toEqual({ name: 'Guest' });
+    expect(humans[0].model).toBe('m1');
+
     // startupVotes вывели участника из наблюдателей — иначе игровая команда
     // спавна отбилась бы (см. autostart.js)
     expect(humans[0].teamId).not.toBe(host._spectatorId);
@@ -181,6 +196,12 @@ describe('startStandaloneGame', () => {
     expect(bridge._clients.size).toBe(0);
 
     await bridge.destroy();
+  });
+
+  it('заданную модель кладёт в autoAuth', async () => {
+    await startStandaloneGame({ ...options(container), playerModel: 'm1' });
+
+    expect(getBootConfig().autoAuth).toEqual({ name: 'Guest', model: 'm1' });
   });
 
   it('требует плагины и wasmUrl', async () => {

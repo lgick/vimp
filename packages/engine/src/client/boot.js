@@ -98,12 +98,13 @@ function normalize(raw) {
   return {
     ...raw,
     mode: 'dedicated',
-    wsUrl: raw.wsUrl || defaultDedicatedWsUrl(),
+    // сервер объявляет свой путь в /config: константа — только умолчание
+    wsUrl: raw.wsUrl || defaultDedicatedWsUrl(raw.wsPath),
   };
 }
 
-function defaultDedicatedWsUrl() {
+function defaultDedicatedWsUrl(wsPath = DEDICATED_WS_PATH) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-  return `${protocol}//${location.host}${DEDICATED_WS_PATH}`;
+  return `${protocol}//${location.host}${wsPath}`;
 }

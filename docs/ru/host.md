@@ -140,7 +140,8 @@ new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identi
 | `createGuestIdentity({ fallbackPrefix })` | standalone / dedicated | одно поле `name` | `name` | ник из формы, заглушка `Player_xxxx` |
 
 Контракт — `{ params, errorField, resolve(data, socketId) }`. `params`
-доклеиваются к `authSchema.params` игры в обе стороны: уезжают в `AUTH_DATA`
+встают перед `authSchema.params` игры в обе стороны (ник — первое, что
+заполняет игрок): уезжают в `AUTH_DATA`
 (гостевое поле ника доходит до формы клиента ровно тем же каналом, что и
 собственные поля игры) и проверяются `validateAuth` на `AUTH_RESPONSE`.
 Отказ `resolve` отвечает `AUTH_RESULT` с

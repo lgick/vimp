@@ -33,7 +33,7 @@ import {
 } from './lib/formBuilder.js';
 import { getHostGateState } from './lib/hostGate.js';
 import createAutostart from './lib/autostart.js';
-import { resolveBootConfig } from './boot.js';
+import { getBootConfig, resolveBootConfig } from './boot.js';
 import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
 import { createContextTracker } from './lib/contextTracker.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
@@ -90,8 +90,17 @@ let gamesManifest;
 // режим загрузки (Этап 2 плана standalone-sdk): lobby — прод с мастером,
 // solo — хост в этой же вкладке (standalone SDK), dedicated — прямой WS к
 // Node-серверу. Ветвлений ровно пять: манифест, сигналинг/лобби, транспорт,
-// авто-аутентификация и точка монтирования канвасов
-const boot = await resolveBootConfig();
+// авто-аутентификация и точка монтирования канвасов.
+//
+// каталог манифестов нужен только лобби-контуру, а его запрос не зависит от
+// ответа /config — пускаем оба в полёт разом, иначе старт лобби платит лишний
+// последовательный round-trip
+const injectedBoot = getBootConfig();
+const manifestPromise = injectedBoot
+  ? null
+  : fetchGamesManifest(lobbyConfig.gamesManifestUrl).catch(err => err);
+
+const boot = injectedBoot ?? (await resolveBootConfig());
 const bootMode = boot.mode;
 const isLobbyMode = bootMode === 'lobby';
 
@@ -107,7 +116,13 @@ try {
     activeGameManifest = boot.manifest;
     gamesManifest = [activeGameManifest];
   } else {
-    gamesManifest = await fetchGamesManifest(lobbyConfig.gamesManifestUrl);
+    gamesManifest = await manifestPromise;
+
+    // отказ запроса доехал значением (промис стартовал раньше try) —
+    // возвращаем его в обычный поток ошибок загрузки
+    if (gamesManifest instanceof Error) {
+      throw gamesManifest;
+    }
 
     activeGameManifest = boot.gameId
       ? gamesManifest.find(manifest => manifest.id === boot.gameId)
@@ -860,7 +875,7 @@ function runModules(data) {
   //==========================================//
 
   const voteModel = new VoteModel({ ...voteData.params, formatMessage });
-  const voteView = new VoteView(voteModel, voteData.elems);
+  const voteView = new VoteView(voteModel, voteData.elems, gameContainer);
 
   modules.vote = new VoteCtrl(voteModel, voteView);
 

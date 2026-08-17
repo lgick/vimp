@@ -11,6 +11,7 @@ import config from '../lib/config.js';
 import { createHostRuntime } from '../lib/createHostRuntime.js';
 import { loadGamePackage } from '../lib/loadGamePackage.js';
 import { offlinePlayerData } from '../lib/offlinePlayerData.js';
+import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import PortMachine from '../host/PortMachine.js';
 import { createGuestIdentity } from '../host/identity.js';
@@ -45,6 +46,21 @@ const BACKPRESSURE_THRESHOLD = 262144;
 const WS_OPEN = 1;
 
 const PS_TECH_INFORM_DATA = wsports.server.TECH_INFORM_DATA;
+
+// Публичный 24/7-процесс без лобби-гейта и OAuth — политику флуда держим
+// здесь, в адаптере: PortMachine обязан остаться изоморфным и без политики.
+
+// кадр клиента — чат-строка, клавиши, голос: килобайты. Дефолт ws (100 МиБ)
+// на публичном сервере — просто пик памяти по запросу
+const MAX_PAYLOAD = 64 * 1024;
+
+// клиент шлёт до ~60 кадров/с на пике (клавиши + pong); 300/с ловит флуд,
+// не задевая игру
+const MESSAGE_LIMIT = { limit: 300, windowMs: 1000 };
+
+// соединение, не дошедшее до участника, слота в комнате не занимает
+// (isFull считает getHumans()), но держит сокет и память — slowloris
+const HANDSHAKE_TIMEOUT = 30000;
 
 /**
  * Поднимает dedicated-сервер: пакет игры, симуляцию, HTTP и игровой WS.
@@ -206,9 +222,26 @@ export async function startDedicatedServer({
     port: actualPort,
   });
 
-  const wss = new WebSocketServer({ server, path: WS_PATH });
+  const wss = new WebSocketServer({
+    server,
+    path: WS_PATH,
+    maxPayload: MAX_PAYLOAD,
+  });
+
+  const messageLimiter = new RateLimiter(MESSAGE_LIMIT);
+  const limiterSweep = setInterval(() => messageLimiter.sweep(), 60000);
+
+  limiterSweep.unref();
 
   wss.on('connection', (ws, req) => {
+    // ws эмитит 'error' на самом сокете (ECONNRESET, битый фрейм). Без
+    // слушателя это uncaughtException, то есть один сорванный клиент убивает
+    // матч всех остальных — тот же слушатель стоит в сигналинге. Ставится до
+    // проверки origin: иначе ошибка на отбитом соединении не перехвачена
+    ws.on('error', err =>
+      console.error('[dedicated] socket error:', err.message),
+    );
+
     const requestOrigin = req.headers.origin;
 
     // origin не пришёл вовсе — это скорее всего бот (как у сигналинга)
@@ -220,7 +253,10 @@ export async function startDedicatedServer({
     checkOrigin(requestOrigin, err => {
       if (err) {
         console.warn(err);
-        ws.close(4001, JSON.stringify(err));
+        // причина close ограничена 123 байтами (ws бросает RangeError, а он
+        // здесь никем не перехватывается): полный текст уходит в лог,
+        // клиенту — короткий маркер
+        ws.close(4001, 'invalidOrigin');
         return;
       }
 
@@ -228,9 +264,26 @@ export async function startDedicatedServer({
 
       sockets.set(socketId, ws);
 
-      ws.on('message', data => portMachine.message(socketId, data.toString()));
+      // соединение, застрявшее в хендшейке, закрываем сами: участника оно не
+      // создало, а сокет и память держит
+      const guard = setTimeout(() => {
+        if (!portMachine.hasParticipant(socketId)) {
+          ws.close(4008, 'handshakeTimeout');
+        }
+      }, HANDSHAKE_TIMEOUT);
+
+      guard.unref();
+
+      ws.on('message', data => {
+        // молча отбрасываем: кик за неактивность и потерянные ping — забота
+        // HostGame, здесь только защита от флуда
+        if (messageLimiter.consume(socketId)) {
+          portMachine.message(socketId, data.toString());
+        }
+      });
 
       ws.on('close', () => {
+        clearTimeout(guard);
         sockets.delete(socketId);
         portMachine.disconnect(socketId);
       });
@@ -239,6 +292,10 @@ export async function startDedicatedServer({
       portMachine.connect(socketId);
     });
   });
+
+  wss.on('error', err =>
+    console.error('[dedicated] ws server error:', err.message),
+  );
 
   // раздача клиента движка: dev — через Vite, прод — статика из
   // packages/engine/dist
@@ -252,6 +309,8 @@ export async function startDedicatedServer({
   // финальной синхронизации профилей и снимает таймеры, иначе они держали бы
   // процесс живым), и только потом закрывается HTTP
   const close = async () => {
+    clearInterval(limiterSweep);
+
     for (const ws of sockets.values()) {
       ws.close(1001);
     }

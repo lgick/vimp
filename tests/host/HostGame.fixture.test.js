@@ -141,4 +141,45 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     expect(host._participants.getAll()).toHaveLength(0);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('destroy синхронизирует профиль ровно один раз и дожидается запросов', async () => {
+    const puts = [];
+    let pending = 0;
+
+    // считающий playerDataFetch: PUT rank и PUT state должны уйти по одному
+    // разу на участника — параллельный второй flush повёз бы ту же дельту
+    // рейтинга (двойной зачёт)
+    const playerDataFetch = async (url, { method } = {}) => {
+      if (method === 'PUT') {
+        puts.push(url);
+      }
+
+      pending += 1;
+
+      // ответ приходит микрозадачей позже: разрешись destroy раньше —
+      // dedicated.close() успел бы сделать process.exit(0)
+      await Promise.resolve();
+
+      pending -= 1;
+
+      return { ok: true, status: 200, json: async () => ({ rank: 0, state: null }) };
+    };
+
+    const { host: counted } = await createFixtureHost({
+      opts: { playerDataFetch },
+    });
+
+    const gameId = await connectPlayer(counted, { socketId: 's1' });
+
+    joinTeam(counted, gameId, 'team1');
+    tick(counted, 1);
+
+    puts.length = 0;
+
+    await counted.destroy();
+
+    expect(pending).toBe(0);
+    expect(puts.filter(url => url.includes('rank'))).toHaveLength(1);
+    expect(puts.filter(url => url.includes('state'))).toHaveLength(1);
+  });
 });

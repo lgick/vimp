@@ -74,7 +74,7 @@ export async function startStandaloneGame({
       isDevMode: devMode,
     },
     autoAuth: playerName
-      ? { name: playerName, model: playerModel, ...auth }
+      ? pruneUndefined({ name: playerName, model: playerModel, ...auth })
       : null,
     startupVotes,
     startupCommands,
@@ -89,6 +89,15 @@ export async function startStandaloneGame({
       client.stopGame();
     },
   };
+}
+
+// незаданное поле — это «взять дефолт схемы», а не «отправить undefined»:
+// JSON.stringify ключ с undefined выбрасывает, и хост отвечает
+// 'Property is missing' (main.js накрывает autoAuth поверх дефолтов схемы)
+function pruneUndefined(source) {
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== undefined),
+  );
 }
 
 // манифест-подобный объект в памяти: мастера нет, а клиент читает из

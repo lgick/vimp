@@ -72,7 +72,10 @@ export default class SignalingServer {
     this._checkOrigin(requestOrigin, err => {
       if (err) {
         console.warn(err);
-        ws.close(4001, JSON.stringify(err));
+        // причина close ограничена 123 байтами, и ws бросает RangeError прямо
+        // в колбэке process.nextTick — перехватить его некому, длинный Origin
+        // валил бы процесс. Полный текст уходит в лог, клиенту — маркер
+        ws.close(4001, 'invalidOrigin');
         return;
       }
 

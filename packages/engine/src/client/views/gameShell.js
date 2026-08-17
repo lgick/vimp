@@ -76,6 +76,11 @@ const SHELL = [
   { tag: 'div', id: 'tech-informer' },
 ];
 
+// класс-маркер: правило `.vimp-shell > *` в style.css держит экраны скрытыми
+// до того, как их покажет свой модуль. В прод-сборке контейнер — body, и
+// правило совпадает с прежним `body > *`; в SDK это чужой div
+export const SHELL_CLASS = 'vimp-shell';
+
 /**
  * Достраивает недостающие контейнеры игрового интерфейса.
  *
@@ -87,6 +92,7 @@ const SHELL = [
  * @returns {HTMLElement} Контейнер.
  */
 export function ensureGameShell(container = document.body) {
+  container.classList.add(SHELL_CLASS);
   buildNodes(SHELL, container, false);
 
   return container;

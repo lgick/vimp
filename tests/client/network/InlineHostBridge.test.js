@@ -118,4 +118,28 @@ describe('InlineHostBridge', () => {
     // после close мост не должен держать соединение
     expect(bridge._clients.size).toBe(0);
   });
+
+  it('destroy до готовности гасит поднявшийся хост', async () => {
+    bridge = makeBridge();
+
+    // teardown раньше ready: без ожидания хост поднялся бы уже после него и
+    // остался бы во вкладке со своим игровым циклом
+    await bridge.destroy();
+    await bridge.ready;
+
+    expect(bridge._runtime).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    // повторный teardown безопасен
+    await bridge.destroy();
+  });
+
+  it('open и send до ready отказывают внятно', async () => {
+    bridge = makeBridge();
+
+    expect(() => bridge.open('local', {})).toThrow('await ready');
+    expect(() => bridge.send('local', '[0,null]')).toThrow('await ready');
+
+    await bridge.ready;
+  });
 });

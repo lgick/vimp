@@ -209,6 +209,73 @@ describe('dedicated-сервер', () => {
     await second.close();
   });
 
+  it('грубый обрыв соединения не роняет сервер', async () => {
+    const { port } = await start();
+    const first = new TestClient(port, { name: 'First' });
+
+    await waitFor(() => first.received(PS.FIRST_SHOT_DATA));
+
+    // битый кадр в сыром сокете: ws эмитит 'error' на серверном соединении, и
+    // без слушателя это uncaughtException — один сорванный клиент убил бы
+    // матч всех остальных
+    first.ws._socket.write(Buffer.from([0xff, 0xff, 0xff, 0xff]));
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const res = await fetch(`http://localhost:${port}/config`);
+
+    expect(res.status).toBe(200);
+
+    // сервер продолжает обслуживать: второй клиент проходит хендшейк
+    const second = new TestClient(port, { name: 'Second' });
+
+    await waitFor(() => second.received(PS.FIRST_SHOT_DATA));
+    await second.close();
+  });
+
+  it('длинный Origin закрывает только своё соединение, сервер жив', async () => {
+    const { port } = await start();
+    // причина close ограничена 123 байтами: полный текст ошибки с origin
+    // бросил бы RangeError внутри ws и убил процесс
+    const ws = new WebSocket(`ws://localhost:${port}/game`, {
+      origin: `http://${'a'.repeat(200)}.test`,
+    });
+
+    await new Promise(resolve => {
+      ws.on('close', resolve);
+      ws.on('error', resolve);
+    });
+
+    const res = await fetch(`http://localhost:${port}/config`);
+
+    expect(res.status).toBe(200);
+
+    const client = new TestClient(port);
+
+    await waitFor(() => client.received(PS.FIRST_SHOT_DATA));
+    await client.close();
+  });
+
+  it('кадр сверх maxPayload закрывает только своё соединение', async () => {
+    const { port } = await start();
+    const first = new TestClient(port, { name: 'First' });
+
+    await waitFor(() => first.received(PS.FIRST_SHOT_DATA));
+
+    // дефолт ws — 100 МиБ: такой кадр прошёл бы через JSON.parse целиком
+    first.ws.send(JSON.stringify([0, 'x'.repeat(128 * 1024)]));
+
+    await new Promise(resolve => first.ws.on('close', resolve));
+
+    const res = await fetch(`http://localhost:${port}/config`);
+
+    expect(res.status).toBe(200);
+
+    const second = new TestClient(port, { name: 'Second' });
+
+    await waitFor(() => second.received(PS.FIRST_SHOT_DATA));
+    await second.close();
+  });
+
   it('соединение без Origin закрывается', async () => {
     const { port } = await start();
     const ws = new WebSocket(`ws://localhost:${port}/game`);

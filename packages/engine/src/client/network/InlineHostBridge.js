@@ -30,6 +30,7 @@ export default class InlineHostBridge {
     this._clients = new Map();
     this._runtime = null;
     this._portMachine = null;
+    this._destroyed = false;
 
     // хост поднимается асинхронно (ядро игры + WASM): open() до готовности
     // потерял бы хендшейк, поэтому вызывающий обязан дождаться ready
@@ -42,6 +43,7 @@ export default class InlineHostBridge {
    * @param {Object} handlers - { onMessage, onClose }.
    */
   open(socketId, handlers) {
+    this._assertReady();
     this._clients.set(socketId, handlers);
     this._portMachine.connect(socketId);
   }
@@ -52,6 +54,7 @@ export default class InlineHostBridge {
    * @param {string} data
    */
   send(socketId, data) {
+    this._assertReady();
     this._portMachine.message(socketId, data);
   }
 
@@ -72,9 +75,12 @@ export default class InlineHostBridge {
    * @returns {Promise} Завершение teardown хоста.
    */
   destroy() {
+    this._destroyed = true;
     this._clients.clear();
 
-    return this._runtime ? this._runtime.host.destroy() : Promise.resolve();
+    // ready может быть ещё в полёте — без ожидания хост поднялся бы уже
+    // после teardown и остался бы во вкладке со своим игровым циклом
+    return this.ready.catch(() => {}).then(() => this._runtime?.host.destroy());
   }
 
   async _init(room, { hostPlugin, onMapChange }) {
@@ -87,6 +93,13 @@ export default class InlineHostBridge {
       },
     });
 
+    // stop() успел прийти раньше готовности: поднятый хост нужно погасить
+    // здесь, иначе его таймеры останутся во вкладке навсегда
+    if (this._destroyed) {
+      await runtime.host.destroy();
+      return;
+    }
+
     this._runtime = runtime;
 
     this._portMachine = new PortMachine({
@@ -97,6 +110,14 @@ export default class InlineHostBridge {
       makeSocket: socketId => this._makeSocket(socketId),
       identity: createGuestIdentity(),
     });
+  }
+
+  // хост поднимается асинхронно: без ready порт-машины ещё нет, и вызов
+  // упал бы сырым TypeError на null
+  _assertReady() {
+    if (!this._portMachine) {
+      throw new Error('InlineHostBridge: await ready before open()');
+    }
   }
 
   // wire-сокет пользователя: кладёт кадр прямо в onMessage транспорта —

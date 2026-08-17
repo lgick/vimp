@@ -26,9 +26,10 @@ bumps the minor version).
   the same per-instance cache the Worker used to hold), and
   `createGuestIdentity({ fallbackPrefix })` is the master-less one — it
   declares a `name` form field validated by the engine's own `isValidName`,
-  and falls back to `Player_xxxx`. A strategy's `params` are appended to the
+  and falls back to `Player_xxxx`. A strategy's `params` go in front of the
   game's `authSchema.params` in both directions, so a guest nickname reaches
-  the client form through the same channel as the game's own fields.
+  the client form through the same channel as the game's own fields — and as
+  its first field.
 - `vimp-engine/lib/offlinePlayerData.js` — `offlinePlayerData()` builds the
   `hostOptions.playerDataFetch` for a contour with no master: every profile
   request answers `{ rank: 0, state: null }` instead of hitting the network.
@@ -87,7 +88,6 @@ bumps the minor version).
   `dependencies` — it is imported by the published `src/client/SoundManager.js`.
   A consumer bundling the SDK must dedupe `pixi.js` (two copies mean two
   extension registries and a dead renderer).
-
 - The dedicated Node.js server — `src/dedicated/main.js`: one authoritative
   match of one game inside a Node process, with browsers connecting over a
   direct WebSocket (`/game`) and no lobby, OAuth or WebRTC anywhere.
@@ -125,7 +125,28 @@ bumps the minor version).
   `packages/engine/index.html` into `src/client/style.css`: a game
   repository has no `index.html` of ours, and without them every engine
   screen would show at once. The CSP hash of the inline importmap is
-  unaffected.
+  unaffected. The hiding rule now has two forms — `body > *` and
+  `.vimp-shell > *`, the class being set on the boot container by
+  `ensureGameShell` — so the screens stay hidden inside an SDK container as
+  well, while `body > .vimp-shell { display: revert }` keeps a top-level
+  container itself visible.
+- The runtime-built vote window (`#vote`) is mounted into the boot container
+  instead of `document.body`: in `solo` it used to land outside the SDK
+  container, where it was both hidden and positioned against the wrong
+  containing block.
+
+### Security
+
+- A `WebSocket` close reason is capped at 123 bytes, and `ws` enforces that by
+  throwing: an `Origin` header longer than ~80 bytes made both the master's
+  signaling server and the dedicated server answer a rejected connection with
+  an over-long reason, raising an unhandled `RangeError` — an unauthenticated
+  request could kill the process. The rejected client now gets the short
+  `invalidOrigin` marker and the full text goes to the log.
+- The dedicated server registers an `error` listener on every game socket (and
+  on the WebSocket server): `ws` emits `'error'` on the socket itself
+  (ECONNRESET, a malformed frame), and without a listener one broken client
+  was an `uncaughtException` that took the whole match down.
 
 ## [0.7.0] — 2026-08-09
 

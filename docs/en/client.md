@@ -92,17 +92,21 @@ builds the missing ones (`#panel`+`#logo`, `#chat`+`#chat-box`+`#cmd`,
 `#stat`, `#auth`+its form nodes, `#game-informer`, `#tech-informer`) and is
 idempotent: in `lobby` mode, where the markup already exists, it does
 nothing. `#vote` is not created here (`components/view/Vote.js` builds it at
-runtime), and neither are the canvases — their sizes arrive in `CONFIG_DATA`,
+runtime **inside the boot container**), and neither are the canvases — their sizes arrive in `CONFIG_DATA`,
 so `ensureCanvas(id, size, container)` handles them from the `CONFIG_DATA`
 handler. A `<canvas>` the game already placed in the document is reused as is
 and never moved.
 
 The container **must be full-screen and positioned** (`position: relative`):
 `#panel`, `#stat` and `#vote` are `position: absolute`, and their containing
-block is the nearest positioned ancestor. Note also that `style.css` hides
-`body > *` (the engine's screens must not all show at once) — so the SDK
-container, being a direct child of `body`, is hidden by that rule too, and
-the embedding page is responsible for its own `display`.
+block is the nearest positioned ancestor. Visibility of the screens is handled
+by the engine itself: `ensureGameShell` marks the container with the
+`vimp-shell` class (exported as `SHELL_CLASS`), and `style.css` hides
+`body > *, .vimp-shell > *` — each screen is shown by its own module. The
+container itself is exempted by `body > .vimp-shell { display: revert }`, so a
+top-level container needs no `display` from the page; a container nested deeper
+than the first level must be made visible by the page (an id selector beats the
+rule).
 
 The two sources of markup must not drift apart: `tests/client/gameShell.test.js`
 scrapes the ids out of the pug includes and compares them with the set the

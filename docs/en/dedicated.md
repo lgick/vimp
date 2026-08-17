@@ -121,6 +121,16 @@ protocol frames and a binary snapshot frame for the world state (see
 - a disconnect removes the participant, and nothing else: the match keeps
   running with no players in the room.
 
+Because the process is public, long-lived and has neither a lobby gate nor
+OAuth in front of it, the adapter (not the isomorphic `PortMachine`) enforces
+three limits:
+
+| Limit | Value | Why |
+| --- | --- | --- |
+| `maxPayload` | 64 KB | a legitimate client frame is a chat line, keys or a vote — kilobytes; the `ws` default is 100 MiB, i.e. memory on request |
+| message rate | 300 frames/s per socket | a client peaks at ~60 frames/s (keys + pong); frames over the limit are dropped silently |
+| handshake timeout | 30 s | a connection that never became a participant takes no room slot but holds a socket — a trivial slowloris |
+
 ## Identity and profiles
 
 Guest entry only: the nick is a form field validated by the engine's own
@@ -148,6 +158,14 @@ exits.
 - **No bots on startup.** Scripted participants are a *game* concept spawned
   by a player's chat command (`/bot 4` in tanks), not something the engine
   starts on its own.
+- **An empty room keeps ticking.** `RoundManager.createMap()` starts the game
+  timers from the `HostGame` constructor, so the simulation runs at the
+  configured tick rate (120 Hz by default) even with nobody connected —
+  around the clock. Measured on the `miniGame` fixture with an empty room:
+  ~3% of one core; a real Wasm core costs more, in proportion to an empty
+  world. Pausing on an empty room (`stopGameTimers()` when the last socket
+  leaves, `resumeGameTimers(mapTimeLeft)` plus `initiateNewRound()` on the
+  first entry) is a follow-up: round/map timer semantics need their own pass.
 - **No server rating and no `GET /servers`.** A dedicated server does not
   register in the lobby catalog and is not discoverable through it — players
   reach it by its URL.

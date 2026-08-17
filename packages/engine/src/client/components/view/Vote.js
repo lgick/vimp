@@ -5,12 +5,16 @@ import Publisher from '../../../lib/Publisher.js';
 let voteView;
 
 export default class VoteView {
-  constructor(model, elems) {
+  constructor(model, elems, container = document.body) {
     if (voteView) {
       return voteView;
     }
 
     voteView = this;
+
+    // окно создаётся в рантайме, поэтому точка монтирования приходит извне:
+    // в solo это контейнер SDK, иначе body (см. main.js, точка ветвления 5)
+    this._container = container;
 
     this._voteId = elems.voteId;
     this._titleClass = elems.titleClass;
@@ -76,7 +80,7 @@ export default class VoteView {
 
     vote.appendChild(navContainer);
 
-    document.body.appendChild(vote);
+    this._container.appendChild(vote);
 
     if (time !== null) {
       timerId = setTimeout(() => {

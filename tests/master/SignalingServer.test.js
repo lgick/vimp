@@ -192,6 +192,34 @@ describe('подключение', () => {
     expect(ws.sent).toHaveLength(0);
   });
 
+  // причина close ограничена 123 байтами: полный текст ошибки (он содержит
+  // origin запроса) отдавать клиенту нельзя — ws бросил бы RangeError,
+  // и длинный Origin валил бы процесс
+  it('шлёт короткую причину отказа независимо от длины origin', async () => {
+    const longOrigin = `https://${'a'.repeat(300)}.test`;
+    const blocking = new SignalingServer(registry, {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      heartbeatTimeout: 1000,
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: (o, cb) =>
+        process.nextTick(() =>
+          cb(`Blocked connection from invalid origin: ${o}`),
+        ),
+    });
+
+    const ws = new FakeWs();
+
+    blocking.handleConnection(ws, {
+      headers: { origin: longOrigin },
+      socket: { remoteAddress: '1.1.1.1' },
+    });
+    await nextTick();
+
+    expect(ws.closed.code).toBe(4001);
+    expect(Buffer.byteLength(ws.closed.reason)).toBeLessThanOrEqual(123);
+  });
+
   it('игнорирует не-JSON и сообщения без известного type', async () => {
     const { ws } = await connect();
 

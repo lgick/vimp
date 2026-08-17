@@ -74,8 +74,9 @@ describe('PortMachine', () => {
 
     const authData = frame('sendAuthData', 's1').args[0];
 
-    // поле ника доезжает до формы клиента тем же каналом, что игровые поля
-    expect(authData.params.map(param => param.name)).toEqual(['model', 'name']);
+    // поле ника доезжает до формы клиента тем же каналом, что игровые поля,
+    // и идёт первым: ник — первое, что заполняет игрок
+    expect(authData.params.map(param => param.name)).toEqual(['name', 'model']);
     expect(authData.elems).toBe(hostPlugin.authSchema.elems);
     expect(authData.texts).toBe(hostPlugin.authSchema.texts);
 
@@ -89,6 +90,29 @@ describe('PortMachine', () => {
     expect(inspectHost(host).humans).toHaveLength(1);
     expect(frame('sendAuthResult', 's1').args[0]).toBeUndefined();
     expect(frame('sendTechInform', 's1').args[0]).toBe('loading');
+  });
+
+  // адаптер dedicated закрывает по нему соединение, застрявшее в хендшейке
+  it('hasParticipant отличает соединение в хендшейке от участника', async () => {
+    machine.connect('s1');
+
+    expect(machine.has('s1')).toBe(true);
+    expect(machine.hasParticipant('s1')).toBe(false);
+
+    machine.message('s1', JSON.stringify([PC.CONFIG_READY, null]));
+
+    expect(machine.hasParticipant('s1')).toBe(false);
+
+    machine.message(
+      's1',
+      JSON.stringify([PC.AUTH_RESPONSE, { name: 'Guest', model: 'm1' }]),
+    );
+
+    await settle();
+
+    expect(machine.hasParticipant('s1')).toBe(true);
+    // неизвестное соединение участником не считается
+    expect(machine.hasParticipant('s2')).toBe(false);
   });
 
   it('невалидный ник отбивается валидацией схемы, участник не создан', async () => {
