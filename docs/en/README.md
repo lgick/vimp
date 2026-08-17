@@ -16,6 +16,8 @@ and signaling.
 | [host.md](host.md) | Browser host: Worker with the core, `GameCoreAdapter`, the host facade, meta modules, host-player loopback, main-thread router |
 | [core.md](core.md) | Rust engine core (`vimp-engine-core`): `packages/engine/core/` layout, generic traits/macros, snapshot framing, build, tests |
 | [client.md](client.md) | Client modules: MVC components, client core (interpolation/prediction/shot spawning), rendering, sound |
+| [standalone.md](standalone.md) | Standalone SDK (`vimp-engine/standalone`): a playable match in one tab without master, OAuth or lobby — options, container, assets, how solo differs from production |
+| [dedicated.md](dedicated.md) | Dedicated Node.js server: one 24/7 match of one game in a Node process, direct WebSocket, entry-point fork, environment variables, limitations |
 | [network.md](network.md) | Host↔client sync: WebRTC channels, port protocol, binary snapshot frame (v3), data formats, RTT |
 | [configuration.md](configuration.md) | Engine configuration: `.env` variables, every file under `packages/engine/src/config/` |
 | [debugging.md](debugging.md) | Debugging loop: headless runner (`npm run sim`), scenario format, invariant checks, core dumps, prediction divergence, browser recorder |
@@ -36,6 +38,8 @@ of this bilingual set.
 
 - **I want to run it locally** → [getting-started.md](getting-started.md)
 - **I want to understand how it works** → [architecture.md](architecture.md), then [host.md](host.md) / [client.md](client.md) / [network.md](network.md)
+- **I want to run my game plugin without the master** → [standalone.md](standalone.md)
+- **I want to run a 24/7 server without a host tab** → [dedicated.md](dedicated.md)
 - **I want to host my own server** → [deployment.md](deployment.md)
 - **I want to ship an update** → [publishing.md](publishing.md)
 - **Something is silently broken in a match** → [debugging.md](debugging.md)

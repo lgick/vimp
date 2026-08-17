@@ -130,6 +130,36 @@ npm link @my-scope/my-game
 
 Then start the master (`npm run dev` in the engine) and open the lobby.
 
+The lobby is not the only way in: `vimp-engine/standalone` runs the whole
+match inside one tab of the *game* repository — no master, no OAuth, no lobby
+screen. `startStandaloneGame({ hostPlugin, clientPlugin, wasmUrl, … })` takes
+the live plugin objects, so it is the fastest loop while the plugin is still
+taking shape:
+
+```js
+// dev/main.js in the game repository, loaded by its own index.html
+import { startStandaloneGame } from 'vimp-engine/standalone';
+import hostPlugin from '../src/host/index.js';
+import clientPlugin from '../src/client/index.js';
+import wasmUrl from '../core/pkg/my_game_bg.wasm?url';
+
+await startStandaloneGame({
+  hostPlugin,
+  clientPlugin,
+  wasmUrl,
+  container: document.getElementById('game'), // full-screen, position: relative
+  assetsBase: '/assets/',
+  playerName: 'dev',
+  startupVotes: [['teamChange', 'team1']], // leave the spectators first…
+  startupCommands: ['/bot 4'], // …only then your own chat commands
+});
+```
+
+The engine has no notion of a bot: scripted participants are spawned by
+*your* chat command, and the command is rejected while the player is still a
+spectator — hence the strict order of the last two options. Reference: engine
+`docs/en/standalone.md`.
+
 ## Step 9 — headless simulation (do this before the browser)
 
 Two browser tabs are the slowest and least informative way to find a broken

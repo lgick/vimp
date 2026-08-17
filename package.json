@@ -21,6 +21,7 @@
   "scripts": {
     "dev": "npm -w vimp-engine run dev",
     "start": "npm -w vimp-engine run start",
+    "dedicated": "npm -w vimp-engine run dedicated",
     "dev:auth": "npm -w @vimp/auth run dev",
     "start:auth": "npm -w @vimp/auth run start",
     "auth:db:migrate": "npm -w @vimp/auth run db:migrate",

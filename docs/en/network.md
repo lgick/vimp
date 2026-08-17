@@ -74,6 +74,35 @@ the P2P channel to the host. The reason: the host runs its own
 voter's Bearer identity-token; rating logic lives on the master and the
 central auth service ([master.md](master.md#server-rating-likeunlike)).
 
+## Three transports (WebRTC / loopback / WebSocket)
+
+The port protocol and the frame formats are one and the same in all contours;
+only the pipe underneath differs. All three expose the same shape — a
+`Publisher` with `message`/`close`, plus `connect`/`send(data, reliable)`/`close`
+— so the dispatcher never learns which one it is talking to.
+
+| | `WebRtcManager` (lobby) | `LoopbackTransport` (host tab, solo) | `WebSocketTransport` (dedicated) |
+| --- | --- | --- | --- |
+| Pipe | two `RTCDataChannel`s | postMessage to the Worker / a direct call in the same thread | one WebSocket |
+| meta/state split | yes | no | no |
+| `reliable` flag | picks the channel | ignored | ignored |
+| Frame ordering | `meta` ordered, `state` unordered | ordered | ordered (TCP) |
+| Binary frames | `ArrayBuffer` over `state`/`meta` | `ArrayBuffer` | `ArrayBuffer` (`binaryType` must be set) |
+| Backpressure | positional frames dropped on `bufferedAmount` | none needed | server-side |
+
+Two consequences are worth spelling out for the dedicated server. **RTT
+measurement changes meaning**: PING/PONG travel over the reliable pipe, so
+what is measured is the TCP path (with retransmissions) rather than a raw
+network path — the kick timeouts stay the same, but the number is not
+comparable with a WebRTC one. **Backpressure moves to the server**: there is
+no unreliable channel whose positional frames can be dropped, so the pressure
+has to be handled where the frames are produced.
+
+`LoopbackTransport` is used in two different contours: over `HostController`
+(the host player's tab, a Worker behind it) and over `InlineHostBridge`
+(standalone SDK, the host in the same thread). The transport itself is
+unchanged — only the object implementing `open`/`send`/`disconnect` differs.
+
 ## Ports
 
 ### Server → client
@@ -139,10 +168,30 @@ Details:
   `maxPlayers`; bots yield their slot) replies with `TECH_INFORM_DATA` and
   code `roomFull` and closes the connection (code `4006`); the host player
   is excluded from kick policies (see [host.md](host.md)).
-- **Close codes**: `4003` a latency kick, `4004` a missed-pings kick,
-  `4005` an idle kick, `4006` a full room. Closing a data channel carries
-  no code/reason — the reason is delivered as a separate
-  `TECH_INFORM_DATA` over `meta` before closing.
+- **Close codes**: the whole set lives in one map,
+  [`packages/engine/src/config/closeCodes.js`](../../packages/engine/src/config/closeCodes.js)
+  — a shared contract of the server circuits and the client, so that neither
+  side drifts silently. Closing a WebRTC data channel carries no code/reason —
+  there the reason is delivered as a separate `TECH_INFORM_DATA` over `meta`
+  before closing; a WebSocket (dedicated, signaling) carries the code itself.
+
+  | Code | Key | Sent by | Client |
+  | --- | --- | --- | --- |
+  | `4000` | `staleHost` | `master/SignalingServer.js` | host's signaling socket, no player UI |
+  | `4001` | `invalidOrigin` | `master/SignalingServer.js`, `dedicated/main.js` | stays put, shows the reason |
+  | `4002` | `blocked` | `master/SignalingServer.js` | hoster blocked by rating; room evacuated |
+  | `4003` | `kickForMaxLatency` | `host/HostGame.js` | reloads after 3 s |
+  | `4004` | `kickForMissedPings` | `host/HostGame.js` | reloads after 3 s |
+  | `4005` | `kickIdle` | `host/HostGame.js` | reloads after 3 s |
+  | `4006` | `roomFull` | `host/PortMachine.js` | stays put, shows the reason |
+  | `4008` | `handshakeTimeout` | `dedicated/main.js` | stays put, shows the reason |
+  | `4009` | `tooManyConnections` | `dedicated/main.js` | stays put, shows the reason |
+
+  "Stays put" is the policy rule of
+  [`src/client/network/policyClose.js`](../../packages/engine/src/client/network/policyClose.js)
+  (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`): reloading would spend
+  another connection against the same limit, restart the same timer, leave the
+  same origin or fail to free a slot. `4007` is free.
 - After `FIRST_SHOT_READY` the user gets the game's initial vote (e.g. a
   team-selection vote in `vimp-tanks`) and starts receiving frames.
 

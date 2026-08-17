@@ -7,9 +7,15 @@ between clients and hosts. **It carries no game logic** — only connection
 coordination.
 
 `packages/engine/src/master/main.js` is the **project's entry point** (the legacy
-authoritative game server has been fully removed). Filesystem paths
-(`node_modules/`, `dist/assets`) are anchored to the module's location via
-`import.meta.url`, so the master can be started from any working directory.
+authoritative game server has been fully removed). It is a dispatcher: with
+`VIMP_DEDICATED_GAME` set it hands over to `src/dedicated/main.js` (a
+single-game [dedicated server](dedicated.md)), otherwise to
+`src/master/lobby.js` — the lobby master this page describes. The fork lives
+in the entry point so that `CMD ["node", "src/master/main.js"]`, `npm start`,
+`npm run dev` and the nodemon watch lists stay valid for both roles.
+Filesystem paths (`node_modules/`, `dist/assets`) are anchored to the module's
+location via `import.meta.url`, so the master can be started from any working
+directory.
 
 ## Running
 
@@ -27,7 +33,10 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 
 | Module | Responsibility |
 | --- | --- |
-| `packages/engine/src/master/main.js` | entry point: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
+| `packages/engine/src/master/main.js` | entry point: the fork between the lobby master and the [dedicated server](dedicated.md) (`VIMP_DEDICATED_GAME`) |
+| `packages/engine/src/master/lobby.js` | the lobby master itself: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
+| `packages/engine/src/master/httpSecurity.js` | baseline security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP in production), shared with the dedicated server |
+| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; the lobby applies them in production only, the dedicated server always |
 | `packages/engine/src/master/HostRegistry.js` | room registry `Map<hostId, HostSession>`: registration (max 1 room per IP), heartbeat/`lastSeen`, cached `rating`, selection for `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | signaling WebSocket: connection lifecycle, WebRTC message routing, ping rate limiting |
 | `packages/engine/src/master/MapCatalog.js` | map catalog: an in-memory JSON representation of the game plugin's `src/data/maps` (e.g. `vimp-tanks`'s) plus a content version hash; served to hosts without a rebuild |
@@ -44,6 +53,19 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 The region is determined from an Nginx/CDN header (`regionHeader`, `x-region` by default; e.g. `CF-IPCountry`) — chosen over `geoip-lite` for its low memory footprint. Without the header the region is `unknown`.
 
 ## REST API
+
+### GET /config
+
+The server mode, probed by the engine client on startup (standalone-sdk
+stage 4):
+
+- `GET /config` → `{ "mode": "lobby" }`.
+
+The client uses one contract for both server roles: a `dedicated` answer
+switches it to the direct-WebSocket boot path, anything else (including a
+404 from an older master) means the lobby. See
+[dedicated.md](dedicated.md#get-config) and
+[client.md](client.md#boot-modes-bootjs).
 
 ### GET /servers
 
@@ -363,6 +385,7 @@ exposed, they only exist as an audit trail in the auth service's
 - **Origin allowlist** — the `packages/engine/src/lib/security.js` pattern (`createOriginValidator` with the master's parameters).
 - **1 room per IP** — checked in `HostRegistry.add`; a hoster whose rating hit `blockAt` is rejected regardless of IP (`HostRatingProxy.getRating`, see above).
 - **Ping rate limiting** — `RateLimiter` (fixed window, 10 requests/sec per IP by default).
+- **The address behind both limits** comes from `clientIp()` (`src/lib/clientIp.js`): the socket address, or `X-Real-IP` when the master runs behind a proxy (`trustProxy`, passed as `isProduction` from `lobby.js`). `X-Forwarded-For` is deliberately not used: the deploy's Nginx sets it with `$proxy_add_x_forwarded_for`, which *appends* the real address to whatever the client sent, so its first hop is client-controlled — keying on it would let anyone lift both limits with one header, and claim someone else's bucket to keep them from hosting. `X-Real-IP` is set by the same Nginx with `$remote_addr`, overwriting anything the client sends. A proxy that fails to set it makes every client key on the proxy's own address — one shared bucket, so exactly one room could exist on the whole master; `clientIp()` logs a one-off warning when that happens, and [deployment.md](deployment.md#required-proxy-header-x-real-ip) lists the required `proxy_set_header`. A connection whose address cannot be determined at all (an already-broken socket) is terminated; the `error` listener is attached before that, so a late `ECONNRESET` on it cannot become an `uncaughtException`.
 - **Security headers** (environment hygiene) — the master sets `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` on every response; `Content-Security-Policy` only in production (it would break Vite HMR in dev). Production static assets and `.wasm` are served with CSP by Nginx — see [deployment.md](deployment.md); the policy's single source of truth is `packages/engine/src/config/master.js` (`security.csp`, a function of `authServiceUrl` — see [auth.md](auth.md#lobby-login-client) — so `connect-src` allows the lobby's `POST /nick` fetch to the central auth service; `security.authServiceUrl` is overridable via `VIMP_AUTH_SERVICE_URL` in production).
 - Input string sanitization (`sanitizeMessage`), clamping numeric fields.
 

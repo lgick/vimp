@@ -150,6 +150,52 @@ The server list is configured through GitHub repository variables.
    jobs) or `git push` to `main` — the system deploys the master to every
    server in the list.
 
+## Dedicated game box (`dedicatedGame`)
+
+The same image also runs the [dedicated server](dedicated.md) — one 24/7
+match of one game inside the Node process, with browsers connecting over a
+direct WebSocket and no lobby, OAuth or WebRTC. The role is chosen by a
+single environment variable, so a dedicated box is deployed exactly like a
+master: Steps 1–3 above (DNS, `install-system.sh`, `add-server.sh` — a
+regular domain with its own port), then one extra field in
+`SERVERS_MATRIX`:
+
+```json
+[
+  {
+    "ip": "YOUR_SERVER_IP",
+    "domain": "duel.example.com",
+    "port": 3006,
+    "dedicatedGame": "tanks"
+  }
+]
+```
+
+- `dedicatedGame` is a game id from `GAMES_MATRIX`/`master:games`. With the
+  field present, `deploy.yml` writes `VIMP_DEDICATED_GAME` into that
+  server's `.env.prod` and `src/master/main.js` starts the dedicated server
+  instead of the lobby; without it the box stays a lobby master. Nothing
+  else in the matrix changes.
+- The game package must be installed in the image (a root dependency, as in
+  "Adding a second game to the catalog" below) **and** publish
+  `dist/core-node/` — the dedicated server loads the Node build of the
+  core, like `npm run sim` does. A game whose `dist/` lacks it fails at
+  startup with a named error, see [plugin-api.md](plugin-api.md).
+- Room overrides (`VIMP_DEDICATED_ROOM`, see
+  [configuration.md](configuration.md#environment-variables-env)) are not
+  part of the matrix: add the line to `~/vimp_projects/<domain>/.env.prod`
+  on the box and `docker compose up -d --force-recreate` (a CI deploy
+  regenerates `.env.prod` and drops it).
+- **A deploy interrupts the match.** There is no handoff: the container is
+  recreated, the process dies with its simulation, and every connected
+  client loses the round and reconnects into a fresh one. Unlike the lobby
+  master (where matches live in host tabs and survive a restart, see
+  "Updating the game"), a dedicated box should be redeployed when it's
+  empty.
+- No Nginx or CSP change is needed — `location /` already proxies the
+  upgrade headers, so `/game` reaches the WebSocket, and `connect-src
+  'self' wss:` already covers it.
+
 ## Central auth service (`packages/auth`)
 
 Lobby login, nick, rank and state ([auth.md](auth.md)) need `@vimp/auth`
@@ -317,6 +363,33 @@ Nginx `server` block** on every affected master domain: re-run
 `install-system.sh` → `add-server.sh <domain>` for each domain, then
 `nginx -t && systemctl reload nginx` (or manually update the `sha256-...`
 value in `script-src` and reload).
+
+### Required proxy header: `X-Real-IP`
+
+Every rate limit in the project keys on the client address returned by
+`clientIp()` ([packages/engine/src/lib/clientIp.js](../../packages/engine/src/lib/clientIp.js),
+copied into the auth service): the socket address, or `X-Real-IP` when the
+process runs behind a proxy. So any reverse proxy in front of the master, a
+dedicated box or the auth service **must** set it:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+`install-system.sh` puts this line in the template `add-server.sh` deploys for
+every domain, so a server set up by these scripts is already correct. It
+matters when the proxy is configured by hand, when a CDN or load balancer is
+added in front, or when the installed `/etc/nginx/vimp.template` predates the
+line. Without it every client keys on the proxy's own address — one shared
+bucket — and the master's "1 room per IP" rule allows exactly **one room on
+the whole server** while the ping limit becomes global. The process logs a
+`[clientIp] trustProxy … X-Real-IP` warning once on startup traffic when this
+happens.
+
+`X-Forwarded-For` is deliberately not used as the key: Nginx sets it with
+`$proxy_add_x_forwarded_for`, which *appends* the real address to whatever the
+client sent, so its first hop is client-controlled — see
+[master.md](master.md#protection).
 
 ## 🛠 Maintenance and removal
 

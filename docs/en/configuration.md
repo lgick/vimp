@@ -25,9 +25,12 @@ from the host on connect (port `0`).
 
 ## Environment variables (.env)
 
-Read in [packages/engine/src/master/main.js](../../packages/engine/src/master/main.js) when
-`NODE_ENV=production` (`npm start` uses `node --env-file .env`). Ignored in
-development — values from `packages/engine/src/config/master.js` apply instead.
+Read by [packages/engine/src/config/env.js](../../packages/engine/src/config/env.js).
+The lobby master applies them when `NODE_ENV=production` only (`npm start`
+uses `node --env-file .env`); in development they are ignored and the values
+from `packages/engine/src/config/master.js` apply instead. The
+[dedicated server](dedicated.md) applies them **always** — the game, port and
+room settings have no other source.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -35,10 +38,13 @@ development — values from `packages/engine/src/config/master.js` apply instead
 | `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
 | `VIMP_MASTER_PORT` | The master server's port | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
+| `VIMP_DEDICATED_GAME` | Game id from `master:games`; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
+| `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure | `{}` |
 | `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package, version}[]`) — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.1.0"}]` |
 
 Game parameters (map, player limit, timers, friendly fire) aren't set
-through environment variables: the room's creator picks them in the lobby,
+through environment variables in the lobby contour (there `VIMP_DEDICATED_ROOM`
+does not apply): the room's creator picks them in the lobby,
 and defaults live in `packages/engine/src/config/hostDefaults.js` (engine)
 and the active game plugin's own config (game).
 

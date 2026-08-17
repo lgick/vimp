@@ -55,7 +55,7 @@ map JSON (a `maps:export` product of the game build).
     "client": "/games/tanks/client-<hash>.js",  // ESM, default export = ClientPlugin
     "host":   "/games/tanks/host-<hash>.js",    // ESM worker-safe, default export = HostPlugin
     "wasm":   "/games/tanks/core-<hash>.wasm",  // single hashed .wasm for both entries (shared HTTP cache)
-    "wasmNode": "./core-node/index.js"          // OPTIONAL: Node build of the core inside dist/, for `npm run sim`
+    "wasmNode": "./core-node/index.js"          // OPTIONAL: Node build of the core inside dist/, for `npm run sim` and the dedicated server
   },
   "assetsBase": "/games/tanks/",           // base for sounds/assets
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
@@ -84,8 +84,12 @@ from `roomDefaults` value types.
 
 `entries.wasmNode` is **optional** and never used by the browser: it is a
 path (relative to the manifest) to a **Node** build of the same WASM core,
-used by the headless runner `npm run sim -- --game <package>` — see
-[debugging.md](debugging.md). It must point **inside the published `dist/`**
+used by the headless runner `npm run sim -- --game <package>` (see
+[debugging.md](debugging.md)) and by the [dedicated server](dedicated.md),
+which runs the authoritative match inside a Node process. For a game meant
+to be hosted on a dedicated box the field is therefore effectively
+mandatory: there is no `--core` override there, and a game without it fails
+at server startup. It must point **inside the published `dist/`**
 (conventionally `./core-node/`, where the build copies its own
 `core/pkg-node/`): a `wasm-pack` output directory is usually git-ignored and
 npm applies ignore rules inside directories listed in `files` too, so a

@@ -26,6 +26,13 @@
 - [render-sound/](render-sound/) — направление G: 4 бага рендера и звука
   (✅ 2026-08-08). Крейт `vimp-engine-core` minor (`reset()`/`resync()`),
   npm `vimp-engine` patch (`RoundManager`). `ENGINE_API_VERSION` не менялся.
+- [standalone-sdk/](standalone-sdk/) — направление H: browser SDK
+  (`startStandaloneGame`), dedicated-сервер (`src/dedicated/`) и режимы
+  `boot.js` (`lobby`/`solo`/`dedicated`) (✅ 2026-08-17, 5 раундов ревью,
+  `review.md`–`review-5.md`). Крейт `vimp-engine-core` не тронут,
+  `ENGINE_API_VERSION` не менялся; npm `vimp-engine` minor — публикуемый
+  клиент вырос до `src/client`/`src/standalone`, добавлен
+  `src/config/closeCodes.js`.
 
 ## Зафиксированные решения
 

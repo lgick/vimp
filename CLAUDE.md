@@ -23,6 +23,8 @@ the same change. Area → page (paths under `packages/engine/`):
 | `src/host/` (Worker, adapter, meta) | `host.md` |
 | crate `core/` | `core.md` |
 | `src/client/`, ClientCore | `client.md` |
+| `src/standalone/` (browser SDK) | `standalone.md` |
+| `src/dedicated/` (Node game server) | `dedicated.md` |
 | plugin contract, Wasm ABI | `plugin-api.md` |
 | `src/devtools/`, `bin/vimp-sim.js` | `debugging.md` |
 | deploy scripts, workflows, npm scripts | `deployment.md`, `getting-started.md` |
@@ -70,6 +72,7 @@ npm run build:app            # Vite bundle (engine app only)
 npx eslint . && npm test     # lint + Vitest (see Testing)
 npm run core:test            # cargo test --workspace
 npm run sim / sim:check / sim:replay <file>   # headless match, verdict, replay
+npm run dedicated            # Node game server (needs VIMP_DEDICATED_GAME)
 npm run dev:auth / start:auth / auth:db:migrate
 ```
 
@@ -78,8 +81,10 @@ A local match also needs a plugin package installed or linked into
 
 ## Architecture
 
-Under `packages/engine/`: `src/master/` (rooms, catalogs, signaling — no game
-logic) · `src/host/` (the match in a Worker) · `core/` (the Rust crate) ·
+Under `packages/engine/`: `src/master/` (entry point `main.js` forks on
+`VIMP_DEDICATED_GAME` into `lobby.js` — rooms, catalogs, signaling, no game
+logic — or `src/dedicated/` — one match of one game in the Node process) ·
+`src/host/` (the match in a Worker) · `core/` (the Rust crate) ·
 `src/client/` (WebRTC transport, MVC triplets) · `src/devtools/` +
 `bin/vimp-sim.js` (headless runner). `packages/auth/` is a separate workspace
 package with its own deploy artifact. Boundaries nothing will catch for you:

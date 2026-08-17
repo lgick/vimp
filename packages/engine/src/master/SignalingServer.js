@@ -1,4 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
+import closeCodes from '../config/closeCodes.js';
+import { clientIp } from '../lib/clientIp.js';
 import { verifyIdentityToken } from '../lib/jwt.js';
 
 // Signaling Server: маршрутизация WebRTC-координации между клиентами
@@ -12,6 +14,11 @@ export default class SignalingServer {
     this._heartbeatTimeout = options.heartbeatTimeout;
     this._pingLimiter = options.pingLimiter;
     this._checkOrigin = options.checkOrigin;
+    // стоит ли перед мастером прод-Nginx: от этого зависит, откуда берётся
+    // адрес клиента (lib/clientIp.js). Он ключ и лимита пингов, и правила
+    // «не больше одной комнаты с одного IP» — ошибиться тут значит отдать
+    // оба ограничения тому, кто просто пришлёт свой заголовок
+    this._trustProxy = options.trustProxy ?? false;
     this._mapsVersion = options.mapsVersion ?? null;
     this._codeVersion = options.codeVersion ?? null;
     // per-game mapsVersion (Этап 6.2) — хост объявляет gameId в
@@ -59,8 +66,16 @@ export default class SignalingServer {
   }
 
   handleConnection(ws, req) {
-    const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const ip = ipHeader.split(',')[0].trim();
+    // до любых ранних return'ов: ws эмитит 'error' на самом сокете
+    // (ECONNRESET, битый фрейм), и без слушателя это uncaughtException — то
+    // есть один сорванный клиент роняет мастер. Ветка «нет адреса» ниже
+    // срабатывает как раз на уже разорванном сокете, самом вероятном
+    // источнике такой ошибки (тот же порядок, что в src/dedicated/main.js)
+    ws.on('error', error => {
+      console.error('Signaling WebSocket error:', error);
+    });
+
+    const ip = clientIp(req, { trustProxy: this._trustProxy });
     const requestOrigin = req.headers.origin;
 
     // если origin вообще не пришел (это скорее всего бот)
@@ -69,10 +84,20 @@ export default class SignalingServer {
       return;
     }
 
+    // адреса нет только у уже разорванного сокета: общий бакет '' раздал бы
+    // всем таким соединениям один лимит пингов и одну квоту комнат
+    if (!ip) {
+      ws.terminate();
+      return;
+    }
+
     this._checkOrigin(requestOrigin, err => {
       if (err) {
         console.warn(err);
-        ws.close(4001, JSON.stringify(err));
+        // причина close ограничена 123 байтами, и ws бросает RangeError прямо
+        // в колбэке process.nextTick — перехватить его некому, длинный Origin
+        // валил бы процесс. Полный текст уходит в лог, клиенту — маркер
+        ws.close(closeCodes.invalidOrigin, 'invalidOrigin');
         return;
       }
 
@@ -111,10 +136,6 @@ export default class SignalingServer {
         this._removeSession(session);
       });
     });
-
-    ws.on('error', error => {
-      console.error('Signaling WebSocket error:', error);
-    });
   }
 
   // удаляет комнаты без heartbeat и закрывает их соединения
@@ -129,7 +150,7 @@ export default class SignalingServer {
 
       if (session) {
         session.hostId = null;
-        session.ws.close(4000, 'staleHost');
+        session.ws.close(closeCodes.staleHost, 'staleHost');
       }
     }
 
@@ -400,7 +421,7 @@ export default class SignalingServer {
     console.warn(`[rating] hoster ${hosterUserId} blocked (score ${score})`);
 
     for (const hostId of this._registry.getHostIdsForHoster(hosterUserId)) {
-      this._getHostSession(hostId)?.ws.close(4002, 'blocked');
+      this._getHostSession(hostId)?.ws.close(closeCodes.blocked, 'blocked');
       this._registry.remove(hostId);
       this._hostSessions.delete(hostId);
     }

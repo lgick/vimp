@@ -16,6 +16,8 @@
 | [host.md](host.md) | Браузерный хост: Worker с ядром, `GameCoreAdapter`, host-фасад, мета-модули, loopback хоста-игрока, роутер главного потока |
 | [core.md](core.md) | Rust-ядро движка (`vimp-engine-core`): структура `packages/engine/core/`, общие трейты/макросы, framing снапшотов, сборка, тесты |
 | [client.md](client.md) | Клиентские модули: MVC-компоненты, клиентское ядро (интерполяция/prediction/спавн снарядов), рендеринг, звук |
+| [standalone.md](standalone.md) | Standalone SDK (`vimp-engine/standalone`): играбельный матч в одной вкладке без мастера, OAuth и лобби — опции, контейнер, ассеты, чем solo отличается от прода |
+| [dedicated.md](dedicated.md) | Dedicated-сервер на Node.js: один матч одной игры 24/7 в процессе Node, прямой WebSocket, развилка точки входа, env-переменные, ограничения |
 | [network.md](network.md) | Синхронизация хост‑клиент: WebRTC-каналы, протокол портов, бинарный snapshot-кадр (v3), форматы данных, RTT |
 | [configuration.md](configuration.md) | Конфигурация движка: переменные `.env`, все файлы `packages/engine/src/config/` |
 | [debugging.md](debugging.md) | Отладочный контур: headless-прогон (`npm run sim`), формат сценария, проверки инвариантов, дампы ядра, рассинхрон предикта, браузерный рекордер |
@@ -37,6 +39,8 @@
 
 - **Хочу запустить локально** → [getting-started.md](getting-started.md)
 - **Хочу понять, как всё устроено** → [architecture.md](architecture.md), затем [host.md](host.md) / [client.md](client.md) / [network.md](network.md)
+- **Хочу гонять свой плагин без мастера** → [standalone.md](standalone.md)
+- **Хочу сервер 24/7 без вкладки хостера** → [dedicated.md](dedicated.md)
 - **Хочу поднять свой сервер** → [deployment.md](deployment.md)
 - **Хочу выкатить обновление** → [publishing.md](publishing.md)
 - **В матче что-то молча сломалось** → [debugging.md](debugging.md)

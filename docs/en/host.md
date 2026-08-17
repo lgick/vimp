@@ -39,9 +39,11 @@ DataChannel/loopback and the Worker.
 
 Loads the game's `HostPlugin` (dynamic `import(room.game.hostEntryUrl)`,
 Stage 6.4 — the Worker doesn't know the game at build time), builds
-`HostGame` with the room's settings, and holds a per-client port state
-machine — an automaton over client ports 0–8 (see [network.md](network.md)).
-Main-thread messages:
+`HostGame` with the room's settings, and delegates the per-client handshake
+to `PortMachine` (see [below](#port-state-machine-portmachinejs)) — an
+automaton over client ports 0–8 (see [network.md](network.md)). The Worker
+itself is a thin adapter: the `postMessage` transport, the lobby identity
+strategy and this switch over main-thread messages. Main-thread messages:
 
 - `init(room, handoff?)` — dynamically imports `HostPlugin` from
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
@@ -113,17 +115,64 @@ The ~120 Hz game loop starts on its own (`HostGame` constructor →
 `RoundManager.createMap` → `TimerManager.startGameTimers`); frames only go
 out to participants ready to play.
 
+### Port state machine (`PortMachine.js`)
+
+`packages/engine/src/host/PortMachine.js` is the handshake automaton itself,
+and it is **isomorphic**: no `self`, no `postMessage`, no DOM — everything it
+knows about transport arrives through its dependencies. That is what lets the
+same automaton run in the Worker, in an inline browser host and in a Node
+process; a second copy of it would drift exactly the way copies of
+`createHostRuntime` would.
+
+```js
+new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identity })
+```
+
+`makeSocket(socketId)` returns the wire socket (`send`/`sendBinary`/`close`,
+the `SocketManager` contract); `identity` is the identity strategy below.
+Methods: `connect(socketId)` (register the socket, send `CONFIG_DATA`, start
+the handshake — or refuse a **full room** with `4006`/`roomFull`),
+`restore(socketId, gameId)` (a participant already restored from handoff meta:
+the machine comes up in the game state, no handshake), `message(socketId,
+data)` (a wire frame `JSON [port, payload]`, dispatched by allowed ports),
+`disconnect(socketId)`, `has(socketId)` and the `socketIds` getter (what
+`HostGame.completeHandoff(new Set(...))` is fed).
+
+### Identity strategies (`identity.js`)
+
+Who a participant is — the one thing the handshake cannot decide on its own —
+is a pluggable strategy, `packages/engine/src/host/identity.js`:
+
+| Strategy | Used by | `params` | `errorField` | `resolve` |
+| --- | --- | --- | --- | --- |
+| `createTokenIdentity({ jwksUrl, issuer })` | lobby (production) | `[]` | `token` | the `nick` claim of a verified identity token |
+| `createGuestIdentity({ fallbackPrefix })` | standalone / dedicated | one `name` field | `name` | the form's nickname, `Player_xxxx` as a fallback |
+
+The contract is `{ params, errorField, resolve(data, socketId) }`. `params`
+go in front of the game's `authSchema.params` in both directions (the nickname
+is the first field a player fills in): they go out
+on `AUTH_DATA` (so a guest nickname field reaches the client form through the
+very same channel as the game's own fields) and they are checked by
+`validateAuth` on `AUTH_RESPONSE`. A rejected `resolve` answers `AUTH_RESULT`
+with `[{ name: <errorField>, error: 'invalid' }]` and no user is created.
+
+Guest identity declares `name` with the engine's own `isValidName` validator
+(`packages/engine/src/lib/validators.js`), so the host validates the nickname
+without a line of game code. **Its limits are accepted deliberately**: guest
+nicknames are neither unique nor spoof-proof — there is no central identity in
+that contour at all.
+
 ### Auth response (Stage B3)
 
 Port 1 (`AUTH_RESPONSE`) still runs `validateAuth` against the game's
 `HostPlugin.authSchema.params`/`.validators` (game-specific fields only,
 e.g. `model` — `name` was removed from the game plugin's `src/config/auth.js`,
 e.g. `vimp-tanks`'s).
-Once those pass, the Worker itself is the authority on identity: it calls
-`verifyClientToken(data.token)`, which lazily fetches and caches
-`GET /auth/jwks` (the master's proxy of the central auth service, see
-[auth.md](auth.md#joining-a-room-host-verification) and
-[master.md](master.md#get-authjwks)) for the Worker's lifetime, then
+Once those pass, the host itself is the authority on identity: in the lobby
+the Worker wires `createTokenIdentity`, whose `resolve(data)` lazily fetches
+and caches `GET /auth/jwks` (the master's proxy of the central auth service,
+see [auth.md](auth.md#joining-a-room-host-verification) and
+[master.md](master.md#get-authjwks)) for the strategy's lifetime, then
 `verifyIdentityToken` (`packages/engine/src/lib/jwt.js`) checks the RS256
 signature (Web Crypto `crypto.subtle`, no JWT dependency), `iss`
 (`config/authClient.js`'s `issuer`) and expiry, and returns the token's
@@ -131,8 +180,8 @@ signature (Web Crypto `crypto.subtle`, no JWT dependency), `iss`
 socketId, cb)` run — a client can no longer type an arbitrary name. A
 missing/invalid/expired token sends `AUTH_RESULT` with
 `[{ name: 'token', error: 'invalid' }]` and no user is created; a client
-that disconnects mid-verification is checked against the live `clients` map
-before `createUser` runs.
+that disconnects mid-verification is checked against the machine's live
+client registry before `createUser` runs.
 
 ### Player rank and state sync (Stage B4)
 
@@ -201,6 +250,14 @@ to still being the join-time default:
   and calling it as `this._fetch(...)` passes the instance as the receiver,
   which is a `TypeError` in a browser/Worker before any request goes out, and
   tests injecting a plain-function `fetchImpl` never see it.
+- **A contour without a master** (the headless runner, and the standalone /
+  dedicated hosts) has nowhere to fetch a profile from — a relative URL does
+  not even resolve outside a tab. It passes
+  `hostOptions.playerDataFetch: offlinePlayerData()`
+  (`packages/engine/src/lib/offlinePlayerData.js`), whose every response is
+  `{ rank: 0, state: null }`. That is not a stub for the sake of silence: an
+  empty profile *is* the correct state of such a match, and it takes the
+  network calls, the `[playerData]` warnings and the retries with it.
 - **Attribution** (code-review fix, `plan/done/server-rating/review.md` finding
   №1): every `PUT` body also carries `hostId` **and its per-room
   `hostSecret`**, so the master can stamp the event with this room's verified
@@ -268,7 +325,12 @@ The host facade — module wiring + the participant lifecycle:
   (in the new Worker: kicks anyone who didn't reconnect, resumes timers,
   starts the first round), `resumeAfterHandoff()` (rollback if the new
   Worker fails), and the constructor's `handoff` option (restoring instead
-  of a cold start) — see "Worker handoff" below.
+  of a cold start) — see "Worker handoff" below;
+- `destroy()` — the public teardown: stops the timers, `flushAll()`s the
+  profiles and removes every participant, returning the flush promise. In a
+  tab the match dies with its Worker; a long-lived process (the dedicated
+  server) needs a graceful shutdown, or the timers hold the process and
+  rank/state are lost.
 
 The client-facing `CONFIG_DATA` (port 0: base config + vote time + prediction
 data) is assembled by `packages/engine/src/lib/buildClientConfig.js`.
@@ -671,6 +733,17 @@ Host and meta module tests live in `tests/host/`:
   gone from the catalog); binary frames are decoded by the client core
   (`ClientCore.decode_frame`; the scaffold is `tests/host/fixtureHarness.js` with
   `FakeSocketManager`).
+- `portMachine.test.js` — the handshake automaton on the same fixture, with
+  no Worker and no network: the guest path through to a created participant,
+  a nickname rejected by the schema, the fallback nickname, a refusing
+  identity strategy, a message on a disabled port, a full room
+  (`4006`/`roomFull`, no machine created), `disconnect`, `restore` (a handoff
+  participant coming up in the game state) and a client that disconnects
+  mid-`resolve`.
+- `identity.test.js` — the identity strategies: the guest field descriptor
+  and its fallback, and the token strategy against a stubbed JWKS `fetch`
+  with an RS256 token signed in the test (caching, and a failure that must
+  not be cached forever).
 - `LoopbackTransport.test.js` — unit tests against a fake Worker:
   `HostController` (routing, a connect queue before `ready`, the `reliable`
   flag, `error`/`map_changed`/`updateMaps`; the handoff — `workerUrl`,

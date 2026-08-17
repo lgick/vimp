@@ -207,14 +207,20 @@ jobs:
           VIMP_AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
           # Берем уже подготовленный, очищенный от переносов JSON игр из предыдущего джоба
           GAMES_MATRIX: ${{ needs.prepare-matrix.outputs.games }}
+          # необязательное поле матрицы: задано — бокс поднимается
+          # dedicated-сервером одной игры (без лобби и OAuth), пусто —
+          # обычным лобби-мастером, см. docs/en/deployment.md
+          VIMP_DEDICATED_GAME: ${{ matrix.dedicatedGame }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ matrix.ip }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          # Передача переменных окружения внутрь скрипта SSH
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GAMES_MATRIX,GITHUB_ACTOR,GITHUB_TOKEN
+          # Передача переменных окружения внутрь скрипта SSH.
+          # Имя, не перечисленное здесь, ssh-action не пробрасывает — пропуск
+          # VIMP_DEDICATED_GAME означает молчаливый старт в лобби-режиме
+          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GAMES_MATRIX,VIMP_DEDICATED_GAME,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             # Остановка выполнения при любой критической ошибке
             set -e
@@ -251,6 +257,9 @@ jobs:
               fi
               if [ -n "$GAMES_MATRIX" ]; then
                 echo "GAMES_MATRIX=$GAMES_MATRIX"
+              fi
+              if [ -n "$VIMP_DEDICATED_GAME" ]; then
+                echo "VIMP_DEDICATED_GAME=$VIMP_DEDICATED_GAME"
               fi
             } > .env.prod
 

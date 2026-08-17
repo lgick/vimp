@@ -16,6 +16,7 @@ import {
   clampLimit,
 } from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
+import rateLimit from './lib/rateLimit.js';
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
@@ -89,26 +90,9 @@ function isAllowedReturnUrl(returnUrl) {
 const nickLimiter = new RateLimiter({ limit: 5, windowMs: 60000 });
 const oauthStartLimiter = new RateLimiter({ limit: 20, windowMs: 60000 });
 
-// IP клиента за реверс-прокси (Nginx в проде, см. deployment.md) — тот же
-// приём, что и в packages/engine/src/master/SignalingServer.js: без
-// app.set('trust proxy', ...) req.ip у Express равен адресу самого Nginx,
-// и rate-limit стал бы одним общим лимитом на всех клиентов сразу
-function clientIp(req) {
-  const header = req.headers['x-forwarded-for'];
-
-  return header ? header.split(',')[0].trim() : req.socket.remoteAddress;
-}
-
-function rateLimit(limiter) {
-  return (req, res, next) => {
-    if (!limiter.consume(clientIp(req))) {
-      res.status(429).json({ error: 'rateLimited' });
-      return;
-    }
-
-    next();
-  };
-}
+// ключ лимита — адрес клиента за реверс-прокси (Nginx в проде, см.
+// deployment.md); разбор и обоснование — в lib/rateLimit.js
+const byIp = limiter => rateLimit(limiter, { trustProxy: isProduction });
 
 // извлекает и проверяет Bearer identity-токен, кладёт { id, nick } в req.user
 function requireAuth(req, res, next) {
@@ -171,7 +155,7 @@ if (!isProduction) {
 }
 
 // GET /oauth/:provider/start?returnUrl=... — редирект на страницу провайдера
-app.get('/oauth/:provider/start', rateLimit(oauthStartLimiter), (req, res) => {
+app.get('/oauth/:provider/start', byIp(oauthStartLimiter), (req, res) => {
   const { provider: providerName } = req.params;
   const returnUrl = req.query.returnUrl;
 
@@ -243,7 +227,7 @@ app.get('/oauth/:provider/callback', async (req, res) => {
 
 // POST /nick { nick } — первый вход: привязывает глобально уникальный ник
 // к pending-токену и выдаёт полноценный identity-токен
-app.post('/nick', rateLimit(nickLimiter), async (req, res) => {
+app.post('/nick', byIp(nickLimiter), async (req, res) => {
   const header = req.get('authorization') || '';
   const pendingToken = header.startsWith('Bearer ') ? header.slice(7) : null;
   const { nick } = req.body || {};

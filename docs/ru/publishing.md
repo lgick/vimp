@@ -75,7 +75,7 @@ stdin, и вместо вопроса они падают с `EOTP`. Игра в
   игры);
 - **`vimp-engine`** — пакет движка в npm (`packages/engine`, ровно те пути,
   что перечислены в его `files`: `src/lib`, `src/config`, `src/host`,
-  `src/devtools`, `tests/fixtures`, `bin`);
+  `src/client`, `src/standalone`, `src/devtools`, `tests/fixtures`, `bin`);
 - **`@vimp-games/tanks`** — игра-плагин в npm, собирается и публикуется из
   отдельного репозитория
   [vimp-tanks](https://github.com/lgick/vimp-tanks);
@@ -110,17 +110,29 @@ vimp-engine (npm)
 
 | Что изменилось | Крейт | Движок в npm | Игра в npm | Прод |
 | --- | --- | --- | --- | --- |
-| Мастер, клиент, вёрстка, деплой-скрипты | — | — | — | ✅ |
-| `src/lib`, `src/config`, `src/host`, `src/devtools`, `bin`, фикстуры | — | ✅ | когда удобно | ✅ |
+| Мастер, вёрстка, деплой-скрипты | — | — | — | ✅ |
+| `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, фикстуры | — | ✅ | когда удобно | ✅ |
 | `packages/engine/core/` (Rust) | ✅ | — | ✅ (пересборка против нового крейта) | ✅ |
 | Контракт плагина без бампа `ENGINE_API_VERSION` | — | ✅ | когда удобно | ✅ |
 | Бамп `ENGINE_API_VERSION` | — | ✅ | **обязательно** | ✅ строго последним |
 | Только игра (правила, карты, ассеты, игровое ядро) | — | — | ✅ | ✅ (перепин + пуш) |
 | `packages/auth/` | — | — | — | ✅ отдельный джоб `deploy_auth`, отдельная миграция (пропускается, если `AUTH_SERVER_IP` не задан) |
 
-Всё, чего нет в `files` пакета движка (`src/master`, `src/client`,
-шаблоны), в npm не попадает вовсе — для таких правок релиз состоит из одного
-шага «прод».
+Всё, чего нет в `files` пакета движка (`src/master`, шаблоны,
+scratch-файлы `src/client/_*`), в npm не попадает вовсе — для таких правок
+релиз состоит из одного шага «прод».
+
+Со standalone SDK публикуется и клиентская половина движка (`src/client`,
+`src/standalone`, экспорты `./client/*`, `./standalone`, `./style.css`).
+Отсюда два следствия:
+
+- всё, что импортирует публикуемый клиент, входит в публичную поверхность:
+  поэтому `howler` живёт в `dependencies`, а не в `devDependencies`, а
+  bare-импорт из `src/client`/`src/standalone`, которого нет в
+  `dependencies`, ломает установку у потребителя SDK (страхует
+  `tests/scripts/packageSurface.test.js`);
+- правка в `src/client` больше не «только прод»: она уезжает в npm и
+  требует записи в CHANGELOG наравне с остальным публикуемым кодом.
 
 ## Версии
 

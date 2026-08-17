@@ -81,6 +81,32 @@ describe('VoteView.createVote', () => {
   });
 });
 
+describe('VoteView: точка монтирования', () => {
+  it('по умолчанию монтирует окно в body', () => {
+    const view = new VoteView(makeModel(), elems);
+
+    view.createVote(voteData());
+
+    expect(document.getElementById('vote').parentNode).toBe(document.body);
+  });
+
+  it('кладёт окно в переданный контейнер и убирает его оттуда', () => {
+    const container = document.createElement('div');
+
+    document.body.appendChild(container);
+
+    const view = new VoteView(makeModel(), elems, container);
+
+    view.createVote(voteData());
+
+    expect(container.querySelector('#vote')).not.toBeNull();
+
+    view.removeVote(null);
+
+    expect(document.getElementById('vote')).toBeNull();
+  });
+});
+
 describe('VoteView.removeVote', () => {
   it('удаляет окно голосования из DOM', () => {
     const view = new VoteView(makeModel(), elems);

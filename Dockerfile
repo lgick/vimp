@@ -74,6 +74,12 @@ COPY --from=builder /app/packages/engine/src/config ./packages/engine/src/config
 COPY --from=builder /app/packages/engine/src/lib ./packages/engine/src/lib
 COPY --from=builder /app/packages/engine/src/master ./packages/engine/src/master
 
+# dedicated-режим той же точки входа (VIMP_DEDICATED_GAME): авторитетный матч
+# крутится в процессе Node, поэтому образу нужен и хост.
+# src/client в образ не копируется — браузеру отдаётся собранный dist
+COPY --from=builder /app/packages/engine/src/host ./packages/engine/src/host
+COPY --from=builder /app/packages/engine/src/dedicated ./packages/engine/src/dedicated
+
 # собранные бандлы игр-плагинов, поставленных как npm-зависимости (мастер
 # читает только dist/manifest.json + dist/maps/*.json через GameCatalog) —
 # все @vimp-games/* из /app/game-dists, без хардкода конкретной игры

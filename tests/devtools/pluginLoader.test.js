@@ -5,10 +5,9 @@ import path from 'node:path';
 import { loadGameForSim } from '../../packages/engine/src/devtools/pluginLoader.js';
 import { ENGINE_API_VERSION } from '../../packages/engine/src/config/opcodes.js';
 
-// entries манифеста — URL-ы, какими их видит браузер (assetsBase + путь
-// внутри пакета). На диске этой базе соответствует каталог манифеста:
-// абсолютный URL нельзя резолвить как путь, иначе загрузчик уходит в корень
-// файловой системы.
+// Поиск игры для headless-прогона. Сама загрузка пакета общая с
+// dedicated-сервером и проверяется в tests/lib/loadGamePackage.test.js —
+// здесь остаётся то, что принадлежит раннеру: --core и контракт gameConfig.
 
 let dir;
 
@@ -46,11 +45,6 @@ beforeAll(async () => {
   await writeFile(
     path.join(dist, 'client-abc.js'),
     `export default { id: "demo", kind: "client", engineApi: ${ENGINE_API_VERSION} };\n`,
-  );
-  // dist/, отставший от манифеста: плагин собран под другую версию контракта
-  await writeFile(
-    path.join(dist, 'host-stale.js'),
-    `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION - 1} };\n`,
   );
   await writeFile(path.join(dir, 'core', 'pkg-node', 'demo.js'), 'export {};\n');
   await writeFile(
@@ -91,50 +85,6 @@ describe('loadGameForSim', () => {
     expect(plugin.wasmUrl).toMatch(/demo\.js$/);
   });
 
-  it('без node-сборки ядра говорит об этом, а не гадает', async () => {
-    const bare = path.join(dir, 'bare.json');
-
-    await writeFile(
-      bare,
-      JSON.stringify({
-        id: 'demo',
-        engineApi: ENGINE_API_VERSION,
-        assetsBase: '/games/demo/',
-        entries: {
-          host: '/games/demo/dist/host-abc.js',
-          client: '/games/demo/dist/client-abc.js',
-          wasm: '/games/demo/dist/assets/demo_bg.wasm',
-        },
-      }),
-    );
-
-    await expect(loadGameForSim({ game: bare })).rejects.toThrow(
-      /entries\.wasmNode/,
-    );
-  });
-
-  it('объявленный, но не доехавший в пакете wasmNode — именованный отказ', async () => {
-    const broken = path.join(dir, 'broken.json');
-
-    await writeFile(
-      broken,
-      JSON.stringify({
-        id: 'demo',
-        engineApi: ENGINE_API_VERSION,
-        assetsBase: '/games/demo/',
-        entries: {
-          host: '/games/demo/dist/host-abc.js',
-          client: '/games/demo/dist/client-abc.js',
-          wasmNode: './core/pkg-node/missing.js',
-        },
-      }),
-    );
-
-    await expect(loadGameForSim({ game: broken })).rejects.toThrow(
-      /does not exist — the game package was published without/,
-    );
-  });
-
   it('плагин без gameConfig отвечает контрактом, а не TypeError', async () => {
     const noconfig = path.join(dir, 'noconfig.json');
 
@@ -154,28 +104,6 @@ describe('loadGameForSim', () => {
 
     await expect(loadGameForSim({ game: noconfig })).rejects.toThrow(
       /missing required field/,
-    );
-  });
-
-  it('плагин, отставший от манифеста по engineApi, не грузится', async () => {
-    const stale = path.join(dir, 'stale.json');
-
-    await writeFile(
-      stale,
-      JSON.stringify({
-        id: 'demo',
-        engineApi: ENGINE_API_VERSION,
-        assetsBase: '/games/demo/',
-        entries: {
-          host: '/games/demo/dist/host-stale.js',
-          client: '/games/demo/dist/client-abc.js',
-          wasmNode: './core/pkg-node/demo.js',
-        },
-      }),
-    );
-
-    await expect(loadGameForSim({ game: stale })).rejects.toThrow(
-      /host plugin engineApi/,
     );
   });
 });

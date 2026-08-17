@@ -1,4 +1,5 @@
 import { createHostRuntime } from '../lib/createHostRuntime.js';
+import { offlinePlayerData } from '../lib/offlinePlayerData.js';
 import VirtualClock, { flushMicrotasks } from './VirtualClock.js';
 import RecordingSocketManager from './RecordingSocketManager.js';
 import VirtualClient from './VirtualClient.js';
@@ -32,14 +33,8 @@ const RECORDED_PORTS = {
 };
 
 // В headless-контуре нет ни мастера, ни auth-сервиса — участник стартует с
-// пустым профилем. Это не заглушка ради тишины: пустой профиль и есть
-// корректное состояние прогона, а настоящий fetch по относительному URL в
-// Node просто не разрешается.
-const emptyProfileFetch = async () => ({
-  ok: true,
-  status: 200,
-  json: async () => ({ rank: 0, state: null }),
-});
+// пустым профилем (lib/offlinePlayerData.js, общее со standalone/dedicated).
+const emptyProfileFetch = offlinePlayerData();
 
 /**
  * Приводит сценарий к полной форме и проверяет обязательные поля.

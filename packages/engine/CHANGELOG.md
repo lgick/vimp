@@ -9,6 +9,200 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `vimp-engine/host/PortMachine.js` — the client handshake automaton (client
+  ports 0–8), lifted out of `host.worker.js` as an isomorphic module: no
+  `self`, no `postMessage`, no DOM, all transport arriving through
+  `makeSocket`. It can now be driven from a plain browser tab or a Node
+  process, not only from the host Worker. `new PortMachine({ host,
+  socketManager, clientCfg, authSchema, makeSocket, identity })`, methods
+  `connect`/`restore`/`message`/`disconnect`/`has` and the `socketIds`
+  getter. The lobby wire protocol is unchanged, byte for byte.
+- `vimp-engine/host/identity.js` — pluggable identity strategies
+  (`{ params, errorField, resolve(data, socketId) }`) for the port machine:
+  `createTokenIdentity({ jwksUrl, issuer })` is the lobby path (the `nick`
+  claim of an RS256 identity token verified against the master's JWKS, with
+  the same per-instance cache the Worker used to hold), and
+  `createGuestIdentity({ fallbackPrefix })` is the master-less one — it
+  declares a `name` form field validated by the engine's own `isValidName`,
+  and falls back to `Player_xxxx`. A strategy's `params` go in front of the
+  game's `authSchema.params` in both directions, so a guest nickname reaches
+  the client form through the same channel as the game's own fields — and as
+  its first field.
+- `vimp-engine/lib/offlinePlayerData.js` — `offlinePlayerData()` builds the
+  `hostOptions.playerDataFetch` for a contour with no master: every profile
+  request answers `{ rank: 0, state: null }` instead of hitting the network.
+  It was the headless runner's private stub; the standalone and dedicated
+  hosts need the same one.
+- `HostGame.destroy()` — a public teardown (stop the timers, flush the
+  profiles, remove every participant), returning the flush promise. A tab's
+  match dies with its Worker, but a long-lived process needs a graceful
+  shutdown.
+- Client boot modes: `vimp-engine/client/boot.js` picks between `lobby`
+  (the master, signaling and the OAuth gate — today's behaviour), `solo` (the
+  host inline in the same tab) and `dedicated` (a direct WebSocket to a Node
+  server). `setBootConfig(cfg)` is the SDK's injection point;
+  `resolveBootConfig()` falls back to `GET /config` and then to
+  `{ mode: 'lobby' }`, so a network failure, a 404 or a malformed body all
+  keep existing deployments on the lobby path. `main.js` branches on the mode
+  in five places only (manifest source, signaling/lobby, transport,
+  auto-authentication, canvas mount point).
+- `vimp-engine/client/network/WebSocketTransport.js` — the third
+  transport, interface-compatible with `WebRtcManager`/`LoopbackTransport`.
+  `binaryType` is forced to `'arraybuffer'`; `reliable` is ignored (a
+  WebSocket has no reliability levels), which moves RTT measurement onto the
+  TCP path and backpressure onto the server.
+- `vimp-engine/client/network/InlineHostBridge.js` — a drop-in
+  replacement for `HostController` that runs the authoritative host in the
+  page's main thread (`createHostRuntime` + `PortMachine` + guest identity +
+  `offlinePlayerData`), so `LoopbackTransport` is reused unchanged. A
+  `HostPlugin` cannot cross `postMessage`, hence inline; the production
+  Worker path is untouched.
+- `vimp-engine/client/views/gameShell.js` — `ensureGameShell(container)`
+  builds the game UI containers in code (idempotent, so the pug markup of the
+  lobby build is left alone) and `ensureCanvas(id, size, container)` mounts a
+  canvas into the boot container instead of `document.body`. A parity test
+  keeps the two sources of markup from drifting.
+- `vimp-engine/client/lib/autostart.js` — the solo autostart:
+  `startupVotes` (leaving the spectators) strictly before `startupCommands`
+  (the game's chat commands, e.g. spawning bots), both on the first
+  `renderTick` after `FIRST_SHOT_READY`.
+- `vimp-engine/standalone` — `startStandaloneGame({ hostPlugin, clientPlugin,
+  wasmUrl, container, assetsBase, playerName, playerModel, auth, startupVotes,
+  startupCommands, room, devMode })` runs a whole match inside one browser tab
+  of a *game* repository: no master, no OAuth, no lobby screen. It takes the
+  live plugin objects, checks both against `ENGINE_API_VERSION`, builds the UI
+  shell and an in-memory manifest, and hands the boot config to the engine
+  client; it resolves to `{ stop() }`, which tears the match down (render loop
+  off, inline host destroyed). There is no `bots: N` option — the engine has
+  no notion of a bot; scripted participants are spawned by the game's own chat
+  command via `startupCommands`, and `startupVotes` must precede them.
+  Documented in `docs/en/standalone.md`.
+- `vimp-engine/client/main.js` exports `stopGame()` — the external stop used
+  by the SDK; it closes the transport, which runs the existing teardown path.
+- The published surface of the package grew to the client half of the engine:
+  `files` now carries `src/client` (minus the `_*` scratch files) and
+  `src/standalone`, with the new exports `./client/*`, `./standalone` and
+  `./style.css`. Consequently `howler` moved from `devDependencies` to
+  `dependencies` — it is imported by the published `src/client/SoundManager.js`.
+  A consumer bundling the SDK must dedupe `pixi.js` (two copies mean two
+  extension registries and a dead renderer).
+- The dedicated Node.js server — `src/dedicated/main.js`: one authoritative
+  match of one game inside a Node process, with browsers connecting over a
+  direct WebSocket (`/game`) and no lobby, OAuth or WebRTC anywhere.
+  `startDedicatedServer({ gameId, port, host, room, loadGame, serveClient })`
+  is exported for tests and embedders; the process form is selected by
+  `VIMP_DEDICATED_GAME`. It reuses `createHostRuntime`, `PortMachine`,
+  `createGuestIdentity` and `offlinePlayerData`, serves the master's catalog
+  routes for its single game, mirrors the Worker's frame format byte for byte,
+  drops unreliable frames above 256 KB of `bufferedAmount`, validates
+  `Origin`, and shuts down gracefully on `SIGTERM`/`SIGINT`. Being public and
+  long-lived, it also caps what an anonymous socket can cost: a 64 KB
+  `maxPayload`, 300 frames/s per socket, 30 connections/minute per address and
+  a 120 s handshake timeout. Documented in `docs/en/dedicated.md`.
+- `src/master/main.js` is now a dispatcher between `src/master/lobby.js` (the
+  lobby master, the previous content of `main.js`, unchanged) and
+  `src/dedicated/main.js`, so one entry point serves both roles.
+- `GET /config` on both servers: `{ mode: 'lobby' }` from the master and
+  `{ mode: 'dedicated', gameId, gameVersion, wsPath }` from the dedicated
+  server — the single contract the engine client probes to pick its boot mode.
+- `vimp-engine/lib/loadGamePackage.js` — `loadGamePackage(distDir, { core })`
+  loads a built game package in Node (manifest, both plugin halves, the
+  `file:` URL of `entries.wasmNode`), with the `engineApi` and stale-`dist/`
+  checks and named failures when the node core is missing. Lifted out of
+  `src/devtools/pluginLoader.js`, which now delegates to it: a production
+  server must not depend on the debugging tooling.
+- `vimp-engine/config/env.js` — `applyMasterEnv(config, env)` (the
+  `VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`
+  overrides, previously inline in the master and production-only) and
+  `readDedicatedRoom(env)` for `VIMP_DEDICATED_ROOM`. The dedicated server
+  applies them in development too — the game, port and room have no other
+  source.
+- `vimp-engine/client/network/policyClose.js` — `shouldReloadAfterClose(code)`
+  and `POLICY_CLOSE_INFORMS`, the client's rule for a server's policy close
+  codes, split out of `client/main.js` so it can be tested.
+- `vimp-engine/config/closeCodes.js` — the transport close codes as one map
+  (`staleHost`, `invalidOrigin`, `blocked`, `kickForMaxLatency`,
+  `kickForMissedPings`, `kickIdle`, `roomFull`, `handshakeTimeout`,
+  `tooManyConnections`), a shared contract of the server circuits and the
+  client the way `config/gameCodes.js` already is: every call site now names
+  the code instead of spelling out a literal, and a test requires each entry
+  to be classified by `policyClose.js`. The numbers are unchanged.
+
+### Changed
+
+- The page's base CSS rules (`html`/`body`, the screen-hiding rule,
+  `body.hide-cursor`) moved from the inline `<style>` of
+  `packages/engine/index.html` into `src/client/style.css`: a game
+  repository has no `index.html` of ours, and without them every engine
+  screen would show at once. The CSP hash of the inline importmap is
+  unaffected. The published form of the hiding rule keys on the boot
+  container — `.vimp-shell > *`, the class being set by `ensureGameShell` —
+  so the screens stay hidden inside an SDK container, while the page
+  embedding the SDK keeps its own top-level markup. `index.html` keeps the
+  pre-JS form (`body > *`) inline: until the class is set there is no
+  container to key on, and the pug markup would flash.
+- The runtime-built vote window (`#vote`) is mounted into the boot container
+  instead of `document.body`: in `solo` it used to land outside the SDK
+  container, where it was both hidden and positioned against the wrong
+  containing block.
+
+### Fixed
+
+- A dedicated server's policy refusal no longer puts the client in a reload
+  loop. The client reloads the page 3 s after a disconnect, which is right for
+  an ordinary drop and wrong for every close code the server uses to refuse a
+  connection: reloading spends another connection against the same rate limit
+  (4009), restarts the same handshake timer (4008), leaves the page's origin
+  exactly as it was (4001) and does not free a room slot (4006). An abandoned
+  tab reloaded forever, and a player waiting for a slot walked into the
+  connection limit after 30 reloads and was shown its message instead of their
+  own reason. The rule now lives in `vimp-engine/client/network/policyClose.js`
+  (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`); the texts in that map are
+  fallbacks, shown only when the server sent no reason of its own (`roomFull`
+  arrives in a `TECH_INFORM` frame before the close and always wins).
+- `vimp-engine/lib/clientIp.js` warns once per process when `trustProxy` is on
+  but no `X-Real-IP` arrives. That combination silently keys every client on
+  the proxy's own address — a single shared bucket, under which the master's
+  "1 room per IP" rule allows one room on the whole server and the ping limit
+  becomes global. It happens with a hand-written proxy config, a CDN in front,
+  or an `/etc/nginx/vimp.template` older than the header.
+
+### Security
+
+- A `WebSocket` close reason is capped at 123 bytes, and `ws` enforces that by
+  throwing: an `Origin` header longer than ~80 bytes made both the master's
+  signaling server and the dedicated server answer a rejected connection with
+  an over-long reason, raising an unhandled `RangeError` — an unauthenticated
+  request could kill the process. The rejected client now gets the short
+  `invalidOrigin` marker and the full text goes to the log.
+- The dedicated server registers an `error` listener on every game socket (and
+  on the WebSocket server): `ws` emits `'error'` on the socket itself
+  (ECONNRESET, a malformed frame), and without a listener one broken client
+  was an `uncaughtException` that took the whole match down.
+- Rate limits no longer key on `X-Forwarded-For`. The deploy's Nginx sets that
+  header with `$proxy_add_x_forwarded_for`, which *appends* the real address to
+  whatever the client sent, so the first hop — the value the master's signaling
+  server and the auth service used as their key — is written by the client:
+  one header per request lifted the ping limit, the "one room per IP" rule and
+  the auth service's nick-guessing and OAuth-start limits, and filling another
+  address's bucket kept that person from hosting or signing in. The address now
+  comes from the new `vimp-engine/lib/clientIp.js` — the socket address, or
+  `X-Real-IP` when a `trustProxy` flag is set (production), where the same
+  Nginx overwrites that header with `$remote_addr`. A signaling connection
+  whose address cannot be determined is terminated instead of sharing one
+  bucket with every other such connection, which also removes a `TypeError` on
+  a socket that is already gone.
+- The signaling server attaches its socket `error` listener before any early
+  rejection, not after: both rejection paths call `ws.terminate()` and return,
+  and the "no address" one runs precisely on an already-broken socket — the
+  likeliest source of the late `ECONNRESET` that `ws` re-emits as `'error'`,
+  which without a listener is an `uncaughtException`. The auth service answers
+  `429` to a request with no address instead of counting it into a shared `''`
+  bucket, and its rate limit moved into `packages/auth/src/lib/rateLimit.js`
+  so that contract is covered by tests.
+
 ## [0.7.0] — 2026-08-09
 
 Items marked *(app shell)* live in `src/client/**`, which is outside the

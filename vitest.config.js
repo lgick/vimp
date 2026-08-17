@@ -5,7 +5,8 @@ import { defineConfig } from 'vitest/config';
 // Тесты разделены на три проекта:
 //   - engine-node:   мастер-сервер, хост (мета + Worker-фасад) и общие модули
 //                    движка (packages/engine/src/{master,host,lib,config})
-//   - engine-client: клиентский код движка (packages/engine/src/client)
+//   - engine-client: клиентский код движка (packages/engine/src/client) и
+//                    standalone SDK (packages/engine/src/standalone)
 //                    в окружении happy-dom (браузерный DOM)
 //   - auth:          центральный auth-сервис (packages/auth/src) —
 //                    JWT/JWKS, валидаторы, репозиторий, OAuth-провайдеры
@@ -26,6 +27,7 @@ export default defineConfig({
             'tests/config/**/*.test.js',
             'tests/host/**/*.test.js',
             'tests/devtools/**/*.test.js',
+            'tests/dedicated/**/*.test.js',
             'tests/scripts/**/*.test.js',
             'packages/engine/tests/fixtures/**/*.test.js',
           ],
@@ -36,7 +38,10 @@ export default defineConfig({
         test: {
           name: 'engine-client',
           environment: 'happy-dom',
-          include: ['tests/client/**/*.test.js'],
+          include: [
+            'tests/client/**/*.test.js',
+            'tests/standalone/**/*.test.js',
+          ],
         },
       },
       {

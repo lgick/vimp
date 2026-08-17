@@ -36,8 +36,11 @@
 
 Загружает `HostPlugin` игры (динамический `import(room.game.hostEntryUrl)`,
 Этап 6.4 — Worker не знает игру на этапе сборки), строит `HostGame` с
-настройками комнаты и держит per-client порт-машину — автомат клиентских
-портов 0–8 (см. [network.md](network.md)). Сообщения главного потока:
+настройками комнаты и отдаёт per-client хендшейк в `PortMachine`
+(см. [ниже](#порт-машина-portmachinejs)) — автомат клиентских портов 0–8
+(см. [network.md](network.md)). Сам Worker — тонкий адаптер: транспорт
+`postMessage`, лобби-стратегия идентичности и свитч сообщений главного
+потока. Сообщения главного потока:
 
 - `init(room, handoff?)` — динамически импортирует `HostPlugin` по
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
@@ -103,17 +106,64 @@ Per-user **wire-сокет** (`makeWorkerSocket`) реализует контр�
 Игровой цикл ~120 Гц стартует сам (конструктор `HostGame` → `RoundManager.createMap`
 → `TimerManager.startGameTimers`); кадры уходят только готовым к игре участникам.
 
+### Порт-машина (`PortMachine.js`)
+
+`packages/engine/src/host/PortMachine.js` — сам автомат хендшейка, и он
+**изоморфен**: ни `self`, ни `postMessage`, ни DOM — всё, что он знает про
+транспорт, приходит через зависимости. Именно это позволяет крутить один и
+тот же автомат в Worker'е, в inline-хосте браузера и в Node-процессе; вторая
+его копия разъехалась бы ровно так, как разъезжались бы копии
+`createHostRuntime`.
+
+```js
+new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identity })
+```
+
+`makeSocket(socketId)` отдаёт wire-сокет (`send`/`sendBinary`/`close`,
+контракт `SocketManager`), `identity` — стратегия идентичности (ниже).
+Методы: `connect(socketId)` (регистрация сокета, `CONFIG_DATA`, старт
+хендшейка — либо отказ **полной комнаты** кодом `4006`/`roomFull`),
+`restore(socketId, gameId)` (участник, уже восстановленный из handoff-меты:
+машина поднимается в игровом состоянии, хендшейк не повторяется),
+`message(socketId, data)` (wire-кадр `JSON [port, payload]`, диспетчеризация
+по разрешённым портам), `disconnect(socketId)`, `has(socketId)` и геттер
+`socketIds` (то, чем кормят `HostGame.completeHandoff(new Set(...))`).
+
+### Стратегии идентичности (`identity.js`)
+
+Кто именно входит в комнату — единственное, чего хендшейк не решает сам, —
+подключаемая стратегия, `packages/engine/src/host/identity.js`:
+
+| Стратегия | Контур | `params` | `errorField` | `resolve` |
+| --- | --- | --- | --- | --- |
+| `createTokenIdentity({ jwksUrl, issuer })` | лобби (прод) | `[]` | `token` | claim `nick` проверенного identity-токена |
+| `createGuestIdentity({ fallbackPrefix })` | standalone / dedicated | одно поле `name` | `name` | ник из формы, заглушка `Player_xxxx` |
+
+Контракт — `{ params, errorField, resolve(data, socketId) }`. `params`
+встают перед `authSchema.params` игры в обе стороны (ник — первое, что
+заполняет игрок): уезжают в `AUTH_DATA`
+(гостевое поле ника доходит до формы клиента ровно тем же каналом, что и
+собственные поля игры) и проверяются `validateAuth` на `AUTH_RESPONSE`.
+Отказ `resolve` отвечает `AUTH_RESULT` с
+`[{ name: <errorField>, error: 'invalid' }]`, участник не создаётся.
+
+Гостевая стратегия объявляет поле `name` с движковым валидатором
+`isValidName` (`packages/engine/src/lib/validators.js`) — хост валидирует ник
+без единой строки кода игры. **Её ограничения приняты осознанно**: гостевые
+ники не уникальны и не защищены от подмены — центральной идентичности в этом
+контуре нет вовсе.
+
 ### Ответ авторизации (Этап B3)
 
 Порт 1 (`AUTH_RESPONSE`) по-прежнему прогоняет `validateAuth` по
 `HostPlugin.authSchema.params`/`.validators` игры (только игро-специфичные
 поля, например `model` — `name` убран из
-`src/config/auth.js` игры-плагина, например `vimp-tanks`). После этой проверки Worker сам —
-источник истины об идентичности: он вызывает `verifyClientToken(data.token)`,
-которая лениво фетчит и кэширует `GET /auth/jwks` (проксирование мастером
-центрального auth-сервиса, см.
+`src/config/auth.js` игры-плагина, например `vimp-tanks`). После этой проверки хост сам —
+источник истины об идентичности: в лобби Worker подключает
+`createTokenIdentity`, чей `resolve(data)` лениво фетчит и кэширует
+`GET /auth/jwks` (проксирование мастером центрального auth-сервиса, см.
 [auth.md](auth.md#вход-в-комнату-проверка-хостом) и
-[master.md](master.md#get-authjwks)) на время жизни Worker'а, затем
+[master.md](master.md#get-authjwks)) на время жизни стратегии, затем
 `verifyIdentityToken` (`packages/engine/src/lib/jwt.js`) проверяет подпись
 RS256 (Web Crypto `crypto.subtle`, без JWT-зависимости), `iss`
 (`config/authClient.js`, поле `issuer`) и срок годности, и возвращает claim
@@ -121,8 +171,8 @@ RS256 (Web Crypto `crypto.subtle`, без JWT-зависимости), `iss`
 name: nick }, socketId, cb)` — клиент больше не может ввести произвольное
 имя. Отсутствующий/невалидный/просроченный токен шлёт `AUTH_RESULT` с
 `[{ name: 'token', error: 'invalid' }]`, пользователь не создаётся; клиент,
-отключившийся во время проверки, сверяется с живой картой `clients` перед
-вызовом `createUser`.
+отключившийся во время проверки, сверяется с живым реестром соединений
+порт-машины перед вызовом `createUser`.
 
 ### Синхронизация rank и state игрока (Этап B4)
 
@@ -192,6 +242,13 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   `fetch` в поле, вызванный как `this._fetch(...)`, передаёт получателем
   экземпляр, а это `TypeError` в браузере/воркере ещё до отправки запроса,
   причём тесты с обычной функцией в `fetchImpl` его не видят.
+- **Контур без мастера** (headless-раннер, standalone- и dedicated-хосты) не
+  имеет откуда брать профиль — относительный URL вне вкладки не разрешается
+  вовсе. Он передаёт `hostOptions.playerDataFetch: offlinePlayerData()`
+  (`packages/engine/src/lib/offlinePlayerData.js`), у которого любой ответ —
+  `{ rank: 0, state: null }`. Это не заглушка ради тишины: пустой профиль и
+  *есть* корректное состояние такого матча, а вместе с ним уходят сетевые
+  вызовы, предупреждения `[playerData]` и ретраи.
 - **Атрибуция** (фикс кодревью, находка №1 в `plan/done/server-rating/review.md`):
   каждое тело `PUT` теперь несёт `hostId` **и его per-room `hostSecret`**,
   чтобы мастер мог проставить событию проверенные `hosterUserId`/`sessionId`
@@ -256,7 +313,12 @@ Host-фасад — wiring модулей + жизненный цикл учас
   (в новом Worker'е: кик не переподключившихся, возобновление таймеров, первый
   раунд), `resumeAfterHandoff()` (откат при сбое нового Worker'а), опция
   конструктора `handoff` (восстановление вместо холодного старта) — см. раздел
-  «Эстафета Worker'ов».
+  «Эстафета Worker'ов»;
+- `destroy()` — публичный teardown: останавливает таймеры, делает `flushAll()`
+  профилей и снимает всех участников, возвращая промис синхронизации. Во
+  вкладке матч умирает вместе с Worker'ом, а долгоживущему процессу
+  (dedicated-сервер) нужен graceful shutdown — иначе таймеры держат процесс, а
+  rank/state теряются.
 
 Клиентский `CONFIG_DATA` (порт 0: базовый конфиг + время голосования + данные
 prediction) собирает `packages/engine/src/lib/buildClientConfig.js`.
@@ -638,6 +700,16 @@ version } }` (Этап 6.5). Деплой рестартует мастер → 
   версии/ушедшей карте); бинарные кадры декодирует клиентское ядро
   (`ClientCore.decode_frame`; каркас — `tests/host/fixtureHarness.js`
   с `FakeSocketManager`).
+- `portMachine.test.js` — автомат хендшейка на той же фикстуре, без Worker'а
+  и без сети: гостевой путь до созданного участника, ник, отбитый схемой,
+  ник-заглушка, отказ стратегии идентичности, сообщение на выключенном порту,
+  полная комната (`4006`/`roomFull`, машина не создана), `disconnect`,
+  `restore` (участник эстафеты поднимается в игровом состоянии) и клиент,
+  отключившийся во время `resolve`.
+- `identity.test.js` — стратегии идентичности: дескриптор гостевого поля и
+  его заглушка, токеновая стратегия на подставленном JWKS-`fetch` с
+  подписанным в тесте RS256-токеном (кэш и сбой, который не должен
+  закэшироваться навсегда).
 - `LoopbackTransport.test.js` — юнит на фейковом Worker: `HostController`
   (роутинг, очередь connect до `ready`, флаг `reliable`,
   `error`/`map_changed`/`updateMaps`; эстафета — `workerUrl`, буферизация на

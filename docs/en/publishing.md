@@ -77,7 +77,7 @@ fixed order:
   (`packages/engine/core/`, an rlib every game core compiles against);
 - **`vimp-engine`** — the engine package on npm (`packages/engine`, exactly
   the paths listed in its `files`: `src/lib`, `src/config`, `src/host`,
-  `src/devtools`, `tests/fixtures`, `bin`);
+  `src/client`, `src/standalone`, `src/devtools`, `tests/fixtures`, `bin`);
 - **`@vimp-games/tanks`** — the game plugin on npm, built and published from
   the separate [vimp-tanks](https://github.com/lgick/vimp-tanks) repository;
 - **the master server** — a Docker image built by CI and deployed to every
@@ -111,17 +111,29 @@ the lobby comes up, but no room can be created.
 
 | Changed | Crate | Engine on npm | Game on npm | Production |
 | --- | --- | --- | --- | --- |
-| Master, client, markup, deploy scripts | — | — | — | ✅ |
-| `src/lib`, `src/config`, `src/host`, `src/devtools`, `bin`, fixtures | — | ✅ | when convenient | ✅ |
+| Master, markup, deploy scripts | — | — | — | ✅ |
+| `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | — | ✅ | when convenient | ✅ |
 | `packages/engine/core/` (Rust) | ✅ | — | ✅ (rebuild against the new crate) | ✅ |
 | Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | when convenient | ✅ |
 | `ENGINE_API_VERSION` bump | — | ✅ | **required** | ✅ strictly last |
 | Game only (rules, maps, assets, game core) | — | — | ✅ | ✅ (re-pin + push) |
 | `packages/auth/` | — | — | — | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
 
-Anything outside the engine package's `files` list (`src/master`,
-`src/client`, views) never reaches npm — for those, the production step
-alone is the release.
+Anything outside the engine package's `files` list (`src/master`, views,
+`src/client/_*` scratch files) never reaches npm — for those, the production
+step alone is the release.
+
+Since the standalone SDK, the client half of the engine is published too
+(`src/client`, `src/standalone`, the `./client/*`, `./standalone` and
+`./style.css` exports). Two consequences:
+
+- everything the published client imports is part of the public surface —
+  `howler` therefore lives in `dependencies`, not `devDependencies`, and a
+  bare import from `src/client`/`src/standalone` that is missing from
+  `dependencies` breaks the SDK consumer's install (guarded by
+  `tests/scripts/packageSurface.test.js`);
+- a change to `src/client` is no longer "production only": it ships to npm
+  and needs a changelog entry like any other published code.
 
 ## Versions
 

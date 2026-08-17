@@ -16,7 +16,7 @@
 
 ## Переменные окружения (.env)
 
-Читаются в [packages/engine/src/master/main.js](../../packages/engine/src/master/main.js) при `NODE_ENV=production` (запуск `npm start` использует `node --env-file .env`). В режиме разработки игнорируются — действуют значения из `packages/engine/src/config/master.js`.
+Читает [packages/engine/src/config/env.js](../../packages/engine/src/config/env.js). Лобби-мастер применяет их только при `NODE_ENV=production` (запуск `npm start` использует `node --env-file .env`); в режиме разработки они игнорируются — действуют значения из `packages/engine/src/config/master.js`. [Dedicated-сервер](dedicated.md) применяет их **всегда** — другого источника игры, порта и настроек комнаты у него нет.
 
 | Переменная | Назначение | По умолчанию |
 | --- | --- | --- |
@@ -24,9 +24,11 @@
 | `VIMP_DOMAIN` | Домен мастера. **Обязательна** в production (иначе процесс завершится с ошибкой) | `localhost` |
 | `VIMP_MASTER_PORT` | Порт мастер-сервера | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | Origin central auth-сервиса (`packages/auth`), переопределяет `security.authServiceUrl` — используется в CSP `connect-src` и прокси-роутах `/auth/*` ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-сервис-packagesauth)) | `http://localhost:3010` |
+| `VIMP_DEDICATED_GAME` | id игры из `master:games`; если задана, `src/master/main.js` поднимает [dedicated-сервер](dedicated.md) вместо лобби-мастера | — |
+| `VIMP_DEDICATED_ROOM` | JSON-объект с настройками комнаты dedicated-сервера (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); мусор в переменной — отказ при старте | `{}` |
 | `GAMES_MATRIX` | JSON-массив, переопределяющий `master:games` (список игр-плагинов, резолвится `GameCatalog`, `{id, package, version}[]`) — см. [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.1.0"}]` |
 
-Игровые параметры (карта, лимит игроков, таймеры, friendly fire) переменными окружения не задаются: их выбирает создатель комнаты в лобби, а дефолты живут в `packages/engine/src/config/hostDefaults.js` (движковые) и в собственном конфиге активной игры-плагина (игровые).
+Игровые параметры (карта, лимит игроков, таймеры, friendly fire) в лобби-контуре переменными окружения не задаются (`VIMP_DEDICATED_ROOM` там не действует): их выбирает создатель комнаты в лобби, а дефолты живут в `packages/engine/src/config/hostDefaults.js` (движковые) и в собственном конфиге активной игры-плагина (игровые).
 
 У `VIMP_AUTH_SERVICE_URL` есть аналог для сборки: `VITE_AUTH_SERVICE_URL` —
 это Docker build `ARG` (не runtime-переменная `.env`), которую Vite
