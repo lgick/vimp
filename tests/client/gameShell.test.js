@@ -24,6 +24,11 @@ const readRepoFile = path => readFileSync(resolve(process.cwd(), path), 'utf8');
 const cssRules = source =>
   source
     .replace(/\/\*[\s\S]*?\*\//g, '')
+    // at-правила без блока (@charset/@import/@layer a;) снимаются первыми:
+    // иначе `[^{]*` следующей регулярки прошла бы сквозь `;` до скобки
+    // ПЕРВОГО настоящего правила и съела бы его вместе с селектором
+    // (review-4.md, R4-1 — в style.css первой строкой стоит @charset)
+    .replace(/@[\w-]+[^;{]*;/g, '')
     // тело at-правила поднимается на верхний уровень вместе со своими
     // правилами, сам заголовок (@media …) выбрасывается
     .replace(/@[\w-]+[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g, '$1')
@@ -134,10 +139,12 @@ describe('gameShell', () => {
   });
 
   // сам парсер: правило, спрятанное в @media, обязано доезжать до проверок
-  // ниже — иначе страховка от P1-1 имеет слепое пятно (review-3.md, R3-5)
+  // ниже — иначе страховка от P1-1 имеет слепое пятно (review-3.md, R3-5).
+  // Фикстура повторяет форму настоящего style.css: @charset первой строкой
+  // (review-4.md, R4-1 — без его снятия первое правило пропадало из разбора)
   it('разбор CSS видит правила внутри at-правил', () => {
     const rules = cssRules(
-      '#a { color: red; } @media (max-width: 1px) { #stat { display: block; } #b { color: blue; } } #c { color: green; }',
+      '@charset "UTF-8"; #a { color: red; } @media (max-width: 1px) { #stat { display: block; } #b { color: blue; } } #c { color: green; }',
     );
 
     expect(rules).toContainEqual(['#stat', 'display: block;']);

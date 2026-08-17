@@ -423,6 +423,28 @@ describe('register_host', () => {
     expect(ws.terminated).toBe(true);
   });
 
+  // review-4.md (R4-3): ws эмитит 'error' на самом сокете, и без слушателя это
+  // uncaughtException. Обе ветки досрочного отказа зовут terminate(), а ветка
+  // «нет адреса» срабатывает как раз на уже разорванном сокете — самом
+  // вероятном источнике позднего ECONNRESET
+  it('слушатель error стоит и на отбитых соединениях', () => {
+    const noAddress = new FakeWs();
+    const noOrigin = new FakeWs();
+
+    signaling.handleConnection(noAddress, {
+      headers: { origin: 'https://localhost:3001' },
+      socket: {},
+    });
+    signaling.handleConnection(noOrigin, { headers: {}, socket: {} });
+
+    for (const ws of [noAddress, noOrigin]) {
+      expect(ws.terminated).toBe(true);
+      expect(typeof ws.handlers.error).toBe('function');
+      // сам вызов не должен бросать: без слушателя это и был uncaughtException
+      expect(() => ws.handlers.error(new Error('ECONNRESET'))).not.toThrow();
+    }
+  });
+
   it('gameId/gameVersion сохраняются и эхо gameId идёт в host_registered', async () => {
     const { ws } = await connect({ ip: '2.2.2.2' });
 

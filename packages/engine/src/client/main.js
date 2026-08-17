@@ -55,6 +55,10 @@ import LoopbackTransport from './network/LoopbackTransport.js';
 import WebSocketTransport from './network/WebSocketTransport.js';
 import InlineHostBridge from './network/InlineHostBridge.js';
 import { supportsModuleWorker } from './network/workerSupport.js';
+import {
+  POLICY_CLOSE_INFORMS,
+  shouldReloadAfterClose,
+} from './network/policyClose.js';
 import LobbyModel from './components/model/Lobby.js';
 import LobbyView from './components/view/Lobby.js';
 import LobbyCtrl from './components/controller/Lobby.js';
@@ -1175,17 +1179,6 @@ function handleMessage(data) {
   socketMethods[msg[0]](msg[1]);
 }
 
-// отказы политики dedicated-сервера (src/dedicated/main.js): перезагрузка их
-// не лечит — лимит частоты подключений съел бы ей же очередное соединение, а
-// таймаут хендшейка запустился бы заново, и брошенная вкладка перезагружалась
-// бы вечно. Показываем причину текстом и остаёмся на месте. Текст здесь, а не
-// в techInformList: список переопределяет игра, движковый индекс у неё дал бы
-// «Unknown error»
-const POLICY_CLOSE_INFORMS = {
-  4008: 'Idle connection closed before the match started. Reload the page when you are ready to play.',
-  4009: 'Too many connections from your address. Wait a minute and reload the page.',
-};
-
 // разрыв P2P: выход хоста = смерть комнаты (host-migration нет). Останавливаем
 // рендер, показываем заглушку и возвращаемся в лобби перезагрузкой. closeCode
 // приходит только от WebSocket-транспорта (dedicated), остальные транспорты
@@ -1231,6 +1224,8 @@ function handleDisconnect(closeCode) {
   inlineHost?.destroy();
   inlineHost = null;
 
+  // текст политического отказа есть не у всех таких кодов: причину 4006
+  // (полная комната) сервер присылает сам, TECH_INFORM'ом перед закрытием
   const policyInform = POLICY_CLOSE_INFORMS[closeCode];
 
   // терминальную причину закрытия (кик, полная комната) не затираем
@@ -1245,8 +1240,8 @@ function handleDisconnect(closeCode) {
 
   // в solo перезагружаться некуда: лобби нет, а матч поднимается с нуля.
   // В dedicated сервер жив — переподключение перезагрузкой уместно, но не
-  // тогда, когда он сам нас и отбил по политике (см. POLICY_CLOSE_INFORMS)
-  if (bootMode !== 'solo' && !policyInform) {
+  // тогда, когда он сам нас и отбил по политике (network/policyClose.js)
+  if (bootMode !== 'solo' && shouldReloadAfterClose(closeCode)) {
     setTimeout(() => location.reload(), 3000);
   }
 }

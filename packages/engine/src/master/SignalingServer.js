@@ -65,6 +65,15 @@ export default class SignalingServer {
   }
 
   handleConnection(ws, req) {
+    // до любых ранних return'ов: ws эмитит 'error' на самом сокете
+    // (ECONNRESET, битый фрейм), и без слушателя это uncaughtException — то
+    // есть один сорванный клиент роняет мастер. Ветка «нет адреса» ниже
+    // срабатывает как раз на уже разорванном сокете, самом вероятном
+    // источнике такой ошибки (тот же порядок, что в src/dedicated/main.js)
+    ws.on('error', error => {
+      console.error('Signaling WebSocket error:', error);
+    });
+
     const ip = clientIp(req, { trustProxy: this._trustProxy });
     const requestOrigin = req.headers.origin;
 
@@ -125,10 +134,6 @@ export default class SignalingServer {
       ws.on('close', () => {
         this._removeSession(session);
       });
-    });
-
-    ws.on('error', error => {
-      console.error('Signaling WebSocket error:', error);
     });
   }
 

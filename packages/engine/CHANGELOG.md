@@ -138,6 +138,27 @@ bumps the minor version).
   container, where it was both hidden and positioned against the wrong
   containing block.
 
+### Fixed
+
+- A dedicated server's policy refusal no longer puts the client in a reload
+  loop. The client reloads the page 3 s after a disconnect, which is right for
+  an ordinary drop and wrong for every close code the server uses to refuse a
+  connection: reloading spends another connection against the same rate limit
+  (4009), restarts the same handshake timer (4008), leaves the page's origin
+  exactly as it was (4001) and does not free a room slot (4006). An abandoned
+  tab reloaded forever, and a player waiting for a slot walked into the
+  connection limit after 30 reloads and was shown its message instead of their
+  own reason. The rule now lives in `vimp-engine/client/network/policyClose.js`
+  (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`), which also keeps 4006 out
+  of the message map — the port machine delivers that reason itself in a
+  `TECH_INFORM` frame before closing.
+- `vimp-engine/lib/clientIp.js` warns once per process when `trustProxy` is on
+  but no `X-Real-IP` arrives. That combination silently keys every client on
+  the proxy's own address — a single shared bucket, under which the master's
+  "1 room per IP" rule allows one room on the whole server and the ping limit
+  becomes global. It happens with a hand-written proxy config, a CDN in front,
+  or an `/etc/nginx/vimp.template` older than the header.
+
 ### Security
 
 - A `WebSocket` close reason is capped at 123 bytes, and `ws` enforces that by
@@ -163,6 +184,14 @@ bumps the minor version).
   whose address cannot be determined is terminated instead of sharing one
   bucket with every other such connection, which also removes a `TypeError` on
   a socket that is already gone.
+- The signaling server attaches its socket `error` listener before any early
+  rejection, not after: both rejection paths call `ws.terminate()` and return,
+  and the "no address" one runs precisely on an already-broken socket — the
+  likeliest source of the late `ECONNRESET` that `ws` re-emits as `'error'`,
+  which without a listener is an `uncaughtException`. The auth service answers
+  `429` to a request with no address instead of counting it into a shared `''`
+  bucket, and its rate limit moved into `packages/auth/src/lib/rateLimit.js`
+  so that contract is covered by tests.
 
 ## [0.7.0] — 2026-08-09
 

@@ -148,12 +148,18 @@ after `AUTH_RESPONSE`, so the window covers the client's WebGL init and asset
 baking (`CONFIG_READY` is sent after them) **plus the player typing a
 nickname**.
 
-Both refusals close the socket with a code the client understands: on 4008 and
-4009 it shows the reason as text and **stays put** instead of reloading after
-3 s the way it does on an ordinary disconnect (`POLICY_CLOSE_INFORMS` in
-`client/main.js`). Reloading would not help in either case — it would spend
-another connection against the same limit, or restart the same handshake
-timer, and an abandoned tab would reload forever.
+Every refusal closes the socket with a code the client understands
+(`client/network/policyClose.js`). On all four of them — 4001 (`invalidOrigin`),
+4006 (`roomFull`, sent by the port machine), 4008 and 4009 — the client
+**stays put** instead of reloading after 3 s the way it does on an ordinary
+disconnect: reloading would spend another connection against the same limit,
+restart the same handshake timer, leave the page's origin exactly as it was,
+or fail to free a room slot. An abandoned tab would reload forever, and a
+player waiting for a slot would spend 30 reloads walking into the connection
+limit — and see its message instead of their own reason. The reason text comes
+from `POLICY_CLOSE_INFORMS` for 4001/4008/4009; 4006 is left out of it on
+purpose, because the port machine delivers that reason itself with a
+`TECH_INFORM` frame right before the close.
 
 ## Identity and profiles
 

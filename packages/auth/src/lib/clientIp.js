@@ -9,6 +9,10 @@
 // тот же Nginx перезаписывает значением `$remote_addr` — за прокси доверяем
 // только ему, без прокси — адресу сокета.
 
+// один раз на процесс: предупреждение о прокси без X-Real-IP на каждый запрос
+// превратилось бы в лог-флуд
+let proxyHeaderWarned = false;
+
 /**
  * @param {Object} req - Express Request.
  * @param {Object} [options]
@@ -18,6 +22,19 @@
  */
 export function clientIp(req, { trustProxy = false } = {}) {
   const header = trustProxy ? req.headers['x-real-ip'] : undefined;
+
+  // за прокси без X-Real-IP ключом станет адрес самого прокси — один общий
+  // бакет на всех клиентов сразу, то есть лимиты перебора ников и старта
+  // OAuth схлопнутся в один на весь сервис. Падать на первом запросе нельзя
+  // (сервис должен подняться), молчать — тоже
+  if (trustProxy && !header && !proxyHeaderWarned) {
+    proxyHeaderWarned = true;
+    console.warn(
+      '[clientIp] trustProxy включён, но X-Real-IP не пришёл: ключ ' +
+        "rate-limit'ов стал адресом прокси, общим для всех клиентов. " +
+        'Проверьте proxy_set_header X-Real-IP $remote_addr.',
+    );
+  }
 
   return String(header || req.socket?.remoteAddress || '').trim();
 }

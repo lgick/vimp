@@ -364,6 +364,33 @@ Nginx `server` block** on every affected master domain: re-run
 `nginx -t && systemctl reload nginx` (or manually update the `sha256-...`
 value in `script-src` and reload).
 
+### Required proxy header: `X-Real-IP`
+
+Every rate limit in the project keys on the client address returned by
+`clientIp()` ([packages/engine/src/lib/clientIp.js](../../packages/engine/src/lib/clientIp.js),
+copied into the auth service): the socket address, or `X-Real-IP` when the
+process runs behind a proxy. So any reverse proxy in front of the master, a
+dedicated box or the auth service **must** set it:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+`install-system.sh` puts this line in the template `add-server.sh` deploys for
+every domain, so a server set up by these scripts is already correct. It
+matters when the proxy is configured by hand, when a CDN or load balancer is
+added in front, or when the installed `/etc/nginx/vimp.template` predates the
+line. Without it every client keys on the proxy's own address — one shared
+bucket — and the master's "1 room per IP" rule allows exactly **one room on
+the whole server** while the ping limit becomes global. The process logs a
+`[clientIp] trustProxy … X-Real-IP` warning once on startup traffic when this
+happens.
+
+`X-Forwarded-For` is deliberately not used as the key: Nginx sets it with
+`$proxy_add_x_forwarded_for`, which *appends* the real address to whatever the
+client sent, so its first hop is client-controlled — see
+[master.md](master.md#protection).
+
 ## 🛠 Maintenance and removal
 
 ### Changing server settings
