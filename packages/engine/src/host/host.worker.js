@@ -5,78 +5,27 @@
 // троттлятся в фоновой вкладке). RTCPeerConnection живут в главном потоке —
 // сюда приходят уже разобранные пакеты клиентов, обратно уходят wire-кадры
 // (JSON-строки и бинарные ArrayBuffer'ы через Transferable).
+//
+// Сам хендшейк клиента (порты 0–8) живёт в изоморфной ./PortMachine.js —
+// этот файл только адаптер: postMessage-транспорт, лобби-стратегия
+// идентичности и свитч сообщений главного потока.
 
 import authClientConfig from '../config/authClient.js';
 import lobbyConfig from '../config/lobby.js';
 import wsports from '../config/wsports.js';
 import { createHostRuntime } from '../lib/createHostRuntime.js';
-import { validateAuth } from '../lib/validators.js';
-import { verifyIdentityToken } from '../lib/jwt.js';
-
-// PC (client ports): порты получения данных от клиента
-const PC_CONFIG_READY = wsports.client.CONFIG_READY;
-const PC_AUTH_RESPONSE = wsports.client.AUTH_RESPONSE;
-const PC_MODULES_READY = wsports.client.MODULES_READY;
-const PC_MAP_READY = wsports.client.MAP_READY;
-const PC_FIRST_SHOT_READY = wsports.client.FIRST_SHOT_READY;
-const PC_KEYS_DATA = wsports.client.KEYS_DATA;
-const PC_CHAT_DATA = wsports.client.CHAT_DATA;
-const PC_VOTE_DATA = wsports.client.VOTE_DATA;
-const PC_PONG = wsports.client.PONG;
+import PortMachine from './PortMachine.js';
+import { createTokenIdentity } from './identity.js';
 
 // PS (server ports): порты отправки данных клиенту
 const PS_TECH_INFORM_DATA = wsports.server.TECH_INFORM_DATA;
 
 let host = null;
-let socketManager = null;
-let clientCfg = null;
-
-// HostPlugin игры (Этап 6.4): грузится динамически по entries.host из
-// GameManifest (room.game) — до onInit движок игру не знает вовсе
-let hostPlugin = null;
-
-// состояние подключений: socketId → { gameId, methods, enabled }
-const clients = new Map();
+let portMachine = null;
 
 // эстафета Worker'ов (Этап 5.2): socketId → gameId участников, восстановленных
 // из handoff-меты — их порт-машины поднимаются минуя хендшейк
 let handoffClients = null;
-
-// JWKS central auth-сервиса, проксированный мастером (Этап B3), закэширован
-// на время жизни Worker'а — ключ меняется только при ротации
-let jwksPromise = null;
-
-function getJwks() {
-  if (!jwksPromise) {
-    jwksPromise = fetch(lobbyConfig.auth.jwksUrl).then(res => {
-      if (!res.ok) {
-        throw new Error(`jwks: HTTP ${res.status}`);
-      }
-
-      return res.json();
-    });
-
-    // сбой не должен закэшироваться навсегда — следующий вход попробует снова
-    jwksPromise.catch(() => {
-      jwksPromise = null;
-    });
-  }
-
-  return jwksPromise;
-}
-
-// проверяет identity-токен клиента (Этап B3): подпись RS256 по JWKS мастера,
-// issuer, срок годности — возвращает проверенный ник или бросает исключение.
-// Свободный ввод имени в игре больше не источник ника: он берётся из claim
-async function verifyClientToken(token) {
-  const jwks = await getJwks();
-  const payload = await verifyIdentityToken(token, {
-    jwks,
-    issuer: authClientConfig.issuer,
-  });
-
-  return payload.nick;
-}
 
 // wire-сокет пользователя: пишет кадры в главный поток (роутер WebRTC/loopback)
 function makeWorkerSocket(socketId) {
@@ -133,10 +82,21 @@ async function onInit(room, handoff = null) {
     },
   });
 
-  hostPlugin = runtime.hostPlugin;
-  clientCfg = runtime.clientCfg;
-  socketManager = runtime.socketManager;
   host = runtime.host;
+
+  // в лобби личность игрока — claim identity-токена, проверенного по JWKS
+  // мастера (Этап B3); свободного ввода имени в форме игры нет
+  portMachine = new PortMachine({
+    host,
+    socketManager: runtime.socketManager,
+    clientCfg: runtime.clientCfg,
+    authSchema: runtime.hostPlugin.authSchema,
+    makeSocket: makeWorkerSocket,
+    identity: createTokenIdentity({
+      jwksUrl: lobbyConfig.auth.jwksUrl,
+      issuer: authClientConfig.issuer,
+    }),
+  });
 
   const seed = runtime.seed;
 
@@ -148,199 +108,22 @@ async function onInit(room, handoff = null) {
   self.postMessage({ type: 'ready', mapName: host.currentMap, seed });
 }
 
-// порт-обработчики клиента (замыкание над gameId через state)
-function buildPortMethods(socketId, state) {
-  return [
-    // 0: config ready
-    () => {
-      state.enabled[PC_AUTH_RESPONSE] = true;
-
-      // validators — код, по проводу не передаётся (форма клиента берёт
-      // игровые валидаторы из своего бандла); texts — заголовок и
-      // help-секции игры для нейтрального каркаса auth.pug
-      socketManager.sendAuthData(socketId, {
-        elems: hostPlugin.authSchema.elems,
-        params: hostPlugin.authSchema.params,
-        texts: hostPlugin.authSchema.texts,
-      });
-      state.enabled[PC_CONFIG_READY] = false;
-    },
-
-    // 1: auth response. Ник — не свободный ввод игровой формы, а claim
-    // проверенного identity-токена (Этап B3); authSchema.params больше не
-    // содержит 'name', только игро-специфичные поля (например 'model')
-    data => {
-      if (!data || typeof data !== 'object') {
-        return;
-      }
-
-      const err = validateAuth(
-        data,
-        hostPlugin.authSchema.params,
-        hostPlugin.authSchema.validators,
-      );
-
-      if (err) {
-        socketManager.sendAuthResult(socketId, err);
-        return;
-      }
-
-      verifyClientToken(data.token)
-        .then(name => {
-          // клиент мог отключиться, пока токен проверялся
-          if (!clients.has(socketId)) {
-            return;
-          }
-
-          state.enabled[PC_AUTH_RESPONSE] = false;
-          state.enabled[PC_MODULES_READY] = true;
-
-          host.createUser({ ...data, name }, socketId, createdId => {
-            state.gameId = createdId;
-          });
-
-          socketManager.sendTechInform(socketId, 'loading');
-          socketManager.sendAuthResult(socketId, undefined);
-        })
-        .catch(() => {
-          socketManager.sendAuthResult(socketId, [
-            { name: 'token', error: 'invalid' },
-          ]);
-        });
-    },
-
-    // 2: modules ready
-    () => {
-      state.enabled[PC_MODULES_READY] = false;
-      state.enabled[PC_MAP_READY] = true;
-      state.enabled[PC_FIRST_SHOT_READY] = true;
-      state.enabled[PC_KEYS_DATA] = true;
-      state.enabled[PC_CHAT_DATA] = true;
-      state.enabled[PC_VOTE_DATA] = true;
-      state.enabled[PC_PONG] = true;
-
-      host.sendMap(state.gameId);
-    },
-
-    // 3: map ready
-    () => host.mapReady(state.gameId),
-
-    // 4: first shot ready
-    () => host.firstShotReady(state.gameId),
-
-    // 5: keys data ('seq:action:name')
-    keyEventString => {
-      if (typeof keyEventString === 'string') {
-        host.updateKeys(state.gameId, keyEventString);
-      }
-    },
-
-    // 6: chat data
-    message => host.pushMessage(state.gameId, message),
-
-    // 7: vote data
-    data => {
-      if (data) {
-        host.parseVote(state.gameId, data);
-      }
-    },
-
-    // 8: pong
-    pingId => host.updateRTT(state.gameId, pingId),
-  ];
-}
-
-// новое подключение клиента: порт-машина как в socket/index.js
+// новое подключение клиента: участник из handoff-меты уже восстановлен в
+// HostGame — его порт-машина поднимается сразу в игровом состоянии
 function onConnect(socketId) {
-  if (!host || clients.has(socketId)) {
+  if (!portMachine) {
     return;
   }
 
-  const socket = makeWorkerSocket(socketId);
-
-  socketManager.addUser(socketId, socket);
-
-  // эстафета (Этап 5.2): участник уже восстановлен в HostGame — порт-машина
-  // поднимается сразу в игровом состоянии, хендшейк не повторяется
   const restoredGameId = handoffClients?.get(socketId);
 
   if (restoredGameId !== undefined) {
     handoffClients.delete(socketId);
-
-    const state = {
-      gameId: restoredGameId,
-      enabled: new Array(9).fill(false),
-    };
-
-    state.methods = buildPortMethods(socketId, state);
-    state.enabled[PC_MAP_READY] = true;
-    state.enabled[PC_FIRST_SHOT_READY] = true;
-    state.enabled[PC_KEYS_DATA] = true;
-    state.enabled[PC_CHAT_DATA] = true;
-    state.enabled[PC_VOTE_DATA] = true;
-    state.enabled[PC_PONG] = true;
-
-    clients.set(socketId, state);
+    portMachine.restore(socketId, restoredGameId);
     return;
   }
 
-  // комната заполнена (люди + боты) — отказ без порт-машины
-  // (очереди ожидания легаси-сервера в P2P-комнате нет)
-  if (host.isFull) {
-    // причину доставит close (TECH_INFORM перед close_client)
-    socketManager.close(socketId, 4006, 'roomFull', [host.maxPlayers]);
-    socketManager.removeUser(socketId);
-    return;
-  }
-
-  const state = {
-    gameId: undefined,
-    enabled: new Array(9).fill(false),
-  };
-
-  clients.set(socketId, state);
-  state.methods = buildPortMethods(socketId, state);
-
-  state.enabled[PC_CONFIG_READY] = true;
-  socketManager.sendConfig(socketId, clientCfg);
-}
-
-// входящее сообщение клиента (wire-строка [port, payload])
-function onClientMessage(socketId, data) {
-  const state = clients.get(socketId);
-
-  if (!state) {
-    return;
-  }
-
-  let msg;
-
-  try {
-    msg = JSON.parse(data);
-  } catch (e) {
-    return;
-  }
-
-  if (msg && state.enabled[msg[0]]) {
-    state.methods[msg[0]](msg[1]);
-  }
-}
-
-// отключение клиента
-function onDisconnect(socketId) {
-  const state = clients.get(socketId);
-
-  if (!state) {
-    return;
-  }
-
-  socketManager.removeUser(socketId);
-
-  if (state.gameId !== undefined) {
-    host.removeUser(state.gameId);
-  }
-
-  clients.delete(socketId);
+  portMachine.connect(socketId);
 }
 
 // отладочные действия хоста (этап 6): запись живого матча в формат сценария
@@ -390,11 +173,11 @@ self.onmessage = async event => {
       break;
 
     case 'message':
-      onClientMessage(msg.socketId, msg.data);
+      portMachine?.message(msg.socketId, msg.data);
       break;
 
     case 'disconnect':
-      onDisconnect(msg.socketId);
+      portMachine?.disconnect(msg.socketId);
       break;
 
     case 'update_maps':
@@ -431,7 +214,7 @@ self.onmessage = async event => {
     // клиенты переподключены главным потоком — завершить перенос
     case 'handoff_complete':
       handoffClients = null;
-      host?.completeHandoff(new Set(clients.keys()));
+      host?.completeHandoff(new Set(portMachine ? portMachine.socketIds : []));
       break;
   }
 };

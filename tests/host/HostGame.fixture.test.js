@@ -125,4 +125,20 @@ describe('HostGame (фикстура — без Rust-артефактов игр
 
     expect(nextHost.currentMap).toBe(host.currentMap);
   });
+
+  it('destroy останавливает таймеры и снимает всех участников', async () => {
+    const gameId = await connectPlayer(host, { socketId: 's1' });
+
+    joinTeam(host, gameId, 'team1');
+    tick(host, 1);
+
+    const pending = vi.getTimerCount();
+
+    expect(pending).toBeGreaterThan(0);
+
+    await host.destroy();
+
+    expect(host._participants.getAll()).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

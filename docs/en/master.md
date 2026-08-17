@@ -7,9 +7,15 @@ between clients and hosts. **It carries no game logic** — only connection
 coordination.
 
 `packages/engine/src/master/main.js` is the **project's entry point** (the legacy
-authoritative game server has been fully removed). Filesystem paths
-(`node_modules/`, `dist/assets`) are anchored to the module's location via
-`import.meta.url`, so the master can be started from any working directory.
+authoritative game server has been fully removed). It is a dispatcher: with
+`VIMP_DEDICATED_GAME` set it hands over to `src/dedicated/main.js` (a
+single-game [dedicated server](dedicated.md)), otherwise to
+`src/master/lobby.js` — the lobby master this page describes. The fork lives
+in the entry point so that `CMD ["node", "src/master/main.js"]`, `npm start`,
+`npm run dev` and the nodemon watch lists stay valid for both roles.
+Filesystem paths (`node_modules/`, `dist/assets`) are anchored to the module's
+location via `import.meta.url`, so the master can be started from any working
+directory.
 
 ## Running
 
@@ -27,7 +33,10 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 
 | Module | Responsibility |
 | --- | --- |
-| `packages/engine/src/master/main.js` | entry point: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
+| `packages/engine/src/master/main.js` | entry point: the fork between the lobby master and the [dedicated server](dedicated.md) (`VIMP_DEDICATED_GAME`) |
+| `packages/engine/src/master/lobby.js` | the lobby master itself: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
+| `packages/engine/src/master/httpSecurity.js` | baseline security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP in production), shared with the dedicated server |
+| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; the lobby applies them in production only, the dedicated server always |
 | `packages/engine/src/master/HostRegistry.js` | room registry `Map<hostId, HostSession>`: registration (max 1 room per IP), heartbeat/`lastSeen`, cached `rating`, selection for `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | signaling WebSocket: connection lifecycle, WebRTC message routing, ping rate limiting |
 | `packages/engine/src/master/MapCatalog.js` | map catalog: an in-memory JSON representation of the game plugin's `src/data/maps` (e.g. `vimp-tanks`'s) plus a content version hash; served to hosts without a rebuild |
@@ -44,6 +53,19 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 The region is determined from an Nginx/CDN header (`regionHeader`, `x-region` by default; e.g. `CF-IPCountry`) — chosen over `geoip-lite` for its low memory footprint. Without the header the region is `unknown`.
 
 ## REST API
+
+### GET /config
+
+The server mode, probed by the engine client on startup (standalone-sdk
+stage 4):
+
+- `GET /config` → `{ "mode": "lobby" }`.
+
+The client uses one contract for both server roles: a `dedicated` answer
+switches it to the direct-WebSocket boot path, anything else (including a
+404 from an older master) means the lobby. See
+[dedicated.md](dedicated.md#get-config) and
+[client.md](client.md#boot-modes-bootjs).
 
 ### GET /servers
 

@@ -1,4 +1,4 @@
-# Этап 3: Публикуемый Standalone SDK (`vimp-engine/standalone`)
+# Этап 3: Публикуемый Standalone SDK (`vimp-engine/standalone`) ✅ выполнен
 
 _Цель: одна функция, которую вызывает репозиторий игры, чтобы получить
 играбельный матч во вкладке; плюс расширение публикуемой поверхности пакета
@@ -91,6 +91,9 @@ export async function startStandaloneGame({
 - `src/client/_style.css` (529 строк, ноль ссылок в коде) в публикацию
   попадать не должен: по конвенции `_`-файлы не коммитятся вовсе — вынести
   вопрос владельцу и либо удалить, либо исключить из `files`.
+  **Решено при исполнении**: файл не удалён (он вне git, решение за
+  владельцем), а исключён из публикации отрицанием `"!src/client/_*"` в
+  `files` — `npm pack --dry-run` его больше не содержит.
 - `./network` из предварительного ТЗ не добавляем: барреля
   `src/client/network/index.js` нет, а `./client/*` уже отдаёт транспорты
   адресно.
@@ -117,7 +120,11 @@ export async function startStandaloneGame({
 
 ## Тесты
 
-- `tests/standalone/startStandaloneGame.test.js` (happy-dom):
+- `tests/standalone/startStandaloneGame.test.js` (happy-dom) —
+  **уточнение при исполнении**: настоящий `src/client/main.js` в happy-dom не
+  поднимается (`Application.init` требует WebGL, и упал бы внутри обработчика
+  CONFIG_DATA, то есть до первого шага хендшейка), поэтому клиент подменён
+  заглушкой, которая ведёт хендшейк по boot-конфигу, собранному SDK:
   на фикстуре `packages/engine/tests/fixtures/miniGame` (host+client плагины,
   ядро — чистый JS, wasm не нужен) — вызов SDK доводит хендшейк до
   `FIRST_SHOT_READY`, участник создан, `startupCommands` доехали до

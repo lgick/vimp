@@ -40,6 +40,8 @@ export default [
   {
     files: [
       'packages/engine/src/master/**/*.js', // мастер-сервер (Node.js)
+      // dedicated-сервер игры (Node.js): express + ws + матч в процессе
+      'packages/engine/src/dedicated/**/*.js',
       'packages/auth/src/**/*.js', // центральный auth-сервис (Node.js)
       // headless-отладка (npm run sim): Node-процесс, но крутит внутри себя
       // хост и клиентское ядро, поэтому нужны и браузерные изоморфные глобалы
@@ -64,6 +66,8 @@ export default [
     files: [
       // клиент движка
       'packages/engine/src/client/**/*.js',
+      // standalone SDK: та же вкладка, что и клиент (Этап 3 standalone-sdk)
+      'packages/engine/src/standalone/**/*.js',
     ],
     languageOptions: {
       ecmaVersion: 'latest',

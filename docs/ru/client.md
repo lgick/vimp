@@ -14,6 +14,38 @@
 
 Движковые и плагинные релизы, затрагивающие это, нужно выкатывать вместе: плагин, собранный с внешним `pixi.js`, не запустится отдельно без import map движка, а рассинхрон версии `pixi.js` движка с диапазоном `peerDependencies` плагина возвращает баг с двумя экземплярами.
 
+## Режимы загрузки (`boot.js`)
+
+Клиент движка один, а контуров у него три. Режим определяет `packages/engine/src/client/boot.js` до того, как `main.js` сделает что-либо ещё:
+
+| Режим | Мастер | Хост | Транспорт |
+| --- | --- | --- | --- |
+| `lobby` | есть (каталог, сигналинг, OAuth) | Web Worker во вкладке хоста | WebRTC / loopback |
+| `solo` | нет | inline, в главном потоке страницы | loopback |
+| `dedicated` | нет | процесс Node.js | WebSocket |
+
+`resolveBootConfig()` возвращает по убыванию приоритета: конфиг, инъектированный standalone SDK (`setBootConfig(cfg)`), затем `GET /config` (его отдаёт dedicated-сервер), и наконец `{ mode: 'lobby' }` — сбой сети, 404 и мусор в ответе одинаково означают «прод-лобби», так что существующие развёртывания не задеты. Канал между SDK и `main.js` — модульное состояние: оба резолвят `boot.js` в один экземпляр графа бандлера, глобалов на `window` не появляется.
+
+Форма конфига (обязателен только `mode`): `container` (точка монтирования каркаса и канвасов), `manifest`, `clientPlugin`, `hostPlugin`, `room`, `autoAuth`, `startupVotes`, `startupCommands` (solo), `wsUrl`, `gameId` (dedicated).
+
+`main.js` ветвится по режиму ровно в пяти точках: источник манифеста/плагина, сигналинг + лобби + перехват `/like`·`/unlike`, транспорт, авто-аутентификация с автостартом и точка монтирования канвасов. Всё остальное — диспетчер, MVC-модули, ClientCore, рендер-цикл — во всех трёх режимах одинаково.
+
+Отсюда бесплатно следуют два свойства, которые стоит зафиксировать: в `solo` и `dedicated` `ensureWebRtcAvailable()` и `supportsModuleWorker()` не вызываются вовсе (обе проверки живут только на lobby-путях), то есть игра стартует в браузере с отключённым WebRTC и без поддержки модульных Worker'ов.
+
+### DOM-каркас (`views/gameShell.js`)
+
+Прод-разметку даёт pug (`views/includes/*.pug`), но standalone SDK встраивается в страницу репозитория игры, где pug нет вовсе, — а движковые модули ищут элементы по фиксированным id. `ensureGameShell(container)` достраивает недостающие (`#panel`+`#logo`, `#chat`+`#chat-box`+`#cmd`, `#stat`, `#auth` со своей формой, `#game-informer`, `#tech-informer`) и идемпотентен: в режиме `lobby`, где разметка уже есть, он не делает ничего. `#vote` здесь не создаётся (его строит в рантайме `components/view/Vote.js`), канвасы — тоже: их размеры приезжают в `CONFIG_DATA`, поэтому ими занимается `ensureCanvas(id, size, container)` из обработчика `CONFIG_DATA`. Уже размещённый игрой `<canvas>` переиспользуется как есть и не переносится.
+
+Контейнер **обязан быть полноэкранным и позиционированным** (`position: relative`): `#panel`, `#stat` и `#vote` — `position: absolute`, и их containing block — ближайший позиционированный предок. Учтите также, что `style.css` скрывает `body > *` (иначе все экраны движка показались бы разом) — то есть контейнер SDK, будучи прямым потомком `body`, скрыт тем же правилом, и его `display` задаёт встраивающая страница.
+
+Два источника разметки не должны разъехаться: `tests/client/gameShell.test.js` собирает id из pug-инклюдов и сверяет с набором, который строит каркас.
+
+### Авто-аутентификация и автостарт (solo)
+
+При заданном `boot.autoAuth` обработчик `AUTH_DATA` не строит Auth-MVC вовсе — он сразу отвечает дефолтами схемы, перекрытыми `autoAuth`. После `FIRST_SHOT_READY`, **на первом `renderTick`** (не в том же синхронном вызове), `client/lib/autostart.js` отправляет `boot.startupVotes` на `VOTE_DATA` и только затем `boot.startupCommands` на `CHAT_DATA`.
+
+Порядок обязателен, и дело не в гонке доставки. Реальный гейт чата — `HostGame.pushMessage`: он отбрасывает сообщения, пока `user.isReady === false` (флаг ставится синхронно в `firstShotReady`). Настоящая же блокировка — команда: участник входит наблюдателем, а игра вправе требовать активной команды (у танков `/bot` наблюдателю отбивается). Выйти из наблюдателей можно только ответом на initialVote (`['teamChange', '<team>']` на порт `VOTE_DATA`) — отсюда голоса строго раньше команд. Лимита частоты чата на хосте нет (только по длине, `chatMaxLength`), поэтому дробить команды по кадрам не нужно.
+
 ## main.js — бутстрап, диспетчер и рендер-цикл
 
 - **Бутстрап**: прежде всего фетчит каталог игр мастера (`GET /games/manifest.json`, `GameCatalog` — см. [master.md](master.md)) и динамически грузит `ClientPlugin` активной игры по `entries.client` её манифеста (`packages/engine/src/lib/gamePlugin.js`, `loadClientPlugin`), отклоняя несовпадение `engineApi`. **Активная для хостинга игра** всегда — первая запись каталога (`activeGameManifest = gamesManifest[0]`) — динамическая загрузка `ClientPlugin` другой игры на host/join остаётся вне рамок задачи до появления второй игры (см. [plugin-api.md](plugin-api.md)). Селектор игры в лобби (`#lobby-game`, `populateGameSelect`) заполняется **всем** каталогом (lobby-page-plan) и рабочий: его смена пересобирает форму создания комнаты и переключает игру вкладки Leaderboard, но не меняет, какая игра фактически хостится. Также независимо от сигнального сокета поднимает экран входа **LobbyAuth** (см. ниже) и подключает `SignalingClient`. Лобби (`initLobby`) открывается только после того, как прилетели оба события — `welcome` от мастера и `authenticated` от LobbyAuth: `#lobby` скрыт, пока игрок не авторизован. Выбор сервера → `connectToHost` создаёт `WebRtcManager`, устанавливает P2P и запоминает `currentHostId` (для `/like`·`/unlike`).
@@ -39,6 +71,11 @@
 - **`WebRtcManager`** — P2P-соединение с хостом: `RTCPeerConnection` + каналы `meta` (reliable-ordered) и `state` (unreliable-unordered). Клиент — offerer: создаёт каналы/оффер, обменивается SDP/ICE через `SignalingClient`. События `Publisher`: `open` (оба канала открыты), `message` (данные из любого канала одним потоком), `close` (разрыв). `RTCPeerConnection` инъектируется фабрикой ради тестов.
 
 Роль клиента выбирается в лобби (`packages/engine/src/client/main.js`): **присоединиться** (`connectToHost` → `WebRtcManager`, offerer) или **создать сервер** (`connectAsHost` → браузерный хост в этой же вкладке). Для хоста игровой транспорт — **`LoopbackTransport`**: тот же интерфейс, что у `WebRtcManager` (`publisher` с `message`/`close`, `send`/`close`), но данные ходят через `HostController` → Web Worker постмесседжами, минуя WebRTC. Клиентский код при этом одинаков — транспорт прозрачен.
+
+Вне лобби клиент использует ещё два объекта той же формы:
+
+- **`WebSocketTransport`** (`dedicated`) — обычный WebSocket к игровому серверу. `binaryType` принудительно `'arraybuffer'` (диспетчер отличает кадр снапшота от JSON-порта по `data instanceof ArrayBuffer`, а браузерный WebSocket отдал бы `Blob`); `reliable` игнорируется — уровней надёжности у WebSocket нет. Следствия — [network.md](network.md#транспорт-webrtc).
+- **`InlineHostBridge`** (`solo`) — не транспорт, а замена `HostController`: тот же интерфейс `open`/`send`/`disconnect`, поэтому `LoopbackTransport` переиспользуется без изменений, но авторитетный хост крутится в этом же потоке, а не в Worker'е. Внутри — `createHostRuntime` + `PortMachine` с гостевой идентичностью и offline-профилем (`lib/offlinePlayerData.js`); перед первым `open()` обязателен `await bridge.ready`. `HostPlugin` принципиально непередаваем в Worker (`postMessage` не несёт функции) — отсюда inline; прод-путь не меняется, расхождение dev/prod осознанное.
 
 Хост-вкладка дополнительно поднимает главнопоточную инфраструктуру роутинга (главный поток — не Worker): **`HostController`** спавнит Worker с ядром и мостит его с транспортами; **`HostConnectionManager`** — **WebRTC-answerer** удалённых клиентов (зеркало `WebRtcManager`): слушает `webrtc_offer` через `SignalingClient`, на каждого создаёт `RTCPeerConnection`, ловит каналы `meta`/`state` в `ondatachannel`, шлёт `webrtc_answer`+ICE, регистрирует комнату у мастера (`register_host`/heartbeat) и отвечает на лобби-пинг (`ping_host`). Данные удалённых клиентов идут в тот же Worker, что и loopback хоста-игрока. Детали — [host.md](host.md).
 

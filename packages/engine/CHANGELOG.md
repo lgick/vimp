@@ -9,6 +9,124 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `vimp-engine/host/PortMachine.js` — the client handshake automaton (client
+  ports 0–8), lifted out of `host.worker.js` as an isomorphic module: no
+  `self`, no `postMessage`, no DOM, all transport arriving through
+  `makeSocket`. It can now be driven from a plain browser tab or a Node
+  process, not only from the host Worker. `new PortMachine({ host,
+  socketManager, clientCfg, authSchema, makeSocket, identity })`, methods
+  `connect`/`restore`/`message`/`disconnect`/`has` and the `socketIds`
+  getter. The lobby wire protocol is unchanged, byte for byte.
+- `vimp-engine/host/identity.js` — pluggable identity strategies
+  (`{ params, errorField, resolve(data, socketId) }`) for the port machine:
+  `createTokenIdentity({ jwksUrl, issuer })` is the lobby path (the `nick`
+  claim of an RS256 identity token verified against the master's JWKS, with
+  the same per-instance cache the Worker used to hold), and
+  `createGuestIdentity({ fallbackPrefix })` is the master-less one — it
+  declares a `name` form field validated by the engine's own `isValidName`,
+  and falls back to `Player_xxxx`. A strategy's `params` are appended to the
+  game's `authSchema.params` in both directions, so a guest nickname reaches
+  the client form through the same channel as the game's own fields.
+- `vimp-engine/lib/offlinePlayerData.js` — `offlinePlayerData()` builds the
+  `hostOptions.playerDataFetch` for a contour with no master: every profile
+  request answers `{ rank: 0, state: null }` instead of hitting the network.
+  It was the headless runner's private stub; the standalone and dedicated
+  hosts need the same one.
+- `HostGame.destroy()` — a public teardown (stop the timers, flush the
+  profiles, remove every participant), returning the flush promise. A tab's
+  match dies with its Worker, but a long-lived process needs a graceful
+  shutdown.
+- Client boot modes: `src/client/boot.js` picks between `lobby`
+  (the master, signaling and the OAuth gate — today's behaviour), `solo` (the
+  host inline in the same tab) and `dedicated` (a direct WebSocket to a Node
+  server). `setBootConfig(cfg)` is the SDK's injection point;
+  `resolveBootConfig()` falls back to `GET /config` and then to
+  `{ mode: 'lobby' }`, so a network failure, a 404 or a malformed body all
+  keep existing deployments on the lobby path. `main.js` branches on the mode
+  in five places only (manifest source, signaling/lobby, transport,
+  auto-authentication, canvas mount point).
+- `src/client/network/WebSocketTransport.js` — the third
+  transport, interface-compatible with `WebRtcManager`/`LoopbackTransport`.
+  `binaryType` is forced to `'arraybuffer'`; `reliable` is ignored (a
+  WebSocket has no reliability levels), which moves RTT measurement onto the
+  TCP path and backpressure onto the server.
+- `src/client/network/InlineHostBridge.js` — a drop-in
+  replacement for `HostController` that runs the authoritative host in the
+  page's main thread (`createHostRuntime` + `PortMachine` + guest identity +
+  `offlinePlayerData`), so `LoopbackTransport` is reused unchanged. A
+  `HostPlugin` cannot cross `postMessage`, hence inline; the production
+  Worker path is untouched.
+- `src/client/views/gameShell.js` — `ensureGameShell(container)`
+  builds the game UI containers in code (idempotent, so the pug markup of the
+  lobby build is left alone) and `ensureCanvas(id, size, container)` mounts a
+  canvas into the boot container instead of `document.body`. A parity test
+  keeps the two sources of markup from drifting.
+- `src/client/lib/autostart.js` — the solo autostart:
+  `startupVotes` (leaving the spectators) strictly before `startupCommands`
+  (the game's chat commands, e.g. spawning bots), both on the first
+  `renderTick` after `FIRST_SHOT_READY`.
+- `vimp-engine/standalone` — `startStandaloneGame({ hostPlugin, clientPlugin,
+  wasmUrl, container, assetsBase, playerName, playerModel, auth, startupVotes,
+  startupCommands, room, devMode })` runs a whole match inside one browser tab
+  of a *game* repository: no master, no OAuth, no lobby screen. It takes the
+  live plugin objects, checks both against `ENGINE_API_VERSION`, builds the UI
+  shell and an in-memory manifest, and hands the boot config to the engine
+  client; it resolves to `{ stop() }`, which tears the match down (render loop
+  off, inline host destroyed). There is no `bots: N` option — the engine has
+  no notion of a bot; scripted participants are spawned by the game's own chat
+  command via `startupCommands`, and `startupVotes` must precede them.
+  Documented in `docs/en/standalone.md`.
+- `src/client/main.js` exports `stopGame()` — the external stop used by the
+  SDK; it closes the transport, which runs the existing teardown path.
+- The published surface of the package grew to the client half of the engine:
+  `files` now carries `src/client` (minus the `_*` scratch files) and
+  `src/standalone`, with the new exports `./client/*`, `./standalone` and
+  `./style.css`. Consequently `howler` moved from `devDependencies` to
+  `dependencies` — it is imported by the published `src/client/SoundManager.js`.
+  A consumer bundling the SDK must dedupe `pixi.js` (two copies mean two
+  extension registries and a dead renderer).
+
+- The dedicated Node.js server — `src/dedicated/main.js`: one authoritative
+  match of one game inside a Node process, with browsers connecting over a
+  direct WebSocket (`/game`) and no lobby, OAuth or WebRTC anywhere.
+  `startDedicatedServer({ gameId, port, host, room, loadGame, serveClient })`
+  is exported for tests and embedders; the process form is selected by
+  `VIMP_DEDICATED_GAME`. It reuses `createHostRuntime`, `PortMachine`,
+  `createGuestIdentity` and `offlinePlayerData`, serves the master's catalog
+  routes for its single game, mirrors the Worker's frame format byte for byte,
+  drops unreliable frames above 256 KB of `bufferedAmount`, validates
+  `Origin`, and shuts down gracefully on `SIGTERM`/`SIGINT`. Documented in
+  `docs/en/dedicated.md`.
+- `src/master/main.js` is now a dispatcher between `src/master/lobby.js` (the
+  lobby master, the previous content of `main.js`, unchanged) and
+  `src/dedicated/main.js`, so one entry point serves both roles.
+- `GET /config` on both servers: `{ mode: 'lobby' }` from the master and
+  `{ mode: 'dedicated', gameId, gameVersion, wsPath }` from the dedicated
+  server — the single contract the engine client probes to pick its boot mode.
+- `vimp-engine/lib/loadGamePackage.js` — `loadGamePackage(distDir, { core })`
+  loads a built game package in Node (manifest, both plugin halves, the
+  `file:` URL of `entries.wasmNode`), with the `engineApi` and stale-`dist/`
+  checks and named failures when the node core is missing. Lifted out of
+  `src/devtools/pluginLoader.js`, which now delegates to it: a production
+  server must not depend on the debugging tooling.
+- `vimp-engine/config/env.js` — `applyMasterEnv(config, env)` (the
+  `VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`
+  overrides, previously inline in the master and production-only) and
+  `readDedicatedRoom(env)` for `VIMP_DEDICATED_ROOM`. The dedicated server
+  applies them in development too — the game, port and room have no other
+  source.
+
+### Changed
+
+- The page's base CSS rules (`html`/`body`, `body > * { display: none }`,
+  `body.hide-cursor`) moved from the inline `<style>` of
+  `packages/engine/index.html` into `src/client/style.css`: a game
+  repository has no `index.html` of ours, and without them every engine
+  screen would show at once. The CSP hash of the inline importmap is
+  unaffected.
+
 ## [0.7.0] — 2026-08-09
 
 Items marked *(app shell)* live in `src/client/**`, which is outside the

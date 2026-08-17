@@ -74,6 +74,35 @@ the P2P channel to the host. The reason: the host runs its own
 voter's Bearer identity-token; rating logic lives on the master and the
 central auth service ([master.md](master.md#server-rating-likeunlike)).
 
+## Three transports (WebRTC / loopback / WebSocket)
+
+The port protocol and the frame formats are one and the same in all contours;
+only the pipe underneath differs. All three expose the same shape — a
+`Publisher` with `message`/`close`, plus `connect`/`send(data, reliable)`/`close`
+— so the dispatcher never learns which one it is talking to.
+
+| | `WebRtcManager` (lobby) | `LoopbackTransport` (host tab, solo) | `WebSocketTransport` (dedicated) |
+| --- | --- | --- | --- |
+| Pipe | two `RTCDataChannel`s | postMessage to the Worker / a direct call in the same thread | one WebSocket |
+| meta/state split | yes | no | no |
+| `reliable` flag | picks the channel | ignored | ignored |
+| Frame ordering | `meta` ordered, `state` unordered | ordered | ordered (TCP) |
+| Binary frames | `ArrayBuffer` over `state`/`meta` | `ArrayBuffer` | `ArrayBuffer` (`binaryType` must be set) |
+| Backpressure | positional frames dropped on `bufferedAmount` | none needed | server-side |
+
+Two consequences are worth spelling out for the dedicated server. **RTT
+measurement changes meaning**: PING/PONG travel over the reliable pipe, so
+what is measured is the TCP path (with retransmissions) rather than a raw
+network path — the kick timeouts stay the same, but the number is not
+comparable with a WebRTC one. **Backpressure moves to the server**: there is
+no unreliable channel whose positional frames can be dropped, so the pressure
+has to be handled where the frames are produced.
+
+`LoopbackTransport` is used in two different contours: over `HostController`
+(the host player's tab, a Worker behind it) and over `InlineHostBridge`
+(standalone SDK, the host in the same thread). The transport itself is
+unchanged — only the object implementing `open`/`send`/`disconnect` differs.
+
 ## Ports
 
 ### Server → client

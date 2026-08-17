@@ -32,6 +32,9 @@ import {
   reportFormValidity,
 } from './lib/formBuilder.js';
 import { getHostGateState } from './lib/hostGate.js';
+import createAutostart from './lib/autostart.js';
+import { resolveBootConfig } from './boot.js';
+import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
 import { createContextTracker } from './lib/contextTracker.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
@@ -49,6 +52,8 @@ import WebRtcManager from './network/WebRtcManager.js';
 import HostController from './network/HostController.js';
 import HostConnectionManager from './network/HostConnectionManager.js';
 import LoopbackTransport from './network/LoopbackTransport.js';
+import WebSocketTransport from './network/WebSocketTransport.js';
+import InlineHostBridge from './network/InlineHostBridge.js';
 import { supportsModuleWorker } from './network/workerSupport.js';
 import LobbyModel from './components/model/Lobby.js';
 import LobbyView from './components/view/Lobby.js';
@@ -82,16 +87,38 @@ let clientPlugin;
 let parts;
 let gamesManifest;
 
-try {
-  gamesManifest = await fetchGamesManifest(lobbyConfig.gamesManifestUrl);
+// режим загрузки (Этап 2 плана standalone-sdk): lobby — прод с мастером,
+// solo — хост в этой же вкладке (standalone SDK), dedicated — прямой WS к
+// Node-серверу. Ветвлений ровно пять: манифест, сигналинг/лобби, транспорт,
+// авто-аутентификация и точка монтирования канвасов
+const boot = await resolveBootConfig();
+const bootMode = boot.mode;
+const isLobbyMode = bootMode === 'lobby';
 
-  activeGameManifest = gamesManifest[0];
+// точка монтирования игрового интерфейса: в lobby-режиме разметку даёт pug и
+// каркас ничего не делает, в solo — собирается в контейнере SDK
+const gameContainer = boot.container ?? document.body;
+
+ensureGameShell(gameContainer);
+
+try {
+  if (boot.manifest) {
+    // SDK передаёт манифест-подобный объект в памяти — каталога мастера нет
+    activeGameManifest = boot.manifest;
+    gamesManifest = [activeGameManifest];
+  } else {
+    gamesManifest = await fetchGamesManifest(lobbyConfig.gamesManifestUrl);
+
+    activeGameManifest = boot.gameId
+      ? gamesManifest.find(manifest => manifest.id === boot.gameId)
+      : gamesManifest[0];
+  }
 
   if (!activeGameManifest) {
     throw new Error('master has no games in its catalog');
   }
 
-  clientPlugin = await loadClientPlugin(activeGameManifest);
+  clientPlugin = boot.clientPlugin ?? (await loadClientPlugin(activeGameManifest));
   parts = clientPlugin.parts;
 
   const gameStyle = document.createElement('style');
@@ -134,8 +161,11 @@ const PC_PONG = wsports.client.PONG;
 
 // сигнальный WebSocket мастера (лобби + установка P2P); игровой трафик идёт
 // по WebRTC (transport), не через мастер
+// (только lobby: solo и dedicated мастера не имеют вовсе)
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-const signaling = new SignalingClient(`${wsProtocol}//${location.host}/`);
+const signaling = isLobbyMode
+  ? new SignalingClient(`${wsProtocol}//${location.host}/`)
+  : null;
 
 // активное P2P-соединение с хостом (создаётся при выборе сервера в лобби)
 let transport = null;
@@ -269,15 +299,11 @@ socketMethods[PS_CONFIG_DATA] = async data => {
   const canvasesConfig = modulesConfig.canvasManager.canvases;
 
   const initPromises = Object.keys(canvasesConfig).map(async canvasId => {
-    const canvas =
-      document.getElementById(canvasId) ?? document.createElement('canvas');
-
-    if (!canvas.parentNode) {
-      canvas.setAttribute('id', canvasId);
-      canvas.width = canvasesConfig[canvasId].width;
-      canvas.height = canvasesConfig[canvasId].height;
-      document.body.appendChild(canvas);
-    }
+    const canvas = ensureCanvas(
+      canvasId,
+      canvasesConfig[canvasId],
+      gameContainer,
+    );
 
     const app = new Application();
     const assetProvider = new BakingProvider(clientPlugin.bakers);
@@ -350,6 +376,13 @@ socketMethods[PS_AUTH_DATA] = data => {
     }
   });
 
+  // solo: формы нет — отвечаем дефолтами схемы, перекрытыми boot.autoAuth
+  if (boot.autoAuth) {
+    sending(PC_AUTH_RESPONSE, { ...defaultsFrom(params), ...boot.autoAuth });
+
+    return;
+  }
+
   // клиент проверяет только движковые правила (isValidName): игровые
   // валидаторы (isValidModel) не идут по проводу и не грузятся с
   // ClientPlugin (HostPlugin.authSchema — только у хоста). Хост валидирует
@@ -368,15 +401,29 @@ socketMethods[PS_AUTH_DATA] = data => {
 
     // ник больше не вводится в игровой форме — токен лобби несёт claim
     // 'nick', хост проверяет его подпись по /jwks и берёт ник оттуда (Этап B3)
-    sending(PC_AUTH_RESPONSE, { ...data, token: lobbyAuthModel.getToken() });
+    sending(PC_AUTH_RESPONSE, { ...data, token: lobbyAuthModel?.getToken() });
   });
 
   modules.auth.init(params);
 };
 
+// значения формы по умолчанию (schema → { name: value }): база авто-ответа
+function defaultsFrom(params) {
+  return Object.fromEntries(params.map(param => [param.name, param.value]));
+}
+
 // auth errors
 socketMethods[PS_AUTH_RESULT] = async err => {
-  modules.auth.parseRes(err);
+  if (modules.auth) {
+    modules.auth.parseRes(err);
+  } else if (err) {
+    // авто-аутентификация отбита хостом: формы, куда вернуть ошибку, нет
+    socketMethods[PS_TECH_INFORM_DATA](
+      `Authorization rejected: ${JSON.stringify(err)}`,
+    );
+
+    return;
+  }
 
   if (!err) {
     await soundManager.init(soundData);
@@ -490,7 +537,23 @@ socketMethods[PS_FIRST_SHOT_DATA] = data => {
 
   // подтверждение получения первого шота
   sending(PC_FIRST_SHOT_READY);
+
+  // solo: выход из наблюдателей и чат-команды игры (боты) — см. autostart.js
+  runAutostart();
 };
+
+// отложенная задача автостарта: исполняется на первом renderTick
+let pendingAutostart = null;
+
+const runAutostart = createAutostart({
+  votes: boot.startupVotes ?? [],
+  commands: boot.startupCommands ?? [],
+  sendVote: data => sending(PC_VOTE_DATA, data),
+  sendCommand: message => sending(PC_CHAT_DATA, message),
+  schedule: fn => {
+    pendingAutostart = fn;
+  },
+});
 
 // panel data
 socketMethods[PS_PANEL_DATA] = data => {
@@ -678,6 +741,15 @@ function applyShot(game, camera) {
 function renderTick() {
   if (!clientCore) {
     return;
+  }
+
+  // автостарт solo — на первом кадре после FIRST_SHOT_READY, а не в том же
+  // синхронном вызове
+  if (pendingAutostart) {
+    const task = pendingAutostart;
+
+    pendingAutostart = null;
+    task();
   }
 
   const len = clientCore.sample(performance.now());
@@ -900,7 +972,9 @@ function handleChatSend(message) {
   const likeMatch = message === '/like' || message.startsWith('/like ');
   const unlikeMatch = message === '/unlike' || message.startsWith('/unlike ');
 
-  if (likeMatch || unlikeMatch) {
+  // вне лобби мастера нет — голосовать некому, команда уходит хосту как
+  // обычное сообщение чата
+  if (isLobbyMode && (likeMatch || unlikeMatch)) {
     const command = likeMatch ? '/like' : '/unlike';
     const reason = message.slice(command.length).trim();
     const token = lobbyAuthModel.getToken();
@@ -1125,14 +1199,34 @@ function handleDisconnect() {
   hostController = null; // останавливает и reconnect-петлю сигналинга
   hostRegistration = null;
 
+  // solo: хост крутится в этом же потоке — его таймеры переживут матч
+  inlineHost?.destroy();
+  inlineHost = null;
+
   // терминальную причину закрытия (кик, полная комната) не затираем
   if (!terminalInformShown) {
     socketMethods[PS_TECH_INFORM_DATA](
-      'Host left — the room is closed. Returning to lobby…',
+      isLobbyMode
+        ? 'Host left — the room is closed. Returning to lobby…'
+        : 'The match is over — connection to the host is closed.',
     );
   }
 
-  setTimeout(() => location.reload(), 3000);
+  // в solo перезагружаться некуда: лобби нет, а матч поднимается с нуля.
+  // В dedicated сервер жив — переподключение перезагрузкой уместно
+  if (bootMode !== 'solo') {
+    setTimeout(() => location.reload(), 3000);
+  }
+}
+
+/**
+ * Внешний останов матча (standalone SDK, Этап 3 плана standalone-sdk).
+ * Закрытие транспорта эмитит 'close' → handleDisconnect: тот снимает
+ * рендер-луп, гасит inline-хост и освобождает звук/клавиатуру. Отдельного
+ * teardown у SDK нет специально — путь останова один на все режимы.
+ */
+export function stopGame() {
+  transport?.close();
 }
 
 // БУТСТРАП: лобби и установка P2P через мастер-сервер
@@ -1143,6 +1237,9 @@ let lobby = null;
 let hostController = null;
 let hostConnections = null;
 let hostHeartbeat = null;
+
+// solo: авторитетный хост в главном потоке (без Worker'а)
+let inlineHost = null;
 
 if (isDevBuild) {
   window.__vimpDebug = createDebugApi({
@@ -1186,7 +1283,7 @@ function connectToHost(hostId) {
   transport.publisher.on('close', handleDisconnect);
   transport.connect(hostId);
 
-  lobby.close();
+  lobby?.close();
 }
 
 // поднимает комнату в этой же вкладке (Worker хоста): хост-игрок играет через
@@ -1386,7 +1483,46 @@ async function connectAsHost(room) {
     }
   });
 
-  lobby.close();
+  lobby?.close();
+}
+
+// solo-режим: авторитетный матч в этом же потоке (standalone SDK). Ни
+// мастера, ни Worker'а, ни WebRTC — только inline-хост и loopback
+async function connectSolo() {
+  const socketId = lobbyConfig.create.hostSocketId;
+
+  inlineHost = new InlineHostBridge(
+    {
+      name: 'solo',
+      ...boot.room,
+      hostSocketId: socketId,
+      // hostEntryUrl не нужен: HostPlugin приходит живым объектом
+      game: {
+        id: activeGameManifest.id,
+        version: activeGameManifest.version,
+        wasmUrl: activeGameManifest.entries.wasm,
+      },
+    },
+    { hostPlugin: boot.hostPlugin },
+  );
+
+  // хендшейк начинается в connect() — хост к этому моменту обязан быть готов
+  await inlineHost.ready;
+
+  transport = new LoopbackTransport(inlineHost, socketId);
+
+  transport.publisher.on('message', handleMessage);
+  transport.publisher.on('close', handleDisconnect);
+  transport.connect();
+}
+
+// dedicated-режим: прямой WebSocket к Node-серверу игры
+function connectDedicated() {
+  transport = new WebSocketTransport(boot.wsUrl);
+
+  transport.publisher.on('message', handleMessage);
+  transport.publisher.on('close', handleDisconnect);
+  transport.connect();
 }
 
 // версия каталога карт мастера, с которой поднята комната (Этап 5.1)
@@ -1798,9 +1934,8 @@ function initLobby() {
 // только после успешной авторизации (глобальный ник вместо свободного ввода
 // в игре). Не зависит от сигнального сокета мастера — читает query string
 // (OAuth-редирект) и localStorage независимо от 'welcome'
-const lobbyAuthModel = new LobbyAuthModel(authClientConfig);
-const lobbyAuthView = new LobbyAuthView(lobbyAuthModel, authClientConfig);
-const lobbyAuthCtrl = new LobbyAuthCtrl(lobbyAuthModel, lobbyAuthView);
+let lobbyAuthModel = null;
+let lobbyAuthView = null;
 
 let welcomeReceived = false;
 let authenticated = false;
@@ -1811,18 +1946,38 @@ function maybeInitLobby() {
   }
 }
 
-signaling.publisher.on('welcome', () => {
-  welcomeReceived = true;
-  maybeInitLobby();
-});
+// точка 2 ветвления: лобби, OAuth-гейт и сигналинг живут только в lobby;
+// solo и dedicated идут сразу к транспорту
+if (isLobbyMode) {
+  lobbyAuthModel = new LobbyAuthModel(authClientConfig);
+  lobbyAuthView = new LobbyAuthView(lobbyAuthModel, authClientConfig);
 
-lobbyAuthModel.publisher.on('authenticated', () => {
-  authenticated = true;
-  maybeInitLobby();
-});
+  const lobbyAuthCtrl = new LobbyAuthCtrl(lobbyAuthModel, lobbyAuthView);
 
-if (lobbyAuthCtrl.init(window.location.search)) {
-  window.history.replaceState(null, '', window.location.pathname);
+  signaling.publisher.on('welcome', () => {
+    welcomeReceived = true;
+    maybeInitLobby();
+  });
+
+  lobbyAuthModel.publisher.on('authenticated', () => {
+    authenticated = true;
+    maybeInitLobby();
+  });
+
+  if (lobbyAuthCtrl.init(window.location.search)) {
+    window.history.replaceState(null, '', window.location.pathname);
+  }
+
+  signaling.connect();
+} else if (bootMode === 'solo') {
+  try {
+    await connectSolo();
+  } catch (e) {
+    socketMethods[PS_TECH_INFORM_DATA](
+      `Failed to start the match: ${e.message || 'unknown error'}`,
+    );
+    throw e;
+  }
+} else {
+  connectDedicated();
 }
-
-signaling.connect();

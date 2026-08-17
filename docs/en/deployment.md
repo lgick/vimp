@@ -150,6 +150,52 @@ The server list is configured through GitHub repository variables.
    jobs) or `git push` to `main` — the system deploys the master to every
    server in the list.
 
+## Dedicated game box (`dedicatedGame`)
+
+The same image also runs the [dedicated server](dedicated.md) — one 24/7
+match of one game inside the Node process, with browsers connecting over a
+direct WebSocket and no lobby, OAuth or WebRTC. The role is chosen by a
+single environment variable, so a dedicated box is deployed exactly like a
+master: Steps 1–3 above (DNS, `install-system.sh`, `add-server.sh` — a
+regular domain with its own port), then one extra field in
+`SERVERS_MATRIX`:
+
+```json
+[
+  {
+    "ip": "YOUR_SERVER_IP",
+    "domain": "duel.example.com",
+    "port": 3006,
+    "dedicatedGame": "tanks"
+  }
+]
+```
+
+- `dedicatedGame` is a game id from `GAMES_MATRIX`/`master:games`. With the
+  field present, `deploy.yml` writes `VIMP_DEDICATED_GAME` into that
+  server's `.env.prod` and `src/master/main.js` starts the dedicated server
+  instead of the lobby; without it the box stays a lobby master. Nothing
+  else in the matrix changes.
+- The game package must be installed in the image (a root dependency, as in
+  "Adding a second game to the catalog" below) **and** publish
+  `dist/core-node/` — the dedicated server loads the Node build of the
+  core, like `npm run sim` does. A game whose `dist/` lacks it fails at
+  startup with a named error, see [plugin-api.md](plugin-api.md).
+- Room overrides (`VIMP_DEDICATED_ROOM`, see
+  [configuration.md](configuration.md#environment-variables-env)) are not
+  part of the matrix: add the line to `~/vimp_projects/<domain>/.env.prod`
+  on the box and `docker compose up -d --force-recreate` (a CI deploy
+  regenerates `.env.prod` and drops it).
+- **A deploy interrupts the match.** There is no handoff: the container is
+  recreated, the process dies with its simulation, and every connected
+  client loses the round and reconnects into a fresh one. Unlike the lobby
+  master (where matches live in host tabs and survive a restart, see
+  "Updating the game"), a dedicated box should be redeployed when it's
+  empty.
+- No Nginx or CSP change is needed — `location /` already proxies the
+  upgrade headers, so `/game` reaches the WebSocket, and `connect-src
+  'self' wss:` already covers it.
+
 ## Central auth service (`packages/auth`)
 
 Lobby login, nick, rank and state ([auth.md](auth.md)) need `@vimp/auth`

@@ -599,6 +599,31 @@ export default class HostGame {
     }
   }
 
+  /**
+   * Публичный teardown матча: останов таймеров, финальная синхронизация
+   * профилей и снятие всех участников. Во вкладке матч умирает вместе с
+   * Worker'ом, а долгоживущему процессу (dedicated-сервер) нужен graceful
+   * shutdown — иначе таймеры держат процесс, а rank/state теряются.
+   * @returns {Promise} Завершение финальной синхронизации профилей.
+   */
+  destroy() {
+    this._timerManager.stopGameTimers();
+    this._timerManager.stopIdleCheckTimer();
+    this._timerManager.stopAllVoteTimers();
+    this._timerManager.stopAllBlockedVoteTimers();
+
+    // flushAll до снятия участников: removeUser чистит запись PlayerDataSync,
+    // и после него синхронизировать было бы уже нечего
+    const flushed = this._playerDataSync.flushAll();
+
+    // getAll() отдаёт копию — снятие внутри цикла реестр не ломает
+    for (const user of this._participants.getAll()) {
+      this.removeUser(user.gameId);
+    }
+
+    return flushed;
+  }
+
   // ***** эстафета Worker'ов (Этап 5.2) ***** //
 
   // запрашивает перенос: на ближайшей границе раунда игра останавливается

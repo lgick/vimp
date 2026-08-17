@@ -54,7 +54,7 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
     "client": "/games/tanks/client-<hash>.js",  // ESM, default export = ClientPlugin
     "host":   "/games/tanks/host-<hash>.js",    // ESM worker-safe, default export = HostPlugin
     "wasm":   "/games/tanks/core-<hash>.wasm",  // единый hashed .wasm обоих entry (общий HTTP-кеш)
-    "wasmNode": "./core-node/index.js"          // ОПЦИОНАЛЬНО: node-сборка ядра внутри dist/, для `npm run sim`
+    "wasmNode": "./core-node/index.js"          // ОПЦИОНАЛЬНО: node-сборка ядра внутри dist/, для `npm run sim` и dedicated-сервера
   },
   "assetsBase": "/games/tanks/",           // база звуков/ассетов
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
@@ -83,8 +83,12 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
 
 `entries.wasmNode` **опционально** и браузером не используется: это путь
 (относительно манифеста) к **node**-сборке того же WASM-ядра, которую берёт
-headless-runner `npm run sim -- --game <пакет>` — см.
-[debugging.md](debugging.md). Путь обязан вести **внутрь публикуемого
+headless-runner `npm run sim -- --game <пакет>` (см.
+[debugging.md](debugging.md)) и [dedicated-сервер](dedicated.md), который
+крутит авторитетный матч внутри процесса Node. Для игры, которую собираются
+держать на dedicated-боксе, поле поэтому фактически обязательно: там нет
+подмены через `--core`, и игра без него роняет сервер на старте. Путь
+обязан вести **внутрь публикуемого
 `dist/`** (конвенция — `./core-node/`, куда сборка копирует свой
 `core/pkg-node/`): каталог wasm-pack'а обычно git-ignored, а npm применяет
 ignore-правила и внутри каталогов из `files`, так что манифест с путём

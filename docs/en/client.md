@@ -47,6 +47,85 @@ built with `pixi.js` external cannot run standalone without the engine's
 import map, and bumping the engine's `pixi.js` version out of sync with the
 plugin's `peerDependencies` range reintroduces the dual-instance crash.
 
+## Boot modes (`boot.js`)
+
+There is exactly one engine client, and it runs in three contours. The mode
+is resolved by `packages/engine/src/client/boot.js` before `main.js` does
+anything else:
+
+| Mode | Master | Host | Transport |
+| --- | --- | --- | --- |
+| `lobby` | yes (catalog, signaling, OAuth) | Web Worker in the host's tab | WebRTC / loopback |
+| `solo` | no | inline, in the page's main thread | loopback |
+| `dedicated` | no | a Node.js process | WebSocket |
+
+`resolveBootConfig()` returns, in order of preference: the config injected by
+the standalone SDK (`setBootConfig(cfg)`), then `GET /config` (served by a
+dedicated server), and finally `{ mode: 'lobby' }` — a network failure, a 404
+or a malformed body all mean "production lobby", so existing deployments are
+unaffected. The channel between the SDK and `main.js` is the module's own
+state: both resolve `boot.js` to the same instance in the bundler graph, so
+no globals are put on `window`.
+
+Config shape (all fields but `mode` are optional): `container` (mount point
+for the shell and canvases), `manifest`, `clientPlugin`, `hostPlugin`,
+`room`, `autoAuth`, `startupVotes`, `startupCommands` (solo), `wsUrl`,
+`gameId` (dedicated).
+
+`main.js` branches on the mode in exactly five places: the manifest/plugin
+source, signaling + lobby + the `/like`·`/unlike` interception, the
+transport, auto-authentication with autostart, and the canvas mount point.
+Everything else — the dispatcher, MVC modules, ClientCore, the render loop —
+is identical in all three modes.
+
+Two properties fall out of this for free and are worth stating: `solo` and
+`dedicated` never call `ensureWebRtcAvailable()` or `supportsModuleWorker()`
+(both live on lobby paths only), so the game starts in a browser with WebRTC
+disabled and without module-Worker support.
+
+### DOM shell (`views/gameShell.js`)
+
+Production markup comes from pug (`views/includes/*.pug`), but the
+standalone SDK embeds into the game repository's page where there is no pug —
+while the engine's modules look elements up by fixed ids. `ensureGameShell(container)`
+builds the missing ones (`#panel`+`#logo`, `#chat`+`#chat-box`+`#cmd`,
+`#stat`, `#auth`+its form nodes, `#game-informer`, `#tech-informer`) and is
+idempotent: in `lobby` mode, where the markup already exists, it does
+nothing. `#vote` is not created here (`components/view/Vote.js` builds it at
+runtime), and neither are the canvases — their sizes arrive in `CONFIG_DATA`,
+so `ensureCanvas(id, size, container)` handles them from the `CONFIG_DATA`
+handler. A `<canvas>` the game already placed in the document is reused as is
+and never moved.
+
+The container **must be full-screen and positioned** (`position: relative`):
+`#panel`, `#stat` and `#vote` are `position: absolute`, and their containing
+block is the nearest positioned ancestor. Note also that `style.css` hides
+`body > *` (the engine's screens must not all show at once) — so the SDK
+container, being a direct child of `body`, is hidden by that rule too, and
+the embedding page is responsible for its own `display`.
+
+The two sources of markup must not drift apart: `tests/client/gameShell.test.js`
+scrapes the ids out of the pug includes and compares them with the set the
+shell builds.
+
+### Auto-authentication and autostart (solo)
+
+With `boot.autoAuth` set, the `AUTH_DATA` handler does not build the Auth MVC
+at all — it answers immediately with the schema defaults overridden by
+`autoAuth`. After `FIRST_SHOT_READY`, on the **first `renderTick`** (not in
+the same synchronous call), `client/lib/autostart.js` sends `boot.startupVotes`
+to `VOTE_DATA` and only then `boot.startupCommands` to `CHAT_DATA`.
+
+That order is mandatory, and it is not about delivery races. The real gate on
+chat is `HostGame.pushMessage`, which drops messages while `user.isReady ===
+false` (the flag is set synchronously in `firstShotReady`). The actual
+blocker is the team: a participant joins as a spectator, and the game may
+require an active team (in tanks, `/bot` is rejected for a spectator). The
+only way out of the spectators is answering the initial vote
+(`['teamChange', '<team>']` on port `VOTE_DATA`) — hence votes strictly
+before commands. The host has no chat rate limit (only a length limit,
+`chatMaxLength`), so the commands do not need to be spread over frames.
+
 ## main.js — bootstrap, dispatcher, and render loop
 
 - **Bootstrap**: before anything else, fetches the master's game catalog
@@ -196,6 +275,25 @@ The client's role is picked in the lobby (`packages/engine/src/client/main.js`):
 with `message`/`close`, `send`/`close`), but data travels through
 `HostController` → the Web Worker as postMessages, bypassing WebRTC. Client
 code is identical either way — the transport is transparent.
+
+Outside the lobby the client uses two more transports of the same shape:
+
+- **`WebSocketTransport`** (`dedicated`) — a plain WebSocket to the game
+  server. `binaryType` is forced to `'arraybuffer'` (the dispatcher tells a
+  snapshot frame from a JSON port by `data instanceof ArrayBuffer`, and a
+  browser WebSocket would hand it a `Blob`); `reliable` is ignored, since a
+  WebSocket has no reliability levels. Consequences —
+  [network.md](network.md#transport-webrtc).
+- **`InlineHostBridge`** (`solo`) — not a transport but a replacement for
+  `HostController`: the same `open`/`send`/`disconnect` interface, so
+  `LoopbackTransport` is reused unchanged, but the authoritative host runs in
+  the same thread instead of a Worker. It builds `createHostRuntime` +
+  `PortMachine` with a guest identity and an offline profile fetch
+  (`lib/offlinePlayerData.js`); `await bridge.ready` before the first
+  `open()`. A `HostPlugin` cannot be passed into a Worker at all
+  (`postMessage` does not carry functions), which is why solo is inline —
+  the production path is untouched, and the dev/prod divergence is
+  deliberate.
 
 A host tab additionally brings up main-thread routing infrastructure (the
 main thread, not the Worker): **`HostController`** spawns the Worker with

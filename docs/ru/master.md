@@ -2,7 +2,7 @@
 
 Мастер-сервер (`packages/engine/src/master/`) — центральный узел P2P-архитектуры: хранит реестр активных комнат (браузерных хостов), отдаёт их список по REST и маршрутизирует WebRTC-координацию (SDP-офферы/ответы, ICE-кандидаты) между клиентами и хостами. **Игровой логики в нём нет** — только координация соединений.
 
-`packages/engine/src/master/main.js` — **точка входа проекта** (легаси авторитетный игровой сервер полностью демонтирован). Пути к файлам (`node_modules/`, `dist/assets`) якорятся от расположения модуля через `import.meta.url`, поэтому мастер можно запускать из любой рабочей директории.
+`packages/engine/src/master/main.js` — **точка входа проекта** (легаси авторитетный игровой сервер полностью демонтирован). Это диспетчер: при заданной `VIMP_DEDICATED_GAME` он передаёт управление `src/dedicated/main.js` ([dedicated-сервер](dedicated.md) одной игры), иначе — `src/master/lobby.js`, лобби-мастеру, которому посвящена эта страница. Развилка живёт в точке входа, чтобы `CMD ["node", "src/master/main.js"]`, `npm start`, `npm run dev` и watch-списки nodemon оставались валидными для обеих ролей. Пути к файлам (`node_modules/`, `dist/assets`) якорятся от расположения модуля через `import.meta.url`, поэтому мастер можно запускать из любой рабочей директории.
 
 ## Запуск
 
@@ -20,7 +20,10 @@ npm start         # production: HTTP за Nginx, читает .env
 
 | Модуль | Ответственность |
 | --- | --- |
-| `packages/engine/src/master/main.js` | точка входа: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат |
+| `packages/engine/src/master/main.js` | точка входа: развилка между лобби-мастером и [dedicated-сервером](dedicated.md) (`VIMP_DEDICATED_GAME`) |
+| `packages/engine/src/master/lobby.js` | сам лобби-мастер: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат |
+| `packages/engine/src/master/httpSecurity.js` | базовые security-заголовки (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP в проде), общие с dedicated-сервером |
+| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) и разбор `VIMP_DEDICATED_ROOM`; лобби применяет их только в проде, dedicated — всегда |
 | `packages/engine/src/master/HostRegistry.js` | реестр комнат `Map<hostId, HostSession>`: регистрация (не более 1 комнаты с IP), heartbeat/`lastSeen`, закэшированный `rating`, выборка для `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | сигнальный WebSocket: жизненный цикл соединений, маршрутизация WebRTC-сообщений, rate limiting пингов |
 | `packages/engine/src/master/MapCatalog.js` | каталог карт: JSON-представление `src/data/maps` игры-плагина (например, в `vimp-tanks`) в памяти + версия-хеш содержимого; раздача хостам без пересборки |
@@ -37,6 +40,18 @@ npm start         # production: HTTP за Nginx, читает .env
 Регион определяется по заголовку от Nginx/CDN (`regionHeader`, по умолчанию `x-region`; например, `CF-IPCountry`) — выбран вместо `geoip-lite` как бесплатный по памяти. Без заголовка регион — `unknown`.
 
 ## REST API
+
+### GET /config
+
+Режим сервера — его пробингует клиент движка на старте (standalone-sdk,
+этап 4):
+
+- `GET /config` → `{ "mode": "lobby" }`.
+
+Контракт у клиента один на обе роли сервера: ответ `dedicated` переключает
+его на загрузку с прямым WebSocket, всё остальное (включая 404 от старого
+мастера) означает лобби. См. [dedicated.md](dedicated.md#get-config) и
+[client.md](client.md#режимы-загрузки-bootjs).
 
 ### GET /servers
 

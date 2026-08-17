@@ -1,4 +1,4 @@
-# Этап 2: Клиентские режимы загрузки, DOM-каркас, WebSocketTransport
+# Этап 2: Клиентские режимы загрузки, DOM-каркас, WebSocketTransport ✅ выполнен
 
 _Цель: научить единственный клиент движка (`src/client/main.js`) стартовать в
 трёх режимах — `lobby` (как сейчас), `solo` (хост в этой же вкладке, без
@@ -172,8 +172,12 @@ lobby-режим, в `solo`/`dedicated` они не исполняются во�
 - `tests/client/network/WebSocketTransport.test.js` — фейковый `WebSocket`:
   `binaryType`, строковая и бинарная отправка, дроп до `open`, события
   `open/message/close`.
-- `tests/client/network/LoopbackTransport.test.js` — контракт транспорта
-  (сегодня не покрыт вовсе; нужен как эталон для WS и inline).
+- ~~`tests/client/network/LoopbackTransport.test.js` — контракт транспорта
+  (сегодня не покрыт вовсе; нужен как эталон для WS и inline).~~
+  **Отклонено при исполнении**: посылка неверна — `LoopbackTransport` уже
+  покрыт в `tests/host/LoopbackTransport.test.js` (connect/message/send/
+  двойной close/`close_client`). Дублирующий файл ничего бы не проверял;
+  эталоном для WS и inline послужил этот же тест.
 - `tests/client/network/InlineHostBridge.test.js` — на фикстуре `miniGame`:
   `open` → приходит `CONFIG_DATA`, отправка `CONFIG_READY` → `AUTH_DATA`.
 - `tests/client/boot.test.js` — три ветки `resolveBootConfig` (инъекция,

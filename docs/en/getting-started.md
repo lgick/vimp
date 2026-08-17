@@ -160,6 +160,21 @@ with no games to pick.
 
 Matches run through the **browser host** ([host.md](host.md)): "Create server" in the lobby spins up a Web Worker with the active game plugin's Rust core in the current tab; other tabs/machines join the room from the server list.
 
+### The other two local runs
+
+The lobby above is one of three ways to get a match on this machine:
+
+| Run | Command | What you get |
+| --- | --- | --- |
+| lobby master | `npm run dev` | rooms, catalogs, WebRTC signaling, OAuth — production behaviour |
+| dedicated server | `VIMP_DEDICATED_GAME=tanks npm run dedicated` | one match inside the Node process, `http://localhost:3002`, no lobby and no OAuth — [dedicated.md](dedicated.md) |
+| standalone SDK | `npm run dev` **in the game's repository** | the whole match in one tab, no server of ours at all — [standalone.md](standalone.md) |
+
+The last two need no auth service. Both the dedicated server and the
+headless runner load the game's **node** core (`dist/core-node/`), so the
+linked game checkout must be built with `npm run core:build:node`, not only
+the web core.
+
 Other commands:
 
 ```bash
