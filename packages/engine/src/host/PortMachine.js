@@ -6,6 +6,7 @@
 // разъедутся ровно так, как разъезжались бы копии createHostRuntime.
 
 import wsports from '../config/wsports.js';
+import closeCodes from '../config/closeCodes.js';
 import { validateAuth } from '../lib/validators.js';
 
 // PC (client ports): порты получения данных от клиента
@@ -67,7 +68,7 @@ export default class PortMachine {
     // (очереди ожидания легаси-сервера в P2P-комнате нет)
     if (this._host.isFull) {
       // причину доставит close (TECH_INFORM перед close_client)
-      this._socketManager.close(socketId, 4006, 'roomFull', [
+      this._socketManager.close(socketId, closeCodes.roomFull, 'roomFull', [
         this._host.maxPlayers,
       ]);
       this._socketManager.removeUser(socketId);

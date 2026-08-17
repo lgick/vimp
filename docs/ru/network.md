@@ -99,7 +99,21 @@
 Детали:
 
 - **Полная комната**: очереди ожидания нет — полная комната (люди против `maxPlayers`; боты уступают место) отвечает `TECH_INFORM_DATA` с кодом `roomFull` и закрывает соединение (код `4006`); хост-игрок из kick-политик исключён (см. [host.md](host.md)).
-- **Коды закрытия**: `4003` кик за задержку, `4004` кик за пропуск пингов, `4005` кик за бездействие, `4006` полная комната. Закрытие data channel не несёт код/причину — причина доставляется отдельным `TECH_INFORM_DATA` по `meta` до закрытия.
+- **Коды закрытия**: весь набор живёт одной картой — [`packages/engine/src/config/closeCodes.js`](../../packages/engine/src/config/closeCodes.js), общий контракт серверных контуров и клиента, чтобы стороны не разъезжались молча. Закрытие WebRTC data channel не несёт код/причину — там причина доставляется отдельным `TECH_INFORM_DATA` по `meta` до закрытия; WebSocket (dedicated, сигналинг) несёт код сам.
+
+  | Код | Ключ | Кто шлёт | Клиент |
+  | --- | --- | --- | --- |
+  | `4000` | `staleHost` | `master/SignalingServer.js` | сигнальный сокет хоста, игрока не касается |
+  | `4001` | `invalidOrigin` | `master/SignalingServer.js`, `dedicated/main.js` | остаётся на месте, показывает причину |
+  | `4002` | `blocked` | `master/SignalingServer.js` | хостер заблокирован рейтингом, комната эвакуируется |
+  | `4003` | `kickForMaxLatency` | `host/HostGame.js` | перезагрузка через 3 с |
+  | `4004` | `kickForMissedPings` | `host/HostGame.js` | перезагрузка через 3 с |
+  | `4005` | `kickIdle` | `host/HostGame.js` | перезагрузка через 3 с |
+  | `4006` | `roomFull` | `host/PortMachine.js` | остаётся на месте, показывает причину |
+  | `4008` | `handshakeTimeout` | `dedicated/main.js` | остаётся на месте, показывает причину |
+  | `4009` | `tooManyConnections` | `dedicated/main.js` | остаётся на месте, показывает причину |
+
+  «Остаётся на месте» — правило политики [`src/client/network/policyClose.js`](../../packages/engine/src/client/network/policyClose.js) (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`): перезагрузка потратила бы ещё одно соединение того же лимита, перезапустила бы тот же таймер, оставила бы тот же origin или не освободила бы слот. `4007` свободен.
 - После `FIRST_SHOT_READY` пользователь получает начальное голосование игры (напр. голосование выбора команды в `vimp-tanks`) и попадает в рассылку кадров.
 
 ## Разделение каналов: горячий снапшот и мета

@@ -11,6 +11,7 @@ import VoteCoordinator from './meta/core/VoteCoordinator.js';
 import RoundManager from './meta/core/RoundManager.js';
 import CommandProcessor from './meta/core/CommandProcessor.js';
 import { sanitizeMessage } from '../lib/sanitizers.js';
+import closeCodes from '../config/closeCodes.js';
 import clock from '../lib/clock.js';
 import GameCoreAdapter from './GameCoreAdapter.js';
 import DebugRecorder from './DebugRecorder.js';
@@ -279,7 +280,11 @@ export default class HostGame {
 
     if (user && !this._isHostPlayer(user)) {
       console.warn(`[RTT] Kick ${user.name} — pong latency exceeded`);
-      this._socketManager.close(user.socketId, 4003, 'kickForMaxLatency');
+      this._socketManager.close(
+        user.socketId,
+        closeCodes.kickForMaxLatency,
+        'kickForMaxLatency',
+      );
       this.removeUser(gameId);
     }
   }
@@ -290,7 +295,11 @@ export default class HostGame {
 
     if (user && !this._isHostPlayer(user)) {
       console.warn(`[RTT] Kick ${user.name} — no response to pings`);
-      this._socketManager.close(user.socketId, 4004, 'kickForMissedPings');
+      this._socketManager.close(
+        user.socketId,
+        closeCodes.kickForMissedPings,
+        'kickForMissedPings',
+      );
       this.removeUser(gameId);
     }
   }
@@ -439,7 +448,7 @@ export default class HostGame {
     }
 
     usersToKick.forEach(user => {
-      this._socketManager.close(user.socketId, 4005, 'kickIdle');
+      this._socketManager.close(user.socketId, closeCodes.kickIdle, 'kickIdle');
       this.removeUser(user.gameId);
     });
   }

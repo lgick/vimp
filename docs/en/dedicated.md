@@ -149,17 +149,20 @@ baking (`CONFIG_READY` is sent after them) **plus the player typing a
 nickname**.
 
 Every refusal closes the socket with a code the client understands
-(`client/network/policyClose.js`). On all four of them — 4001 (`invalidOrigin`),
-4006 (`roomFull`, sent by the port machine), 4008 and 4009 — the client
-**stays put** instead of reloading after 3 s the way it does on an ordinary
+(`client/network/policyClose.js`; the full list of codes is the table in
+[network.md](network.md#connection-lifecycle)). On all four policy codes —
+`invalidOrigin`, `roomFull` (sent by the port machine), `handshakeTimeout` and
+`tooManyConnections` — the client **stays put** instead of reloading after 3 s the way it does on an ordinary
 disconnect: reloading would spend another connection against the same limit,
 restart the same handshake timer, leave the page's origin exactly as it was,
 or fail to free a room slot. An abandoned tab would reload forever, and a
 player waiting for a slot would spend 30 reloads walking into the connection
 limit — and see its message instead of their own reason. The reason text comes
-from `POLICY_CLOSE_INFORMS` for 4001/4008/4009; 4006 is left out of it on
-purpose, because the port machine delivers that reason itself with a
-`TECH_INFORM` frame right before the close.
+from `POLICY_CLOSE_INFORMS`, which holds a fallback for each of the four
+codes: the client writes one only when the server sent no reason of its own.
+The port machine, for instance, delivers `roomFull` itself with a
+`TECH_INFORM` frame right before the close, and that text always wins — the
+4006 entry is there for the case where the frame never arrives.
 
 ## Identity and profiles
 

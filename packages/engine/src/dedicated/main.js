@@ -6,6 +6,7 @@ import express from 'express';
 import ViteExpress from 'vite-express';
 import { WebSocketServer } from 'ws';
 import { applyMasterEnv, readDedicatedRoom } from '../config/env.js';
+import closeCodes from '../config/closeCodes.js';
 import wsports from '../config/wsports.js';
 import { clientIp } from '../lib/clientIp.js';
 import config from '../lib/config.js';
@@ -280,7 +281,7 @@ export async function startDedicatedServer({
 
     if (!connectionLimiter.consume(ip)) {
       console.warn(`[dedicated] connection rate limit for ${ip}`);
-      ws.close(4009, 'tooManyConnections');
+      ws.close(closeCodes.tooManyConnections, 'tooManyConnections');
       return;
     }
 
@@ -290,7 +291,7 @@ export async function startDedicatedServer({
         // причина close ограничена 123 байтами (ws бросает RangeError, а он
         // здесь никем не перехватывается): полный текст уходит в лог,
         // клиенту — короткий маркер
-        ws.close(4001, 'invalidOrigin');
+        ws.close(closeCodes.invalidOrigin, 'invalidOrigin');
         return;
       }
 
@@ -302,7 +303,7 @@ export async function startDedicatedServer({
       // создало, а сокет и память держит
       const guard = setTimeout(() => {
         if (!portMachine.hasParticipant(socketId)) {
-          ws.close(4008, 'handshakeTimeout');
+          ws.close(closeCodes.handshakeTimeout, 'handshakeTimeout');
         }
       }, HANDSHAKE_TIMEOUT);
 
@@ -322,7 +323,7 @@ export async function startDedicatedServer({
         portMachine.disconnect(socketId);
       });
 
-      // лимит участников — забота порт-машины (roomFull, код 4006)
+      // лимит участников — забота порт-машины (roomFull, config/closeCodes.js)
       portMachine.connect(socketId);
     });
   });

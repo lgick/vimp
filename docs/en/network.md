@@ -168,10 +168,30 @@ Details:
   `maxPlayers`; bots yield their slot) replies with `TECH_INFORM_DATA` and
   code `roomFull` and closes the connection (code `4006`); the host player
   is excluded from kick policies (see [host.md](host.md)).
-- **Close codes**: `4003` a latency kick, `4004` a missed-pings kick,
-  `4005` an idle kick, `4006` a full room. Closing a data channel carries
-  no code/reason — the reason is delivered as a separate
-  `TECH_INFORM_DATA` over `meta` before closing.
+- **Close codes**: the whole set lives in one map,
+  [`packages/engine/src/config/closeCodes.js`](../../packages/engine/src/config/closeCodes.js)
+  — a shared contract of the server circuits and the client, so that neither
+  side drifts silently. Closing a WebRTC data channel carries no code/reason —
+  there the reason is delivered as a separate `TECH_INFORM_DATA` over `meta`
+  before closing; a WebSocket (dedicated, signaling) carries the code itself.
+
+  | Code | Key | Sent by | Client |
+  | --- | --- | --- | --- |
+  | `4000` | `staleHost` | `master/SignalingServer.js` | host's signaling socket, no player UI |
+  | `4001` | `invalidOrigin` | `master/SignalingServer.js`, `dedicated/main.js` | stays put, shows the reason |
+  | `4002` | `blocked` | `master/SignalingServer.js` | hoster blocked by rating; room evacuated |
+  | `4003` | `kickForMaxLatency` | `host/HostGame.js` | reloads after 3 s |
+  | `4004` | `kickForMissedPings` | `host/HostGame.js` | reloads after 3 s |
+  | `4005` | `kickIdle` | `host/HostGame.js` | reloads after 3 s |
+  | `4006` | `roomFull` | `host/PortMachine.js` | stays put, shows the reason |
+  | `4008` | `handshakeTimeout` | `dedicated/main.js` | stays put, shows the reason |
+  | `4009` | `tooManyConnections` | `dedicated/main.js` | stays put, shows the reason |
+
+  "Stays put" is the policy rule of
+  [`src/client/network/policyClose.js`](../../packages/engine/src/client/network/policyClose.js)
+  (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`): reloading would spend
+  another connection against the same limit, restart the same timer, leave the
+  same origin or fail to free a slot. `4007` is free.
 - After `FIRST_SHOT_READY` the user gets the game's initial vote (e.g. a
   team-selection vote in `vimp-tanks`) and starts receiving frames.
 

@@ -243,14 +243,15 @@ before commands. The host has no chat rate limit (only a length limit,
   bundle default (`packages/engine/src/config/clientDefaults.js`) — a full-room refusal arrives
   before `CONFIG_DATA`. The reload is skipped in `solo` (there is no lobby to
   return to) and on a dedicated server's policy close codes —
-  `shouldReloadAfterClose` in `client/network/policyClose.js`: 4001 (origin
-  refused), 4006 (room full), 4008 (handshake timeout) and 4009 (connection
-  rate limit). Reloading would only trip the same limit, restart the same
+  `shouldReloadAfterClose` in `client/network/policyClose.js`, keyed on
+  `config/closeCodes.js` (`invalidOrigin`, `roomFull`, `handshakeTimeout`,
+  `tooManyConnections`; the full table is in
+  [network.md](network.md#connection-lifecycle)). Reloading would only trip the same limit, restart the same
   timer, leave the same origin or fail to free a slot, so the client shows the
-  reason and stays put. The text comes from `POLICY_CLOSE_INFORMS` for
-  4001/4008/4009 — 4006 arrives from the server as a `TECH_INFORM` frame and
-  must not be overwritten (see
-  [dedicated.md](dedicated.md#game-websocket)).
+  reason and stays put. The text comes from `POLICY_CLOSE_INFORMS`, whose
+  entries are fallbacks: they are written only when the server sent no reason
+  of its own (4006 arrives from the server as a `TECH_INFORM` frame, and that
+  text wins). See [dedicated.md](dedicated.md#game-websocket).
 - **WebRTC unavailable** (`ensureWebRtcAvailable`): if `RTCPeerConnection`
   is unavailable (Firefox with `media.peerconnection.enabled = false`,
   resist fingerprinting, etc.), `connectToHost`/`connectAsHost` show a

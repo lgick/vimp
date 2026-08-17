@@ -29,9 +29,9 @@ export function clientIp(req, { trustProxy = false } = {}) {
   if (trustProxy && !header && !proxyHeaderWarned) {
     proxyHeaderWarned = true;
     console.warn(
-      '[clientIp] trustProxy включён, но X-Real-IP не пришёл: ключ ' +
-        "rate-limit'ов стал адресом прокси, общим для всех клиентов. " +
-        'Проверьте proxy_set_header X-Real-IP $remote_addr.',
+      '[clientIp] trustProxy is on but no X-Real-IP header arrived: every ' +
+        "client now keys on the proxy's own address, one shared rate-limit " +
+        'bucket. Check `proxy_set_header X-Real-IP $remote_addr`.',
     );
   }
 

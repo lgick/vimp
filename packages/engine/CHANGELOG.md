@@ -39,7 +39,7 @@ bumps the minor version).
   profiles, remove every participant), returning the flush promise. A tab's
   match dies with its Worker, but a long-lived process needs a graceful
   shutdown.
-- Client boot modes: `src/client/boot.js` picks between `lobby`
+- Client boot modes: `vimp-engine/client/boot.js` picks between `lobby`
   (the master, signaling and the OAuth gate — today's behaviour), `solo` (the
   host inline in the same tab) and `dedicated` (a direct WebSocket to a Node
   server). `setBootConfig(cfg)` is the SDK's injection point;
@@ -48,23 +48,23 @@ bumps the minor version).
   keep existing deployments on the lobby path. `main.js` branches on the mode
   in five places only (manifest source, signaling/lobby, transport,
   auto-authentication, canvas mount point).
-- `src/client/network/WebSocketTransport.js` — the third
+- `vimp-engine/client/network/WebSocketTransport.js` — the third
   transport, interface-compatible with `WebRtcManager`/`LoopbackTransport`.
   `binaryType` is forced to `'arraybuffer'`; `reliable` is ignored (a
   WebSocket has no reliability levels), which moves RTT measurement onto the
   TCP path and backpressure onto the server.
-- `src/client/network/InlineHostBridge.js` — a drop-in
+- `vimp-engine/client/network/InlineHostBridge.js` — a drop-in
   replacement for `HostController` that runs the authoritative host in the
   page's main thread (`createHostRuntime` + `PortMachine` + guest identity +
   `offlinePlayerData`), so `LoopbackTransport` is reused unchanged. A
   `HostPlugin` cannot cross `postMessage`, hence inline; the production
   Worker path is untouched.
-- `src/client/views/gameShell.js` — `ensureGameShell(container)`
+- `vimp-engine/client/views/gameShell.js` — `ensureGameShell(container)`
   builds the game UI containers in code (idempotent, so the pug markup of the
   lobby build is left alone) and `ensureCanvas(id, size, container)` mounts a
   canvas into the boot container instead of `document.body`. A parity test
   keeps the two sources of markup from drifting.
-- `src/client/lib/autostart.js` — the solo autostart:
+- `vimp-engine/client/lib/autostart.js` — the solo autostart:
   `startupVotes` (leaving the spectators) strictly before `startupCommands`
   (the game's chat commands, e.g. spawning bots), both on the first
   `renderTick` after `FIRST_SHOT_READY`.
@@ -79,8 +79,8 @@ bumps the minor version).
   no notion of a bot; scripted participants are spawned by the game's own chat
   command via `startupCommands`, and `startupVotes` must precede them.
   Documented in `docs/en/standalone.md`.
-- `src/client/main.js` exports `stopGame()` — the external stop used by the
-  SDK; it closes the transport, which runs the existing teardown path.
+- `vimp-engine/client/main.js` exports `stopGame()` — the external stop used
+  by the SDK; it closes the transport, which runs the existing teardown path.
 - The published surface of the package grew to the client half of the engine:
   `files` now carries `src/client` (minus the `_*` scratch files) and
   `src/standalone`, with the new exports `./client/*`, `./standalone` and
@@ -119,6 +119,16 @@ bumps the minor version).
   `readDedicatedRoom(env)` for `VIMP_DEDICATED_ROOM`. The dedicated server
   applies them in development too — the game, port and room have no other
   source.
+- `vimp-engine/client/network/policyClose.js` — `shouldReloadAfterClose(code)`
+  and `POLICY_CLOSE_INFORMS`, the client's rule for a server's policy close
+  codes, split out of `client/main.js` so it can be tested.
+- `vimp-engine/config/closeCodes.js` — the transport close codes as one map
+  (`staleHost`, `invalidOrigin`, `blocked`, `kickForMaxLatency`,
+  `kickForMissedPings`, `kickIdle`, `roomFull`, `handshakeTimeout`,
+  `tooManyConnections`), a shared contract of the server circuits and the
+  client the way `config/gameCodes.js` already is: every call site now names
+  the code instead of spelling out a literal, and a test requires each entry
+  to be classified by `policyClose.js`. The numbers are unchanged.
 
 ### Changed
 
@@ -149,9 +159,9 @@ bumps the minor version).
   tab reloaded forever, and a player waiting for a slot walked into the
   connection limit after 30 reloads and was shown its message instead of their
   own reason. The rule now lives in `vimp-engine/client/network/policyClose.js`
-  (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`), which also keeps 4006 out
-  of the message map — the port machine delivers that reason itself in a
-  `TECH_INFORM` frame before closing.
+  (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`); the texts in that map are
+  fallbacks, shown only when the server sent no reason of its own (`roomFull`
+  arrives in a `TECH_INFORM` frame before the close and always wins).
 - `vimp-engine/lib/clientIp.js` warns once per process when `trustProxy` is on
   but no `X-Real-IP` arrives. That combination silently keys every client on
   the proxy's own address — a single shared bucket, under which the master's

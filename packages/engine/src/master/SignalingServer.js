@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import closeCodes from '../config/closeCodes.js';
 import { clientIp } from '../lib/clientIp.js';
 import { verifyIdentityToken } from '../lib/jwt.js';
 
@@ -96,7 +97,7 @@ export default class SignalingServer {
         // причина close ограничена 123 байтами, и ws бросает RangeError прямо
         // в колбэке process.nextTick — перехватить его некому, длинный Origin
         // валил бы процесс. Полный текст уходит в лог, клиенту — маркер
-        ws.close(4001, 'invalidOrigin');
+        ws.close(closeCodes.invalidOrigin, 'invalidOrigin');
         return;
       }
 
@@ -149,7 +150,7 @@ export default class SignalingServer {
 
       if (session) {
         session.hostId = null;
-        session.ws.close(4000, 'staleHost');
+        session.ws.close(closeCodes.staleHost, 'staleHost');
       }
     }
 
@@ -420,7 +421,7 @@ export default class SignalingServer {
     console.warn(`[rating] hoster ${hosterUserId} blocked (score ${score})`);
 
     for (const hostId of this._registry.getHostIdsForHoster(hosterUserId)) {
-      this._getHostSession(hostId)?.ws.close(4002, 'blocked');
+      this._getHostSession(hostId)?.ws.close(closeCodes.blocked, 'blocked');
       this._registry.remove(hostId);
       this._hostSessions.delete(hostId);
     }
