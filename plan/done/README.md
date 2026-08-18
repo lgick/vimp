@@ -34,7 +34,19 @@
   клиент вырос до `src/client`/`src/standalone`, добавлен
   `src/config/closeCodes.js`. Единственный отложенный пункт Этапа 6 (тайлы
   карт в standalone) вынесен в направление I —
-  [plan/game-assets-move.md](../game-assets-move.md).
+  [game-assets-move.md](game-assets-move.md).
+- [game-assets-move.md](game-assets-move.md) — направление I: перенос
+  игровых картинок карт из движка (`packages/engine/public/img/`) в пакет
+  игры `@vimp-games/tanks` (`assets/img/` → `dist/img/`), доставка клиенту
+  через сервис `assetsBase` (тот же DI-канал, что у звуков) (✅
+  2026-08-18, кодревью `b1eba70-splendid-kernighan.md` пройдено: throw в
+  конструкторе `Map` на горячем пути кадра заменён на `console.error`,
+  `copy-game-images.js`/`copy-game-sounds.js` сведены к общему
+  `scripts/lib/copyAssetDir.js`, гейт отсутствующих картинок вынесен в
+  тестируемый `scripts/lib/collectMissingImages.js`). `ENGINE_API_VERSION`
+  не менялся; npm `vimp-engine` minor (⚠️ Breaking + Migration — plugin
+  требует `assetsBase` в `componentDependencies`), `@vimp-games/tanks`
+  patch/minor (Changed).
 
 ## Зафиксированные решения
 

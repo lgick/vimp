@@ -154,9 +154,12 @@ The available service pool is fixed, and it has three entries:
 | `assetsBase` | the active game's asset base, a string | building URLs into **your own** package: `${assetsBase}img/<file>` |
 
 Requesting anything else yields nothing — the key is silently absent from
-`dependencies`. That is why a part depending on `assetsBase` should throw
-with a readable message when it is missing: `${undefined}img/tiles.png`
-loads nothing and reports nothing (see `07-maps-and-assets.md`).
+`dependencies`. That is why a part depending on `assetsBase` should check it
+and log a readable `console.error` when it is missing:
+`${undefined}img/tiles.png` loads nothing and reports nothing (see
+`07-maps-and-assets.md`). Log, never throw: part constructors run inside the
+render tick, and nothing on that path catches — an exception aborts the whole
+frame, so the other entities of that frame are never created either.
 
 ## Canvases
 
