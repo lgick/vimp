@@ -1,0 +1,40 @@
+{
+  "name": "create-vimp-game",
+  "version": "0.1.0",
+  "description": "Scaffolder for VIMP game plugins",
+  "keywords": [
+    "vimp",
+    "scaffold",
+    "game",
+    "template"
+  ],
+  "homepage": "https://github.com/lgick/vimp#readme",
+  "bugs": {
+    "url": "https://github.com/lgick/vimp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/lgick/vimp.git",
+    "directory": "packages/create-vimp-game"
+  },
+  "author": "lgick",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "bin": {
+    "create-vimp-game": "./bin/create-vimp-game.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "templates"
+  ],
+  "scripts": {
+    "prepack": "node ./scripts/write-versions.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

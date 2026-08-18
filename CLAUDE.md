@@ -26,7 +26,8 @@ the same change. Area → page (paths under `packages/engine/`):
 | `src/standalone/` (browser SDK) | `standalone.md` |
 | `src/dedicated/` (Node game server) | `dedicated.md` |
 | plugin contract, Wasm ABI | `plugin-api.md` |
-| `src/devtools/`, `bin/vimp-sim.js` | `debugging.md` |
+| `src/devtools/`, `bin/vimp-*.js` | `debugging.md` |
+| `packages/create-vimp-game/` (scaffolder, template) | `scaffolding.md` |
 | deploy scripts, workflows, npm scripts | `deployment.md`, `getting-started.md` |
 | release flow, `files`, versions, plugin pin | `publishing.md` |
 
@@ -72,6 +73,8 @@ npm run build:app            # Vite bundle (engine app only)
 npx eslint . && npm test     # lint + Vitest (see Testing)
 npm run core:test            # cargo test --workspace
 npm run sim / sim:check / sim:replay <file>   # headless match, verdict, replay
+node packages/engine/bin/vimp-contract.js --game <dir>   # contract check
+npm run create:game <dir> / test:scaffold    # scaffold a game, its E2E
 npm run dedicated            # Node game server (needs VIMP_DEDICATED_GAME)
 npm run dev:auth / start:auth / auth:db:migrate
 ```

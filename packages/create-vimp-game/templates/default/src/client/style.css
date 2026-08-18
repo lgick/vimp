@@ -1,0 +1,26 @@
+/*
+ * Styles of the game, imported with ?inline and handed to the engine as a
+ * string (ClientPlugin.styles) — the engine injects them into the document.
+ * The plugin build has no HTML entry, so a plain CSS import would be
+ * auto-injected by Vite into nothing.
+ *
+ * The engine ships the layout of #panel, #stat, #chat and #vote; everything
+ * here is only the look of the cells THIS game declares
+ * (src/config/client.js -> modules.panel.fields).
+ */
+
+#panel {
+  gap: 16px;
+  font: 600 20px/1 system-ui, sans-serif;
+  color: #e6ecf5;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+}
+
+#panel-am::before {
+  content: '⌁ ';
+  opacity: 0.7;
+}
+
+#panel-time {
+  opacity: 0.8;
+}

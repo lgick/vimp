@@ -30,6 +30,50 @@ freely and must never be reachable from the app bundle. Nothing under
 `src/client/` or `src/host/` may import them; the browser half below talks to
 the runner through recorded scenario files, not through imports.
 
+## Contract check (`vimp-contract`)
+
+The runner judges a game by running it. Half the silent failures do not need
+a match to be visible: they are already there in the configs, the manifest
+and the shape of the two plugin halves. `vimp-contract` reads exactly those,
+in a second, without a build:
+
+```bash
+npx vimp-contract --game .          # from a game package
+node packages/engine/bin/vimp-contract.js --game ../vimp-tanks
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--game <path>` | game package directory (default `.`) |
+| `--json` | machine-readable report instead of text |
+| `--quiet` | only failures and the summary |
+| `--strict` | warnings count as errors |
+
+Exit code `0` means every rule is `pass` or `skip`, `1` means at least one
+`error`-level failure (`--strict` adds the warnings). `skip` means the input
+is missing — no `package.json`, no `dist/` — and never masks a violation, so
+the check is useful from the first commit of a plugin, long before it builds.
+
+Rules live one per file in `packages/engine/src/devtools/contract/rules/`,
+each a pure `(ctx) => result`. The context (`loadContext.js`) mixes text
+(`package.json`, `vite.config.js`, `core/Cargo.toml`) with the **live**
+plugin objects: both halves are imported as modules, so `gameConfig`,
+`authSchema` and the client config are the computed structures the engine
+will actually see, not a parse of the source.
+
+| Group | Catches |
+| --- | --- |
+| A1–A6 | packaging: `type`/`files`, `pixi.js` and `vimp-engine` in the wrong dependency section, the standard scripts, entry paths, the required Vite options, `crate-type`/`enhanced-determinism`/a stale `vimp-engine-core` pin, and the built manifest |
+| B1–B10 | host: plugin shape, the `engineApi` triple, the nine `gameConfig` paths, teams and spectators, `roomForm` fields the host silently drops, the reserved panel key `t`, chat commands shadowing engine ones, system-message codes overwriting engine texts, reserved vote names, respawn capacity vs `maxPlayers` |
+| C1–C10 | client: plugin shape and the three hooks, parts registered in `entitiesOnCanvas`, `gameSets` covering every snapshot key and map `setId`, known services, the `t`/`time` panel field, five stat columns (warning), spectator and player keysets, bakers, message texts, the auth schema (`fieldsId`, no nickname, the `model` field) |
+| D1–D3 | snapshot schema: unique ids, `hot`/`event` classes vs block kinds, `interp` only on hot `f32` |
+| E1–E3 | assets in `dist/`: the `webm` + `mp3` pair per sound, map images, an empty sound registry (warning) |
+
+Run it before `npm run sim`: it is faster, needs no core build, and its
+findings are the ones the runner would report as a black canvas ten minutes
+later. Together they cover the checklist in `docs/ai/10-pitfalls.md` — the
+static half here, the runtime half in the invariants below.
+
 ## The loop in one command
 
 ```bash

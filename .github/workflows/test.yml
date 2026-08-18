@@ -70,3 +70,42 @@ jobs:
 
       - name: JS tests (central auth-сервис, packages/auth — не тянет Rust)
         run: npx vitest run --project auth
+
+  # scaffold разворачивает шаблон create-vimp-game во временный каталог и
+  # гоняет полный цикл игры (cargo + wasm-pack + build + sim). Проверка идёт
+  # против НЕСОБРАННОГО релиза: движок ставится тарболлом npm pack, крейт
+  # подменяется [patch.crates-io] — иначе job судил бы шаблон по уже
+  # опубликованным версиям. В локальный npm test не входит (минуты).
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust (vimp-engine-core)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-scaffold-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scaffold a game and run its full cycle
+        run: npm run test:scaffold -- --dir "$RUNNER_TEMP/scaffold"

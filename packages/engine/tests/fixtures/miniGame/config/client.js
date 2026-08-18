@@ -8,6 +8,10 @@ export default {
       // parts; setId карты (m1) — по нему создаётся статика полотна
       a1: ['Actor'],
       m1: ['Actor'],
+      // event-ключ схемы: строк он в фикстуре не даёт, но запись нужна —
+      // ключ снапшота без набора партов это чёрный холст на первом же
+      // кадре, где он ожил
+      e1: ['Actor'],
     },
     entitiesOnCanvas: {
       Actor: 'vimp',
@@ -35,8 +39,12 @@ export default {
 
     controls: {
       keySetList: [
-        // spectator keyset (пусто — у фикстуры нет наблюдательных команд)
-        {},
+        // spectator keyset: переключение камеры — механизм движка
+        // (hostDefaults.spectatorKeys), без него наблюдатель заперт
+        {
+          78: 'nextPlayer', // next player (n)
+          80: 'prevPlayer', // prev player (p)
+        },
         // player keyset
         {
           87: 'forward', // forward (w)

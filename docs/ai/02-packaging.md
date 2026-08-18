@@ -32,6 +32,12 @@ my-game/
 └─ dist/                     # published output — gitignored in the repo
 ```
 
+`npm create vimp-game <directory>` writes exactly this layout, filled in and
+green: the scaffolder's template
+(`packages/create-vimp-game/templates/default/` in the engine repository) is
+the executable form of this page. Where the prose below leaves a choice, the
+template shows the one that is known to build.
+
 ## `package.json`
 
 ```json

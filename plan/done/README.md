@@ -47,6 +47,17 @@
   не менялся; npm `vimp-engine` minor (⚠️ Breaking + Migration — plugin
   требует `assetsBase` в `componentDependencies`), `@vimp-games/tanks`
   patch/minor (Changed).
+- [create-vimp-game/](create-vimp-game/) — направление J: скаффолдер
+  игровых плагинов `npm create vimp-game` (пакет
+  `packages/create-vimp-game`, шаблон минимально-играбельной игры без
+  наследия tanks) и статический валидатор контракта `vimp-contract` в
+  движке (32 правила, `packages/engine/src/devtools/contract/`) (✅
+  2026-08-18, 7 этапов). Крейт `vimp-engine-core` не тронут,
+  `ENGINE_API_VERSION` не менялся; npm `vimp-engine` minor (Added —
+  второй bin рядом с `vimp-sim`), `create-vimp-game` — новый пакет,
+  публикуется вручную (`npm publish -w create-vimp-game`) после релиза
+  движка. Остался ручной браузерный смоук `npm run dev` в
+  сгенерированной игре.
 
 ## Зафиксированные решения
 

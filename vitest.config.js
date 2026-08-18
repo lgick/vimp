@@ -29,6 +29,7 @@ export default defineConfig({
             'tests/devtools/**/*.test.js',
             'tests/dedicated/**/*.test.js',
             'tests/scripts/**/*.test.js',
+            'tests/scaffold/**/*.test.js',
             'packages/engine/tests/fixtures/**/*.test.js',
           ],
         },

@@ -16,6 +16,27 @@ here arrives through the ABI macros (`export_game_core_abi!` /
 `export_client_core_abi!`) and through trait methods with defaults. There is
 no debug-mode API to implement, and `engineApi` is unaffected.
 
+## Step zero: `vimp-contract`
+
+Before any run, check the plugin statically. It costs a second, needs no
+Rust build and no `dist/`, and it catches roughly half of `10-pitfalls.md`
+by reading your configs and importing both plugin halves:
+
+```bash
+npx vimp-contract                    # from your package directory
+npx vimp-contract --strict --quiet   # CI form: warnings are errors
+```
+
+Exit `0` = every rule `pass` or `skip`; `1` = at least one `error`. `skip`
+means the input does not exist yet (no `dist/`, no `core/Cargo.toml`) — the
+tool is useful from the first commit. Groups: **A** packaging and build,
+**B** host plugin, **C** client plugin, **D** snapshot schema, **E** assets.
+Wire it as `"check:contract": "vimp-contract"` in your `package.json` and
+run it before `npm run sim`: the runner reports the same problems, but only
+after a core build and only for the code paths the scenario happens to
+touch. Full rule list: the engine's `docs/en/debugging.md` → *Contract
+check*.
+
 ## Running it
 
 From the **engine** checkout (where you linked your package):

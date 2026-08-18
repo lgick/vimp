@@ -43,15 +43,31 @@ It must pin down:
 
 ## Step 3 — scaffold
 
-Create the repository layout from `02-packaging.md`: `package.json`,
-`vite.config.js`, `vitest.config.js`, `eslint.config.js`, `Cargo.toml`,
-`core/`, `src/`, `scripts/`, `assets/`.
+Do not hand-write the tree — scaffold it:
 
-Copy the five build scripts (`export-maps.js`, `process-audio.js`,
-`copy-game-sounds.js`, `copy-game-images.js`, `build-game-manifest.js`) and
-adapt the id and paths. `assets/` holds two authored inputs: `audio-raw/` and
-`img/` — the tile sheets and dynamic-body sprites your maps name. The engine
-ships none of those.
+```bash
+npm create vimp-game <directory> -- --id <game-id> --title "<Title>"
+```
+
+The result is the layout of `02-packaging.md` already filled in: the whole
+build infrastructure (`package.json`, `vite.config.js`, `vitest.config.js`,
+`eslint.config.js`, `Cargo.toml`, the five build scripts), the pins of
+`vimp-engine` and `vimp-engine-core` at their current versions, a dev
+harness, and a minimal but **playable** game — two teams, one actor class,
+one hitscan weapon, one procedural map, bots. It passes `check:contract`,
+`core:test`, `test`, `build` and `sim` from the first commit, so every later
+step has a green baseline to diff against. The generated `CLAUDE.md` states
+the boundaries and the check commands.
+
+From here the work is replacement, not creation: rewrite the configs, the
+core and the parts of that minimal game into the design document from step 2.
+`assets/` holds two authored inputs: `audio-raw/` and `img/` — the tile
+sheets and dynamic-body sprites your maps name. The engine ships none of
+those.
+
+Writing the tree by hand is still possible (`02-packaging.md` specifies every
+file), but nothing then guards the silent invariants the template already
+satisfies.
 
 ## Step 4 — configuration
 

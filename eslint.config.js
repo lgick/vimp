@@ -119,6 +119,27 @@ export default [
     },
   },
 
+  // скаффолдер игр (create-vimp-game): обычный Node-CLI. Блоки выше его не
+  // покрывают — 'packages/*/*.js' берёт только один сегмент вложенности
+  {
+    files: [
+      'packages/create-vimp-game/bin/**/*.js',
+      'packages/create-vimp-game/src/**/*.js',
+      'packages/create-vimp-game/scripts/**/*.js',
+    ],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.es2023,
+        ...globals.node,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
+
   // ESLint-граница движок↔игра (этапы 5/6.4 плана отделения, A3.5: игра
   // выехала в отдельный репозиторий vimp-tanks — правило по-прежнему
   // страхует от случайного статического импорта игрового пакета из
@@ -229,6 +250,9 @@ export default [
       '**/public/**', // статика (в т.ч. вендоренный pixi.js воркспейсов)
       'build/**',
       'target/**', // артефакты cargo (workspace)
+      // файлы шаблона игры: содержат токены {{…}} и намеренно отклоняются
+      // от конвенций репозитория — линтуется уже сгенерированный проект
+      'packages/create-vimp-game/templates/**',
       '**/.*', // игнорировать все файлы/директории, начинающиеся с '.'
       '**/_*', // игнорировать все файлы/директории, начинающиеся с '_'
     ],

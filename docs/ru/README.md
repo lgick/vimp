@@ -23,6 +23,7 @@
 | [debugging.md](debugging.md) | Отладочный контур: headless-прогон (`npm run sim`), формат сценария, проверки инвариантов, дампы ядра, рассинхрон предикта, браузерный рекордер |
 | [deployment.md](deployment.md) | Развертывание: подготовка VPS, добавление/удаление серверов, CI/CD |
 | [publishing.md](publishing.md) | Релиз: скрипт `npm run release`, заголовки CHANGELOG, задающие версию, публикация крейта `vimp-engine-core`, пакета `vimp-engine` и игры-плагина, раскатка прода, порядок между ними |
+| [scaffolding.md](scaffolding.md) | Скаффолдер `npm create vimp-game`: флаги, состав минимальной игры, цикл проверки (`check:contract` → `core:test` → `sim` → `dev`), разработка против локального чекаута движка |
 | [plugin-api.md](plugin-api.md) | Контракты движок ↔ игра-плагин: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, снапшот-схема, версии |
 
 Документация игровых правил и расширения контента (gameplay, extending,
@@ -39,6 +40,7 @@
 
 - **Хочу запустить локально** → [getting-started.md](getting-started.md)
 - **Хочу понять, как всё устроено** → [architecture.md](architecture.md), затем [host.md](host.md) / [client.md](client.md) / [network.md](network.md)
+- **Хочу начать новый игровой плагин** → [scaffolding.md](scaffolding.md)
 - **Хочу гонять свой плагин без мастера** → [standalone.md](standalone.md)
 - **Хочу сервер 24/7 без вкладки хостера** → [dedicated.md](dedicated.md)
 - **Хочу поднять свой сервер** → [deployment.md](deployment.md)

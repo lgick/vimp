@@ -9,6 +9,22 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `vimp-contract` — a static contract checker for a game package, published
+  as a second bin next to `vimp-sim`
+  (`packages/engine/bin/vimp-contract.js`, rules in
+  `packages/engine/src/devtools/contract/`). It reads `package.json`,
+  `vite.config.js`, `core/Cargo.toml` and `dist/manifest.json`, imports both
+  plugin halves as modules, and evaluates 32 rules over the result: packaging
+  (`A1`–`A6`), host plugin (`B1`–`B10`), client plugin (`C1`–`C10`), snapshot
+  schema (`D1`–`D3`) and shipped assets (`E1`–`E3`). Flags: `--game <path>`,
+  `--json`, `--quiet`, `--strict`; exit code `1` on any `error`-level
+  failure. A rule with no input returns `skip`, so the checker is usable from
+  a plugin's first commit — and the `⚙`-marked half of
+  `docs/ai/10-pitfalls.md` stops being a by-eye checklist. Nothing is
+  required from a plugin and `ENGINE_API_VERSION` is unchanged.
+
 ## [0.9.0] — 2026-08-17
 
 ### ⚠️ Breaking

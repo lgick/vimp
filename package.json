@@ -16,7 +16,8 @@
   "type": "module",
   "workspaces": [
     "packages/engine",
-    "packages/auth"
+    "packages/auth",
+    "packages/create-vimp-game"
   ],
   "scripts": {
     "dev": "npm -w vimp-engine run dev",
@@ -27,6 +28,7 @@
     "auth:db:migrate": "npm -w @vimp/auth run db:migrate",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:scaffold": "node packages/create-vimp-game/scripts/e2e.js",
     "test:coverage": "vitest run --coverage",
     "build": "npm run build:app",
     "build:app": "npm -w vimp-engine run build",
@@ -34,6 +36,7 @@
     "sim": "node packages/engine/bin/vimp-sim.js",
     "sim:replay": "node packages/engine/bin/vimp-sim.js --scenario",
     "sim:check": "node packages/engine/bin/vimp-sim.js --no-write",
+    "create:game": "node packages/create-vimp-game/bin/create-vimp-game.js",
     "release": "node scripts/release.js"
   },
   "devDependencies": {

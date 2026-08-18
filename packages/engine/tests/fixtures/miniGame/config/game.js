@@ -53,10 +53,15 @@ export default {
       physicsStatic: [1],
       physicsDynamic: [],
       step: 32,
+      // точек не меньше, чем roomDefaults.maxPlayers: длина списка —
+      // жёсткая вместимость команды на карте (RoundManager), и комната
+      // молча вмещала бы меньше, чем обещает лобби
       respawns: {
         team1: [
           [100, 100, 0],
           [200, 100, 0],
+          [100, 200, 0],
+          [200, 200, 0],
         ],
       },
       map: [
