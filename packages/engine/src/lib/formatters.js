@@ -27,7 +27,7 @@ export const formatMessage = (message = '', arr = []) => {
  * @param {number} value - Число для округления.
  * @returns {number}
  * @example
- * round(10.567);      // 10.57
- * round(10.567, 1);  // 10.6
+ * roundTo2Decimals(10.567);  // 10.57
+ * roundTo2Decimals(-3.14159); // -3.14
  */
 export const roundTo2Decimals = value => Math.round(value * 100) / 100;

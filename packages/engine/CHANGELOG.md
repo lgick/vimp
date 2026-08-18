@@ -9,6 +9,12 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- `roundTo2Decimals` JSDoc example referenced a nonexistent `round(value,
+  precision)` signature; corrected to match the actual single-argument
+  function (`src/lib/formatters.js`).
+
 ## [0.10.0] — 2026-08-18
 
 ### Added
