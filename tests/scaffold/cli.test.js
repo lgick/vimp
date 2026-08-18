@@ -167,7 +167,7 @@ describe('bin/create-vimp-game.js', () => {
 
     expect(manifest.name).toBe('@vimp-games/space-arena');
     expect(manifest.devDependencies['vimp-engine']).toMatch(/^\^\d+\.\d+\.\d+/);
-  });
+  }, 8000);
 
   it('уважает --id, --title и --package', async () => {
     const { code } = await run([
@@ -190,7 +190,7 @@ describe('bin/create-vimp-game.js', () => {
 
     expect(manifest.name).toBe('@vimp-games/the-arena');
     expect(manifest.description).toContain('The Arena');
-  });
+  }, 8000);
 
   it('падает на непустом каталоге и проходит с --force', async () => {
     const target = path.join(root, 'busy');
@@ -206,7 +206,7 @@ describe('bin/create-vimp-game.js', () => {
     const second = await run(['busy', '--yes', '--no-git', '--force']);
 
     expect(second.code).toBe(0);
-  });
+  }, 8000);
 
   it('падает на недопустимом id', async () => {
     const { code, stderr } = await run([

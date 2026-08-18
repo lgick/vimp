@@ -1,5 +1,8 @@
 .DS_Store
 _*
+# `_gitignore` — служебное имя шаблона игры (см. targetName в
+# packages/create-vimp-game/src/generator.js), не сама scratch-заметка
+!packages/create-vimp-game/templates/default/_gitignore
 node_modules/
 coverage/
 .TRASH
