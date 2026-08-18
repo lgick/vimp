@@ -12,7 +12,11 @@ export default {
   //         timerManager, playerDataSync, teams, spectatorTeam, spectatorId,
   //         isDevMode }
   handler(ctx, gameId, args) {
-    const count = Number(args[0]) || 1;
+    // the argument is whatever a player typed: '/spawn -3' must not mean
+    // zero bots, and '/spawn 1e9' must not mean a billion loop iterations
+    const { maxPlayers } = ctx.participants;
+    const requested = Math.max(1, Math.trunc(Number(args[0])) || 1);
+    const count = maxPlayers > 0 ? Math.min(requested, maxPlayers) : requested;
     const created = ctx.scripted.createScripted(count);
 
     // the code is the game's own (src/host/systemMessages.js); the TEXT lives
@@ -20,7 +24,9 @@ export default {
     ctx.chat.pushSystem('BOTS_SPAWNED', [created]);
 
     // restart the round so the fresh bots enter the world at once instead of
-    // waiting out the current one as corpses
-    ctx.roundManager.initiateNewRound();
+    // waiting out the current one as corpses — pointless if nobody was added
+    if (created > 0) {
+      ctx.roundManager.initiateNewRound();
+    }
   },
 };

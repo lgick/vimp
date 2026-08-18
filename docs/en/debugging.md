@@ -53,6 +53,16 @@ Exit code `0` means every rule is `pass` or `skip`, `1` means at least one
 `error`-level failure (`--strict` adds the warnings). `skip` means the input
 is missing — no `package.json`, no `dist/` — and never masks a violation, so
 the check is useful from the first commit of a plugin, long before it builds.
+A rule that finds the file but not the data it needs says so in the report's
+notes rather than passing (the `vimp-engine-core` pin, for one). A run where
+*no* rule found any input exits `1`: 32 skips are a mistyped path, not a
+clean bill of health.
+
+> **The check imports the game package.** Both plugin halves are loaded as
+> ES modules, so `vimp-contract --game <dir>` executes that directory's code
+> in your Node process — top-level statements included. Point it at your own
+> games and at repositories you trust, the same care you would give
+> `npm install` there.
 
 Rules live one per file in `packages/engine/src/devtools/contract/rules/`,
 each a pure `(ctx) => result`. The context (`loadContext.js`) mixes text

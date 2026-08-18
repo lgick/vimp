@@ -50,25 +50,16 @@ export default class ScriptedManager {
         break;
       }
 
-      // no team asked for: fill the emptiest one, so a room of bots stays
-      // balanced without anyone steering it
-      const targetTeam =
-        teamName ??
-        [...playableTeams].sort(
-          (a, b) =>
-            this._participants.getTeamSize(a) -
-            this._participants.getTeamSize(b),
-        )[0];
+      // no team asked for: fill the emptiest one that still has room, so a
+      // room of bots stays balanced without anyone steering it. Trying only
+      // the emptiest team would stall the whole loop once that one team is
+      // out of respawn points while its neighbour still has some.
+      const targetTeam = teamName ?? this._pickTeam(playableTeams);
 
-      // the number of respawn points is the hard capacity of a team: past it
-      // the engine has nowhere to put the actor
-      if (
-        !targetTeam ||
-        !this._respawns[targetTeam] ||
-        this._participants.getTeamSize(targetTeam) >=
-          this._respawns[targetTeam].length
-      ) {
-        continue;
+      // team sizes only grow inside this loop, so «no room» is final: the
+      // remaining iterations would do nothing but burn `count`
+      if (!targetTeam || !this._hasRoom(targetTeam)) {
+        break;
       }
 
       const gameId = this._participants.createScripted({
@@ -90,6 +81,28 @@ export default class ScriptedManager {
     }
 
     return created;
+  }
+
+  // the number of respawn points is the hard capacity of a team: past it the
+  // engine has nowhere to put the actor
+  _hasRoom(teamName) {
+    const respawns = this._respawns[teamName];
+
+    return Boolean(
+      respawns && this._participants.getTeamSize(teamName) < respawns.length,
+    );
+  }
+
+  _pickTeam(playableTeams) {
+    return (
+      [...playableTeams]
+        .sort(
+          (a, b) =>
+            this._participants.getTeamSize(a) -
+            this._participants.getTeamSize(b),
+        )
+        .find(team => this._hasRoom(team)) ?? null
+    );
   }
 
   removeScripted(teamName = null) {

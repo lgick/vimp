@@ -28,13 +28,25 @@ async function main(argv) {
     return 0;
   }
 
-  const report = await checkContract(args.game ?? '.');
+  const game = args.game ?? '.';
+  const report = await checkContract(game);
 
   process.stdout.write(
     args.json
       ? `${JSON.stringify(report, null, 2)}\n`
       : formatContract(report, { quiet: args.quiet }),
   );
+
+  // ни одного вердикта — обычно опечатка в пути. Нулевой код выхода здесь
+  // читался бы как «проверено, всё хорошо», хотя проверено ничего
+  if (report.summary.passed === 0 && report.summary.failed === 0) {
+    process.stderr.write(
+      `nothing to check in '${game}' — no rule found its input; ` +
+        'is this a game package directory?\n',
+    );
+
+    return 1;
+  }
 
   return hasBlockingFailure(report, args.strict === true) ? 1 : 0;
 }

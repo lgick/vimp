@@ -22,8 +22,27 @@ bumps the minor version).
   `--json`, `--quiet`, `--strict`; exit code `1` on any `error`-level
   failure. A rule with no input returns `skip`, so the checker is usable from
   a plugin's first commit — and the `⚙`-marked half of
-  `docs/ai/10-pitfalls.md` stops being a by-eye checklist. Nothing is
-  required from a plugin and `ENGINE_API_VERSION` is unchanged.
+  `docs/ai/10-pitfalls.md` stops being a by-eye checklist. A rule that finds
+  its file but not the data it needs (the `vimp-engine-core` pin, for one)
+  reports that in the notes instead of passing, and a run where no rule
+  found any input exits `1`. `files` now also publishes
+  `core/Cargo.toml` — without the crate version in the tarball, rule `A5`
+  could only check the pin inside this repository. Nothing is required from
+  a plugin and `ENGINE_API_VERSION` is unchanged.
+- `ParticipantManager.maxPlayers` — the room cap, readable by a game so it
+  can clamp player input (`/spawn <count>`) before a loop instead of
+  hammering `isFull` on every iteration.
+
+### Fixed
+
+- Draw order on the game canvas. `GameView.add()` passed a `layer`-based
+  comparator to `stage.sortChildren()`, but PixiJS 8 takes no comparator
+  there and skips the sort entirely unless the container is marked sortable
+  and dirty — which never happened, because parts assign `zIndex` in their
+  constructor, before `addChild`. Layers were painted in insertion order and
+  a late-arriving map layer could silently cover the actors. The engine now
+  sets `stage.sortableChildren` and calls `sortChildren()` with no
+  arguments, so the documented `zIndex` contract holds.
 
 ## [0.9.0] — 2026-08-17
 

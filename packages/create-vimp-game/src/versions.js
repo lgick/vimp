@@ -21,10 +21,14 @@ export const GENERATED_FILE = path.join(moduleDir, 'versions.generated.json');
 export const REPO_ROOT = path.resolve(moduleDir, '..', '..', '..');
 
 // версия крейта — первый `version = "…"` после [package]: в Cargo.toml
-// ниже идут секции зависимостей со своими version
+// ниже идут секции зависимостей со своими version.
+//
+// Копия живёт в движке (devtools/contract/loadContext.js): скаффолдер
+// ставится через `npm create` и обязан работать без движка в зависимостях.
+// Разбор обязан совпадать — правьте обе или ни одной.
 export function parseCrateVersion(toml) {
   const packageSection = toml
-    .split(/^\[/m)
+    .split(/^\s*\[/m)
     .find(part => part.startsWith('package]'));
 
   if (packageSection === undefined) {

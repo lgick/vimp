@@ -451,9 +451,14 @@ impl GameSim<ArenaGame> for ArenaSim {
         // reliable channel, or a client can miss the removal forever
         let mut had_events = !self.pending_null_actors.is_empty();
 
+        // Indexed8 addresses rows by a single byte, so `as u8` here truncates
+        // silently. The invariant that makes it safe: the engine's
+        // ParticipantManager hands out the lowest free game id, so ids stay
+        // below the participant count — assert it instead of trusting it.
         let mut by_model: IndexMap<String, Vec<(u8, Option<ActorRow>)>> = IndexMap::new();
 
         for (game_id, (model, row)) in &self.cached_actors {
+            debug_assert!(*game_id < 256, "Indexed8 block: game_id must fit in u8");
             by_model
                 .entry(model.clone())
                 .or_default()
@@ -461,6 +466,7 @@ impl GameSim<ArenaGame> for ArenaSim {
         }
 
         for (model, game_id) in self.pending_null_actors.drain(..) {
+            debug_assert!(game_id < 256, "Indexed8 block: game_id must fit in u8");
             by_model
                 .entry(model)
                 .or_default()

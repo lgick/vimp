@@ -242,6 +242,12 @@ class ParticipantManager {
   get isFull() {
     return this._maxPlayers ? this.totalCount >= this._maxPlayers : false;
   }
+
+  // потолок комнаты: игре он нужен, чтобы ограничивать пользовательский
+  // ввод до цикла (`/spawn 1e9`), а не упираться в isFull на каждой итерации
+  get maxPlayers() {
+    return this._maxPlayers;
+  }
 }
 
 export default ParticipantManager;

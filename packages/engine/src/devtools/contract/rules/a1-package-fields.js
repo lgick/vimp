@@ -30,7 +30,9 @@ export default {
       violations.push(`"type" is ${JSON.stringify(type)}, must be "module"`);
     }
 
-    if (!Array.isArray(files) || !files.includes('dist')) {
+    // npm принимает запись каталога в трёх видах ("dist", "dist/",
+    // "./dist") — сравнение строкой отвергало бы две из трёх
+    if (!Array.isArray(files) || !files.some(isDistEntry)) {
       violations.push('"files" must list "dist" — only dist/ is published');
     }
 
@@ -70,3 +72,10 @@ export default {
     return verdict(violations);
   },
 };
+
+function isDistEntry(entry) {
+  return (
+    typeof entry === 'string' &&
+    entry.replace(/^\.\//, '').replace(/\/+$/, '') === 'dist'
+  );
+}

@@ -117,10 +117,10 @@ name the violation. Do not verify those by eye — run the tool
       breaks the zero-copy hot-buffer read.
 - [ ] ⚙ `C1` All three hooks (`onAuth`, `onPanel`, `onLocalAction`) exist; no-op
       bodies are fine, missing ones crash.
-- [ ] Draw order: set **`zIndex`** on part instances. The engine passes a
-      `layer`-based comparator to `sortChildren()`, but PixiJS v8's
-      `sortChildren()` takes no arguments and sorts by `zIndex` — the
-      comparator is dead code.
+- [ ] Draw order: set **`zIndex`** on part instances — nothing else affects it.
+      The engine marks the stage `sortableChildren` and calls
+      `sortChildren()` after every `addChild`; PixiJS v8 sorts by `zIndex`
+      there. A `layer` property on the instance does nothing.
 - [ ] ⚙ `C4` The available dependency services are exactly `renderer`,
       `soundManager` and `assetsBase`. Any other name in
       `componentDependencies` resolves to `undefined`.

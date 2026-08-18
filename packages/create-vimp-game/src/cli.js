@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -117,6 +117,30 @@ export function buildDefaults(args) {
   };
 }
 
+// пересчёт дефолтов по ходу интерактива: каталог, названный вручную,
+// обязан тянуть за собой id, а тот — заголовок и имя пакета. Флаги из argv
+// остаются сильнее всего, что выводится из ответов
+export function buildDerivers(args) {
+  return {
+    id: directory =>
+      args.id ?? toGameId(path.basename(path.resolve(directory))),
+    title: id => args.title ?? defaultTitle(id),
+    packageName: id => args.packageName ?? defaultPackageName(id),
+  };
+}
+
+async function ensurePathExists(option, value) {
+  if (value === undefined) {
+    return;
+  }
+
+  try {
+    await stat(path.resolve(value));
+  } catch {
+    throw new UsageError(`option '${option}': no such path '${value}'`);
+  }
+}
+
 async function ownVersion() {
   const manifest = JSON.parse(
     await readFile(path.join(packageRoot, 'package.json'), 'utf8'),
@@ -146,7 +170,17 @@ export async function main(argv) {
     throw new UsageError(`missing <directory>\n\n${USAGE}`);
   }
 
-  const answers = await askAnswers(buildDefaults(args), { interactive });
+  // опечатку в dev-путях иначе видно только на `npm install`, невнятной
+  // ошибкой npm — и уже поверх сгенерированного проекта
+  await Promise.all([
+    ensurePathExists('--engine-path', args.enginePath),
+    ensurePathExists('--core-path', args.corePath),
+  ]);
+
+  const answers = await askAnswers(buildDefaults(args), {
+    interactive,
+    derive: buildDerivers(args),
+  });
   const pins = toPins(await resolveVersions());
 
   const tokens = buildTokens({

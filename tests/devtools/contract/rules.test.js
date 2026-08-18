@@ -121,6 +121,48 @@ describe('A. package and build', () => {
     expect(found).toMatch(/older than this engine's crate/);
   });
 
+  // регрессия: раньше отсутствие любого входа пина давало pass — то есть
+  // флагманское правило рапортовало «всё хорошо» ровно там, где проверить
+  // ничего не смогло
+  it('A5 reports an unchecked pin instead of passing it', () => {
+    const notes = [];
+    const result = check('A5', {
+      ...goodCtx,
+      engineCoreVersion: null,
+      notes,
+    });
+
+    expect(result.status).toBe(PASS);
+    expect(notes.join('\n')).toMatch(/pin was NOT checked/);
+  });
+
+  // [patch.crates-io] объявляет vimp-engine-core путём, без версии: поиск
+  // по всему файлу находил бы его первым и молча пропускал пин
+  it('A5 reads the pin from [dependencies], not from [patch.crates-io]', () => {
+    const notes = [];
+    const cargoText = [
+      '[lib]',
+      'crate-type = ["cdylib", "rlib"]',
+      '',
+      '[patch.crates-io]',
+      'vimp-engine-core = { path = "/tmp/core" }',
+      '',
+      '[dependencies]',
+      'rapier2d = { version = "0.2", features = ["enhanced-determinism"] }',
+      'vimp-engine-core = "0.1"',
+    ].join('\n');
+
+    const found = check('A5', {
+      ...goodCtx,
+      cargoText,
+      workspaceCargoText: null,
+      engineCoreVersion: '9.9.9',
+      notes,
+    }).violations.join('\n');
+
+    expect(found).toMatch(/pinned to 0\.1, older than this engine's crate/);
+  });
+
   it('A6 catches a mismatched id, a missing entry and an uncovered field', () => {
     const found = violations('A6', badCtx);
 

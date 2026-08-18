@@ -30,6 +30,7 @@
     "src/standalone",
     "src/devtools",
     "tests/fixtures",
+    "core/Cargo.toml",
     "bin"
   ],
   "scripts": {

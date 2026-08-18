@@ -104,6 +104,17 @@ describe('ShotEffect', () => {
 
     expect(effect.destroyed).toBe(true);
   });
+
+  // the effect destroys itself from the ticker, so the scene tearing down
+  // afterwards calls destroy() a second time
+  it('survives a second destroy()', () => {
+    const effect = new ShotEffect(row, {}, { soundManager: null });
+
+    effect.run();
+    effect._update(1000);
+
+    expect(() => effect.destroy()).not.toThrow();
+  });
 });
 
 describe('actorTexture baker', () => {

@@ -13,9 +13,9 @@ const REQUIRED = [
     "preserveEntrySignatures: 'strict' (or the default export is tree-shaken)",
   ],
   [/inlineDynamicImports\s*:\s*true/, 'inlineDynamicImports: true'],
-  // external записывают и строкой, и регэкспом (/^pixi\.js(\/.*)?$/) —
-  // проверяем только присутствие pixi в списке
-  [/external\s*:\s*\[[^\]]*pixi/, "external with pixi.js"],
+  // external записывают и строкой, и регэкспом (/^pixi\.js(\/.*)?$/), а в
+  // регэкспе встречается ']' — ограничиваем не символом, а длиной хвоста
+  [/external\s*:\s*\[[\s\S]{0,400}?pixi/, 'external with pixi.js'],
   [/entryFileNames[^\n]*\[hash\]/, 'entryFileNames with [hash]'],
 ];
 
@@ -34,7 +34,9 @@ export default {
       ([, what]) => `vite.config.js: missing ${what}`,
     );
 
-    if (/\blib\s*:\s*[{'"]/.test(ctx.viteText)) {
+    // именно build.lib: ключ `lib` встречается и в resolve.alias, и в
+    // именах путей — без привязки к build это ложный отказ
+    if (/build\s*:\s*\{[\s\S]{0,400}?\blib\s*:\s*[{'"]/.test(ctx.viteText)) {
       violations.push(
         'vite.config.js: build.lib is used — it always inlines assets',
       );

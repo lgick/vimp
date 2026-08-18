@@ -84,6 +84,12 @@ export default class ShotEffect extends Container {
   update() {}
 
   destroy() {
+    // the effect destroys itself from the ticker, so a second call is normal
+    // (the scene being torn down right after the flash expired)
+    if (this.destroyed) {
+      return;
+    }
+
     if (this._tick) {
       Ticker.shared.remove(this._tick);
       this._tick = null;

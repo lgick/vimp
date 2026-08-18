@@ -20,19 +20,15 @@ export default class GameView {
 
   // создает экземпляр на полотне
   add(instance) {
+    // порядок отрисовки задаёт только zIndex парта. sortChildren() в
+    // PixiJS 8 компаратор не принимает (сортирует по zIndex) и выходит на
+    // первой строке, пока не поднят sortDirty; сам Pixi поднимает его лишь
+    // при записи zIndex уже добавленному в сцену объекту, а парты ставят
+    // zIndex в конструкторе — без sortableChildren сортировки не будет
+    // вовсе, и слои лягут в порядке добавления
+    this._app.stage.sortableChildren = true;
     this._app.stage.addChild(instance);
-
-    this._app.stage.sortChildren((a, b) => {
-      if (a.layer < b.layer) {
-        return -1;
-      }
-
-      if (a.layer > b.layer) {
-        return 1;
-      }
-
-      return 0;
-    });
+    this._app.stage.sortChildren();
   }
 
   // создаёт эффект и запускает его

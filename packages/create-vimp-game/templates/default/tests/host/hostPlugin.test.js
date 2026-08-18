@@ -107,6 +107,20 @@ describe('ScriptedManager', () => {
     expect(manager.createScripted(capacity + 3, 'team1')).toBe(capacity);
   });
 
+  // the emptiest team can be the one out of respawn points; before the
+  // fallback that case burned every iteration and created nobody
+  it('falls back to a team that still has respawn points', () => {
+    const capacity = mapData.respawns.team1.length;
+    const crowded = new ScriptedManager(
+      createContext({ teamSizes: { team1: capacity, team2: 0 } }),
+    );
+
+    crowded.createMap(mapData);
+
+    expect(crowded.createScripted(1)).toBe(1);
+    expect(crowded.getCountsPerTeam()).toEqual({ team2: 1 });
+  });
+
   it('creates nothing once the room is full', () => {
     const full = new ScriptedManager(createContext({ isFull: true }));
 
@@ -136,31 +150,49 @@ describe('ScriptedManager', () => {
 });
 
 describe('/spawn', () => {
+  const spawnContext = (created, maxPlayers = 16) => ({
+    chat: { pushSystem: vi.fn() },
+    roundManager: { initiateNewRound: vi.fn() },
+    participants: { maxPlayers },
+    scripted: { createScripted: vi.fn(() => created) },
+  });
+
   it('reports the number actually created and restarts the round', () => {
-    const chat = { pushSystem: vi.fn() };
-    const roundManager = { initiateNewRound: vi.fn() };
-    const scripted = { createScripted: vi.fn(() => 2) };
+    const ctx = spawnContext(2);
 
-    spawnCommand.handler({ chat, roundManager, scripted }, 1, ['3']);
+    spawnCommand.handler(ctx, 1, ['3']);
 
-    expect(scripted.createScripted).toHaveBeenCalledWith(3);
-    expect(chat.pushSystem).toHaveBeenCalledWith('BOTS_SPAWNED', [2]);
-    expect(roundManager.initiateNewRound).toHaveBeenCalled();
+    expect(ctx.scripted.createScripted).toHaveBeenCalledWith(3);
+    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SPAWNED', [2]);
+    expect(ctx.roundManager.initiateNewRound).toHaveBeenCalled();
   });
 
   it('defaults to a single bot', () => {
-    const scripted = { createScripted: vi.fn(() => 1) };
+    const ctx = spawnContext(1);
 
-    spawnCommand.handler(
-      {
-        chat: { pushSystem: vi.fn() },
-        roundManager: { initiateNewRound: vi.fn() },
-        scripted,
-      },
-      1,
-      [],
-    );
+    spawnCommand.handler(ctx, 1, []);
 
-    expect(scripted.createScripted).toHaveBeenCalledWith(1);
+    expect(ctx.scripted.createScripted).toHaveBeenCalledWith(1);
+  });
+
+  // the argument comes straight from a chat line
+  it('clamps the count to [1, maxPlayers]', () => {
+    const negative = spawnContext(1);
+    const huge = spawnContext(1);
+
+    spawnCommand.handler(negative, 1, ['-3']);
+    spawnCommand.handler(huge, 1, ['1e9']);
+
+    expect(negative.scripted.createScripted).toHaveBeenCalledWith(1);
+    expect(huge.scripted.createScripted).toHaveBeenCalledWith(16);
+  });
+
+  it('does not restart the round when nothing was created', () => {
+    const ctx = spawnContext(0);
+
+    spawnCommand.handler(ctx, 1, ['3']);
+
+    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SPAWNED', [0]);
+    expect(ctx.roundManager.initiateNewRound).not.toHaveBeenCalled();
   });
 });

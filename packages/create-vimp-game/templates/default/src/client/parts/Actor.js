@@ -29,10 +29,9 @@ export default class Actor extends Container {
   constructor(data, assets) {
     super();
 
-    // Paint order is `zIndex` and nothing else. The engine calls
-    // stage.sortChildren(comparator) on every addChild, but PixiJS v8 takes no
-    // comparator there — it sorts by zIndex. A `layer` property alone does
-    // nothing at all.
+    // Paint order is `zIndex` and nothing else: the engine marks the stage
+    // sortable and calls stage.sortChildren() on every addChild, and PixiJS v8
+    // sorts by zIndex there. A `layer` property alone does nothing at all.
     this.zIndex = 3;
 
     this._sprite = new Sprite(assets.actorTexture);

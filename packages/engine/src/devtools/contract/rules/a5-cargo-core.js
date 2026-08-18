@@ -17,7 +17,11 @@ export default {
     }
 
     const violations = [];
-    const crateType = ctx.cargoText.match(/crate-type\s*=\s*\[([^\]]*)\]/)?.[1];
+    // именно в [lib]: тот же ключ встречается в комментариях и в чужих
+    // секциях, и поиск по всему файлу выдал бы за проверку случайную строку
+    const crateType = readSection(ctx.cargoText, 'lib')?.match(
+      /^\s*crate-type\s*=\s*\[([^\]]*)\]/m,
+    )?.[1];
 
     if (!crateType) {
       violations.push('[lib] crate-type is missing (need ["cdylib", "rlib"])');
@@ -76,13 +80,34 @@ function checkEnginePin(ctx) {
     return ['vimp-engine-core is not a dependency'];
   }
 
-  if (!text || !ctx.engineCoreVersion) {
+  // отсутствие входа не должно выглядеть зелёной галочкой: остальные
+  // пункты A5 проверены, а пин — нет, и это обязано быть в отчёте
+  if (!ctx.engineCoreVersion) {
+    ctx.notes?.push(
+      'A5: the engine crate version is unknown — the vimp-engine-core pin ' +
+        'was NOT checked',
+    );
+
+    return [];
+  }
+
+  if (!text) {
+    ctx.notes?.push(
+      'A5: the vimp-engine-core declaration was not found in [dependencies] ' +
+        '/ [workspace.dependencies] — the pin was NOT checked',
+    );
+
     return [];
   }
 
   const pinned = text.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
 
   if (!pinned) {
+    ctx.notes?.push(
+      `A5: vimp-engine-core is declared without a version (${text.trim()}) — ` +
+        'the pin was NOT checked',
+    );
+
     return [];
   }
 
@@ -107,21 +132,63 @@ function checkEnginePin(ctx) {
   return [];
 }
 
+// секции, в которых объявление зависимости считается объявлением. Поиск
+// по всему файлу ловил бы `[patch.crates-io] vimp-engine-core = { path =
+// … }` — оно есть в игре, созданной с --core-path, версии в нём нет, и
+// проверка пина молча проходила бы
+const DEP_SECTIONS = new Set([
+  'dependencies',
+  'workspace.dependencies',
+  'build-dependencies',
+]);
+
 // объявление зависимости в обеих формах: inline (`dep = { … }` или
 // `dep = "x.y"`) и секцией (`[dependencies.dep]` … до следующей секции)
 function readDep(text, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const inline = text.match(
-    new RegExp(`^\\s*${escaped}\\s*=\\s*(.+)$`, 'm'),
-  )?.[1];
+  const inline = new RegExp(`^\\s*${escaped}\\s*=\\s*(.+)$`, 'm');
 
-  if (inline) {
-    return inline;
+  for (const [header, body] of sections(text)) {
+    if (DEP_SECTIONS.has(header)) {
+      const found = body.match(inline)?.[1];
+
+      if (found) {
+        return found;
+      }
+    }
+
+    if ([...DEP_SECTIONS].some(dep => header === `${dep}.${name}`)) {
+      return body;
+    }
   }
 
-  const section = text.split(/^\s*\[/m).find(part =>
-    part.startsWith(`dependencies.${name}]`),
-  );
+  return null;
+}
 
-  return section ?? null;
+/**
+ * Секции TOML: заголовок без скобок и тело до следующего заголовка.
+ * @param {string} text
+ * @returns {Array<[string, string]>}
+ */
+function sections(text) {
+  const header = /^[ \t]*\[([^[\]\n]+)\][ \t]*$/gm;
+  const found = [];
+  let match = header.exec(text);
+
+  while (match !== null) {
+    const start = match.index + match[0].length;
+    const next = header.exec(text);
+
+    found.push([
+      match[1].trim(),
+      text.slice(start, next === null ? text.length : next.index),
+    ]);
+    match = next;
+  }
+
+  return found;
+}
+
+function readSection(text, name) {
+  return sections(text).find(([header]) => header === name)?.[1] ?? null;
 }

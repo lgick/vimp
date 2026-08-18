@@ -17,10 +17,13 @@ const TOOLS = [
 
 function run(command, args, options = {}) {
   return new Promise(resolve => {
+    // timeout: зависший `cargo --version` (сеть, битый тулчейн) иначе
+    // держал бы скаффолдер бесконечно — проверка окружения не стоит того
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: 'ignore',
       shell: false,
+      timeout: 5000,
     });
 
     child.on('error', () => resolve(null));
@@ -29,17 +32,11 @@ function run(command, args, options = {}) {
 }
 
 export async function checkTools() {
-  const missing = [];
+  const codes = await Promise.all(
+    TOOLS.map(tool => run(tool.command, ['--version'])),
+  );
 
-  for (const tool of TOOLS) {
-    const code = await run(tool.command, ['--version']);
-
-    if (code !== 0) {
-      missing.push(tool);
-    }
-  }
-
-  return missing;
+  return TOOLS.filter((tool, index) => codes[index] !== 0);
 }
 
 // первый коммит остаётся за автором игры: скаффолдер только заводит

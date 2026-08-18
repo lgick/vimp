@@ -22,6 +22,8 @@ const cli = path.join(scriptDir, '..', 'bin', 'create-vimp-game.js');
 
 const GAME_ID = 'e2e-game';
 
+// spawnSync без shell: на Windows это не найдёт npm/npx (там npm.cmd) —
+// сознательно, E2E запускается в CI и в POSIX-окружении разработчика
 function run(command, args, cwd) {
   process.stdout.write(`\n> ${command} ${args.join(' ')}   (${cwd})\n`);
 
@@ -99,10 +101,15 @@ async function packEngine(destination) {
 
 async function main(argv) {
   const args = parseArgs(argv);
-  const workDir =
+  const base =
     args.dir === undefined
       ? await mkdtemp(path.join(tmpdir(), 'vimp-e2e-'))
       : path.resolve(args.dir);
+
+  // прогон работает и убирает за собой только в СВОЁМ подкаталоге: --dir
+  // указывают на живой каталог, и `rm -r` по нему стёр бы чужую работу.
+  // Заодно packEngine не подберёт чужой .tgz, оставшийся от прошлого раза
+  const workDir = path.join(base, `run-${process.pid}`);
 
   await mkdir(workDir, { recursive: true });
 

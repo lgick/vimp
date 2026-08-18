@@ -194,16 +194,16 @@ modules: {
 
 The camera part of a frame is `[x, y, forceReset?, "intensity:duration"?]`.
 
-> **Trap — draw order.** On every `addChild` the engine calls
-> `stage.sortChildren(comparator)` with a comparator based on an
-> `instance.layer` property. PixiJS v8's `sortChildren()` **takes no
-> arguments**: the comparator is ignored, and the method sorts by `zIndex`
-> (and only when a `zIndex` setter has marked the container dirty).
+> **Trap — draw order.** PixiJS v8's `stage.sortChildren()` **takes no
+> comparator**: it sorts by `zIndex`, and only when the container is marked
+> sortable and dirty. The engine sets `stage.sortableChildren = true` and
+> calls `sortChildren()` after every `addChild`, so a `zIndex` assigned in
+> a part's constructor (before it enters the scene) still takes effect.
 >
 > So: set **`zIndex`** on your part instances to control paint order. A
-> `layer` property alone does nothing. Parts that never touch `zIndex` are
-> painted in insertion order — which you influence through the order of
-> classes in `gameSets`.
+> `layer` property alone does nothing. Parts that never touch `zIndex` all
+> share `zIndex 0` and are painted in insertion order — which you influence
+> through the order of classes in `gameSets`.
 
 ## `initIdList`
 

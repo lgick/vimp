@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
+import { Container } from 'pixi.js';
 import Publisher from '../../packages/engine/src/lib/Publisher.js';
 import GameView from '../../packages/engine/src/client/components/view/Game.js';
 
 // GameView — НЕ синглтон, создаём напрямую
 const makeApp = () => ({
   stage: {
+    sortableChildren: false,
     addChild: vi.fn(),
     sortChildren: vi.fn(),
   },
@@ -13,15 +15,35 @@ const makeApp = () => ({
 const makeModel = () => ({ publisher: new Publisher() });
 
 describe('GameView.add', () => {
-  it('добавляет экземпляр на сцену и сортирует по слою', () => {
+  it('добавляет экземпляр на сцену и сортирует его', () => {
     const app = makeApp();
     const view = new GameView(makeModel(), app);
-    const instance = { layer: 2 };
+    const instance = { zIndex: 2 };
 
     view.add(instance);
 
     expect(app.stage.addChild).toHaveBeenCalledWith(instance);
+    expect(app.stage.sortableChildren).toBe(true);
     expect(app.stage.sortChildren).toHaveBeenCalled();
+  });
+
+  // регрессия: парты выставляют zIndex в конструкторе, до addChild — в этом
+  // случае Pixi сам не помечает stage сортируемым, и без sortableChildren
+  // sortChildren() молча выходит на первой строке (порядок = порядок добавления)
+  it('раскладывает настоящие контейнеры Pixi по zIndex', () => {
+    const stage = new Container();
+    const view = new GameView(makeModel(), { stage });
+
+    const top = new Container();
+    const bottom = new Container();
+
+    top.zIndex = 5;
+    bottom.zIndex = 1;
+
+    view.add(top);
+    view.add(bottom);
+
+    expect(stage.children).toEqual([bottom, top]);
   });
 });
 

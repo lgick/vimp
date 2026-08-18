@@ -1,4 +1,4 @@
-import { access, readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE_API_VERSION } from '../../config/opcodes.js';
@@ -14,7 +14,9 @@ import { ENGINE_API_VERSION } from '../../config/opcodes.js';
 // (engineApi литералом или импортом).
 
 // каталог движка (packages/engine) — из него берётся версия крейта, с
-// которой сверяется пин игры
+// которой сверяется пин игры. core/Cargo.toml числится в "files"
+// package.json именно ради этого: иначе в установке из npm версии крейта
+// нет, и правило A5 проверяло бы пин только внутри монорепозитория
 const ENGINE_DIR = new URL('../../../', import.meta.url);
 
 const HOST_ENTRIES = ['src/host/index.js', 'host/index.js'];
@@ -76,8 +78,19 @@ async function loadHalf(ctx, half, candidates) {
 
     try {
       const module = await import(pathToFileURL(file).href);
+      const source = path.relative(ctx.dir, file);
 
-      ctx[`${half}Source`] = path.relative(ctx.dir, file);
+      ctx[`${half}Source`] = source;
+
+      // модуль импортировался, но плагина не отдал: движок берёт половину
+      // ровно из default-экспорта, поэтому это отказ, а не «нечего
+      // проверять» — без ноты автор увидел бы десяток немых skip
+      if (module.default === undefined || module.default === null) {
+        ctx.notes.push(
+          `${half} plugin has no default export (${source}) — the engine ` +
+            'loads the half by it',
+        );
+      }
 
       return module.default ?? null;
     } catch (error) {
@@ -136,7 +149,12 @@ async function readEngineCoreVersion() {
 }
 
 // версия пакета в секции [package] — первый `version = "…"` до следующей
-// секции; TOML-парсера в зависимостях движка нет, а формат здесь наш
+// секции; TOML-парсера в зависимостях движка нет, а формат здесь наш.
+//
+// Копия живёт в packages/create-vimp-game/src/versions.js: скаффолдер
+// ставится через `npm create` и обязан работать без движка в зависимостях.
+// Разбор обязан совпадать — правьте обе или ни одной (см. тест
+// tests/scaffold/versions.test.js).
 export function parseCrateVersion(text) {
   const section = text.split(/^\s*\[/m).find(part => part.startsWith('package]'));
 
@@ -203,9 +221,13 @@ async function listFiles(root) {
 
     for (const entry of entries) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const full = path.join(dir, entry.name);
 
-      if (entry.isDirectory()) {
-        await walk(path.join(dir, entry.name), rel);
+      // симлинк-каталог (обычная dev-раскладка: dist/img -> ../assets/img)
+      // у readdir не isDirectory(); без разыменования он попал бы в список
+      // файлом, и правила ассетов дали бы ложный отказ
+      if (entry.isSymbolicLink() ? await isDirectory(full) : entry.isDirectory()) {
+        await walk(full, rel);
       } else {
         found.add(rel);
       }
@@ -215,6 +237,14 @@ async function listFiles(root) {
   await walk(root, '');
 
   return found;
+}
+
+async function isDirectory(file) {
+  try {
+    return (await stat(file)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export default loadContext;
