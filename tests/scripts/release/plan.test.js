@@ -26,6 +26,13 @@ function input(overrides = {}) {
       changed: false,
       unreleased: quiet,
     },
+    scaffold: {
+      local: '0.1.0',
+      published: '0.1.0',
+      changed: false,
+      unreleased: quiet,
+      pinsStale: false,
+    },
     engineApiChanged: false,
     games: [],
     ...overrides,
@@ -402,5 +409,149 @@ describe('decide', () => {
 
     expect(plan.crate.publish).toBe(false);
     expect(plan.crate.reason).toMatch(/не рассматривался/);
+  });
+
+  it('не трогает скаффолдер, пока пины и его файлы не менялись', () => {
+    const plan = decide(input());
+
+    expect(plan.scaffold.publish).toBe(false);
+    expect(plan.scaffold.required).toBe(false);
+  });
+
+  // прогон, где движок уезжает в npm: prepack вшил бы в тарбол шаблона
+  // прошлую версию движка, и `npm create vimp-game` генерировал бы игру,
+  // которая ставит устаревший vimp-engine
+  it('делает скаффолдер обязательным, когда публикуется движок', () => {
+    const plan = decide(
+      input({
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: true,
+          unreleased: added,
+        },
+      }),
+    );
+
+    expect(plan.scaffold.publish).toBe(true);
+    expect(plan.scaffold.required).toBe(true);
+    // перепин чужой версии — не новая фича: пустая [Unreleased] значит patch
+    expect(plan.scaffold.target).toBe('0.1.1');
+    expect(plan.scaffold.reason).toMatch(/пины шаблона устареют/);
+  });
+
+  it('делает скаффолдер обязательным, когда публикуется крейт', () => {
+    const plan = decide(
+      input({
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          unreleased: added,
+        },
+      }),
+    );
+
+    expect(plan.scaffold.publish).toBe(true);
+    expect(plan.scaffold.required).toBe(true);
+    expect(plan.scaffold.target).toBe('0.1.1');
+  });
+
+  // прерванный прогон: движок опубликован, скаффолдер за ним не поехал —
+  // publish у движка уже false, и остаётся единственный сигнал
+  it('публикует скаффолдер по отставшим пинам, когда движок уже уехал', () => {
+    const plan = decide(
+      input({
+        scaffold: {
+          local: '0.1.0',
+          published: '0.1.0',
+          changed: false,
+          unreleased: quiet,
+          pinsStale: true,
+        },
+      }),
+    );
+
+    expect(plan.engine.publish).toBe(false);
+    expect(plan.scaffold.publish).toBe(true);
+    expect(plan.scaffold.required).toBe(true);
+    expect(plan.scaffold.reason).toMatch(/пины шаблона отстали/);
+  });
+
+  it('предлагает minor скаффолдеру по его собственной [Unreleased]', () => {
+    const plan = decide(
+      input({
+        scaffold: {
+          local: '0.1.0',
+          published: '0.1.0',
+          changed: true,
+          unreleased: added,
+          pinsStale: false,
+        },
+      }),
+    );
+
+    expect(plan.scaffold.publish).toBe(true);
+    expect(plan.scaffold.required).toBe(false);
+    expect(plan.scaffold.target).toBe('0.2.0');
+  });
+
+  it('не бампает скаффолдер, чья версия уже поднята руками', () => {
+    const plan = decide(
+      input({
+        scaffold: {
+          local: '0.2.0',
+          published: '0.1.0',
+          changed: true,
+          unreleased: added,
+          pinsStale: false,
+        },
+      }),
+    );
+
+    expect(plan.scaffold.publish).toBe(true);
+    expect(plan.scaffold.bump).toBe(false);
+    expect(plan.scaffold.target).toBe('0.2.0');
+  });
+
+  it('прокидывает проблемы журнала скаффолдера в общий список', () => {
+    const plan = decide(
+      input({
+        scaffold: {
+          local: '0.1.0',
+          published: '0.1.0',
+          changed: true,
+          unreleased: {
+            present: true,
+            isEmpty: false,
+            sections: ['Улучшено'],
+          },
+          changelogFile: 'packages/create-vimp-game/CHANGELOG.md',
+          pinsStale: false,
+        },
+      }),
+    );
+
+    expect(plan.problems).toContain(
+      'packages/create-vimp-game/CHANGELOG.md: заголовок «### Улучшено» не из списка',
+    );
+  });
+
+  // прод деплоит мастер и плагины; скаффолдер живёт только в npm
+  it('не тянет прод из-за одного скаффолдера', () => {
+    const plan = decide(
+      input({
+        scaffold: {
+          local: '0.1.0',
+          published: '0.1.0',
+          changed: true,
+          unreleased: added,
+          pinsStale: false,
+        },
+      }),
+    );
+
+    expect(plan.scaffold.publish).toBe(true);
+    expect(plan.prod.push).toBe(false);
   });
 });

@@ -13,9 +13,10 @@ npm create vimp-game my-game
 ```
 
 The generator lives in this repository under `packages/create-vimp-game/`
-and is published separately from `vimp-engine` (`npm publish -w
-create-vimp-game`); it has no runtime dependencies, so `npm create` does not
-install a tree before asking its first question.
+and is published as its own npm artifact, driven by `npm run release` — see
+[publishing.md → Step A3](publishing.md#step-a3-publish-create-vimp-game-on-npm);
+it has no runtime dependencies, so `npm create` does not install a tree
+before asking its first question.
 
 ## The command
 

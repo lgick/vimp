@@ -5,7 +5,7 @@ import * as ui from './ui.js';
 import { parseUnreleased, releaseUnreleased } from './changelog.js';
 import { waitForCrate, waitForNpm } from './registry.js';
 import { isDirectory } from './games.js';
-import { CRATE_NAME, ENGINE_NAME } from './plan.js';
+import { CRATE_NAME, ENGINE_NAME, SCAFFOLD_NAME } from './plan.js';
 
 const REPO_URL = 'https://github.com/lgick/vimp';
 
@@ -274,6 +274,70 @@ export async function publishEngine({ shell, root, decision, games, report }) {
   }
 
   report.published.push(`${ENGINE_NAME}@${target} (npm)`);
+  report.tags.push({ repo: root, name: tagName });
+}
+
+// ── Step A3: скаффолдер ────────────────────────────────────────────────────
+
+// Идёт после движка и крейта: хук prepack снимает пины с ЛОКАЛЬНЫХ
+// packages/engine/package.json и core/Cargo.toml, то есть уже поднятых
+// шагами A1 и A2. Публикация раньше вшила бы в тарбол прошлые версии.
+export async function publishScaffold({ shell, root, decision, report }) {
+  const { target } = decision;
+
+  ui.log(`скаффолдер ${SCAFFOLD_NAME}: релиз ${target}`);
+
+  await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: root });
+  await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
+    cwd: root,
+  });
+  // единственная проверка, которая реально разворачивает шаблон и собирает
+  // его ядро (cargo + wasm-pack): unit-тесты сломанный шаблон пропустят, а
+  // всплывёт он у пользователя на первом же `npm create vimp-game`
+  await shell.check('npm run test:scaffold', 'npm', ['run', 'test:scaffold'], {
+    cwd: root,
+  });
+
+  if (decision.bump) {
+    await bumpJsonVersion(
+      path.join(root, 'packages/create-vimp-game/package.json'),
+      target,
+      { dryRun: shell.dryRun },
+    );
+    await shell.write('npm', ['install'], { cwd: root });
+  }
+
+  await dateChangelog(path.join(root, 'packages/create-vimp-game/CHANGELOG.md'), {
+    version: target,
+    artifact: SCAFFOLD_NAME,
+    dryRun: shell.dryRun,
+  });
+
+  await commit(shell, root, `chore: bump ${SCAFFOLD_NAME} to ${target}`, [
+    'packages/create-vimp-game/package.json',
+    'packages/create-vimp-game/CHANGELOG.md',
+    'package-lock.json',
+  ]);
+
+  await shell.check(
+    'npm publish --dry-run',
+    'npm',
+    ['publish', '-w', SCAFFOLD_NAME, '--dry-run'],
+    { cwd: root },
+  );
+  await shell.publish('npm', ['publish', '-w', SCAFFOLD_NAME], { cwd: root });
+
+  const tagName = `${SCAFFOLD_NAME}@${target}`;
+  await tag(shell, root, tagName);
+
+  if (!shell.dryRun) {
+    await awaitRegistry(
+      () => waitForNpm(SCAFFOLD_NAME, target, ui.log),
+      `${SCAFFOLD_NAME}@${target}`,
+    );
+  }
+
+  report.published.push(`${SCAFFOLD_NAME}@${target} (npm)`);
   report.tags.push({ repo: root, name: tagName });
 }
 

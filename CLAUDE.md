@@ -38,10 +38,12 @@ out.
 
 ## Changelogs
 
-Two journals (English, Keep a Changelog), updated unasked in the same change
-as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`: plugin
-contract, `ENGINE_API_VERSION`, `vimp-sim`/scenarios, master endpoints,
-exports) and `packages/engine/core/CHANGELOG.md` (crate `vimp-engine-core`).
+Three journals (English, Keep a Changelog), updated unasked in the same
+change as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`:
+plugin contract, `ENGINE_API_VERSION`, `vimp-sim`/scenarios, master
+endpoints, exports), `packages/engine/core/CHANGELOG.md` (crate
+`vimp-engine-core`) and `packages/create-vimp-game/CHANGELOG.md` (npm
+`create-vimp-game`: CLI, generator, template).
 Unreleased work under `## [Unreleased]`, dated at release. Tests, refactors
 and `docs/` are not entries.
 
@@ -57,9 +59,11 @@ version".
 
 ## Release impact
 
-Published code: `packages/engine/core/` (crate) and the `files` paths of
-`packages/engine/package.json` (npm). A change touching either **must be
-flagged when reporting the work**, unasked: which artifact, which bump (read
+Published code: `packages/engine/core/` (crate), the `files` paths of
+`packages/engine/package.json` (npm) and those of
+`packages/create-vimp-game/package.json` (npm). A change touching any of
+them **must be flagged when reporting the work**, unasked: which artifact,
+which bump (read
 it off the `[Unreleased]` sub-heading), whether the game repo must follow (a
 crate bump or a new `ENGINE_API_VERSION` means it does), and which
 pre-publish checks ran. Never edit a `version`, never publish — the developer

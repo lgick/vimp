@@ -5,7 +5,14 @@ import { parseArgs } from 'node:util';
 
 import * as ui from './release/ui.js';
 import { createShell, capture, CommandError } from './release/shell.js';
-import { collect, decide, readEngineApiVersion, CRATE_NAME } from './release/plan.js';
+import {
+  collect,
+  decide,
+  readEngineApiVersion,
+  CRATE_NAME,
+  ENGINE_NAME,
+  SCAFFOLD_NAME,
+} from './release/plan.js';
 import {
   discoverGames,
   validateGame,
@@ -20,6 +27,7 @@ import { increment, isVersion, compareVersions } from './release/semver.js';
 import {
   publishCrate,
   publishEngine,
+  publishScaffold,
   publishGame,
   rollOutProduction,
 } from './release/steps.js';
@@ -34,7 +42,7 @@ class UsageError extends Error {}
 const USAGE = `Использование: npm run release -- [флаги]
 
   --dry-run            всё показать и проверить, ничего не публиковать
-  --only=<список>      подмножество шагов: crate,engine,games,prod
+  --only=<список>      подмножество шагов: crate,engine,scaffold,games,prod
   --game=<путь>        игра для неинтерактивного режима (можно повторять)
   --relink             только вернуть локальные npm link и выйти; в реестры
                        не ходит, работает без сети
@@ -48,6 +56,8 @@ const USAGE = `Использование: npm run release -- [флаги]
     (тег релиза либо коммит с текущей версией), по разнице локальной и
     опубликованной версии и по непустой секции [Unreleased]; у игры те же
     сигналы — своя неопубликованная версия и коммиты после тега vX.Y.Z;
+    у скаффолдера сверху обязательная пересборка, когда публикуется крейт
+    или движок: prepack вшивает их версии в тарбол шаблона;
   · какой инкремент предложить — по под-заголовкам [Unreleased]:
     ⚠️ Breaking → minor в 0.x (major от 1.0), Added → minor, иначе patch.
     Список заголовков закрыт, ⚠️ Breaking идёт только вместе с Migration —
@@ -55,12 +65,13 @@ const USAGE = `Использование: npm run release -- [флаги]
   · какие игры-плагины есть на машине — по npm link и соседним каталогам;
     каждая подтверждается отдельно.
 
-Порядок: крейт → движок → игры → прод. Проверки (eslint, тесты, core:test,
-sim, тарбол) обязательны, флага их пропуска нет. Локальные линки снимаются
+Порядок: крейт → движок → скаффолдер → игры → прод. Проверки (eslint,
+тесты, core:test, sim, E2E скаффолдера, тарбол) обязательны, флага их
+пропуска нет. Локальные линки снимаются
 до сборки и возвращаются при любом исходе, включая Ctrl-C.
 `;
 
-const STEPS = ['crate', 'engine', 'games', 'prod'];
+const STEPS = ['crate', 'engine', 'scaffold', 'games', 'prod'];
 
 function parseFlags(argv) {
   let parsed;
@@ -374,6 +385,7 @@ async function main(argv) {
   const scoped = {
     crate: args.only.includes('crate') ? collected.crate : null,
     engine: args.only.includes('engine') ? collected.engine : null,
+    scaffold: args.only.includes('scaffold') ? collected.scaffold : null,
     engineApiChanged: collected.engineApiChanged,
   };
 
@@ -406,7 +418,12 @@ async function main(argv) {
   const publishedGames = decision.games.filter(game => game.publish);
 
   const gameProblems = await preflightGames(publishedGames, {
-    needsRust: decision.crate.publish || publishedGames.length > 0,
+    // скаффолдеру rust нужен не меньше: его E2E разворачивает шаблон и
+    // собирает ядро сгенерированной игры
+    needsRust:
+      decision.crate.publish ||
+      decision.scaffold.publish ||
+      publishedGames.length > 0,
   });
 
   if (reportProblems(gameProblems)) {
@@ -424,8 +441,16 @@ async function main(argv) {
 
   if (decision.engine.publish && decision.engine.bump) {
     decision.engine.target = await askVersion(
-      'vimp-engine',
+      ENGINE_NAME,
       { ...decision.engine, published: collected.engine.published },
+      args,
+    );
+  }
+
+  if (decision.scaffold.publish && decision.scaffold.bump) {
+    decision.scaffold.target = await askVersion(
+      SCAFFOLD_NAME,
+      { ...decision.scaffold, published: collected.scaffold.published },
       args,
     );
   }
@@ -465,10 +490,20 @@ async function main(argv) {
         decision.crate.reason,
       ],
       [
-        'vimp-engine',
+        ENGINE_NAME,
         decision.engine.publish ? 'да' : 'нет',
         decision.engine.target ?? decision.engine.current ?? '—',
         decision.engine.reason,
+      ],
+      [
+        SCAFFOLD_NAME,
+        decision.scaffold.publish
+          ? decision.scaffold.required
+            ? 'да (обязательно)'
+            : 'да'
+          : 'нет',
+        decision.scaffold.target ?? decision.scaffold.current ?? '—',
+        decision.scaffold.reason,
       ],
       ...decision.games.map(game => [
         game.name,
@@ -485,7 +520,12 @@ async function main(argv) {
     ],
   );
 
-  if (!decision.crate.publish && !decision.engine.publish && !selectedGames.length) {
+  if (
+    !decision.crate.publish &&
+    !decision.engine.publish &&
+    !decision.scaffold.publish &&
+    !selectedGames.length
+  ) {
     ui.log('публиковать нечего');
     return 0;
   }
@@ -496,7 +536,7 @@ async function main(argv) {
   }
 
   // логины — только для реестров, куда реально пойдёт публикация
-  if (decision.engine.publish || selectedGames.length) {
+  if (decision.engine.publish || decision.scaffold.publish || selectedGames.length) {
     if (!(await ensureNpmLogin())) {
       return 1;
     }
@@ -547,6 +587,17 @@ async function main(argv) {
         root,
         decision: decision.engine,
         games: decision.games,
+        report,
+      });
+    }
+
+    // строго после A1/A2: prepack снимает пины с локальных файлов движка,
+    // которые эти шаги только что подняли
+    if (decision.scaffold.publish) {
+      await publishScaffold({
+        shell,
+        root,
+        decision: decision.scaffold,
         report,
       });
     }

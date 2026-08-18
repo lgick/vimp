@@ -13,11 +13,38 @@ import { npmVersion, crateVersion } from './registry.js';
 
 export const CRATE_NAME = 'vimp-engine-core';
 export const ENGINE_NAME = 'vimp-engine';
+export const SCAFFOLD_NAME = 'create-vimp-game';
 
 // Чистая функция: только вход → набор артефактов. Покрыта plan.test.js.
 export function decide(input) {
   const crate = decideArtifact(input.crate, CRATE_NAME);
   const engine = decideArtifact(input.engine, ENGINE_NAME);
+
+  // Скаффолдер вшивает в тарбол снимок версий движка и крейта (хук prepack,
+  // packages/create-vimp-game/scripts/write-versions.js). Отставший снимок —
+  // тихая поломка: `npm create vimp-game` сгенерирует игру на старых пинах,
+  // и всплывёт это только на сборке её ядра. Поэтому у него, как у игры,
+  // есть обязательная пересборка сверху.
+  const scaffoldReasons = [];
+
+  if (crate.publish) {
+    scaffoldReasons.push('крейт публикуется → пины шаблона устареют');
+  }
+
+  if (engine.publish) {
+    scaffoldReasons.push('движок публикуется → пины шаблона устареют');
+  }
+
+  // прерванный прогон: движок уже опубликован, скаффолдер за ним не поехал —
+  // publish у движка уже false, и без этого сигнала снимок остался бы старым
+  if (!crate.publish && !engine.publish && input.scaffold?.pinsStale) {
+    scaffoldReasons.push('пины шаблона отстали от движка в репозитории');
+  }
+
+  const scaffold = decideArtifact(input.scaffold, SCAFFOLD_NAME, {
+    required: crate.publish || engine.publish || input.scaffold?.pinsStale === true,
+    reasons: scaffoldReasons,
+  });
 
   // Версии, на которых игра будет собрана: свежие, если артефакт публикуется
   // в этом прогоне, иначе те, что уже лежат в реестре. Брать локальные нельзя
@@ -93,11 +120,12 @@ export function decide(input) {
   });
 
   const publishedGames = games.filter(game => game.publish);
-  const releasable = [crate, engine];
+  const releasable = [crate, engine, scaffold];
 
   return {
     crate,
     engine,
+    scaffold,
     games,
     // против чего собирается игра — считается здесь, чтобы шаг B и причина в
     // плане не разошлись
@@ -128,7 +156,14 @@ export function decide(input) {
   };
 }
 
-function decideArtifact(artifact, name) {
+// extra.required — сигнал «пересборка обязательна» извне журнала и диффа
+// (сейчас только у скаффолдера: его пины зависят от чужих версий). Уровень
+// он не поднимает: пустая секция [Unreleased] по-прежнему значит patch,
+// перепин чужой версии новой фичей не является.
+function decideArtifact(artifact, name, extra = {}) {
+  const required = extra.required === true;
+  const extraReasons = extra.reasons ?? [];
+
   if (!artifact) {
     return { name, publish: false, reason: 'артефакт не рассматривался' };
   }
@@ -147,21 +182,26 @@ function decideArtifact(artifact, name) {
       name,
       publish: true,
       bump: false,
+      required,
       current: local,
       target: local,
       problems,
-      reason: published
-        ? `локальная ${local} > опубликованной ${published}`
-        : 'ещё не публиковался',
+      reason: [
+        ...extraReasons,
+        published
+          ? `локальная ${local} > опубликованной ${published}`
+          : 'ещё не публиковался',
+      ].join('; '),
     };
   }
 
   const hasUnreleased = unreleased?.isEmpty === false;
 
-  if (!changed && !hasUnreleased) {
+  if (!changed && !hasUnreleased && !required) {
     return {
       name,
       publish: false,
+      required,
       current: local,
       problems,
       reason: `нет изменений с ${published}`,
@@ -169,7 +209,7 @@ function decideArtifact(artifact, name) {
   }
 
   const suggestion = suggestLevel(unreleased?.sections ?? [], local);
-  const signals = [];
+  const signals = [...extraReasons];
 
   if (changed) {
     signals.push('изменены файлы артефакта');
@@ -182,6 +222,7 @@ function decideArtifact(artifact, name) {
     name,
     publish: true,
     bump: true,
+    required,
     level: suggestion.level,
     current: local,
     target: increment(local, suggestion.level),
@@ -265,12 +306,15 @@ export async function readEngineApiVersion(root) {
 // Сбор входа для decide(): версии, изменённые пути, секции [Unreleased].
 export async function collect(root) {
   const engineDir = path.join(root, 'packages', 'engine');
+  const scaffoldDir = path.join(root, 'packages', 'create-vimp-game');
   const enginePkg = await readJson(path.join(engineDir, 'package.json'));
+  const scaffoldPkg = await readJson(path.join(scaffoldDir, 'package.json'));
   const crateLocal = await readCrateVersion(root);
 
-  const [enginePublished, cratePublished] = await Promise.all([
+  const [enginePublished, cratePublished, scaffoldPublished] = await Promise.all([
     npmVersion(ENGINE_NAME),
     crateVersion(CRATE_NAME),
+    npmVersion(SCAFFOLD_NAME),
   ]);
 
   const crateBase = await findBase(root, {
@@ -282,6 +326,11 @@ export async function collect(root) {
     tag: `${ENGINE_NAME}@${enginePkg.version}`,
     versionFile: 'packages/engine/package.json',
     versionNeedle: `"version": "${enginePkg.version}"`,
+  });
+  const scaffoldBase = await findBase(root, {
+    tag: `${SCAFFOLD_NAME}@${scaffoldPkg.version}`,
+    versionFile: 'packages/create-vimp-game/package.json',
+    versionNeedle: `"version": "${scaffoldPkg.version}"`,
   });
 
   const cratePaths = ['packages/engine/core'];
@@ -296,12 +345,29 @@ export async function collect(root) {
 
   const enginePaths = enginePkg.files.map(entry => `packages/engine/${entry}`);
 
+  if (!Array.isArray(scaffoldPkg.files) || scaffoldPkg.files.length === 0) {
+    throw new Error(
+      'в packages/create-vimp-game/package.json нет непустого поля files — по нему определяется скоуп пакета',
+    );
+  }
+
+  // scripts/ в files не входит, но write-versions.js пишет файл, который
+  // уезжает в тарбол: правка хука меняет опубликованное содержимое
+  const scaffoldPaths = [
+    ...scaffoldPkg.files.map(entry => `packages/create-vimp-game/${entry}`),
+    'packages/create-vimp-game/scripts',
+  ];
+
   const crateChangelog = await readFile(
     path.join(engineDir, 'core', 'CHANGELOG.md'),
     'utf8',
   );
   const engineChangelog = await readFile(
     path.join(engineDir, 'CHANGELOG.md'),
+    'utf8',
+  );
+  const scaffoldChangelog = await readFile(
+    path.join(scaffoldDir, 'CHANGELOG.md'),
     'utf8',
   );
 
@@ -330,7 +396,46 @@ export async function collect(root) {
       changelogFile: 'packages/engine/CHANGELOG.md',
       unreleased: parseUnreleased(engineChangelog),
     },
+    scaffold: {
+      local: scaffoldPkg.version,
+      published: scaffoldPublished,
+      changed: await changedSince(root, scaffoldBase.ref, scaffoldPaths),
+      base: scaffoldBase,
+      changelogFile: 'packages/create-vimp-game/CHANGELOG.md',
+      unreleased: parseUnreleased(scaffoldChangelog),
+      pinsStale: await pinsStaleSince(root, scaffoldBase.ref, {
+        engine: enginePkg.version,
+        crate: crateLocal,
+      }),
+    },
   };
+}
+
+// Пины, которые prepack-хук вшивает в тарбол скаффолдера, живут в чужих
+// файлах: у самого пакета от их бампа не меняется ни строки, и трёх обычных
+// сигналов не хватает. Сравниваем версии на базовой точке скаффолдера с
+// текущими — разошлись, значит опубликованный снимок устарел.
+async function pinsStaleSince(root, ref, current) {
+  if (!ref) {
+    return false;
+  }
+
+  const [enginePkg, cargo] = await Promise.all([
+    git(root, ['show', `${ref}:packages/engine/package.json`]),
+    git(root, ['show', `${ref}:packages/engine/core/Cargo.toml`]),
+  ]);
+
+  if (!enginePkg || !cargo) {
+    return false;
+  }
+
+  const engineMatch = /"version"\s*:\s*"([^"]+)"/.exec(enginePkg);
+  const crateMatch = /^version\s*=\s*"([^"]+)"/m.exec(cargo);
+
+  return (
+    (engineMatch !== null && engineMatch[1] !== current.engine) ||
+    (crateMatch !== null && crateMatch[1] !== current.crate)
+  );
 }
 
 // Меняли opcodes.js — но интересует именно число ENGINE_API_VERSION:

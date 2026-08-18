@@ -21,7 +21,10 @@ What it decides on its own:
   works without touching the engine. Then the propagation rules of the table
   below apply: a crate release forces every game to be rebuilt and
   republished, an `ENGINE_API_VERSION` bump makes the game **required** and
-  pushes production strictly last.
+  pushes production strictly last, and a crate or engine release makes
+  `create-vimp-game` **required** too — its `prepack` hook stamps those two
+  versions into the tarball, so a scaffolder left behind quietly generates
+  games on stale pins.
 - **Which version to suggest** — from the sub-headings of `[Unreleased]`, a
   closed list that fixes the level while the code is written; see
   [Changelog headings set the version](#changelog-headings-set-the-version).
@@ -54,7 +57,7 @@ outgoing commits and asks for an explicit confirmation, because that push
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | prints and checks everything, publishes and commits nothing |
-| `--only=crate,engine,games,prod` | a subset of the steps |
+| `--only=crate,engine,scaffold,games,prod` | a subset of the steps |
 | `--game=<path>` | a game for non-interactive runs (repeatable) |
 | `--relink` | only restore the local links and exit (after a `SIGKILL`); works offline — it asks no registry |
 | `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` is still asked |
@@ -70,7 +73,7 @@ by hand.
 
 ## The artifacts
 
-Four artifacts ship independently, and they depend on each other in one
+Five artifacts ship independently, and they depend on each other in one
 fixed order:
 
 - **`vimp-engine-core`** — the Rust crate on crates.io
@@ -78,12 +81,18 @@ fixed order:
 - **`vimp-engine`** — the engine package on npm (`packages/engine`, exactly
   the paths listed in its `files`: `src/lib`, `src/config`, `src/host`,
   `src/client`, `src/standalone`, `src/devtools`, `tests/fixtures`, `bin`);
+- **`create-vimp-game`** — the scaffolder on npm
+  (`packages/create-vimp-game`, the paths in its `files`: `bin`, `src`,
+  `templates`), the package behind `npm create vimp-game`;
 - **`@vimp-games/tanks`** — the game plugin on npm, built and published from
   the separate [vimp-tanks](https://github.com/lgick/vimp-tanks) repository;
 - **the master server** — a Docker image built by CI and deployed to every
   VPS in `SERVERS_MATRIX` (see [deployment.md](deployment.md)).
 
-## Why the order is crate → engine → game → production
+`packages/auth` is not on this list: it is `private: true` and never reaches
+npm — for it, the production deploy is the whole release.
+
+## Why the order is crate → engine → scaffolder → game → production
 
 ```
 vimp-engine-core (crates.io)
@@ -94,30 +103,47 @@ vimp-engine (npm)
       │  the game keeps it in devDependencies, and
       │  scripts/build-game-manifest.js reads ENGINE_API_VERSION from the
       │  installed copy to stamp dist/manifest.json
-      ▼
-@vimp-games/tanks (npm)
-      │  production installs it with npm ci — the version comes from
+      ├─────────────────────────────┐
+      ▼                             ▼
+@vimp-games/tanks (npm)      create-vimp-game (npm)
+      │                             the prepack hook snapshots BOTH versions
+      │                             above into src/versions.generated.json;
+      │                             the template pins them as
+      │                             vimp-engine ^X.Y.Z and
+      │                             vimp-engine-core "A.B.C"
+      │  production installs the game with npm ci — the version comes from
       │  package-lock.json in this repo
       ▼
 production (push to main → deploy.yml)
 ```
 
-Two failure modes if the order is broken: the game's WASM core silently
-builds against the previous crate release, and the manifest gets stamped
-with a stale `engineApi`, which `GameCatalog` then rejects at load time —
-the lobby comes up, but no room can be created.
+Three failure modes if the order is broken: the game's WASM core silently
+builds against the previous crate release; the manifest gets stamped with a
+stale `engineApi`, which `GameCatalog` then rejects at load time — the lobby
+comes up, but no room can be created; and the scaffolder ships a snapshot of
+the previous engine and crate, so the next `npm create vimp-game` produces a
+game pinned to versions that are already behind, which surfaces only when
+its core is built.
 
 ## What actually needs publishing
 
-| Changed | Crate | Engine on npm | Game on npm | Production |
-| --- | --- | --- | --- | --- |
-| Master, markup, deploy scripts | — | — | — | ✅ |
-| `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | — | ✅ | when convenient | ✅ |
-| `packages/engine/core/` (Rust) | ✅ | — | ✅ (rebuild against the new crate) | ✅ |
-| Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | when convenient | ✅ |
-| `ENGINE_API_VERSION` bump | — | ✅ | **required** | ✅ strictly last |
-| Game only (rules, maps, assets, game core) | — | — | ✅ | ✅ (re-pin + push) |
-| `packages/auth/` | — | — | — | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
+| Changed | Crate | Engine on npm | Scaffolder on npm | Game on npm | Production |
+| --- | --- | --- | --- | --- | --- |
+| Master, markup, deploy scripts | — | — | — | — | ✅ |
+| `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | — | ✅ | **required** (pins) | when convenient | ✅ |
+| `packages/engine/core/` (Rust) | ✅ | — | **required** (pins) | ✅ (rebuild against the new crate) | ✅ |
+| Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | when convenient | ✅ |
+| `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | **required** | ✅ strictly last |
+| Game only (rules, maps, assets, game core) | — | — | — | ✅ | ✅ (re-pin + push) |
+| `packages/create-vimp-game/{bin,src,templates,scripts}` | — | — | ✅ | — | — |
+| `packages/auth/` | — | — | — | — | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
+
+"**required** (pins)" is the scaffolder's own propagation rule: it has no
+code of its own to change, but its `prepack` hook copies the engine and crate
+versions into the published tarball, so a bump above it always means a
+republish. `npm run release` derives this on its own — and also catches the
+interrupted-run case, where the engine already went out and the scaffolder
+did not, by comparing the pins at its base point against the current ones.
 
 Anything outside the engine package's `files` list (`src/master`, views,
 `src/client/_*` scratch files) never reaches npm — for those, the production
@@ -143,6 +169,7 @@ The developer sets versions and runs the releases. Bump rules:
 | --- | --- | --- |
 | `vimp-engine-core` | `packages/engine/core/Cargo.toml` | cargo semver (`0.x`: breaking bumps the minor), plus an entry in `packages/engine/core/CHANGELOG.md` |
 | `vimp-engine` | `packages/engine/package.json` | same, plus an entry in `packages/engine/CHANGELOG.md` |
+| `create-vimp-game` | `packages/create-vimp-game/package.json` | same, plus an entry in `packages/create-vimp-game/CHANGELOG.md`; a release forced by the pins alone carries no entry and is a patch |
 | `@vimp-games/tanks` | `vimp-tanks/package.json` | same, in the game repo |
 
 A crate bump has to be repeated by hand in the game:
@@ -290,6 +317,46 @@ npm view vimp-engine version
 > simply gets the new engine before the new plugin — but when
 > `ENGINE_API_VERSION` changed, hold the push until step C, otherwise the
 > deployed master rejects the plugin version it still pins.
+
+## Step A3: publish `create-vimp-game` on npm
+
+Runs **after** A1 and A2, never before: the `prepack` hook
+(`packages/create-vimp-game/scripts/write-versions.js`) reads the *local*
+`packages/engine/package.json` and `packages/engine/core/Cargo.toml` — the
+files those two steps have just bumped — and writes the snapshot to
+`src/versions.generated.json`, which is what the template's
+`{{ENGINE_VERSION}}` / `{{CORE_VERSION}}` resolve to outside the monorepo.
+Publishing earlier stamps the previous versions into the tarball.
+
+```bash
+cd vimp
+
+# 1. Full check — the E2E is the only one that actually unpacks the
+#    template and builds its core (cargo + wasm-pack, minutes)
+npx eslint .
+npm test
+npm run test:scaffold
+
+# 2. Version + changelog, by hand:
+#    packages/create-vimp-game/package.json,
+#    packages/create-vimp-game/CHANGELOG.md
+npm install
+git add -A && git commit -m "chore: bump create-vimp-game to X.Y.Z"
+
+# 3. Publish
+npm publish -w create-vimp-game --dry-run   # prepack prints the pins it stamped
+npm publish -w create-vimp-game
+git tag create-vimp-game@X.Y.Z && git push origin create-vimp-game@X.Y.Z
+
+# 4. Verify — the pins must match what A1/A2 published
+npm view create-vimp-game version
+npm create vimp-game@latest /tmp/pin-check -- --yes
+grep vimp-engine /tmp/pin-check/package.json /tmp/pin-check/Cargo.toml
+```
+
+`src/versions.generated.json` is gitignored — `prepack` writing it does not
+dirty the tree. When the scaffolder rides along only because of a pin bump,
+its `[Unreleased]` is empty, nothing is dated, and the release is a patch.
 
 ## Step B: publish `@vimp-games/tanks`
 

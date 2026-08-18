@@ -14,9 +14,10 @@ npm create vimp-game my-game
 ```
 
 Генератор живёт в этом репозитории в `packages/create-vimp-game/` и
-публикуется отдельно от `vimp-engine` (`npm publish -w create-vimp-game`); у
-него нет рантайм-зависимостей, поэтому `npm create` не тянет дерево пакетов
-перед первым вопросом.
+публикуется как самостоятельный npm-артефакт через `npm run release` — см.
+[publishing.md → Шаг A3](publishing.md#шаг-a3-публикация-create-vimp-game-в-npm);
+у него нет рантайм-зависимостей, поэтому `npm create` не тянет дерево
+пакетов перед первым вопросом.
 
 ## Команда
 

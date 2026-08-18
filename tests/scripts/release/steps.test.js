@@ -9,6 +9,7 @@ import {
   checkTarball,
   checkManifest,
   gameCommitPaths,
+  publishScaffold,
 } from '../../../scripts/release/steps.js';
 
 let root;
@@ -142,6 +143,107 @@ describe('gameCommitPaths', () => {
     await mkdir(dir, { recursive: true });
 
     expect(await gameCommitPaths(dir)).not.toContain('package-lock.json');
+  });
+});
+
+// Скаффолдер уезжает в npm вместе с движком: prepack вшивает в его тарбол
+// версии из packages/engine, и шаг обязан гнать E2E — unit-тесты шаблон не
+// собирают, сломанный он всплыл бы у пользователя на `npm create vimp-game`.
+describe('publishScaffold', () => {
+  function recordingShell(dryRun = true) {
+    const calls = [];
+
+    return {
+      dryRun,
+      calls,
+      check: async (label, command, args) => {
+        calls.push(`check ${command} ${args.join(' ')}`);
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      },
+      read: async (command, args) => {
+        calls.push(`read ${command} ${args.join(' ')}`);
+        // код 1 у `diff --cached --quiet` = есть что коммитить
+        return { code: 1, stdout: '', stderr: '', output: '' };
+      },
+      write: async (command, args) => {
+        calls.push(`write ${command} ${args.join(' ')}`);
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      },
+      publish: async (command, args) => {
+        calls.push(`publish ${command} ${args.join(' ')}`);
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      },
+    };
+  }
+
+  let scaffoldRoot;
+
+  beforeAll(async () => {
+    scaffoldRoot = await mkdtemp(path.join(tmpdir(), 'vimp-scaffold-'));
+    const dir = path.join(scaffoldRoot, 'packages', 'create-vimp-game');
+
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'create-vimp-game', version: '0.1.0' }, null, 2),
+    );
+    await writeFile(
+      path.join(dir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- что-то\n',
+    );
+  });
+
+  afterAll(async () => {
+    await rm(scaffoldRoot, { recursive: true, force: true });
+  });
+
+  it('гоняет eslint, тесты и E2E до публикации', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [] };
+
+    await publishScaffold({
+      shell,
+      root: scaffoldRoot,
+      decision: { target: '0.1.1', bump: true },
+      report,
+    });
+
+    const checks = shell.calls.filter(call => call.startsWith('check '));
+
+    expect(checks).toEqual([
+      'check npx eslint .',
+      'check npm test -- --reporter=dot',
+      'check npm run test:scaffold',
+      'check npm publish -w create-vimp-game --dry-run',
+    ]);
+
+    const publishAt = shell.calls.findIndex(call => call.startsWith('publish '));
+
+    expect(publishAt).toBeGreaterThan(
+      shell.calls.indexOf('check npm run test:scaffold'),
+    );
+    expect(shell.calls[publishAt]).toBe('publish npm publish -w create-vimp-game');
+  });
+
+  it('коммитит только свои файлы и ставит именованный тег', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [] };
+
+    await publishScaffold({
+      shell,
+      root: scaffoldRoot,
+      decision: { target: '0.1.1', bump: true },
+      report,
+    });
+
+    expect(shell.calls).toContain(
+      'write git add -- packages/create-vimp-game/package.json packages/create-vimp-game/CHANGELOG.md package-lock.json',
+    );
+    expect(shell.calls).toContain('write git tag create-vimp-game@0.1.1');
+    expect(report.published).toEqual(['create-vimp-game@0.1.1 (npm)']);
+    expect(report.tags).toEqual([
+      { repo: scaffoldRoot, name: 'create-vimp-game@0.1.1' },
+    ]);
   });
 });
 
