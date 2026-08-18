@@ -54,8 +54,22 @@ describe('версии репозитория', () => {
 });
 
 describe('versions.generated.json', () => {
-  it('совпадает с фактическими версиями репозитория', async () => {
-    const generated = JSON.parse(await readFile(GENERATED_FILE, 'utf8'));
+  // Файл генерируемый и под .gitignore: в свежем клоне и в CI после `npm ci`
+  // его нет — писать его умеет только хук prepack. Отсутствие проверять
+  // нечего, а вот несовпадение — это ровно та устаревшая пара пинов, из-за
+  // которой тест и заведён.
+  it('совпадает с фактическими версиями репозитория, если снимок снят', async () => {
+    let generated;
+
+    try {
+      generated = JSON.parse(await readFile(GENERATED_FILE, 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
+
+      return;
+    }
 
     expect(generated).toEqual(await readRepoVersions());
   });

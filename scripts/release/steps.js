@@ -287,6 +287,17 @@ export async function publishScaffold({ shell, root, decision, report }) {
 
   ui.log(`скаффолдер ${SCAFFOLD_NAME}: релиз ${target}`);
 
+  // Снимок пинов пишет хук prepack — но он сработает только на publish, уже
+  // после проверок. Шаг A2 к этому моменту поднял версию движка, и
+  // tests/scaffold/versions.test.js, сверяющий снимок с версиями
+  // репозитория, упал бы на разнице. Пишем снимок сейчас: тогда и `npm test`,
+  // и E2E судят шаблон по тем самым пинам, которые уедут в тарбол.
+  await shell.write(
+    'node',
+    ['packages/create-vimp-game/scripts/write-versions.js'],
+    { cwd: root },
+  );
+
   await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: root });
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
     cwd: root,
@@ -313,9 +324,13 @@ export async function publishScaffold({ shell, root, decision, report }) {
     dryRun: shell.dryRun,
   });
 
+  // versions.generated.json под версионным контролем: без него в списке
+  // снимок пинов остался бы незакоммиченной правкой, и preflight следующего
+  // релиза упёрся бы в «рабочее дерево не чистое»
   await commit(shell, root, `chore: bump ${SCAFFOLD_NAME} to ${target}`, [
     'packages/create-vimp-game/package.json',
     'packages/create-vimp-game/CHANGELOG.md',
+    'packages/create-vimp-game/src/versions.generated.json',
     'package-lock.json',
   ]);
 

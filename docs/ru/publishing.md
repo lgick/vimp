@@ -333,32 +333,39 @@ npm view vimp-engine version
 ```bash
 cd vimp
 
-# 1. Полная проверка — E2E единственный, кто реально разворачивает шаблон
+# 1. Сначала обновить снимок пинов — prepack сделал бы это только на
+#    publish, а tests/scaffold/versions.test.js сверяет снимок с версией
+#    движка, которую шаг A2 только что поднял
+node packages/create-vimp-game/scripts/write-versions.js
+
+# 2. Полная проверка — E2E единственный, кто реально разворачивает шаблон
 #    и собирает его ядро (cargo + wasm-pack, минуты)
 npx eslint .
 npm test
 npm run test:scaffold
 
-# 2. Версия и changelog, руками:
+# 3. Версия и changelog, руками:
 #    packages/create-vimp-game/package.json,
 #    packages/create-vimp-game/CHANGELOG.md
 npm install
 git add -A && git commit -m "chore: bump create-vimp-game to X.Y.Z"
 
-# 3. Публикация
+# 4. Публикация
 npm publish -w create-vimp-game --dry-run   # prepack печатает вшитые пины
 npm publish -w create-vimp-game
 git tag create-vimp-game@X.Y.Z && git push origin create-vimp-game@X.Y.Z
 
-# 4. Проверка — пины должны совпасть с тем, что опубликовали A1/A2
+# 5. Проверка — пины должны совпасть с тем, что опубликовали A1/A2
 npm view create-vimp-game version
 npm create vimp-game@latest /tmp/pin-check -- --yes
 grep vimp-engine /tmp/pin-check/package.json /tmp/pin-check/Cargo.toml
 ```
 
-`src/versions.generated.json` под `.gitignore` — `prepack` дерево не
-пачкает. Когда скаффолдер едет только из-за бампа пинов, его `[Unreleased]`
-пуста, датировать нечего, и релиз уходит патчем.
+`src/versions.generated.json` под версионным контролем, поэтому снимок
+уезжает в релизный коммит — без него следующий релиз упрётся в «рабочее
+дерево не чистое»: `prepack` всё равно перезапишет файл на `npm publish`.
+Когда скаффолдер едет только из-за бампа пинов, его `[Unreleased]` пуста,
+датировать нечего, и релиз уходит патчем.
 
 ## Шаг B: публикация `@vimp-games/tanks`
 

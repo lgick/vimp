@@ -217,6 +217,12 @@ describe('publishScaffold', () => {
       'check npm publish -w create-vimp-game --dry-run',
     ]);
 
+    // снимок пинов снимается ДО проверок: шаг A2 уже поднял версию движка,
+    // и versions.test.js сверяет снимок именно с ней
+    expect(shell.calls.indexOf(
+      'write node packages/create-vimp-game/scripts/write-versions.js',
+    )).toBeLessThan(shell.calls.indexOf('check npx eslint .'));
+
     const publishAt = shell.calls.findIndex(call => call.startsWith('publish '));
 
     expect(publishAt).toBeGreaterThan(
@@ -237,7 +243,7 @@ describe('publishScaffold', () => {
     });
 
     expect(shell.calls).toContain(
-      'write git add -- packages/create-vimp-game/package.json packages/create-vimp-game/CHANGELOG.md package-lock.json',
+      'write git add -- packages/create-vimp-game/package.json packages/create-vimp-game/CHANGELOG.md packages/create-vimp-game/src/versions.generated.json package-lock.json',
     );
     expect(shell.calls).toContain('write git tag create-vimp-game@0.1.1');
     expect(report.published).toEqual(['create-vimp-game@0.1.1 (npm)']);

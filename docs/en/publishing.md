@@ -338,32 +338,40 @@ Publishing earlier stamps the previous versions into the tarball.
 ```bash
 cd vimp
 
-# 1. Full check — the E2E is the only one that actually unpacks the
+# 1. Refresh the pin snapshot FIRST — prepack would only do it at publish
+#    time, and tests/scaffold/versions.test.js compares it against the
+#    engine version step A2 has just bumped
+node packages/create-vimp-game/scripts/write-versions.js
+
+# 2. Full check — the E2E is the only one that actually unpacks the
 #    template and builds its core (cargo + wasm-pack, minutes)
 npx eslint .
 npm test
 npm run test:scaffold
 
-# 2. Version + changelog, by hand:
+# 3. Version + changelog, by hand:
 #    packages/create-vimp-game/package.json,
 #    packages/create-vimp-game/CHANGELOG.md
 npm install
 git add -A && git commit -m "chore: bump create-vimp-game to X.Y.Z"
 
-# 3. Publish
+# 4. Publish
 npm publish -w create-vimp-game --dry-run   # prepack prints the pins it stamped
 npm publish -w create-vimp-game
 git tag create-vimp-game@X.Y.Z && git push origin create-vimp-game@X.Y.Z
 
-# 4. Verify — the pins must match what A1/A2 published
+# 5. Verify — the pins must match what A1/A2 published
 npm view create-vimp-game version
 npm create vimp-game@latest /tmp/pin-check -- --yes
 grep vimp-engine /tmp/pin-check/package.json /tmp/pin-check/Cargo.toml
 ```
 
-`src/versions.generated.json` is gitignored — `prepack` writing it does not
-dirty the tree. When the scaffolder rides along only because of a pin bump,
-its `[Unreleased]` is empty, nothing is dated, and the release is a patch.
+`src/versions.generated.json` is under version control, so the snapshot goes
+into the release commit — leave it out and the next release stops at
+"working tree is not clean", because `prepack` rewrites it during
+`npm publish` anyway. When the scaffolder rides along only because of a pin
+bump, its `[Unreleased]` is empty, nothing is dated, and the release is a
+patch.
 
 ## Step B: publish `@vimp-games/tanks`
 
