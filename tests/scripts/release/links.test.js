@@ -19,9 +19,9 @@ describe('buildLinkPlan', () => {
     );
 
     expect(plan.unlink.map(step => step.args.join(' '))).toEqual([
-      'unlink @vimp-games/tanks',
+      'unlink --no-save @vimp-games/tanks',
       'install',
-      'unlink vimp-engine',
+      'unlink --no-save vimp-engine',
       'install',
     ]);
 
@@ -52,5 +52,31 @@ describe('buildLinkPlan', () => {
 
     expect(plan.unlink.map(step => step.cwd)).toEqual(['/sf', '/sf']);
     expect(plan.relink.map(step => step.cwd)).toEqual(['/vimp/packages/engine', '/sf']);
+  });
+
+  // `npm unlink` без --no-save = `npm uninstall`: он выносит зависимость из
+  // package.json и package-lock.json, а `npm link` обратно её не пишет. Так
+  // релиз унёс из корня @vimp-games/tanks, и в коммит уехал lock без
+  // плагина — а прод ставит его именно из lock (`npm ci`).
+  it('снимает линк, не трогая манифест', () => {
+    const plan = buildLinkPlan(
+      [
+        {
+          name: '@vimp-games/tanks',
+          dir: '/vimp-tanks',
+          gameLinked: true,
+          engineLinked: true,
+        },
+      ],
+      paths,
+    );
+
+    const unlinks = plan.unlink.filter(step => step.args[0] === 'unlink');
+
+    expect(unlinks).toHaveLength(2);
+
+    for (const step of unlinks) {
+      expect(step.args).toContain('--no-save');
+    }
   });
 });

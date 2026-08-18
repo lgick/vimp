@@ -238,15 +238,22 @@ scratch-файлы `src/client/_*`), в npm не попадает вовсе —
 
 ```bash
 cd vimp
-npm unlink @vimp-games/tanks         # снимает симлинк (uninstall --no-save)
-npm install                          # вернуть регистри-копию по lock-файлу
-npm ls @vimp-games/tanks             # в выводе нет "-> ./../vimp-tanks"
+npm unlink --no-save @vimp-games/tanks   # снимает симлинк, манифест не трогает
+npm install                              # вернуть регистри-копию по lock-файлу
+npm ls @vimp-games/tanks                 # в выводе нет "-> ./../vimp-tanks"
 
 cd ../vimp-tanks
-npm unlink vimp-engine
+npm unlink --no-save vimp-engine
 npm install
-npm ls vimp-engine                   # нет "-> ./../vimp/packages/engine"
+npm ls vimp-engine                       # нет "-> ./../vimp/packages/engine"
 ```
+
+> ⚠️ **`--no-save` не опционален.** `npm unlink <pkg>` — алиас
+> `npm uninstall`, поэтому без флага он заодно удаляет зависимость из
+> `package.json` **и** `package-lock.json`, а `npm link` шага D обратно её
+> не пишет. В `vimp` так молча пропадает `@vimp-games/tanks` — а прод
+> ставит плагин именно из этого lock-файла (`npm ci`), то есть пропажа
+> уезжает в релизный коммит.
 
 Rust-сторона: `vimp-tanks/core/Cargo.toml` обязан зависеть от
 `vimp-engine-core` по версии, и ни в одном `Cargo.toml` не должно остаться

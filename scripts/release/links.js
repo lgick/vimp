@@ -44,6 +44,12 @@ export async function observeLinks(root, games) {
 
 // Из наблюдаемого состояния — два списка шагов. Ничего не выполняется:
 // шаги отдаются оркестратору, поэтому логика проверяема тестами.
+//
+// `npm unlink <pkg>` — алиас `npm uninstall`: он снимает не только симлинк,
+// но и запись из package.json с package-lock.json, а обратно `npm link` её
+// не пишет. Без --no-save релиз уносил из корня `@vimp-games/tanks`, и в
+// коммит шага уезжал lock без плагина — прод ставит его именно оттуда
+// (`npm ci`). Флаг обязателен на обеих сторонах пары.
 export function buildLinkPlan(observed, { root, engineDir }) {
   const unlink = [];
   const relink = [];
@@ -54,7 +60,7 @@ export function buildLinkPlan(observed, { root, engineDir }) {
         label: `unlink ${entry.name}`,
         cwd: root,
         command: 'npm',
-        args: ['unlink', entry.name],
+        args: ['unlink', '--no-save', entry.name],
       });
       unlink.push({
         label: `npm install (vimp)`,
@@ -69,7 +75,7 @@ export function buildLinkPlan(observed, { root, engineDir }) {
         label: `unlink vimp-engine в ${entry.name}`,
         cwd: entry.dir,
         command: 'npm',
-        args: ['unlink', 'vimp-engine'],
+        args: ['unlink', '--no-save', 'vimp-engine'],
       });
       unlink.push({
         label: `npm install (${entry.name})`,

@@ -243,15 +243,22 @@ release build, in both repositories:
 
 ```bash
 cd vimp
-npm unlink @vimp-games/tanks         # drops the symlink (uninstall --no-save)
-npm install                          # restore the registry copy from the lockfile
-npm ls @vimp-games/tanks             # no "-> ./../vimp-tanks" in the output
+npm unlink --no-save @vimp-games/tanks   # drops the symlink, keeps the manifest
+npm install                              # restore the registry copy from the lockfile
+npm ls @vimp-games/tanks                 # no "-> ./../vimp-tanks" in the output
 
 cd ../vimp-tanks
-npm unlink vimp-engine
+npm unlink --no-save vimp-engine
 npm install
-npm ls vimp-engine                   # no "-> ./../vimp/packages/engine"
+npm ls vimp-engine                       # no "-> ./../vimp/packages/engine"
 ```
+
+> ⚠️ **`--no-save` is not optional.** `npm unlink <pkg>` is an alias of
+> `npm uninstall`, so without the flag it also deletes the dependency from
+> `package.json` **and** `package-lock.json`, and the `npm link` of step D
+> does not write it back. In `vimp` that silently drops
+> `@vimp-games/tanks` — and production installs the plugin from exactly that
+> lockfile (`npm ci`), so the loss rides into the release commit.
 
 Rust side: `vimp-tanks/core/Cargo.toml` must depend on `vimp-engine-core`
 by version, and neither `Cargo.toml` may carry a `[patch.crates-io]`
