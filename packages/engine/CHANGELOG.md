@@ -9,6 +9,15 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- `master:games` entries are now `{id, package}`: the `version` field was
+  never read — `GameCatalog` resolves the plugin through `node_modules/` and
+  takes its version from the package's own `dist/manifest.json`, so the pin
+  lives in the root `package.json`. An entry that still carries `version` is
+  ignored, not rejected, so an existing `GAMES_MATRIX` keeps working
+  (`src/config/master.js`).
+
 ## [0.10.1] — 2026-08-18
 
 ### Fixed

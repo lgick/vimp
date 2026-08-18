@@ -320,7 +320,9 @@ proxy_set_header X-Real-IP $remote_addr;
    на сборке образа поставил его и застейджил `dist/`.
 2. Задать переменную репозитория `GAMES_MATRIX` (Settings → Secrets and
    variables → Actions → Variables) полным JSON-массивом, например
-   `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.4.1"},{"id":"<id>","package":"@vimp-games/<id>","version":"X.Y.Z"}]`
+   `[{"id":"tanks","package":"@vimp-games/tanks"},{"id":"<id>","package":"@vimp-games/<id>"}]`
+   — версию плагина фиксирует корневой `package.json`, переменная лишь
+   перечисляет пакеты, которые попадают в каталог
    — она **заменяет** дефолтный массив целиком, поэтому `tanks` тоже нужно
    перечислить, если он должен остаться. Все мастера читают одну и ту же
    переменную (единый каталог для всех доменов из `SERVERS_MATRIX`) —

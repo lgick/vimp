@@ -99,7 +99,7 @@ IP хоста и служебные поля наружу не отдаются.
 
 Каталог `GameManifest` (`GameCatalog`, Этап A2 — см.
 [plugin-api.md](plugin-api.md#gamemanifest)): при старте мастера резолвит
-список игр из конфига `master:games` (`{id, package, version}[]`, см.
+список игр из конфига `master:games` (`{id, package}[]`, см.
 [configuration.md](configuration.md#packagesenginesrcconfigmasterjs), переопределяется в
 проде переменной окружения `GAMES_MATRIX`) в пакеты `node_modules/` (до
 разъезда репозиториев — workspace-симлинк на `games/<id>`, после — обычная

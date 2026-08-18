@@ -59,7 +59,7 @@ instead of a raw resolver failure.
 | `VIMP_DEDICATED_GAME` | game id from `master:games`; also the switch that selects this role |
 | `VIMP_MASTER_PORT` | HTTP + WebSocket port (default `3002`) |
 | `VIMP_DOMAIN` | production domain — used for `Origin` validation |
-| `GAMES_MATRIX` | JSON `[{id, package, version}]`, the game catalog (same format as the master's) |
+| `GAMES_MATRIX` | JSON `[{id, package}]`, the game catalog (same format as the master's) |
 | `VIMP_DEDICATED_ROOM` | JSON room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
 
 Unlike the lobby master, the dedicated server reads these **in development

@@ -112,8 +112,8 @@ round trip sets it; a blocked hoster can't register a room at all, so a
 
 The `GameManifest` catalog (`GameCatalog`, Stage A2 — see
 [plugin-api.md](plugin-api.md#gamemanifest)):
-at master startup, resolves the `master:games` config list (`{id, package,
-version}[]`, see [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
+at master startup, resolves the `master:games` config list (`{id, package}[]`,
+see [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
 overridable in production via the `GAMES_MATRIX` env var) to packages under
 `node_modules/` (a workspace symlink onto `games/<id>` until the repos split,
 an ordinary dependency after) and reads `<package>/dist/manifest.json` (built

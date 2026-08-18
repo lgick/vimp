@@ -27,7 +27,7 @@ export function applyMasterEnv(config, env = process.env) {
   }
 
   // список игр-плагинов мастера (Этап A2), по образцу остальных *_MATRIX
-  // env-переопределений — JSON-массив {id, package, version}
+  // env-переопределений — JSON-массив {id, package}
   if (env.GAMES_MATRIX) {
     config.set('master:games', JSON.parse(env.GAMES_MATRIX));
   }

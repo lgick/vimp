@@ -423,7 +423,9 @@ triggers the deploy:
    build's `npm ci` installs it and stages its `dist/`.
 2. Set the `GAMES_MATRIX` repository variable (Settings → Secrets and
    variables → Actions → Variables) to the full JSON array, e.g.
-   `[{"id":"tanks","package":"@vimp-games/tanks","version":"0.4.1"},{"id":"<id>","package":"@vimp-games/<id>","version":"X.Y.Z"}]`
+   `[{"id":"tanks","package":"@vimp-games/tanks"},{"id":"<id>","package":"@vimp-games/<id>"}]`
+   — the plugin version is pinned by the root `package.json`, the variable
+   only lists which packages the catalog exposes
    — it **replaces** the default array, so `tanks` must be listed too if it
    should stay. Every master reads the same variable (one catalog for all
    domains in `SERVERS_MATRIX`); there is no per-server override.

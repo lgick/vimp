@@ -22,11 +22,11 @@ export default {
   // `package` — имя npm-пакета игры, резолвится через node_modules; пакет
   // объявлен зависимостью в корневом package.json репозитория (деплой-уровень),
   // не в packages/engine — vimp-engine остаётся game-agnostic и не тянет
-  // конкретную игру за собой (кодревью Этапов A, находка F1). `version` не
-  // используется GameCatalog напрямую, это опорная точка для проверки версии
-  // при деплое (Этап A4). В проде переопределяется переменной окружения
-  // GAMES_MATRIX (JSON), см. master/main.js
-  games: [{ id: 'tanks', package: '@vimp-games/tanks', version: '0.1.0' }],
+  // конкретную игру за собой (кодревью Этапов A, находка F1). Версию задаёт
+  // именно эта зависимость, каталог берёт её из dist/manifest.json пакета.
+  // В проде список переопределяется переменной окружения GAMES_MATRIX (JSON),
+  // см. master/main.js
+  games: [{ id: 'tanks', package: '@vimp-games/tanks' }],
 
   // список серверов (GET /servers)
   servers: {

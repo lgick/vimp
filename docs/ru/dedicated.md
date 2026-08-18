@@ -58,7 +58,7 @@ nodemon: здесь хост крутится в этом же процессе,
 | `VIMP_DEDICATED_GAME` | id игры из `master:games`; она же переключатель роли |
 | `VIMP_MASTER_PORT` | порт HTTP + WebSocket (по умолчанию `3002`) |
 | `VIMP_DOMAIN` | прод-домен — используется при проверке `Origin` |
-| `GAMES_MATRIX` | JSON `[{id, package, version}]`, каталог игр (формат мастера) |
+| `GAMES_MATRIX` | JSON `[{id, package}]`, каталог игр (формат мастера) |
 | `VIMP_DEDICATED_ROOM` | JSON с настройками комнаты: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
 
 В отличие от лобби-мастера dedicated-сервер читает их **и в dev**
