@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-08-18
+
 ### Fixed
 
 - `roundTo2Decimals` JSDoc example referenced a nonexistent `round(value,
@@ -571,6 +573,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.10.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.10.1
 [0.10.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.10.0
 [0.9.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.9.0
 [0.8.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.8.0
