@@ -98,7 +98,9 @@ console.info('Master Server Settings:');
 console.info(`-> Domain: ${config.get('master:domain')}`);
 console.info(`-> Port: ${config.get('master:port')}`);
 console.info(`-> Region threshold: ${config.get('master:servers:regionThreshold')}`);
-console.info(`-> Max players per host: ${config.get('master:host:maxPlayersLimit')}`);
+console.info(
+  `-> Max players per host: declared by the game (roomDefaults.maxPlayers); ${config.get('master:host:maxPlayersLimit')} for an unknown game`,
+);
 console.info(
   `-> Host rating range: [${config.get('master:rating:min')}..${config.get('master:rating:max')}], blockAt: ${config.get('master:rating:blockAt')}`,
 );
@@ -128,6 +130,9 @@ const registry = new HostRegistry({
   maxLimit: config.get('master:servers:maxLimit'),
   maxNameLength: config.get('master:host:maxNameLength'),
   maxPlayersLimit: config.get('master:host:maxPlayersLimit'),
+  // потолок комнаты объявляет игра — тот же манифест каталога, из которого
+  // лобби берёт roomDefaults формы комнаты
+  gameMaxPlayers: id => gameCatalog.getManifest(id)?.roomDefaults?.maxPlayers,
 });
 
 // каталог worker-бандла (Этап 5.2): версия кода комнаты для эстафеты

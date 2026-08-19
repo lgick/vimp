@@ -11,6 +11,29 @@ bumps the minor version).
 
 ### Added
 
+- Pointer input (mouse, finger, stylus) as an engine primitive, opt-in per
+  game through `modules.controls.pointer` (`keySets`, `doubleTapMs`,
+  `doubleTapPx`, `sendIntervalMs`). `InputListener` now also listens to
+  Pointer Events — one set covering mouse, finger and stylus, which is what
+  makes a game playable on a phone (touch events did not exist here at all)
+  — `ControlsModel` recognises the double tap itself (`dblclick` is not
+  guaranteed on touch) and gates the channel exactly like the keys (input
+  disabled, an open `chat`/`stat`/`vote`, a key set outside `keySets` — each
+  mutes it and releases a held pointer), `CanvasManagerView.toWorld` turns
+  the screen point into a world point (canvas of
+  `modules.canvasManager.pointerCanvas`, the first one by default), and it
+  travels the existing `KEYS_DATA` port as `'seq:aim:x:y:flags'` next to the
+  byte-for-byte unchanged `'seq:action:name'`, reaching the core through
+  `GameCoreAdapter.applyAim` / `ClientCore.apply_aim`. A game that does not
+  declare `pointer` attaches no listener and sends nothing;
+  `ENGINE_API_VERSION` is unchanged, because a core without the new trait
+  method behaves exactly as before. Scenarios gained an `aim` op
+  (`who`, `x`, `y`, `flags`) and `DebugRecorder` records it, so pointer
+  input is replayable by `vimp-sim`. Canvases are created with
+  `touch-action: none`, so a finger on the canvas plays the game instead of
+  scrolling the page (`docs/ai/04-client-plugin.md`,
+  `docs/{en,ru}/client.md`).
+
 - The game catalog discovers itself outside production: with no
   `GAMES_MATRIX` set, every built `@vimp-games/*` package present in
   `node_modules` (an ordinary dependency or an `npm link` symlink) is added to
@@ -36,6 +59,30 @@ bumps the minor version).
   behave as before (`docs/ai/04-client-plugin.md`).
 
 ### Changed
+
+- **Breaking:** the engine no longer parses any chat command of its own.
+  `CommandProcessor` is a bare registry filled entirely from
+  `HostPlugin.chatCommands`, so `/name`, `/nr`, `/timeleft`, `/mapname` and
+  `/rank` are game code now — the same name may mean different things in two
+  games, or exist in only one of them. Everything the old handlers used is
+  still in the handler context (`roundManager`, `timerManager`,
+  `playerDataSync`, `chat`, `isDevMode`); the `create-vimp-game` scaffold
+  ships the three portable ones in `src/host/metaCommands.js`. Contract rule
+  `B7` no longer reports "engine command" shadowing and checks the shape of
+  the array instead: leading slash, a handler function, no duplicate names
+  (`src/host/meta/core/CommandProcessor.js`,
+  `src/devtools/contract/rules/b7-chat-commands.js`).
+- The room capacity is declared by the game, not capped by the master: the
+  upper bound of `maxPlayers` in `HostRegistry.add` now comes from
+  `roomDefaults.maxPlayers` of the room's game manifest, resolved through the
+  `gameMaxPlayers` option the lobby wires to `GameCatalog` — the same source
+  the lobby's room form is seeded from (`src/master/HostRegistry.js`,
+  `src/master/lobby.js`). `master:host:maxPlayersLimit` stays as the sanitary
+  bound for a room whose game the master does not know (`gameId: null` from a
+  pre-composition host, or an id outside the catalog) and keeps its default of
+  8, so nothing that was accepted before is rejected now — a room registered by
+  a known game is simply no longer clamped below what that game declares
+  (`src/config/master.js`).
 
 - Env overrides (`applyMasterEnv`) are read by the lobby master in
   development too, not only in production (`src/master/lobby.js`): the

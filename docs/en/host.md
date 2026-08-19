@@ -301,7 +301,11 @@ The host facade — module wiring + the participant lifecycle:
   module — called with the host Worker's verified nick, not a freely-typed
   name, see "Auth response" below), `removeUser`, `mapReady`,
   `firstShotReady`, `sendMap` (a proxy to RoundManager); **input** via
-  `updateKeys(gameId, 'seq:action:name')`;
+  `updateKeys(gameId, 'seq:action:name')` — the same entry point takes the
+  pointer channel as `'seq:aim:x:y:flags'` (a world point plus bit 0
+  «pressed» / bit 1 «double tap»), which reaches the core through
+  `GameCoreAdapter.applyAim`; a spectator's pointer is dropped, as their keys
+  are;
   **chat and votes** via `pushMessage` (sanitizing, `/commands` →
   CommandProcessor) and `parseVote`; bridges for `TimerManager`/`RTTManager`
   callbacks (kicks), `reportKill`, `triggerCameraShake`, `updateRTT`;
@@ -471,11 +475,13 @@ code paths — fully unifying the two into one abstraction is a future task.
   set and the panel.
 
 **CommandProcessor** — parses chat commands (messages starting with `/`).
-The engine core: `/name <nick>`, `/timeleft`, `/mapname`, `/nr` (new round,
-**dev mode only**); game commands are registered via
-`registerCommand(name, handler)` and receive the meta context —
-`handler(ctx, gameId, args)`. A game plugin can register its own commands
-this way (e.g. `vimp-tanks` registers a bot-spawn command — see that
+The engine has **no** commands of its own: it is a bare registry the game
+fills through `HostPlugin.chatCommands` → `registerCommand(name, handler)`,
+and a handler receives the meta context — `handler(ctx, gameId, args)`. The
+former engine commands `/name`, `/nr`, `/timeleft`, `/mapname` and `/rank` are
+game code now (the `create-vimp-game` scaffold ships them in
+`src/host/metaCommands.js`), so one name may mean different things — or
+nothing — in two games. A game registers its own commands the same way (e.g. `vimp-tanks` registers a bot-spawn command — see that
 plugin's own docs for its syntax); if more than one human is active, a
 vote runs instead of immediate execution (category `botManagement` for the
 tanks example). An unknown command produces a "Command not found" system

@@ -92,6 +92,11 @@ pub trait GameClientDef: Sized {
     }
 
     fn apply_input(&mut self, action: &str, key_name: &str, local_now: f64);
+
+    /// Ввод указателем: мировая точка (движок уже пересчитал экранные
+    /// координаты через камеру) и биты состояния указателя — бит 0
+    /// «прижат», бит 1 «двойной тап». Дефолт пустой, как у `GameSim`.
+    fn apply_aim(&mut self, _x: f32, _y: f32, _flags: u32, _local_now: f64) {}
     fn set_model(&mut self, model_name: &str);
     fn set_active(&mut self, active: bool);
     fn set_map(&mut self, map_json: &str) -> Result<(), String>;
@@ -270,6 +275,10 @@ impl<G: GameClientDef> ClientState<G> {
 
     pub fn apply_input(&mut self, action: &str, key_name: &str, local_now: f64) {
         self.game.apply_input(action, key_name, local_now);
+    }
+
+    pub fn apply_aim(&mut self, x: f32, y: f32, flags: u32, local_now: f64) {
+        self.game.apply_aim(x, y, flags, local_now);
     }
 
     pub fn try_action(&mut self, local_now: f64) -> Option<String> {

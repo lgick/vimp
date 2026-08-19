@@ -870,7 +870,9 @@ export default class HostGame {
     // финальная синхронизация rank/state перед уходом участника (Этап B4)
     this._playerDataSync
       .flush(gameId)
-      .catch(err => console.warn('[playerData] final flush failed:', err.message))
+      .catch(err =>
+        console.warn('[playerData] final flush failed:', err.message),
+      )
       .finally(() => this._playerDataSync.removeUser(gameId));
 
     // если не наблюдатель — удалить танк из ядра (null-маркер ставит ядро)
@@ -883,7 +885,8 @@ export default class HostGame {
     this._chat.pushSystem('USER_LEFT', [user.name]);
   }
 
-  // обновляет команды (формат wire: 'seq:action:name')
+  // обновляет команды (формат wire: 'seq:action:name', указатель —
+  // 'seq:aim:x:y:flags')
   updateKeys(gameId, keyStr) {
     const user = this._participants.get(gameId);
 
@@ -891,7 +894,33 @@ export default class HostGame {
       return;
     }
 
-    const [seq, action, name] = keyStr.split(':');
+    const [seq, action, name, aimY, aimFlags] = keyStr.split(':');
+
+    // ввод указателем: наблюдателю рулить нечем, живому актору — мировая
+    // точка и биты состояния указателя
+    if (action === 'aim') {
+      this._recorder?.noteAim(
+        gameId,
+        Number(name),
+        Number(aimY),
+        Number(aimFlags) >>> 0,
+      );
+
+      user.lastActionTime = clock.now();
+      user.lastInputSeq = Number(seq) >>> 0;
+
+      if (user.isWatching !== true) {
+        this._game.applyAim(
+          gameId,
+          user.lastInputSeq,
+          Number(name),
+          Number(aimY),
+          Number(aimFlags) >>> 0,
+        );
+      }
+
+      return;
+    }
 
     this._recorder?.noteKey(gameId, action, name);
 

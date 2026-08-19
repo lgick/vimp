@@ -198,6 +198,7 @@ Ops:
 | `join` | `who`, `team` | participant enters, a real `ClientCore` is created for them |
 | `leave` | `who` | participant leaves |
 | `key` | `who`, `action` (`down`/`up`), `name` | `HostGame.updateKeys`, and the same input is applied to that participant's client core |
+| `aim` | `who`, `x`, `y`, `flags` (default `1`) | pointer input: `HostGame.updateKeys` with `'seq:aim:x:y:flags'`, and the same point is applied to that participant's client core |
 | `chat` | `who`, `text` | `HostGame.pushMessage` (chat commands included) |
 | `vote` | `who`, `data` | `HostGame.parseVote` |
 

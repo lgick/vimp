@@ -435,9 +435,9 @@ export async function publishGame({
 
   ui.log(`игра ${game.name}: релиз ${game.target}`);
 
-  if (crateVersion) {
+  if (crateVersion && game.corePinFile) {
     await edit(
-      path.join(dir, 'core', 'Cargo.toml'),
+      path.join(dir, game.corePinFile),
       text =>
         text.replace(
           /^(\s*vimp-engine-core\s*=\s*)"[^"]+"/m,

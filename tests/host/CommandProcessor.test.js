@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import CommandProcessor from '../../packages/engine/src/host/meta/core/CommandProcessor.js';
 
-// Движковое ядро чат-команд: /name, /nr, /timeleft, /mapname, /rank +
-// регистрация игровых команд (registerCommand). Игровая /bot —
-// botCommand.test.js.
+// Своих команд у движка нет: реестр наполняет игра через
+// HostPlugin.chatCommands. Здесь проверяется только сам реестр — разбор
+// строки, передача контекста и ответ на незнакомое имя.
 
 const makeCp = (overrides = {}) =>
   new CommandProcessor({
@@ -23,61 +23,6 @@ const makeCp = (overrides = {}) =>
     isDevMode: overrides.isDevMode ?? false,
   });
 
-describe('CommandProcessor.parseCommand: движковые команды', () => {
-  it('/name делегирует смену ника RoundManager', () => {
-    const cp = makeCp();
-    cp.parseCommand('u', '/name NewName');
-    expect(cp._roundManager.changeName).toHaveBeenCalledWith('u', 'NewName');
-  });
-
-  it('/nr в dev-режиме перезапускает раунд', () => {
-    const cp = makeCp({ isDevMode: true });
-    cp.parseCommand('u', '/nr');
-    expect(cp._roundManager.initiateNewRound).toHaveBeenCalled();
-  });
-
-  it('/nr вне dev-режима не найдено', () => {
-    const cp = makeCp({ isDevMode: false });
-    cp.parseCommand('u', '/nr');
-    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith(
-      'u',
-      'COMMANDS_NOT_FOUND',
-    );
-    expect(cp._roundManager.initiateNewRound).not.toHaveBeenCalled();
-  });
-
-  it('/mapname отдаёт текущую карту', () => {
-    const cp = makeCp();
-    cp.parseCommand('u', '/mapname');
-    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith('u', ['m1']);
-  });
-
-  it('/timeleft форматирует оставшееся время', () => {
-    const cp = makeCp({ timerManager: { getMapTimeLeft: () => 65000 } });
-    cp.parseCommand('u', '/timeleft');
-    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith('u', ['01:05']);
-  });
-
-  it('/rank отдаёт ранг игрока из PlayerDataSync', () => {
-    const playerDataSync = { getRank: vi.fn(() => 5) };
-    const cp = makeCp({ playerDataSync });
-
-    cp.parseCommand('u', '/rank');
-
-    expect(playerDataSync.getRank).toHaveBeenCalledWith('u');
-    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith('u', 'RANK', [5]);
-  });
-
-  it('неизвестная команда → COMMANDS_NOT_FOUND', () => {
-    const cp = makeCp();
-    cp.parseCommand('u', '/whatever');
-    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith(
-      'u',
-      'COMMANDS_NOT_FOUND',
-    );
-  });
-});
-
 describe('CommandProcessor.registerCommand: игровые команды', () => {
   it('зарегистрированная команда получает (ctx, gameId, args)', () => {
     const cp = makeCp();
@@ -90,7 +35,17 @@ describe('CommandProcessor.registerCommand: игровые команды', () =
     expect(cp._chat.pushSystemByUser).not.toHaveBeenCalled();
   });
 
-  it('ctx — deps конструктора (доступ к мете движка)', () => {
+  it('лишние пробелы схлопываются перед разбором', () => {
+    const cp = makeCp();
+    const handler = vi.fn();
+
+    cp.registerCommand('/custom', handler);
+    cp.parseCommand('u', '/custom   3    team1');
+
+    expect(handler).toHaveBeenCalledWith(cp._ctx, 'u', ['3', 'team1']);
+  });
+
+  it('ctx — deps конструктора: игре доступна вся мета движка', () => {
     const cp = makeCp();
     const handler = vi.fn();
 
@@ -100,17 +55,46 @@ describe('CommandProcessor.registerCommand: игровые команды', () =
     const [ctx] = handler.mock.calls[0];
 
     expect(ctx.chat).toBe(cp._chat);
-    expect(ctx.roundManager).toBe(cp._roundManager);
+    expect(typeof ctx.roundManager.changeName).toBe('function');
+    expect(typeof ctx.timerManager.getMapTimeLeft).toBe('function');
+    expect(typeof ctx.playerDataSync.getRank).toBe('function');
+    expect(ctx.isDevMode).toBe(false);
   });
 
-  it('движковая команда не перекрывается зарегистрированной', () => {
+  it('бывшие движковые имена свободны для игры', () => {
+    // /name, /nr, /timeleft, /mapname, /rank больше не разбираются движком:
+    // одна и та же команда в разных играх делает разное или отсутствует
     const cp = makeCp();
     const handler = vi.fn();
 
     cp.registerCommand('/mapname', handler);
     cp.parseCommand('u', '/mapname');
 
-    expect(handler).not.toHaveBeenCalled();
-    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith('u', ['m1']);
+    expect(handler).toHaveBeenCalledWith(cp._ctx, 'u', []);
+    expect(cp._chat.pushSystemByUser).not.toHaveBeenCalled();
+  });
+
+  it('незарегистрированная команда → COMMANDS_NOT_FOUND', () => {
+    const cp = makeCp();
+
+    cp.parseCommand('u', '/timeleft');
+
+    expect(cp._chat.pushSystemByUser).toHaveBeenCalledWith(
+      'u',
+      'COMMANDS_NOT_FOUND',
+    );
+  });
+
+  it('повторная регистрация имени заменяет обработчик', () => {
+    const cp = makeCp();
+    const first = vi.fn();
+    const second = vi.fn();
+
+    cp.registerCommand('/custom', first);
+    cp.registerCommand('/custom', second);
+    cp.parseCommand('u', '/custom');
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalled();
   });
 });

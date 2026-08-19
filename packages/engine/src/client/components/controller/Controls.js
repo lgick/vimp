@@ -24,6 +24,11 @@ export default class ControlsCtrl {
     this._model.removeKey(event);
   }
 
+  // добавляет ввод указателем (мышь/палец)
+  addPointer(data) {
+    this._model.addPointer(data);
+  }
+
   // задает текущий режим
   switchMode(data) {
     this._model.setMode(data.name, data.status);

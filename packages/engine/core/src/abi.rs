@@ -95,6 +95,12 @@ macro_rules! export_game_core_abi {
                 self.state.apply_input(game_id, seq, action, key_name);
             }
 
+            /// Ввод указателем: seq + мировая точка + биты состояния
+            /// (wire-формат 'seq:aim:x:y:flags' разбирает JS-оболочка).
+            pub fn apply_aim(&mut self, game_id: u32, seq: u32, x: f32, y: f32, flags: u32) {
+                self.state.apply_aim(game_id, seq, x, y, flags);
+            }
+
             /// Шаг симуляции: фиксированные подшаги физики + ИИ ботов.
             pub fn step(&mut self, dt: f32) {
                 self.state.step(dt);
@@ -330,6 +336,12 @@ macro_rules! export_client_core_abi {
             /// предикта.
             pub fn apply_input(&mut self, action: &str, key_name: &str, local_now: f64) {
                 self.state.apply_input(action, key_name, local_now);
+            }
+
+            /// Ввод указателем: мировая точка + биты состояния — в историю
+            /// предикта.
+            pub fn apply_aim(&mut self, x: f32, y: f32, flags: u32, local_now: f64) {
+                self.state.apply_aim(x, y, flags, local_now);
             }
 
             // ***** жизненный цикл ***** //

@@ -922,6 +922,10 @@ function runModules(data) {
     modules.controls.resetCursorHideTimer.bind(modules.controls),
   );
   inputListener.publisher.on(
+    'pointerAction',
+    modules.controls.addPointer.bind(modules.controls),
+  );
+  inputListener.publisher.on(
     'resize',
     modules.canvasManager.resize.bind(modules.canvasManager),
   );
@@ -963,6 +967,25 @@ function runModules(data) {
     }
 
     sending(PC_KEYS_DATA, `${inputSeq}:${data}`);
+  });
+
+  // указатель: экранная точка -> мировая (камера и масштаб полотна знает
+  // только движок), дальше тем же портом, что и клавиши
+  controlsModel.publisher.on('aim', ({ x, y, flags }) => {
+    const world = modules.canvasManager.toWorld(x, y);
+
+    if (!world) {
+      return;
+    }
+
+    const wx = Math.round(world.x * 100) / 100;
+    const wy = Math.round(world.y * 100) / 100;
+
+    inputSeq = (inputSeq + 1) >>> 0;
+    clientCore?.apply_aim?.(wx, wy, flags, performance.now());
+
+    // формат wire: 'seq:aim:x:y:flags' рядом с 'seq:action:name'
+    sending(PC_KEYS_DATA, `${inputSeq}:aim:${wx}:${wy}:${flags}`);
   });
   chatModel.publisher.on('socket', handleChatSend);
   voteModel.publisher.on('socket', data => sending(PC_VOTE_DATA, data));

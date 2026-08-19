@@ -9,8 +9,12 @@ import { isVersion } from './semver.js';
 // человека — список ниже только сокращает ручной ввод путей.
 
 const SCOPE = '@vimp-games';
-// `vimp-engine-core = "0.3.0"` в core/Cargo.toml игры
+// `vimp-engine-core = "0.3.0"` — форма, которую умеет переписывать шаг B
 const CORE_PIN = /^\s*vimp-engine-core\s*=\s*"([^"]+)"/m;
+// Пин живёт либо прямо в крейте игры, либо (workspace-раскладка, где
+// core/Cargo.toml пишет `{ workspace = true }`) в корневом Cargo.toml —
+// порядок важен: литеральный пин в крейте перебивает workspace-овый
+const CORE_PIN_FILES = [path.join('core', 'Cargo.toml'), 'Cargo.toml'];
 
 async function readJson(file) {
   try {
@@ -122,6 +126,27 @@ export async function discoverGames(root) {
   return [...unique.values()];
 }
 
+// Где у игры лежит переписываемый пин на ядро и какой он.
+async function findCorePin(dir) {
+  for (const file of CORE_PIN_FILES) {
+    let text;
+
+    try {
+      text = await readFile(path.join(dir, file), 'utf8');
+    } catch {
+      continue;
+    }
+
+    const version = CORE_PIN.exec(text)?.[1];
+
+    if (version) {
+      return { version, file };
+    }
+  }
+
+  return { version: null, file: null };
+}
+
 // Валидация кандидата по файлам на диске (без сети и без git — состояние
 // репозитория проверяется отдельно, checkGitState).
 export async function validateGame(dir) {
@@ -172,6 +197,8 @@ export async function validateGame(dir) {
     problems.push('core/Cargo.toml не зависит от vimp-engine-core');
   }
 
+  const pin = cargo ? await findCorePin(dir) : { version: null, file: null };
+
   return {
     dir,
     name,
@@ -180,7 +207,9 @@ export async function validateGame(dir) {
     // пин на крейт: по нему видно, собрана ли игра на актуальном ядре.
     // Форма ровно та, которую умеет переписывать шаг B (steps.js), иначе
     // отставание нашлось бы, а починить его скрипт бы не смог
-    corePin: cargo ? (CORE_PIN.exec(cargo)?.[1] ?? null) : null,
+    corePin: pin.version,
+    // шаг B переписывает именно этот файл
+    corePinFile: pin.file,
     valid: problems.length === 0,
     problems,
   };

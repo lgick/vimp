@@ -258,9 +258,16 @@ Handler context:
   playerDataSync, teams, spectatorTeam, spectatorId, isDevMode }
 ```
 
-Built-in commands you must not shadow: `/name`, `/nr` (dev mode only),
-`/timeleft`, `/mapname`, `/rank`. `/like` and `/unlike` are intercepted by the
-client and go to the master — they never reach the host.
+The engine parses **no** commands of its own: `CommandProcessor` is a bare
+registry, so this array is the entire set a player can type, and the same name
+may mean different things in two games. The five the engine used to own —
+`/name` (`ctx.roundManager.changeName`), `/nr` (`initiateNewRound`, guard it
+with `ctx.isDevMode`), `/timeleft` (`ctx.timerManager.getMapTimeLeft()`),
+`/mapname` (`ctx.roundManager.currentMap`) and `/rank`
+(`ctx.playerDataSync.getRank`) — are game code now; the scaffold ships them in
+`src/host/metaCommands.js`. Registering one name twice silently drops a
+handler. `/like` and `/unlike` are intercepted by the client and go to the
+master — they never reach the host.
 
 ## `systemMessages`
 

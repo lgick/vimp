@@ -200,6 +200,7 @@ node-ядро, которого нет в опубликованном паке�
 | `join` | `who`, `team` | участник заходит, под него создаётся настоящий `ClientCore` |
 | `leave` | `who` | участник выходит |
 | `key` | `who`, `action` (`down`/`up`), `name` | `HostGame.updateKeys` плюс тот же ввод применяется к клиентскому ядру участника |
+| `aim` | `who`, `x`, `y`, `flags` (по умолчанию `1`) | ввод указателем: `HostGame.updateKeys` строкой `'seq:aim:x:y:flags'` плюс та же точка применяется к клиентскому ядру участника |
 | `chat` | `who`, `text` | `HostGame.pushMessage` (включая чат-команды) |
 | `vote` | `who`, `data` | `HostGame.parseVote` |
 

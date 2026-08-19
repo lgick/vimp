@@ -30,6 +30,39 @@ export default class CanvasManagerView {
     app.renderer.resize(sizes.width, sizes.height);
   }
 
+  // переводит экранную точку (clientX/clientY указателя) в мировую
+  //
+  // Считается по фактическому состоянию сцены, а не по копии камеры: stage
+  // уже несёт и смещение, и масштаб последнего updateCoords, а
+  // getBoundingClientRect закрывает случай, когда CSS растянул полотно
+  // не один к одному с его буфером.
+  toWorld(id, clientX, clientY) {
+    const app = this._apps[id];
+
+    if (!app) {
+      return null;
+    }
+
+    const rect = app.canvas.getBoundingClientRect();
+
+    if (!rect.width || !rect.height) {
+      return null;
+    }
+
+    const px = ((clientX - rect.left) * app.canvas.width) / rect.width;
+    const py = ((clientY - rect.top) * app.canvas.height) / rect.height;
+    const { position, scale } = app.stage;
+
+    if (!scale.x || !scale.y) {
+      return null;
+    }
+
+    return {
+      x: (px - position.x) / scale.x,
+      y: (py - position.y) / scale.y,
+    };
+  }
+
   // вычисляет координаты для отображения и обновляет полотно
   updateCoords({ id, coords, scale }) {
     const app = this._apps[id];

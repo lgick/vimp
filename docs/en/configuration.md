@@ -203,6 +203,9 @@ Adaptive scaling guarantees the same field of view on any monitor
 ahead of motion), `zoomOutFactor`/`maxZoomOut` (zooming out with speed),
 `smoothnessPosition`/`smoothnessZoom`/`smoothnessVelocity` (smoothing).
 
+**`pointerCanvas`** (game, optional) — the canvas whose coordinate system
+the pointer channel is converted into; the first declared canvas by default.
+
 Canvas names, sizes, and zoom are game-owned; e.g. `vimp-tanks` defines
 `vimp` (16:9, 5:1 zoom, dynamic camera, shake) and `radar` (150×150px,
 1:8 scale).
@@ -214,6 +217,14 @@ Canvas names, sizes, and zoom are game-owned; e.g. `vimp-tanks` defines
   switch the watched player), `[1]` — player (`w/s/a/d` — movement,
   `k/l/u` — turret, `j` — fire, `n/p` — weapon switch)). Which set is
   active is dictated by the host over port `17` (KEYSET_DATA).
+- **`pointer`** (game, optional) — the pointer channel (mouse/finger/stylus).
+  Omit it and the engine attaches no pointer listener at all. Keys:
+  `keySets` (indices of `keySetList` the channel is live in; default — all),
+  `doubleTapMs` / `doubleTapPx` (double-tap thresholds, default `300` /
+  `40`), `sendIntervalMs` (the floor between two `move` messages, default
+  `50`). The wire format is `"seq:aim:x:y:flags"` with a **world** point;
+  see [client.md](client.md) and
+  [../ai/04-client-plugin.md](../ai/04-client-plugin.md).
 - **`modes`** (engine) — UI modes: `c` — chat, `m` — vote, `tab` — stats.
 - **`cmds`** (engine) — service keys (`escape`, `enter`), with top
   priority, used within modes.

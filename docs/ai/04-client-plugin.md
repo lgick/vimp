@@ -373,6 +373,65 @@ The wire format sent to the host is `"seq:action:name"` where `action` is
 `down` or `up` and `seq` is a monotonically increasing input sequence used for
 prediction reconciliation.
 
+### Pointer input (mouse, finger, stylus)
+
+The keyboard is discrete; a game that wants «steer towards this point» needs
+a value the `action:name` string cannot hold. That is a **second, optional
+channel**, declared by the game and nothing else:
+
+```js
+modules: {
+  controls: {
+    keySetList: [ … ],
+    pointer: {
+      keySets: [1],       // key-set indices the pointer is live in
+      doubleTapMs: 300,   // second press within this — a double tap
+      doubleTapPx: 40,    // …and within this distance
+      sendIntervalMs: 50, // `move` is not sent to the host more often
+    },
+  },
+}
+```
+
+- **Omit `pointer` and nothing changes**: no listener, no wire traffic, no
+  core call. Every existing game keeps working untouched.
+- The engine listens to **Pointer Events** (`pointerdown`/`pointermove`/
+  `pointerup`/`pointercancel`), which covers mouse, finger and stylus in one
+  set — this is what makes a game playable on a phone. `dblclick` is not
+  used: touch devices do not guarantee it, so the double tap is recognised
+  from the two thresholds above.
+- The channel lives by the **same rules as the keys**: it is muted while
+  input is disabled, while `chat`/`stat`/`vote` is open, and outside the
+  declared key sets. Muting a held pointer emits a release, so a snake does
+  not keep driving while its player types in the chat.
+- The channel runs **from press to release**: a `move` with no button/finger
+  down is not sent. It is a second way to play, not a replacement — the
+  keyboard keeps working, and it is the game core that decides which source
+  wins on a step where both spoke.
+- **Coordinates are world coordinates.** The engine converts them itself
+  (`CanvasManagerView.toWorld` — the camera and the canvas scale are the
+  engine's), so the plugin gets a point in the same space as
+  `actor_position`. The canvas used for the conversion is the first one
+  declared, or `modules.canvasManager.pointerCanvas`.
+
+The wire format is `"seq:aim:x:y:flags"`, next to the unchanged
+`"seq:action:name"`. `flags` is a bit mask: **bit 0** — the pointer is
+pressed, **bit 1** — the press was the second of a double tap (it stays set
+for as long as that press is held). Both cores receive it through a trait
+method with a **default empty implementation**:
+
+```rust
+// host: vimp_engine_core::sim::GameSim
+fn apply_aim(&mut self, game_id: u32, seq: u32, x: f32, y: f32, flags: u32) {}
+// client: vimp_engine_core::client::game::GameClientDef
+fn apply_aim(&mut self, x: f32, y: f32, flags: u32, local_now: f64) {}
+```
+
+> **Prediction:** the pointer target has to reach the predictor by the same
+> path as the keys and enter the same input history. A replay that knows the
+> key mask but not the point being steered towards predicts a different
+> curve than the host simulates.
+
 Action **names** are bound to bits on the host side:
 
 ```js

@@ -518,7 +518,15 @@ What each component does:
   in [configuration.md](configuration.md#modulescanvasmanager--canvases-and-camera).
 - **Controls** — keyboard capture (`InputListener`), the active key set
   dictated by the server (port 17), `chat`/`vote`/`stat` modes, input sent
-  as `"seq:action:name"`.
+  as `"seq:action:name"`. Optionally a **pointer channel** as well (mouse,
+  finger, stylus — one set of Pointer Events): declared by the game as
+  `modules.controls.pointer`, it sends `"seq:aim:x:y:flags"` with a **world**
+  point (converted by `CanvasManagerView.toWorld`) and a bit mask — bit 0
+  «pressed», bit 1 «double tap». It obeys the same gates as the keys: input
+  disabled, an open mode or a key set outside `pointer.keySets` mutes it and
+  releases a held pointer. A game that does not declare `pointer` gets no
+  listener and no traffic — see
+  [../ai/04-client-plugin.md](../ai/04-client-plugin.md).
 - **Game** — the rendering core: `GameCtrl.parse(name, data)` creates/
   updates/removes entity instances from snapshot data through `Factory`.
 - **Chat** — message output (row/lifetime limits), the command line;
@@ -590,7 +598,10 @@ Data flow:
   already with duplicate own shots suppressed; applied through the previous
   `applyShot`. Sound and effects trigger as before, from the parts
   themselves on entity creation — there's no separate eventId dispatcher.
-- **Input**: `apply_input(action, name, now)` records predictor history;
+- **Input**: `apply_input(action, name, now)` records predictor history, and
+  `apply_aim(x, y, flags, now)` records the pointer in the same history (both
+  are trait methods; `apply_aim` has a default empty implementation, so a
+  core that ignores the pointer needs no change);
   game actions go through the `ClientPlugin.hooks.onLocalAction` hook
   (`try_fire(now)` — cooldown/ammo/pending-bomb/alive gates are internal
   to the core — returns spawn JSON for `applyGameData`;

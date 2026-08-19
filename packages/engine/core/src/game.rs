@@ -155,6 +155,11 @@ impl<G: GameDef> EngineSim<G> {
         self.sim.apply_input(game_id, seq, action, key_name);
     }
 
+    /// Ввод указателем: мировая точка + биты состояния (см. `GameSim::apply_aim`).
+    pub fn apply_aim(&mut self, game_id: u32, seq: u32, x: f32, y: f32, flags: u32) {
+        self.sim.apply_aim(game_id, seq, x, y, flags);
+    }
+
     pub fn last_input_seq(&self, game_id: u32) -> u32 {
         self.sim.last_input_seq(game_id)
     }

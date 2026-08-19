@@ -19,6 +19,11 @@ export default class CanvasManagerCtrl {
     this._model.updateCoords(x, y, cameraReset, shakeData);
   }
 
+  // экранная точка указателя -> мировая (в координатах игрового полотна)
+  toWorld(clientX, clientY) {
+    return this._view.toWorld(this._model.pointerCanvasId, clientX, clientY);
+  }
+
   // обновляет размеры
   resize(data) {
     this._model.resize(data);

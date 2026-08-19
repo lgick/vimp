@@ -30,9 +30,12 @@ What it decides on its own:
   [Changelog headings set the version](#changelog-headings-set-the-version).
   Enter accepts, or type `patch`/`minor`/`major`/an explicit version. Games
   have no changelog, so their suggestion follows the
-  crate/`ENGINE_API_VERSION` bump — or a `vimp-engine-core` pin in
-  `core/Cargo.toml` that lags behind the crate in the registry, which is what
-  an interrupted run leaves behind — and is always confirmed.
+  crate/`ENGINE_API_VERSION` bump — or a `vimp-engine-core` pin that lags
+  behind the crate in the registry, which is what an interrupted run leaves
+  behind — and is always confirmed. The pin is read from `core/Cargo.toml`,
+  and, when the crate takes it from the workspace (`{ workspace = true }`),
+  from the game's root `Cargo.toml`; the same file is the one step B
+  rewrites.
 - **Which game plugins exist on this machine** — from `npm link` symlinks,
   the global link registry and sibling directories. Every candidate is
   validated (scope, an `X.Y.Z` version, `vimp-engine` dependency,
@@ -261,7 +264,8 @@ npm ls vimp-engine                       # no "-> ./../vimp/packages/engine"
 > lockfile (`npm ci`), so the loss rides into the release commit.
 
 Rust side: `vimp-tanks/core/Cargo.toml` must depend on `vimp-engine-core`
-by version, and neither `Cargo.toml` may carry a `[patch.crates-io]`
+by version — literally, or through `[workspace.dependencies]` of the game's
+root `Cargo.toml` — and neither `Cargo.toml` may carry a `[patch.crates-io]`
 pointing at a local path. If you added one to develop the crate, remove it
 now and run `cargo update -p vimp-engine-core`.
 

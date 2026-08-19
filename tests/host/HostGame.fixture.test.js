@@ -5,6 +5,7 @@ import {
   joinTeam,
   tick,
   pressKey,
+  sendAim,
 } from './fixtureHarness.js';
 
 // Движковые тесты HostGame поверх фикстурной миниигры (Этап 7 плана
@@ -64,6 +65,29 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     const after = core.position_of(gameId);
 
     expect(after[1]).not.toBe(before[1]);
+  });
+
+  it('ввод указателем доходит до ядра мировой точкой и битами', async () => {
+    const gameId = await connectPlayer(host, { socketId: 's1' });
+
+    joinTeam(host, gameId, 'team1');
+    tick(host, 1);
+
+    sendAim(host, gameId, 12.5, -3.25, 3);
+
+    expect(core.aim_of(gameId)).toEqual({ x: 12.5, y: -3.25, flags: 3 });
+  });
+
+  it('наблюдателю указатель ядром не применяется', async () => {
+    const gameId = await connectPlayer(host, { socketId: 's1' });
+
+    joinTeam(host, gameId, 'team1');
+    tick(host, 1);
+
+    host._participants.get(gameId).isWatching = true;
+    sendAim(host, gameId, 5, 5, 1);
+
+    expect(core.aim_of(gameId)).toBeNull();
   });
 
   it('/spawn создаёт scripted-участника в единственной играющей команде', async () => {

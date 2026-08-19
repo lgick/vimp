@@ -7,7 +7,7 @@ import { validateGame } from '../../../scripts/release/games.js';
 
 let root;
 
-async function makeGame(name, { pkg, cargo }) {
+async function makeGame(name, { pkg, cargo, rootCargo }) {
   const dir = path.join(root, name);
   await mkdir(dir, { recursive: true });
 
@@ -18,6 +18,10 @@ async function makeGame(name, { pkg, cargo }) {
   if (cargo) {
     await mkdir(path.join(dir, 'core'), { recursive: true });
     await writeFile(path.join(dir, 'core', 'Cargo.toml'), cargo);
+  }
+
+  if (rootCargo) {
+    await writeFile(path.join(dir, 'Cargo.toml'), rootCargo);
   }
 
   return dir;
@@ -53,6 +57,35 @@ describe('validateGame', () => {
     expect(info.scripts.build).toBe('vite build');
     // по пину видно, на каком ядре собрана игра (decide → required)
     expect(info.corePin).toBe('0.2.1');
+    expect(info.corePinFile).toBe(path.join('core', 'Cargo.toml'));
+  });
+
+  // workspace-раскладка (snakes): крейт берёт зависимость из корня, значит и
+  // переписывать шагу B надо корневой Cargo.toml
+  it('находит пин в [workspace.dependencies] корня', async () => {
+    const dir = await makeGame('workspace-pin', {
+      pkg: validPkg,
+      cargo: '[dependencies]\nvimp-engine-core = { workspace = true }\n',
+      rootCargo:
+        '[workspace]\nmembers = ["core"]\n\n[workspace.dependencies]\nvimp-engine-core = "0.3.2"\n',
+    });
+
+    const info = await validateGame(dir);
+
+    expect(info.valid).toBe(true);
+    expect(info.corePin).toBe('0.3.2');
+    expect(info.corePinFile).toBe('Cargo.toml');
+  });
+
+  // литеральный пин в крейте перебивает корневой
+  it('предпочитает пин крейта корневому', async () => {
+    const dir = await makeGame('both-pins', {
+      pkg: validPkg,
+      cargo: '[dependencies]\nvimp-engine-core = "0.2.1"\n',
+      rootCargo: '[workspace.dependencies]\nvimp-engine-core = "0.3.2"\n',
+    });
+
+    expect((await validateGame(dir)).corePin).toBe('0.2.1');
   });
 
   // форма-таблица (`{ version = "…" }`) шагом B не переписывается, поэтому и
@@ -68,6 +101,7 @@ describe('validateGame', () => {
 
     expect(info.valid).toBe(true);
     expect(info.corePin).toBe(null);
+    expect(info.corePinFile).toBe(null);
   });
 
   it('отбраковывает плагин без core/Cargo.toml', async () => {

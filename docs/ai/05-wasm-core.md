@@ -82,6 +82,8 @@ pub trait GameSim<G: GameDef>: Sized {
     fn remove_scripted_actor(&mut self, world: &mut PhysicsWorld, game_id: u32);
 
     fn apply_input(&mut self, game_id: u32, seq: u32, action: &str, key_name: &str);
+    // pointer input (mouse/finger); default empty — opt in when you need it
+    fn apply_aim(&mut self, game_id: u32, seq: u32, x: f32, y: f32, flags: u32) {}
     fn last_input_seq(&self, game_id: u32) -> u32;
     fn is_alive(&self, game_id: u32) -> bool;
     fn actor_position(&self, world: &PhysicsWorld, game_id: u32) -> Option<[f32; 2]>;
@@ -152,6 +154,7 @@ pub trait GameClientDef: Sized {
     fn replayed_inputs(&self) -> Option<(f64, f64, usize)> { None }
 
     fn apply_input(&mut self, action: &str, key_name: &str, local_now: f64);
+    fn apply_aim(&mut self, x: f32, y: f32, flags: u32, local_now: f64) {}
     fn set_model(&mut self, model_name: &str);
     fn set_active(&mut self, active: bool);
     fn set_map(&mut self, map_json: &str) -> Result<(), String>;
@@ -205,7 +208,8 @@ write it (it parses the init JSON).
 `load_map`, `map_info`, `clear`, `spawn_actor(id, model, teamId, x, y,
 angleDeg)`, `remove_actor`, `reset_actor`, `reset_all_vitals`,
 `spawn_scripted_actor`, `remove_scripted_actor`, `remove_players_and_shots`
-(→ JSON), `apply_input(id, seq, action, keyName)`, `last_input_seq`,
+(→ JSON), `apply_input(id, seq, action, keyName)`,
+`apply_aim(id, seq, x, y, flags)`, `last_input_seq`,
 `is_alive`, `position_of`, `players_data`, `alive_players` (→ `f32[]`),
 `step(dt)`, `take_events` (→ JSON), `pack_body`, `body_has_events`,
 `pack_frame(serverTime, seq, hasCamera, camX, camY, forceReset, shake,
@@ -224,7 +228,8 @@ difference between the host's `Date.now` and the client's `performance.now`,
 **not** a latency: never use it as an RTT estimate),
 `sample(localNow) -> usize` (hot buffer
 length), `hot_ptr()`, `hot_values()`, `take_frames()` (→ JSON),
-`apply_input(action, keyName, localNow)`, `set_active`, `set_map`, `reset`
+`apply_input(action, keyName, localNow)`,
+`apply_aim(x, y, flags, localNow)`, `set_active`, `set_map`, `reset`
 (the world is gone: buffer, predictor and `my_game_id` all cleared),
 `resync` (network half only — buffer and outgoing frame queue — for a tab
 waking up after a long pause; prediction and identity survive),
@@ -327,6 +332,13 @@ core's job. The reference pattern (tanks):
 
 The client predictor must apply the same rule in its own `apply_input`, or
 prediction diverges on every trigger press.
+
+`apply_aim(game_id, seq, x, y, flags)` is the analogue for the pointer
+channel (see `04-client-plugin.md`): a **world** point plus a bit mask —
+bit 0 «pressed», bit 1 «double tap». Both trait methods default to an empty
+body, so a core that ignores the pointer needs no change; a core that
+implements it must feed the target into the SAME turn function the keys use
+(and into the predictor's input history), or the two halves curve apart.
 
 ## `PLAYER_STATE_LEN = 8` — the prediction budget
 

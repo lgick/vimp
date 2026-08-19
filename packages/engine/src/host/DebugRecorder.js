@@ -112,6 +112,10 @@ export default class DebugRecorder {
     this._pushFor(gameId, who => ({ op: 'key', who, action, name }));
   }
 
+  noteAim(gameId, x, y, flags) {
+    this._pushFor(gameId, who => ({ op: 'aim', who, x, y, flags }));
+  }
+
   noteChat(gameId, text) {
     this._pushFor(gameId, who => ({ op: 'chat', who, text }));
   }

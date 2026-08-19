@@ -88,6 +88,14 @@ export default class GameCoreAdapter {
     this._core.apply_input(gameId, seq, action, name);
   }
 
+  // ввод указателем: мировая точка + биты состояния (бит 0 — прижат,
+  // бит 1 — двойной тап). У трейта дефолтная пустая реализация, но ядро
+  // игры, собранное против крейта старше 0.4, метода не экспортирует
+  // вовсе — такой игре канал просто не доезжает, вместо падения хоста
+  applyAim(gameId, seq, x, y, flags) {
+    this._core.apply_aim?.(gameId, seq, x, y, flags);
+  }
+
   // ***** запросы состояния ***** //
 
   isAlive(gameId) {

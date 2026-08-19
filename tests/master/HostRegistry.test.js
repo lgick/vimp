@@ -93,6 +93,55 @@ describe('HostRegistry.add', () => {
     expect(host.region).toBe('unknown');
   });
 
+  it('не обрезает комнату игры, объявившей больший roomDefaults.maxPlayers', () => {
+    const registry2 = new HostRegistry({
+      ...OPTIONS,
+      gameMaxPlayers: id => (id === 'snakes' ? 64 : undefined),
+    });
+
+    const host = registry2.add({
+      name: 'big',
+      maxPlayers: 40,
+      ip: '1.2.3.4',
+      gameId: 'snakes',
+    });
+
+    expect(host.maxPlayers).toBe(40);
+  });
+
+  it('клампит потолком игры и санирует мусор в её же рамке', () => {
+    const registry2 = new HostRegistry({
+      ...OPTIONS,
+      gameMaxPlayers: () => 64,
+    });
+
+    expect(
+      registry2.add({ maxPlayers: 100, ip: '1.2.3.4', gameId: 'snakes' })
+        .maxPlayers,
+    ).toBe(64);
+    expect(
+      registry2.add({ maxPlayers: 'nope', ip: '1.2.3.5', gameId: 'snakes' })
+        .maxPlayers,
+    ).toBe(64);
+    expect(
+      registry2.add({ maxPlayers: 0, ip: '1.2.3.6', gameId: 'snakes' })
+        .maxPlayers,
+    ).toBe(1);
+  });
+
+  it('падает на санитарный дефолт для неизвестной игры и gameId: null', () => {
+    const registry2 = new HostRegistry({
+      ...OPTIONS,
+      gameMaxPlayers: id => (id === 'snakes' ? 64 : undefined),
+    });
+
+    expect(
+      registry2.add({ maxPlayers: 40, ip: '1.2.3.4', gameId: 'quake' })
+        .maxPlayers,
+    ).toBe(8);
+    expect(registry2.add({ maxPlayers: 40, ip: '1.2.3.5' }).maxPlayers).toBe(8);
+  });
+
   it('подставляет "unnamed" для пустого имени', () => {
     const host = registry.add({ name: '   ', ip: '1.2.3.4' });
 

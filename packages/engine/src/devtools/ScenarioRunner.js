@@ -363,6 +363,23 @@ async function applyOp(op, ctx) {
       break;
     }
 
+    case 'aim': {
+      const entry = requireEntry(byParticipant, op.who);
+      const seq = (inputSeq.get(op.who) ?? 0) + 1;
+      const flags = op.flags ?? 1;
+
+      inputSeq.set(op.who, seq);
+      host.updateKeys(entry.gameId, `${seq}:aim:${op.x}:${op.y}:${flags}`);
+
+      // клиент предсказывает тот же ввод — как и с клавишами, иначе дрейф
+      // предикта не с чем сравнивать
+      clients
+        .get(entry.socketId)
+        ?.core.apply_aim?.(op.x, op.y, flags, virtualClock.monotonic());
+
+      break;
+    }
+
     case 'chat':
       host.pushMessage(requireEntry(byParticipant, op.who).gameId, op.text);
       break;

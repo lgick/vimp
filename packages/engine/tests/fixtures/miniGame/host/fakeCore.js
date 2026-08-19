@@ -112,6 +112,23 @@ export default class FakeGameCore {
     }
   }
 
+  // ввод указателем: миниигра просто запоминает последнюю точку и биты —
+  // движковым тестам важно, что канал доходит до ядра
+  apply_aim(gameId, seq, x, y, flags) {
+    const actor = this._actors.get(gameId);
+
+    if (!actor) {
+      return;
+    }
+
+    actor.lastInputSeq = seq;
+    actor.aim = { x, y, flags };
+  }
+
+  aim_of(gameId) {
+    return this._actors.get(gameId)?.aim ?? null;
+  }
+
   last_input_seq(gameId) {
     return this._actors.get(gameId)?.lastInputSeq ?? 0;
   }

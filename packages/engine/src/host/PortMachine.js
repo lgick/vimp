@@ -270,7 +270,7 @@ export default class PortMachine {
       // 4: first shot ready
       () => host.firstShotReady(state.gameId),
 
-      // 5: keys data ('seq:action:name')
+      // 5: keys data ('seq:action:name'; указатель — 'seq:aim:x:y:flags')
       keyEventString => {
         if (typeof keyEventString === 'string') {
           host.updateKeys(state.gameId, keyEventString);

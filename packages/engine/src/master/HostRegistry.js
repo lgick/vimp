@@ -20,6 +20,12 @@ export default class HostRegistry {
     this._defaultLimit = options.defaultLimit ?? 10;
     this._maxLimit = options.maxLimit ?? 50;
     this._maxNameLength = options.maxNameLength ?? 30;
+    // потолок вместимости комнаты задаёт игра, не движок: резолвер
+    // возвращает roomDefaults.maxPlayers манифеста по gameId (мастер берёт
+    // его из GameCatalog — того же источника, что и лобби). maxPlayersLimit
+    // остаётся только санитарной рамкой для комнаты, чья игра неизвестна
+    // (gameId: null у хостов до статической композиции или незнакомый id)
+    this._gameMaxPlayers = options.gameMaxPlayers ?? null;
     this._maxPlayersLimit = options.maxPlayersLimit ?? 8;
 
     this._hosts = new Map(); // hostId -> HostSession
@@ -39,6 +45,7 @@ export default class HostRegistry {
       return null;
     }
 
+    const ceiling = this._ceilingFor(gameId);
     const hostId = uuidv4();
     // per-room секрет (server-rating кодревью №1, доработка): возвращается
     // только регистрирующей сессии в host_registered и служит доказательством
@@ -50,7 +57,7 @@ export default class HostRegistry {
       hostId,
       secret,
       name: this._sanitizeName(name) || 'unnamed',
-      maxPlayers: toInt(maxPlayers, this._maxPlayersLimit, 1, this._maxPlayersLimit),
+      maxPlayers: toInt(maxPlayers, ceiling, 1, ceiling),
       currentPlayers: 0,
       mapName: sanitizeMessage(mapName) || 'unknown',
       region: sanitizeMessage(region) || 'unknown',
@@ -73,6 +80,21 @@ export default class HostRegistry {
     this._hosts.set(hostId, session);
 
     return session;
+  }
+
+  // верхняя граница вместимости комнаты: манифест игры, а при неизвестной
+  // игре (или манифесте без вменяемого roomDefaults.maxPlayers) —
+  // санитарный дефолт мастера
+  _ceilingFor(gameId) {
+    const declared =
+      gameId === null || gameId === undefined
+        ? undefined
+        : this._gameMaxPlayers?.(gameId);
+    const num = Number(declared);
+
+    return Number.isFinite(num) && num >= 1
+      ? Math.trunc(num)
+      : this._maxPlayersLimit;
   }
 
   get(hostId) {

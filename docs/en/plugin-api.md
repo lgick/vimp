@@ -322,7 +322,7 @@ parameterized by the game's config.** Consequences:
 | Stat (host + client MVC) | columns (names/aggregation) and a **team list of arbitrary length**; the engine StatView **generates tables by team count** (replacing the `stat.pug` hardcode `#team1/#team2/#spectators` and 5 fixed columns) |
 | Vote (host + client MVC) | game votes created dynamically (`voteCoordinator.createVote` from chat-command handlers) + all templates/menus (texts); engine-mechanism votes (teamChange, mapChangeByUser/BySystem) stay in the engine, their texts also come from the game |
 | Chat (host + client MVC) | game system-message codes (the `b:*` group and future ones) + ALL message texts; the engine owns the mechanism and its own mechanism codes (`s/v/m/c/n`) |
-| CommandProcessor | registration of game commands (`/bot`); engine `/name`, `/nr`, `/timeleft`, `/mapname` stay |
+| CommandProcessor | EVERY chat command: the engine parses none of its own, the game fills the whole registry (`/bot`, `/name`, `/nr`, `/timeleft`, `/mapname`, `/rank`) |
 | RoundManager / ParticipantManager | `teams` (arbitrary), `spectatorTeam`, respawns from maps, `scripted` parameters; the engine has the neutral "scripted participant" |
 | SocketManager | `soundCues` (which sound plays on which engine event), `initialVote` |
 | SoundManager (client) | sound list + files (`assetsBase`) |
@@ -358,7 +358,8 @@ wasm-bindgen.
 `spawn_tank`/`remove_tank`/`reset_tank`/`add_bot`/`remove_bot`).
 Unchanged: `new(configJson)` (format
 `{engine:{timeStep,seed,snapshot,mapScale,mapSetId}, game:{models,weapons,panel,playerKeys,friendlyFire}}`),
-`load_map`, `map_info`, `apply_input`, `step`, `take_events`, `pack_body`,
+`load_map`, `map_info`, `apply_input`, `apply_aim` (pointer input),
+`step`, `take_events`, `pack_body`,
 `pack_frame`, `body_has_events`, `frame_ptr/frame_bytes`, `is_alive`,
 `position_of`, `players_data`, `alive_players`, `last_input_seq`,
 `reset_all_vitals`, `remove_players_and_shots`, `clear`,
@@ -378,7 +379,8 @@ Standard `take_events` dictionary (removes the game vocabulary from
 ```
 
 **ClientCore** — engine minimum: `new`, `push_frame`, `my_game_id`, `offset`,
-`sample`, `hot_ptr/hot_values`, `take_frames`, `apply_input`, `set_active`,
+`sample`, `hot_ptr/hot_values`, `take_frames`, `apply_input`, `apply_aim`
+(pointer input), `set_active`,
 `set_map`, `reset`, `resync` (drops the network half only — buffer and frame
 queue — after a long tab pause, keeping prediction and identity),
 `decode_frame`, plus the debugging pair `debug_json` and
@@ -450,7 +452,8 @@ one game).
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
 - `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
   `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
-  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `remove_scripted_actor`, `apply_input`, `apply_aim` (pointer input, default
+  empty), `last_input_seq`, `is_alive`,
   `actor_position`, `prediction_state`, `alive_players_flat`,
   `players_json`, `on_fixed_step(ctx: &mut SimCtx, dt)`,
   `on_contacts(ctx: &mut SimCtx, pairs)`, `on_before_destroy`,
@@ -475,6 +478,7 @@ one game).
   fn track_frame(my_game_id, frame); fn filter_frame_game(game, my_game_id,
   local_now); fn update_world(snapshot); fn update_world_interpolated(game);
   fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
+  fn apply_aim(...) (pointer input, default empty);
   fn set_model(...); fn set_active(...); fn set_map(...); fn sync_panel(...);
   fn reset(); fn cycle_item(back); fn try_action(...) }`, plus the two
   optional methods below. The engine provides the `Interpolator`

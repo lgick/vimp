@@ -118,7 +118,8 @@ must not drift from them.
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
 - `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
   `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
-  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `remove_scripted_actor`, `apply_input`, `apply_aim` (pointer input, default
+  empty), `last_input_seq`, `is_alive`,
   `actor_position`, `prediction_state`, `alive_players_flat`,
   `players_json`, `on_fixed_step(ctx, dt)`, `on_contacts(ctx, pairs)`,
   `on_before_destroy`, `on_ai_tick(ctx, dt)`, `refresh_cached`,
@@ -138,7 +139,8 @@ must not drift from them.
 - The client half: `trait GameClientDef` — `new`, `on_server_state`,
   `update`, `track_frame`, `filter_frame_game`,
   `update_world`, `update_world_interpolated`, `render_overlay`,
-  `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`,
+  `apply_input`, `apply_aim` (pointer input, default empty), `set_model`,
+  `set_active`, `set_map`, `sync_panel`,
   `reset`, `cycle_item`, `try_action`, plus the two divergence hooks
   (`predicted_state`, `replayed_inputs`) that default to `None` (see
   below). The engine provides the `Interpolator` (schema-driven), the

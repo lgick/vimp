@@ -80,6 +80,12 @@ pub trait GameSim<G: GameDef>: Sized {
     fn remove_scripted_actor(&mut self, world: &mut PhysicsWorld, game_id: u32);
 
     fn apply_input(&mut self, game_id: u32, seq: u32, action: &str, key_name: &str);
+
+    /// Аналоговый ввод указателя (мышь/палец): мировая точка и биты
+    /// состояния указателя — бит 0 «прижат», бит 1 «двойной тап».
+    /// Дефолт пустой: игра, не знающая про указатель, ничего не замечает,
+    /// а движок шлёт этот канал только если игра его объявила.
+    fn apply_aim(&mut self, _game_id: u32, _seq: u32, _x: f32, _y: f32, _flags: u32) {}
     fn last_input_seq(&self, game_id: u32) -> u32;
     fn is_alive(&self, game_id: u32) -> bool;
     fn actor_position(&self, world: &PhysicsWorld, game_id: u32) -> Option<[f32; 2]>;

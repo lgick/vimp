@@ -119,7 +119,7 @@ lifecycle, and delegates the tick. Ownership tree:
 HostGame (facade/wiring + core-driven tick)
  ├─ ParticipantManager   — the single registry of players and bots (source of truth)
  ├─ RoundManager         — rounds, team wipe, map changes, spectator↔active
- ├─ CommandProcessor     — chat commands (/name, /bot, /nr, /timeleft, /mapname)
+ ├─ CommandProcessor     — registry of the game's chat commands (engine has none)
  ├─ VoteCoordinator      — vote creation/cooldown/reset
  ├─ GameCoreAdapter      — the core: physics, game entities, bots, packBody/packFrame
  ├─ Cold path: Panel, Stat, Chat, Vote (JSON, on change)

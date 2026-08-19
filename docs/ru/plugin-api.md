@@ -321,7 +321,7 @@ export default {
 | Stat (host + client MVC) | колонки (имена/методы агрегации) и **список команд произвольной длины**; движковый StatView **генерирует таблицы по числу команд** (замена хардкода `stat.pug` `#team1/#team2/#spectators` и 5 фиксированных колонок) |
 | Vote (host + client MVC) | игровые голосования создаются динамически (`voteCoordinator.createVote` из обработчиков чат-команд) + все шаблоны/меню (тексты); движковые голосования механизмов (teamChange, mapChangeByUser/BySystem) остаются в движке, их тексты — тоже у игры |
 | Chat (host + client MVC) | игровые коды системных сообщений (группа `b:*` и будущие) + ВСЕ тексты сообщений; движок владеет механизмом и кодами своих механизмов (`s/v/m/c/n`) |
-| CommandProcessor | регистрация игровых команд (`/bot`); движковые `/name`, `/nr`, `/timeleft`, `/mapname` остаются |
+| CommandProcessor | ВСЕ чат-команды: движок своих не разбирает, реестр целиком наполняет игра (`/bot`, `/name`, `/nr`, `/timeleft`, `/mapname`, `/rank`) |
 | RoundManager / ParticipantManager | `teams` (произвольные), `spectatorTeam`, respawns из карт, `scripted`-параметры; в движке — нейтральный «scripted participant» |
 | SocketManager | `soundCues` (какой звук на какое движковое событие), `initialVote` |
 | SoundManager (client) | список звуков + файлы (`assetsBase`) |
@@ -357,7 +357,8 @@ engine-crate от wasm-bindgen не зависит вовсе.
 `spawn_tank`/`remove_tank`/`reset_tank`/`add_bot`/`remove_bot`).
 Без изменений: `new(configJson)` (формат
 `{engine:{timeStep,seed,snapshot,mapScale,mapSetId}, game:{models,weapons,panel,playerKeys,friendlyFire}}`),
-`load_map`, `map_info`, `apply_input`, `step`, `take_events`, `pack_body`,
+`load_map`, `map_info`, `apply_input`, `apply_aim` (ввод указателем),
+`step`, `take_events`, `pack_body`,
 `pack_frame`, `body_has_events`, `frame_ptr/frame_bytes`, `is_alive`,
 `position_of`, `players_data`, `alive_players`, `last_input_seq`,
 `reset_all_vitals`, `remove_players_and_shots`, `clear`,
@@ -378,6 +379,7 @@ engine-crate от wasm-bindgen не зависит вовсе.
 
 **ClientCore** — движковый минимум: `new`, `push_frame`, `my_game_id`,
 `offset`, `sample`, `hot_ptr/hot_values`, `take_frames`, `apply_input`,
+`apply_aim` (ввод указателем),
 `set_active`, `set_map`, `reset`, `resync` (чистит только сетевую половину —
 буфер и очередь кадров — после долгой паузы вкладки, предикт и идентичность
 сохраняются), `decode_frame` плюс отладочная пара
@@ -447,7 +449,8 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 - `trait GameDef { type Config; type Sim: GameSim<Self>; }`
 - `trait GameSim<G: GameDef>`: `new`, `spawn_actor`, `remove_actor`,
   `reset_actor`, `reset_all_vitals`, `spawn_scripted_actor`,
-  `remove_scripted_actor`, `apply_input`, `last_input_seq`, `is_alive`,
+  `remove_scripted_actor`, `apply_input`, `apply_aim` (ввод указателем,
+  дефолт пустой), `last_input_seq`, `is_alive`,
   `actor_position`, `prediction_state`, `alive_players_flat`,
   `players_json`, `on_fixed_step(ctx: &mut SimCtx, dt)`,
   `on_contacts(ctx: &mut SimCtx, pairs)`, `on_before_destroy`,
@@ -472,6 +475,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
   fn track_frame(my_game_id, frame); fn filter_frame_game(game, my_game_id,
   local_now); fn update_world(snapshot); fn update_world_interpolated(game);
   fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
+  fn apply_aim(...) (ввод указателем, дефолт пустой);
   fn set_model(...); fn set_active(...); fn set_map(...); fn sync_panel(...);
   fn reset(); fn cycle_item(back); fn try_action(...) }`, плюс два
   опциональных метода ниже. Движок даёт `Interpolator` (schema-driven),

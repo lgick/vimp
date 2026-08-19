@@ -115,6 +115,9 @@ export function ensureCanvas(canvasId, size, container = document.body) {
     canvas.setAttribute('id', canvasId);
     canvas.width = size.width;
     canvas.height = size.height;
+    // палец на полотне ведёт игру, а не страницу: без этого браузер
+    // смартфона забирает жест себе — прокрутка, pull-to-refresh, зум
+    canvas.style.touchAction = 'none';
     container.appendChild(canvas);
   }
 

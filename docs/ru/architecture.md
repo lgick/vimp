@@ -117,7 +117,7 @@ P2P-архитектура (браузерный хост + мастер-сер�
 HostGame (фасад/wiring + core-driven тик)
  ├─ ParticipantManager   — единый реестр игроков и ботов (источник истины)
  ├─ RoundManager         — раунды, team wipe, смена карты, spectator↔active
- ├─ CommandProcessor     — чат-команды (/name, /bot, /nr, /timeleft, /mapname)
+ ├─ CommandProcessor     — реестр чат-команд игры (своих команд у движка нет)
  ├─ VoteCoordinator      — создание/кулдаун/сброс голосований
  ├─ GameCoreAdapter      — ядро: физика, игровые сущности, боты, packBody/packFrame
  ├─ Cold path: Panel, Stat, Chat, Vote (JSON, по изменению)

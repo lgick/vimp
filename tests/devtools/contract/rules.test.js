@@ -247,13 +247,25 @@ describe('B. host', () => {
     ).toMatch(/reserved by the engine/);
   });
 
-  it('B7 catches a command shadowing an engine one', () => {
+  // движковых команд больше нет: имя занимает игра, движок проверяет форму
+  it('B7 catches a command without a handler', () => {
     expect(
       violations('B7', {
         ...base,
         hostPlugin: { ...base.hostPlugin, chatCommands: [{ name: '/rank' }] },
       }),
-    ).toMatch(/"\/rank" is an engine command/);
+    ).toMatch(/"\/rank" has no handler function/);
+  });
+
+  it('B7 catches the same command registered twice', () => {
+    const command = { name: '/bot', handler() {} };
+
+    expect(
+      violations('B7', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, chatCommands: [command, command] },
+      }),
+    ).toMatch(/"\/bot" is registered twice/);
   });
 
   it('B8 catches a code inside an engine range', () => {

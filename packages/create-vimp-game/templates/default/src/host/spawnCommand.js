@@ -2,9 +2,10 @@
 // It is also what `npm run dev` uses to get a match going (startupCommands in
 // dev/main.js).
 //
-// The name must not collide with the engine's own commands (/name, /nr,
-// /timeleft, /mapname, /rank): those are matched by a switch BEFORE the game
-// registry, so a same-named command registers fine and never fires.
+// The engine has no chat commands of its own: `CommandProcessor` is a bare
+// registry, so every name a player can type is declared by the game here —
+// including the meta ones (/name, /nr, /rank) in src/host/metaCommands.js.
+// A name registered twice silently loses one of the two handlers.
 export default {
   name: '/spawn',
 

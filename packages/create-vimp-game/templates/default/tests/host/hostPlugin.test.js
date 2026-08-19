@@ -19,13 +19,17 @@ describe('HostPlugin surface', () => {
     expect(Array.isArray(hostPlugin.chatCommands)).toBe(true);
   });
 
-  it('does not shadow an engine chat command', () => {
-    const reserved = ['/name', '/nr', '/timeleft', '/mapname', '/rank'];
+  // the engine parses no commands of its own: this array is the whole
+  // registry, and a name registered twice loses one of its handlers
+  it('declares well-formed, unique chat commands', () => {
+    const names = hostPlugin.chatCommands.map(command => command.name);
 
     for (const command of hostPlugin.chatCommands) {
       expect(command.name.startsWith('/')).toBe(true);
-      expect(reserved).not.toContain(command.name);
+      expect(typeof command.handler).toBe('function');
     }
+
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('keeps its system message codes out of the engine groups', () => {

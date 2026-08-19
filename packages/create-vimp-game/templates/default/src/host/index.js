@@ -4,6 +4,11 @@ import authSchema from '../config/auth.js';
 import clientConfig from '../config/client.js';
 import createModules from './createModules.js';
 import spawnCommand from './spawnCommand.js';
+import {
+  nameCommand,
+  newRoundCommand,
+  rankCommand,
+} from './metaCommands.js';
 import systemMessages from './systemMessages.js';
 import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 
@@ -41,7 +46,8 @@ export default {
   authSchema,
 
   // REQUIRED array — the engine iterates it unguarded; `[]` for no commands
-  chatCommands: [spawnCommand],
+  // the engine parses no commands of its own: this array IS the registry
+  chatCommands: [spawnCommand, nameCommand, newRoundCommand, rankCommand],
 
   // merged into the engine chat registry by a blind Object.assign: a code in
   // an engine group would overwrite an engine message without a word

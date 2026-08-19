@@ -60,6 +60,10 @@ export default class CanvasManagerModel {
 
     const canvases = data.canvases || {};
 
+    // полотно, в системе координат которого считается указатель: имя из
+    // конфига либо первое объявленное (у игры оно, как правило, одно)
+    this._pointerCanvasId = data.pointerCanvas || Object.keys(canvases)[0];
+
     for (const canvasName in canvases) {
       if (Object.hasOwn(canvases, canvasName)) {
         const canvasData = canvases[canvasName];
@@ -79,6 +83,10 @@ export default class CanvasManagerModel {
     }
 
     this.publisher = new Publisher();
+  }
+
+  get pointerCanvasId() {
+    return this._pointerCanvasId;
   }
 
   // рассчитывает размеры элементов с учетом пропорций

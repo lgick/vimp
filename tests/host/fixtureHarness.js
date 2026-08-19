@@ -62,6 +62,12 @@ export const pressKey = (host, gameId, name, action = 'down') => {
   host.updateKeys(gameId, `${inputSeq}:${action}:${name}`);
 };
 
+// Ввод указателем (формат wire: 'seq:aim:x:y:flags').
+export const sendAim = (host, gameId, x, y, flags = 1) => {
+  inputSeq += 1;
+  host.updateKeys(gameId, `${inputSeq}:aim:${x}:${y}:${flags}`);
+};
+
 // Загружает конфиг фикстуры в свежий синглтон config (зеркало loadConfig
 // из ./harness.js, но с миниигрой вместо @vimp-games/tanks).
 export const loadFixtureConfig = async () => {

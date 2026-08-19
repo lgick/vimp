@@ -36,6 +36,9 @@ const makeFakeCore = (events = []) => ({
   apply_input(...a) {
     this.calls.push(['apply_input', ...a]);
   },
+  apply_aim(...a) {
+    this.calls.push(['apply_aim', ...a]);
+  },
   remove_players_and_shots() {
     return JSON.stringify(['m1', 'w1']);
   },
@@ -145,6 +148,16 @@ describe('GameCoreAdapter', () => {
     adapter.applyInput(1, 42, 'down', 'forward');
 
     expect(core.calls).toContainEqual(['apply_input', 1, 42, 'down', 'forward']);
+  });
+
+  it('applyAim → apply_aim с seq, мировой точкой и битами указателя', () => {
+    const adapter = new GameCoreAdapter(core, {
+      participants: makeParticipants(),
+    });
+
+    adapter.applyAim(1, 7, 12.5, -3.25, 3);
+
+    expect(core.calls).toContainEqual(['apply_aim', 1, 7, 12.5, -3.25, 3]);
   });
 
   it('getPosition: [] от ядра → [0, 0]', () => {

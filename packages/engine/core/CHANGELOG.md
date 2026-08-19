@@ -13,6 +13,19 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `GameSim::apply_aim(game_id, seq, x, y, flags)` and
+  `GameClientDef::apply_aim(x, y, flags, local_now)` — the pointer input
+  channel (mouse, finger, stylus), carrying a value the discrete
+  `apply_input(action, key_name)` string cannot: a **world** point plus a bit
+  mask (bit 0 «pressed», bit 1 «double tap»). Both are declared with a
+  **default empty body**, so a game crate that ignores the pointer compiles
+  unchanged; `export_game_core_abi!` and `export_client_core_abi!` expose
+  them as `apply_aim(...)` on the respective WASM cores. The engine converts
+  screen coordinates to world coordinates before the call, so the game half
+  gets a point in the same space as `actor_position`.
+
 ## [0.3.0] — 2026-08-09
 
 ### Added

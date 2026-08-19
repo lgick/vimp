@@ -1,15 +1,13 @@
 import { ERROR, skip, verdict } from '../result.js';
 
-// Движковые команды разбираются switch'ем раньше реестра игровых
-// (CommandProcessor.parseCommand): одноимённая команда плагина
-// регистрируется, но не вызывается никогда.
-const RESERVED = ['/name', '/nr', '/timeleft', '/mapname', '/rank'];
-
+// Своих команд у движка нет: реестр CommandProcessor наполняет только игра,
+// поэтому зарезервированных имён не существует. Проверяем форму: ведущий слэш
+// и отсутствие дублей — вторая регистрация одного имени молча затирает первую.
 export default {
   id: 'B7',
   name: 'chatCommands',
   level: ERROR,
-  title: 'chat commands do not shadow the engine commands',
+  title: 'chat commands are well-formed and unique',
 
   check(ctx) {
     const commands = ctx.hostPlugin?.chatCommands;
@@ -31,10 +29,8 @@ export default {
         continue;
       }
 
-      if (RESERVED.includes(name)) {
-        violations.push(
-          `chat command "${name}" is an engine command — it will never fire`,
-        );
+      if (typeof command.handler !== 'function') {
+        violations.push(`chat command "${name}" has no handler function`);
       }
 
       if (seen.has(name)) {
