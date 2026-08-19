@@ -18,6 +18,7 @@ import security from '../lib/security.js';
 import PortMachine from '../host/PortMachine.js';
 import { createGuestIdentity } from '../host/identity.js';
 import GameCatalog from '../master/GameCatalog.js';
+import { applyLocalGames } from '../master/localGames.js';
 import { securityHeaders } from '../master/httpSecurity.js';
 
 // Dedicated-сервер одной игры (Этап 4 плана standalone-sdk): авторитетный
@@ -417,6 +418,11 @@ function readMaps(mapCatalog) {
 // переменной нет — сервер не поднимается
 if (process.env.VIMP_DEDICATED_GAME) {
   applyMasterEnv(config);
+
+  // локальный запуск без GAMES_MATRIX: игру ищем в node_modules, иначе
+  // VIMP_DEDICATED_GAME указывает на id, которого нет в master:games, и
+  // старт падает на несобранном каталоге, а не на отсутствующей игре
+  applyLocalGames(config, nodeModulesDir);
 
   const isProduction = process.env.NODE_ENV === 'production';
   const gameId = process.env.VIMP_DEDICATED_GAME;

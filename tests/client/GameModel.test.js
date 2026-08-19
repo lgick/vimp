@@ -4,8 +4,9 @@ import Factory from '../../packages/engine/src/lib/factory.js';
 
 // фейковая сущность с update/destroy
 class FakeEntity {
-  constructor(data) {
+  constructor(data, assets, dependencies, context) {
     this.data = data;
+    this.context = context;
     this.updated = null;
     this.destroyed = false;
   }
@@ -40,6 +41,16 @@ describe('GameModel.create / read', () => {
     expect(model.read('Tank', '01')).toBeInstanceOf(FakeEntity);
     expect(model.read('Tank', '01').data).toEqual({ hp: 100 });
     expect(events.find(e => e.type === 'create')).toBeDefined();
+  });
+
+  it('передаёт part\'у id его экземпляра четвёртым аргументом', () => {
+    const model = new GameModel();
+
+    model.create('Tank', '01', { hp: 100 });
+
+    // без этого part не может спросить у сервиса localPlayer, свой он или
+    // чужой: id остаётся в модели и до конструктора не доходит
+    expect(model.read('Tank', '01').context).toEqual({ id: '01' });
   });
 
   it('read возвращает все экземпляры конструктора и все данные', () => {
@@ -121,6 +132,11 @@ describe('GameModel.createEffect', () => {
     model.createEffect('ShotEffect', {});
     expect(model._managedEffects.ShotEffect.size).toBe(1);
     expect(events.find(e => e.type === 'createEffect')).toBeDefined();
+
+    // у эффекта id нет: запись кадра анонимна
+    expect([...model._managedEffects.ShotEffect][0].context).toEqual({
+      id: null,
+    });
   });
 
   it('destroy эффекта снимает его с учёта и вызывает оригинальный destroy', () => {

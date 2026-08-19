@@ -58,7 +58,7 @@ on one canvas.
 
 ```js
 export default class Tank {
-  constructor(data, assets, dependencies) { … }   // data = first frame values
+  constructor(data, assets, dependencies, context) { … } // first frame values
   update(data) { … }                              // subsequent frames
   destroy() { … }                                 // entity disappeared
 }
@@ -67,6 +67,10 @@ export default class Tank {
 - `data` — the field array for this entity from the snapshot frame.
 - `assets` — the baked assets registered for **this class** (see bakers).
 - `dependencies` — the services declared for this class (see below).
+- `context` — `{ id }`, the id of the entity this instance draws, as it
+  appears in the frame (a **string**; `null` for an effect, which has no id).
+  Paired with the `localPlayer` service it is what tells a part whether it is
+  drawing the local player or somebody else — see below.
 - A part that draws must be, or contain, a Pixi `Container` and add itself to
   the stage. The engine does not add it for you.
 
@@ -145,13 +149,38 @@ componentDependencies: {
 }
 ```
 
-The available service pool is fixed, and it has three entries:
+The available service pool is fixed, and it has four entries:
 
 | Service | Value | Used for |
 | --- | --- | --- |
 | `renderer` | the canvas's Pixi renderer | `generateTexture`, baking a map into one sprite |
 | `soundManager` | the engine's `SoundManager` | registering positional voices |
 | `assetsBase` | the active game's asset base, a string | building URLs into **your own** package: `${assetsBase}img/<file>` |
+| `localPlayer` | `{ id, is(id) }` | telling the local player's entity from everyone else's |
+
+### `localPlayer` — is this entity mine?
+
+```js
+export default class Tank {
+  constructor(data, assets, { soundManager, localPlayer }, { id }) {
+    this._isLocal = () => localPlayer.is(id);
+  }
+}
+```
+
+- `localPlayer.id` is the client's own game id, or `null` until the first
+  player block arrives.
+- `localPlayer.is(id)` compares as strings, because frame ids are object keys.
+- **Ask at the moment you need the answer, not in the constructor.** Entities
+  are created from `FIRST_SHOT_DATA`, which precedes the first binary frame —
+  the local player's own part is built while `localPlayer.id` is still `null`,
+  so a flag computed once in the constructor is wrong exactly for the entity
+  it matters for.
+
+The typical use is sound: a cue that belongs to the player (a pickup, a hit,
+the engine of the machine they drive) is registered only when
+`this._isLocal()`, while the visual half of the same event stays on for every
+entity. Without it a crowded arena plays everybody's cues at once.
 
 Requesting anything else yields nothing — the key is silently absent from
 `dependencies`. That is why a part depending on `assetsBase` should check it

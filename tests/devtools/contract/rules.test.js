@@ -342,6 +342,17 @@ describe('C. client', () => {
     ).toMatch(/service "physics"/);
   });
 
+  it('C4 accepts localPlayer — the fourth service of the pool', () => {
+    expect(
+      violations('C4', {
+        ...base,
+        clientConfig: withParts(base, {
+          componentDependencies: { localPlayer: ['Actor'] },
+        }),
+      }),
+    ).toBe('');
+  });
+
   it("C5 catches a missing 't' field and a wrong type", () => {
     const panel = base.clientConfig.modules.panel;
 

@@ -9,6 +9,41 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The game catalog discovers itself outside production: with no
+  `GAMES_MATRIX` set, every built `@vimp-games/*` package present in
+  `node_modules` (an ordinary dependency or an `npm link` symlink) is added to
+  `master:games`, sorted by id and ahead of the configured entries
+  (`src/master/localGames.js`, used by both `src/master/lobby.js` and
+  `src/dedicated/main.js`). A linked game now reaches the lobby without
+  editing `src/config/master.js`, which ships with the package. The first
+  catalog entry is the lobby's active game — set `GAMES_MATRIX` locally to
+  pin the order.
+
+- `localPlayer` — a fourth service in the part dependency pool
+  (`{ id, is(id) }`, `src/client/lib/localPlayer.js`), plus the instance id
+  itself, handed to every part as a fourth constructor argument
+  (`{ id }`, `src/client/components/model/Game.js`; `{ id: null }` for an
+  effect). Together they let a part tell the local player's entity from
+  everyone else's — until now the id stayed inside `GameModel` and the
+  client's own game id was only known to the client core, so a game could not
+  play a cue for its player alone. Ask `localPlayer.is(id)` at the moment the
+  answer is needed: entities are created from `FIRST_SHOT_DATA`, before the
+  first player block, so a flag computed in the constructor is wrong exactly
+  for the local entity. Both additions are backward compatible — a part that
+  ignores the extra argument and a game that does not declare the service
+  behave as before (`docs/ai/04-client-plugin.md`).
+
+### Changed
+
+- Env overrides (`applyMasterEnv`) are read by the lobby master in
+  development too, not only in production (`src/master/lobby.js`): the
+  catalog is what `GAMES_MATRIX` mostly carries, and it was ignored exactly
+  where a developer sets it by hand. `VIMP_DOMAIN` is still required in
+  production and every other override is still guarded by its own presence
+  check, so a dev run with no variables set behaves as before.
+
 ## [0.10.2] — 2026-08-18
 
 ### Changed

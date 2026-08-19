@@ -23,7 +23,7 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/main.js` | точка входа: развилка между лобби-мастером и [dedicated-сервером](dedicated.md) (`VIMP_DEDICATED_GAME`) |
 | `packages/engine/src/master/lobby.js` | сам лобби-мастер: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат |
 | `packages/engine/src/master/httpSecurity.js` | базовые security-заголовки (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP в проде), общие с dedicated-сервером |
-| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) и разбор `VIMP_DEDICATED_ROOM`; лобби применяет их только в проде, dedicated — всегда |
+| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated |
 | `packages/engine/src/master/HostRegistry.js` | реестр комнат `Map<hostId, HostSession>`: регистрация (не более 1 комнаты с IP), heartbeat/`lastSeen`, закэшированный `rating`, выборка для `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | сигнальный WebSocket: жизненный цикл соединений, маршрутизация WebRTC-сообщений, rate limiting пингов |
 | `packages/engine/src/master/MapCatalog.js` | каталог карт: JSON-представление `src/data/maps` игры-плагина (например, в `vimp-tanks`) в памяти + версия-хеш содержимого; раздача хостам без пересборки |
@@ -100,8 +100,9 @@ IP хоста и служебные поля наружу не отдаются.
 Каталог `GameManifest` (`GameCatalog`, Этап A2 — см.
 [plugin-api.md](plugin-api.md#gamemanifest)): при старте мастера резолвит
 список игр из конфига `master:games` (`{id, package}[]`, см.
-[configuration.md](configuration.md#packagesenginesrcconfigmasterjs), переопределяется в
-проде переменной окружения `GAMES_MATRIX`) в пакеты `node_modules/` (до
+[configuration.md](configuration.md#packagesenginesrcconfigmasterjs), переопределяется
+переменной окружения `GAMES_MATRIX`, а вне прода дополняется собранными
+пакетами `@vimp-games/*` из `node_modules` — `src/master/localGames.js`) в пакеты `node_modules/` (до
 разъезда репозиториев — workspace-симлинк на `games/<id>`, после — обычная
 зависимость) и читает `<package>/dist/manifest.json` (продукт
 `npm run build` в репозитории игры), по одной записи на игру-плагин. Игра, у которой

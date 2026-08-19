@@ -40,7 +40,16 @@ room settings have no other source.
 | `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
 | `VIMP_DEDICATED_GAME` | Game id from `master:games`; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
 | `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure | `{}` |
-| `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package}[]`) — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
+| `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package}[]`), read in development too — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
+
+Outside production the catalog also **discovers itself**: with no
+`GAMES_MATRIX` set, every built `@vimp-games/*` package found in
+`node_modules` (an ordinary dependency or an `npm link` symlink) is added to
+`master:games`, sorted by id and ahead of the configured entries
+(`src/master/localGames.js`). So a linked game shows up in the lobby without
+editing the engine's published config. The first entry of the catalog is the
+lobby's active game — set `GAMES_MATRIX` locally when you need to pin which
+one that is.
 
 Game parameters (map, player limit, timers, friendly fire) aren't set
 through environment variables in the lobby contour (there `VIMP_DEDICATED_ROOM`

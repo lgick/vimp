@@ -1,9 +1,9 @@
 import { ERROR, skip, verdict } from '../result.js';
 
-// Пул сервисов клиента ровно из трёх имён (client/main.js). Незнакомое имя
+// Пул сервисов клиента ровно из четырёх имён (client/main.js). Незнакомое имя
 // не ошибка для движка: part получает undefined и рисует пустоту — карта
 // без assetsBase выглядит как чистый холст без единой строки в консоли.
-const SERVICES = ['renderer', 'soundManager', 'assetsBase'];
+const SERVICES = ['renderer', 'soundManager', 'assetsBase', 'localPlayer'];
 
 export default {
   id: 'C4',

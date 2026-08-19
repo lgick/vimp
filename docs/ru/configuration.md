@@ -26,7 +26,9 @@
 | `VIMP_AUTH_SERVICE_URL` | Origin central auth-сервиса (`packages/auth`), переопределяет `security.authServiceUrl` — используется в CSP `connect-src` и прокси-роутах `/auth/*` ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-сервис-packagesauth)) | `http://localhost:3010` |
 | `VIMP_DEDICATED_GAME` | id игры из `master:games`; если задана, `src/master/main.js` поднимает [dedicated-сервер](dedicated.md) вместо лобби-мастера | — |
 | `VIMP_DEDICATED_ROOM` | JSON-объект с настройками комнаты dedicated-сервера (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); мусор в переменной — отказ при старте | `{}` |
-| `GAMES_MATRIX` | JSON-массив, переопределяющий `master:games` (список игр-плагинов, резолвится `GameCatalog`, `{id, package}[]`) — см. [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
+| `GAMES_MATRIX` | JSON-массив, переопределяющий `master:games` (список игр-плагинов, резолвится `GameCatalog`, `{id, package}[]`), читается и в dev — см. [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
+
+Вне прода каталог ещё и **собирается сам**: если `GAMES_MATRIX` не задана, в `master:games` добавляется каждый собранный пакет `@vimp-games/*`, найденный в `node_modules` (обычной зависимостью или симлинком `npm link`) — по возрастанию id и впереди записей конфига (`src/master/localGames.js`). Прилинкованная игра появляется в лобби без правки опубликованного конфига движка. Первая запись каталога — активная игра лобби; чтобы закрепить, какая именно, задайте `GAMES_MATRIX` локально.
 
 Игровые параметры (карта, лимит игроков, таймеры, friendly fire) в лобби-контуре переменными окружения не задаются (`VIMP_DEDICATED_ROOM` там не действует): их выбирает создатель комнаты в лобби, а дефолты живут в `packages/engine/src/config/hostDefaults.js` (движковые) и в собственном конфиге активной игры-плагина (игровые).
 

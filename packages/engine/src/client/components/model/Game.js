@@ -30,6 +30,10 @@ export default class GameModel {
       data,
       this._assets.get(constructor),
       this._dependencies.get(constructor),
+      // контекст экземпляра: id той сущности, которую рисует part. Игра
+      // сравнивает его со своим gameId (сервис localPlayer) - без этого part
+      // не может отличить своего персонажа от чужого
+      { id },
     );
 
     this._data[constructor] = this._data[constructor] || {};
@@ -47,6 +51,8 @@ export default class GameModel {
       data,
       this._assets.get(constructor),
       this._dependencies.get(constructor),
+      // у эффекта нет id: запись кадра анонимна, живёт до конца анимации
+      { id: null },
     );
 
     this._managedEffects[constructor] =

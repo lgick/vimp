@@ -36,7 +36,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/main.js` | entry point: the fork between the lobby master and the [dedicated server](dedicated.md) (`VIMP_DEDICATED_GAME`) |
 | `packages/engine/src/master/lobby.js` | the lobby master itself: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
 | `packages/engine/src/master/httpSecurity.js` | baseline security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP in production), shared with the dedicated server |
-| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; the lobby applies them in production only, the dedicated server always |
+| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; applied by the lobby and the dedicated server alike |
 | `packages/engine/src/master/HostRegistry.js` | room registry `Map<hostId, HostSession>`: registration (max 1 room per IP), heartbeat/`lastSeen`, cached `rating`, selection for `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | signaling WebSocket: connection lifecycle, WebRTC message routing, ping rate limiting |
 | `packages/engine/src/master/MapCatalog.js` | map catalog: an in-memory JSON representation of the game plugin's `src/data/maps` (e.g. `vimp-tanks`'s) plus a content version hash; served to hosts without a rebuild |
@@ -114,7 +114,9 @@ The `GameManifest` catalog (`GameCatalog`, Stage A2 — see
 [plugin-api.md](plugin-api.md#gamemanifest)):
 at master startup, resolves the `master:games` config list (`{id, package}[]`,
 see [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
-overridable in production via the `GAMES_MATRIX` env var) to packages under
+overridable via the `GAMES_MATRIX` env var, and outside production extended
+with the built `@vimp-games/*` packages found in `node_modules`,
+`src/master/localGames.js`) to packages under
 `node_modules/` (a workspace symlink onto `games/<id>` until the repos split,
 an ordinary dependency after) and reads `<package>/dist/manifest.json` (built
 by `npm run build` in the game repository), one entry per game plugin. A game whose

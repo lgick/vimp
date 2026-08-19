@@ -14,6 +14,7 @@ import security from '../lib/security.js';
 import { clampLimit } from '../lib/validators.js';
 import DebugReportStore from './DebugReportStore.js';
 import GameCatalog from './GameCatalog.js';
+import { applyLocalGames } from './localGames.js';
 import { securityHeaders } from './httpSecurity.js';
 import HostRatingProxy from './HostRatingProxy.js';
 import HostRegistry from './HostRegistry.js';
@@ -45,11 +46,18 @@ if (isProduction) {
     `);
     process.exit(1);
   }
-
-  // лобби в dev работает на дефолтах конфига — env читается только в проде
-  // (у dedicated-сервера правило своё, см. dedicated/main.js)
-  applyMasterEnv(config, env);
 }
+
+// env читается всегда: в проде каталог игр задаёт деплой (GAMES_MATRIX),
+// локально той же переменной можно переопределить порядок игр — первая
+// становится активной в лобби (client/main.js). Остальные переопределения
+// защищены собственными проверками и в dev просто не заданы.
+applyMasterEnv(config, env);
+
+// локально каталога от деплоя нет: игры берутся из node_modules — обычной
+// зависимостью или симлинком `npm link`, — вместо правки master:games в
+// опубликованном конфиге движка
+const localGames = applyLocalGames(config, nodeModulesDir, env);
 
 // проксирует JWKS central auth-сервиса под собственным origin (Этап B3) —
 // Worker хоста верифицирует identity-токен по этому кэшу
@@ -97,6 +105,14 @@ console.info(
 
 if (gameCatalog.ids.length > 0) {
   console.info(`-> Games loaded: ${gameCatalog.ids.join(', ')}`);
+
+  if (localGames.length > 0) {
+    console.info(
+      `-> Games discovered in node_modules: ${localGames
+        .map(game => game.id)
+        .join(', ')} (set GAMES_MATRIX to pin the catalog and its order)`,
+    );
+  }
 } else {
   console.warn(
     '-> Games loaded: none (install/link the game package(s) listed in ' +

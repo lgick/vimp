@@ -668,7 +668,13 @@ data, calls `update(data)` on an existing one, or removes it (`null`).
   if it was returned under several keys) together with its `TextureSource`,
   so a view onto a shared atlas must not be returned.
 - **`DependencyProvider`** — injects services (`renderer`, `soundManager`,
-  `assetsBase`) into components via the `componentDependencies` map.
+  `assetsBase`, `localPlayer`) into components via the
+  `componentDependencies` map. `localPlayer` (`{ id, is(id) }`,
+  [lib/localPlayer.js](../../packages/engine/src/client/lib/localPlayer.js))
+  answers whether an entity belongs to this client: a part compares the id it
+  got as the fourth constructor argument (`{ id }`) with the client's own
+  game id, read lazily out of the client core. That is how a game plays a cue
+  for the local player only instead of for every entity on the canvas.
   `assetsBase` is the active game's asset base taken from its manifest: a
   part that draws from image files builds its own URLs as
   `${assetsBase}img/<file>`, the same way sounds resolve to

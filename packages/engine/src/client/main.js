@@ -36,6 +36,7 @@ import createAutostart from './lib/autostart.js';
 import { getBootConfig, resolveBootConfig } from './boot.js';
 import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
 import { createContextTracker } from './lib/contextTracker.js';
+import { createLocalPlayer } from './lib/localPlayer.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import {
@@ -260,6 +261,10 @@ const socketMethods = []; // методы для обработки сокет-�
 // получении конфига; wasm — результат init() для zero-copy чтения памяти
 let clientCore = null;
 let wasm = null;
+
+// сервис пула зависимостей: «эта сущность моя или чужая?». Ядро читается
+// геттером — оно создаётся позже пула сервисов (см. lib/localPlayer.js)
+const localPlayer = createLocalPlayer(() => clientCore);
 let inputSeq = 0; // номер отправленного ввода (KEYS_DATA)
 
 // обратный индекс снапшот-схемы игры (CONFIG_DATA.snapshot):
@@ -345,6 +350,10 @@ socketMethods[PS_CONFIG_DATA] = async data => {
     const availableServices = {
       renderer: app.renderer,
       soundManager,
+      // «свой ли это персонаж»: part сравнивает id своего экземпляра (четвёртый
+      // аргумент конструктора) со своим gameId. Игра без этого сервиса звучит
+      // одинаково за всех — чужие подборы и чужие смерти вперемешку со своими
+      localPlayer,
       // база ассетов игры — тем же каналом, что и путь к звукам (см. выше):
       // картинки карт живут в пакете игры (dist/img/), движок их не раздаёт.
       // part, объявивший сервис в componentDependencies, строит URL сам —
