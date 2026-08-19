@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-08-19
+
 ### Fixed
 
 - `bin` path in `package.json` no longer starts with `./`: npm rewrote it on
@@ -55,4 +57,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build of a scaffolded game is green without ffmpeg; `assets/audio-raw/*.wav`
   keeps the full `npm run audio:process` pipeline demonstrable.
 
+[0.1.4]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.4
 [0.1.0]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.0
