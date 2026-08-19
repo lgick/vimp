@@ -276,6 +276,10 @@ cargo package -p vimp-engine-core --list       # что попадёт в тар
 # поднять версию в packages/engine/core/Cargo.toml и добавить запись в
 # packages/engine/core/CHANGELOG.md руками, затем:
 cargo build                                    # обновить Cargo.lock
+# снимок пинов идёт следом ТЕМ ЖЕ коммитом: шаг A2 гоняет `npm test`, а
+# tests/scaffold/versions.test.js сверяет снимок с версией крейта — шаг A3
+# обновил бы его слишком поздно
+node packages/create-vimp-game/scripts/write-versions.js
 git add -A && git commit -m "chore: bump vimp-engine-core to X.Y.Z"
 
 cargo login                                    # один раз, токен с crates.io

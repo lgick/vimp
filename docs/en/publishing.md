@@ -282,6 +282,10 @@ cargo package -p vimp-engine-core --list       # what goes into the tarball
 # bump packages/engine/core/Cargo.toml and add the entry to
 # packages/engine/core/CHANGELOG.md by hand, then:
 cargo build                                    # refresh Cargo.lock
+# the pin snapshot follows the bump in the SAME commit: step A2 runs
+# `npm test`, and tests/scaffold/versions.test.js compares the snapshot
+# against the crate version — A3 would refresh it too late
+node packages/create-vimp-game/scripts/write-versions.js
 git add -A && git commit -m "chore: bump vimp-engine-core to X.Y.Z"
 
 cargo login                                    # once, token from crates.io

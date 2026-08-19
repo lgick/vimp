@@ -9,6 +9,7 @@ import {
   checkTarball,
   checkManifest,
   gameCommitPaths,
+  publishEngine,
   publishScaffold,
 } from '../../../scripts/release/steps.js';
 
@@ -136,6 +137,31 @@ describe('gameCommitPaths', () => {
     ]);
   });
 
+  // при workspace-раскладке (snakes) шаг B переписывает корневой Cargo.toml —
+  // без него в списке правка осталась бы вне релизного коммита
+  it('добавляет файл пина, когда он вне core/', async () => {
+    const dir = path.join(root, 'workspace-pin');
+    await mkdir(dir, { recursive: true });
+
+    expect(await gameCommitPaths(dir, 'Cargo.toml')).toEqual([
+      'package.json',
+      'core/Cargo.toml',
+      'Cargo.lock',
+      'Cargo.toml',
+    ]);
+  });
+
+  it('не дублирует пин, лежащий в core/Cargo.toml', async () => {
+    const dir = path.join(root, 'core-pin');
+    await mkdir(dir, { recursive: true });
+
+    expect(await gameCommitPaths(dir, 'core/Cargo.toml')).toEqual([
+      'package.json',
+      'core/Cargo.toml',
+      'Cargo.lock',
+    ]);
+  });
+
   // `git add -- package-lock.json` по несуществующему пути падает, а это уже
   // после публикации: откатывать пришлось бы руками
   it('не просит git добавить отсутствующий lock-файл', async () => {
@@ -146,36 +172,38 @@ describe('gameCommitPaths', () => {
   });
 });
 
+// Общий мок shell для шагов A2/A3: записывает команды в порядке вызова —
+// проверяется именно он, а не побочные эффекты (dryRun гасит их).
+function recordingShell(dryRun = true) {
+  const calls = [];
+
+  return {
+    dryRun,
+    calls,
+    check: async (label, command, args) => {
+      calls.push(`check ${command} ${args.join(' ')}`);
+      return { code: 0, stdout: '', stderr: '', output: '' };
+    },
+    read: async (command, args) => {
+      calls.push(`read ${command} ${args.join(' ')}`);
+      // код 1 у `diff --cached --quiet` = есть что коммитить
+      return { code: 1, stdout: '', stderr: '', output: '' };
+    },
+    write: async (command, args) => {
+      calls.push(`write ${command} ${args.join(' ')}`);
+      return { code: 0, stdout: '', stderr: '', output: '' };
+    },
+    publish: async (command, args) => {
+      calls.push(`publish ${command} ${args.join(' ')}`);
+      return { code: 0, stdout: '', stderr: '', output: '' };
+    },
+  };
+}
+
 // Скаффолдер уезжает в npm вместе с движком: prepack вшивает в его тарбол
 // версии из packages/engine, и шаг обязан гнать E2E — unit-тесты шаблон не
 // собирают, сломанный он всплыл бы у пользователя на `npm create vimp-game`.
 describe('publishScaffold', () => {
-  function recordingShell(dryRun = true) {
-    const calls = [];
-
-    return {
-      dryRun,
-      calls,
-      check: async (label, command, args) => {
-        calls.push(`check ${command} ${args.join(' ')}`);
-        return { code: 0, stdout: '', stderr: '', output: '' };
-      },
-      read: async (command, args) => {
-        calls.push(`read ${command} ${args.join(' ')}`);
-        // код 1 у `diff --cached --quiet` = есть что коммитить
-        return { code: 1, stdout: '', stderr: '', output: '' };
-      },
-      write: async (command, args) => {
-        calls.push(`write ${command} ${args.join(' ')}`);
-        return { code: 0, stdout: '', stderr: '', output: '' };
-      },
-      publish: async (command, args) => {
-        calls.push(`publish ${command} ${args.join(' ')}`);
-        return { code: 0, stdout: '', stderr: '', output: '' };
-      },
-    };
-  }
-
   let scaffoldRoot;
 
   beforeAll(async () => {
@@ -250,6 +278,53 @@ describe('publishScaffold', () => {
     expect(report.tags).toEqual([
       { repo: scaffoldRoot, name: 'create-vimp-game@0.1.1' },
     ]);
+  });
+});
+
+// Шаг A1 бампает крейт, а снимок пинов шаблона пишет только шаг A3 — между
+// ними стоит корневой `npm test` шага A2, который сверяет снимок с версиями
+// репозитория. Снимок обязан обновиться до прогона.
+describe('publishEngine', () => {
+  let engineRoot;
+
+  beforeAll(async () => {
+    engineRoot = await mkdtemp(path.join(tmpdir(), 'vimp-engine-step-'));
+    const dir = path.join(engineRoot, 'packages', 'engine');
+
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'vimp-engine', version: '0.10.2' }, null, 2),
+    );
+    await writeFile(
+      path.join(dir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- что-то\n',
+    );
+  });
+
+  afterAll(async () => {
+    await rm(engineRoot, { recursive: true, force: true });
+  });
+
+  it('обновляет снимок пинов до корневых тестов и коммитит его', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [] };
+
+    await publishEngine({
+      shell,
+      root: engineRoot,
+      decision: { target: '0.10.3', bump: true },
+      games: [],
+      report,
+    });
+
+    expect(shell.calls.indexOf(
+      'write node packages/create-vimp-game/scripts/write-versions.js',
+    )).toBeLessThan(shell.calls.indexOf('check npm test -- --reporter=dot'));
+
+    expect(shell.calls).toContain(
+      'write git add -- packages/engine/package.json packages/engine/CHANGELOG.md package-lock.json packages/create-vimp-game/src/versions.generated.json',
+    );
   });
 });
 

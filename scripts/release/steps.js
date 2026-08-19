@@ -9,6 +9,21 @@ import { CRATE_NAME, ENGINE_NAME, SCAFFOLD_NAME } from './plan.js';
 
 const REPO_URL = 'https://github.com/lgick/vimp';
 
+// Снимок пинов шаблона (`prepack` скаффолдера) сверяется с версиями
+// репозитория в tests/scaffold/versions.test.js. Любой бамп крейта или
+// движка делает его устаревшим — а корневой `npm test` гоняют шаги A2 и C,
+// то есть ДО скаффолдера: без обновления снимка прогон падает на чужой
+// ошибке уже после публикации крейта.
+const PIN_SNAPSHOT = 'packages/create-vimp-game/src/versions.generated.json';
+
+async function writePinSnapshot(shell, root) {
+  await shell.write(
+    'node',
+    ['packages/create-vimp-game/scripts/write-versions.js'],
+    { cwd: root },
+  );
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -24,9 +39,15 @@ async function exists(file) {
 
 // Что коммитится после сборки игры. package-lock.json правится шагом B
 // (`npm i -D vimp-engine@…`), но есть не у всякой игры, а `git add --` по
-// несуществующему пути падает — уже после публикации.
-export async function gameCommitPaths(dir) {
+// несуществующему пути падает — уже после публикации. corePinFile добавляется
+// отдельно: при workspace-раскладке пин лежит в корневом Cargo.toml, и без
+// него правка шага B осталась бы вне коммита.
+export async function gameCommitPaths(dir, corePinFile = null) {
   const paths = ['package.json', 'core/Cargo.toml', 'Cargo.lock'];
+
+  if (corePinFile && !paths.includes(corePinFile)) {
+    paths.push(corePinFile);
+  }
 
   if (await exists(path.join(dir, 'package-lock.json'))) {
     paths.push('package-lock.json');
@@ -188,10 +209,12 @@ export async function publishCrate({ shell, root, decision, report }) {
   });
 
   await shell.check('cargo build', 'cargo', ['build'], { cwd: root });
+  await writePinSnapshot(shell, root);
   await commit(shell, root, `chore: bump ${CRATE_NAME} to ${target}`, [
     'packages/engine/core/Cargo.toml',
     'packages/engine/core/CHANGELOG.md',
     'Cargo.lock',
+    PIN_SNAPSHOT,
   ]);
 
   await shell.check(
@@ -223,6 +246,9 @@ export async function publishEngine({ shell, root, decision, games, report }) {
 
   ui.log(`движок ${ENGINE_NAME}: релиз ${target}`);
 
+  // до `npm test`: шаг A1 мог поднять крейт, снимок пинов уже расходится
+  await writePinSnapshot(shell, root);
+
   await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: root });
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
     cwd: root,
@@ -253,6 +279,7 @@ export async function publishEngine({ shell, root, decision, games, report }) {
     'packages/engine/package.json',
     'packages/engine/CHANGELOG.md',
     'package-lock.json',
+    PIN_SNAPSHOT,
   ]);
 
   await shell.check(
@@ -288,15 +315,9 @@ export async function publishScaffold({ shell, root, decision, report }) {
   ui.log(`скаффолдер ${SCAFFOLD_NAME}: релиз ${target}`);
 
   // Снимок пинов пишет хук prepack — но он сработает только на publish, уже
-  // после проверок. Шаг A2 к этому моменту поднял версию движка, и
-  // tests/scaffold/versions.test.js, сверяющий снимок с версиями
-  // репозитория, упал бы на разнице. Пишем снимок сейчас: тогда и `npm test`,
-  // и E2E судят шаблон по тем самым пинам, которые уедут в тарбол.
-  await shell.write(
-    'node',
-    ['packages/create-vimp-game/scripts/write-versions.js'],
-    { cwd: root },
-  );
+  // после проверок. Пишем сейчас: тогда и `npm test`, и E2E судят шаблон по
+  // тем самым пинам, которые уедут в тарбол.
+  await writePinSnapshot(shell, root);
 
   await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: root });
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
@@ -485,7 +506,7 @@ export async function publishGame({
     shell,
     dir,
     `chore: release ${game.target}`,
-    await gameCommitPaths(dir),
+    await gameCommitPaths(dir, game.corePinFile),
   );
   await tag(shell, dir, `v${game.target}`);
 
@@ -518,6 +539,7 @@ export async function rollOutProduction({ shell, root, games, report, tags }) {
     await shell.write('npm', ['i', `${game.name}@${game.target}`], { cwd: root });
   }
 
+  await writePinSnapshot(shell, root);
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
     cwd: root,
   });
@@ -526,14 +548,14 @@ export async function rollOutProduction({ shell, root, games, report, tags }) {
     await simGame(shell, root, game);
   }
 
-  if (games.length) {
-    await commit(
-      shell,
-      root,
-      `chore: bump ${games.map(game => `${game.name} to ${game.target}`).join(', ')}`,
-      ['package.json', 'package-lock.json'],
-    );
-  }
+  await commit(
+    shell,
+    root,
+    games.length
+      ? `chore: bump ${games.map(game => `${game.name} to ${game.target}`).join(', ')}`
+      : `chore: refresh ${SCAFFOLD_NAME} pins`,
+    ['package.json', 'package-lock.json', PIN_SNAPSHOT],
+  );
 
   const pending = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {
     cwd: root,
