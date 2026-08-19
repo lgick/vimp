@@ -1,6 +1,39 @@
 import { describe, it, expect } from 'vitest';
 
-import { capture, createShell, CommandError } from '../../../scripts/release/shell.js';
+import {
+  capture,
+  childEnv,
+  createShell,
+  npmDryRunEnv,
+  CommandError,
+} from '../../../scripts/release/shell.js';
+
+// `npm run release --dry-run` без `--` не доезжает до скрипта: npm съедает
+// флаг как свой и экспортирует npm_config_dry_run. Прогон боевой, публикации
+// холостые — теги и коммиты при этом настоящие.
+describe('холостой npm из окружения', () => {
+  it('распознаётся по переменной, кроме пустой и «false»', () => {
+    expect(npmDryRunEnv({ 'npm_config_dry_run': 'true' })).toBe(true);
+    expect(npmDryRunEnv({ 'npm_config_dry-run': '1' })).toBe(true);
+    expect(npmDryRunEnv({ 'npm_config_dry_run': 'false' })).toBe(false);
+    expect(npmDryRunEnv({ 'npm_config_dry_run': '' })).toBe(false);
+    expect(npmDryRunEnv({})).toBe(false);
+  });
+
+  it('вырезается из окружения дочерней команды', async () => {
+    expect(childEnv({ 'npm_config_dry_run': 'true' })).not.toHaveProperty(
+      'npm_config_dry_run',
+    );
+
+    const { stdout } = await capture(
+      'node',
+      ['-e', 'process.stdout.write(String(process.env.npm_config_dry_run))'],
+      { env: { 'npm_config_dry_run': 'true' } },
+    );
+
+    expect(stdout).toBe('undefined');
+  });
+});
 
 describe('shell', () => {
   it('возвращает захваченный stdout при успехе', async () => {

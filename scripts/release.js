@@ -4,7 +4,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import * as ui from './release/ui.js';
-import { createShell, capture, CommandError } from './release/shell.js';
+import {
+  createShell,
+  capture,
+  npmDryRunEnv,
+  CommandError,
+} from './release/shell.js';
 import {
   collect,
   decide,
@@ -110,6 +115,16 @@ function parseFlags(argv) {
 // заголовков приезжают сюда же — список отказа остаётся одним.
 async function preflightRepo(root, { changelog }) {
   const problems = [...changelog];
+
+  // холостой npm из окружения: публикации молча не случатся, а теги и
+  // коммиты — да
+  if (npmDryRunEnv()) {
+    problems.push(
+      'в окружении выставлен npm_config_dry_run — `npm publish` пройдёт ' +
+        'вхолостую. Похоже на `npm run release --dry-run` без `--`: ' +
+        'холостой прогон запускается как `npm run release -- --dry-run`',
+    );
+  }
 
   const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
     cwd: root,

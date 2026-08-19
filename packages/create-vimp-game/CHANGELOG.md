@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `bin` path in `package.json` no longer starts with `./`: npm rewrote it on
+  every publish and warned «script name … was invalid and removed».
+
 ## [0.1.0] — 2026-08-18
 
 ### Added

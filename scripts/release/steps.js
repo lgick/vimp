@@ -185,6 +185,25 @@ async function simGame(shell, root, game) {
   );
 }
 
+// `npm publish --dry-run` — проверка, поэтому идёт и в холостом прогоне. Но
+// версию в package.json холостой прогон не пишет, и npm упирается в «нельзя
+// опубликовать поверх уже опубликованной»: отказ относится к пропущенному
+// бампу, а не к тарболу. Гасим только этот случай и только в dry-run —
+// остальные падения (битый tarball, отсутствующие files) остаются отказом.
+const ALREADY_PUBLISHED = /cannot publish over|previously published versions/i;
+
+async function checkPublishable(shell, args, { cwd, bump }) {
+  try {
+    await shell.check('npm publish --dry-run', 'npm', args, { cwd });
+  } catch (error) {
+    if (!shell.dryRun || !bump || !ALREADY_PUBLISHED.test(error.output ?? '')) {
+      throw error;
+    }
+
+    ui.log('  · dry-run: npm отказал «поверх опубликованной» — версия не поднята, это ожидаемо');
+  }
+}
+
 // ── Step A1: крейт ─────────────────────────────────────────────────────────
 
 export async function publishCrate({ shell, root, decision, report }) {
@@ -267,6 +286,9 @@ export async function publishEngine({ shell, root, decision, games, report }) {
       { dryRun: shell.dryRun },
     );
     await shell.write('npm', ['install'], { cwd: root });
+    // второй раз: снимок обязан уехать в тот же коммит, что и новая версия
+    // движка, иначе коммит сам себе противоречит и `npm test` на нём красный
+    await writePinSnapshot(shell, root);
   }
 
   await dateChangelog(path.join(root, 'packages/engine/CHANGELOG.md'), {
@@ -282,12 +304,10 @@ export async function publishEngine({ shell, root, decision, games, report }) {
     PIN_SNAPSHOT,
   ]);
 
-  await shell.check(
-    'npm publish --dry-run',
-    'npm',
-    ['publish', '-w', ENGINE_NAME, '--dry-run'],
-    { cwd: root },
-  );
+  await checkPublishable(shell, ['publish', '-w', ENGINE_NAME, '--dry-run'], {
+    cwd: root,
+    bump: decision.bump,
+  });
   await shell.publish('npm', ['publish', '-w', ENGINE_NAME], { cwd: root });
 
   const tagName = `${ENGINE_NAME}@${target}`;
@@ -355,12 +375,10 @@ export async function publishScaffold({ shell, root, decision, report }) {
     'package-lock.json',
   ]);
 
-  await shell.check(
-    'npm publish --dry-run',
-    'npm',
-    ['publish', '-w', SCAFFOLD_NAME, '--dry-run'],
-    { cwd: root },
-  );
+  await checkPublishable(shell, ['publish', '-w', SCAFFOLD_NAME, '--dry-run'], {
+    cwd: root,
+    bump: decision.bump,
+  });
   await shell.publish('npm', ['publish', '-w', SCAFFOLD_NAME], { cwd: root });
 
   const tagName = `${SCAFFOLD_NAME}@${target}`;
@@ -510,8 +528,10 @@ export async function publishGame({
   );
   await tag(shell, dir, `v${game.target}`);
 
-  await shell.check('npm publish --dry-run', 'npm', ['publish', '--dry-run'], {
+  await checkPublishable(shell, ['publish', '--dry-run'], {
     cwd: dir,
+    // версия игры пишется тем же bumpJsonVersion, холостой прогон её не пишет
+    bump: game.version !== game.target,
   });
   await shell.publish('npm', ['publish'], { cwd: dir });
 

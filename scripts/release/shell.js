@@ -38,13 +38,42 @@ export function formatCommand(command, args = []) {
     .join(' ');
 }
 
+// `npm run release --dry-run` (без `--`) флаг до скрипта не доносит: npm
+// съедает его как СВОЙ конфиг и экспортирует npm_config_dry_run в окружение.
+// Скрипт при этом идёт боевым ходом, а каждый дочерний `npm publish`
+// становится холостым — релиз «проходит», ставит теги и коммиты, а в реестре
+// пусто. Переменную вырезаем из окружения любой дочерней команды (preflight
+// от неё отказывается ещё раньше).
+const DRY_RUN_ENV = /^npm_config_dry[_-]?run$/i;
+
+export function childEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+
+  for (const key of Object.keys(env)) {
+    if (DRY_RUN_ENV.test(key)) {
+      delete env[key];
+    }
+  }
+
+  return env;
+}
+
+// Выставлен ли флаг холостого npm в окружении: значение «false»/пустая строка
+// у npm означает выключено.
+export function npmDryRunEnv(env = process.env) {
+  return Object.entries(env).some(
+    ([key, value]) =>
+      DRY_RUN_ENV.test(key) && value !== '' && value !== 'false',
+  );
+}
+
 export function capture(command, args = [], options = {}) {
   const cwd = options.cwd ?? process.cwd();
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: { ...process.env, ...options.env },
+      env: childEnv(options.env),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -97,7 +126,11 @@ export function interactive(command, args = [], options = {}) {
   const cwd = options.cwd ?? process.cwd();
 
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: 'inherit' });
+    const child = spawn(command, args, {
+      cwd,
+      env: childEnv(options.env),
+      stdio: 'inherit',
+    });
 
     child.on('error', reject);
     child.on('close', code => resolve({ code, output: '' }));

@@ -12,6 +12,7 @@ import {
   publishEngine,
   publishScaffold,
 } from '../../../scripts/release/steps.js';
+import { CommandError } from '../../../scripts/release/shell.js';
 
 let root;
 
@@ -259,6 +260,66 @@ describe('publishScaffold', () => {
     expect(shell.calls[publishAt]).toBe('publish npm publish -w create-vimp-game');
   });
 
+  // холостой прогон не пишет версию в package.json, поэтому npm отвечает
+  // «нельзя опубликовать поверх уже опубликованной». Отказ относится к
+  // пропущенному бампу, а не к тарболу, и валить прогон не должен
+  it('в dry-run не падает на «поверх опубликованной»', async () => {
+    const shell = recordingShell();
+    const failing = shell.check;
+
+    shell.check = async (label, command, args, options) => {
+      if (args.includes('--dry-run')) {
+        shell.calls.push(`check ${command} ${args.join(' ')}`);
+        throw new CommandError({
+          command: 'npm publish',
+          cwd: '.',
+          code: 1,
+          output: 'npm error You cannot publish over the previously published versions: 0.1.3.',
+        });
+      }
+
+      return failing(label, command, args, options);
+    };
+
+    await expect(
+      publishScaffold({
+        shell,
+        root: scaffoldRoot,
+        decision: { target: '0.1.4', bump: true },
+        report: { published: [], tags: [] },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  // а вот боевой прогон обязан упасть: там версия поднята, и такой отказ —
+  // след уже случившейся публикации
+  it('в боевом прогоне тот же отказ валит шаг', async () => {
+    const shell = recordingShell(false);
+    const passing = shell.check;
+
+    shell.check = async (label, command, args, options) => {
+      if (args.includes('--dry-run')) {
+        throw new CommandError({
+          command: 'npm publish',
+          cwd: '.',
+          code: 1,
+          output: 'npm error You cannot publish over the previously published versions: 0.1.4.',
+        });
+      }
+
+      return passing(label, command, args, options);
+    };
+
+    await expect(
+      publishScaffold({
+        shell,
+        root: scaffoldRoot,
+        decision: { target: '0.1.4', bump: false },
+        report: { published: [], tags: [] },
+      }),
+    ).rejects.toBeInstanceOf(CommandError);
+  });
+
   it('коммитит только свои файлы и ставит именованный тег', async () => {
     const shell = recordingShell();
     const report = { published: [], tags: [] };
@@ -325,6 +386,31 @@ describe('publishEngine', () => {
     expect(shell.calls).toContain(
       'write git add -- packages/engine/package.json packages/engine/CHANGELOG.md package-lock.json packages/create-vimp-game/src/versions.generated.json',
     );
+  });
+
+  // и после бампа: иначе в коммите с версией 0.10.3 лежит снимок с 0.10.2 —
+  // ровно тот красный `npm test`, который ловит versions.test.js
+  it('переписывает снимок после бампа, до коммита', async () => {
+    const shell = recordingShell();
+
+    await publishEngine({
+      shell,
+      root: engineRoot,
+      decision: { target: '0.10.3', bump: true },
+      games: [],
+      report: { published: [], tags: [] },
+    });
+
+    const snapshots = shell.calls
+      .map((call, index) => ({ call, index }))
+      .filter(({ call }) => call.endsWith('write-versions.js'))
+      .map(({ index }) => index);
+    const bumpAt = shell.calls.indexOf('write npm install');
+    const commitAt = shell.calls.findIndex(call => call.startsWith('write git add --'));
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[1]).toBeGreaterThan(bumpAt);
+    expect(snapshots[1]).toBeLessThan(commitAt);
   });
 });
 

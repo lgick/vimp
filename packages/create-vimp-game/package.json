@@ -24,7 +24,7 @@
     "node": ">=20.11.0"
   },
   "bin": {
-    "create-vimp-game": "./bin/create-vimp-game.js"
+    "create-vimp-game": "bin/create-vimp-game.js"
   },
   "files": [
     "bin",
