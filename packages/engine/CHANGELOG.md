@@ -9,6 +9,23 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-20
+
+### Changed
+
+- **Breaking.** `SNAPSHOT_FORMAT_VERSION` is 5. v4 gives a block schema an
+  optional row tail (`optionalFrom`): the fields from that index on are
+  written only when the row carries them, and a flag byte in front of the
+  row says whether they follow — dynamic map elements use it to ship
+  `[vx, vy, angvel]` only while they move, so a resting crate costs 12 bytes
+  less every frame. v5 widens the reference plugin's tank row with `angvel`,
+  which the client needs to predict how far another tank's hull turns during
+  the interpolation delay. A client on the old version drops such frames:
+  the engine and the game plugin have to ship as a matching pair.
+  `ENGINE_API_VERSION` stays at 3 — `optionalFrom` is additive, an existing
+  game's schema is still valid, and a frame is always packed and unpacked by
+  the same plugin core off the same schema, so no already-published game
+  becomes unloadable.
 ## [0.11.1] — 2026-08-20
 
 ### Fixed

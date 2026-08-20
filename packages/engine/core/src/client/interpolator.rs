@@ -313,6 +313,10 @@ fn interp_field(interp: Interp, a: FieldValue, b: FieldValue, alpha: f32) -> Fie
 }
 
 // интерполирует строку блока по позиционной схеме `schema.fields`.
+// Строки приходят из распаковки всегда полной ширины: отсутствующий в кадре
+// опциональный хвост (`optionalFrom`) уже добит нулями, то есть покоящееся
+// тело интерполируется со скоростями 0 — при ударе скорость плавно нарастает
+// от нуля к значению соседнего кадра, а не прыгает.
 fn interpolate_row(
     schema_fields: &[crate::config::FieldSchema],
     fields_a: &[FieldValue],

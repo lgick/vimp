@@ -290,11 +290,20 @@ impl<G: GameDef> EngineSim<G> {
     pub fn build_snapshot_blocks(&mut self) -> Vec<(String, Block)> {
         let (mut blocks, has_events) = self.sim.build_snapshot_blocks();
 
-        // динамические элементы карты — каждый отправляемый кадр
+        // динамические элементы карты — каждый отправляемый кадр.
+        // Хвост со скоростями пишется, только если схема набора карт его
+        // объявила (`optionalFrom`): движок не навязывает игре ширину строки
         if let Some(map) = &self.map {
+            let with_velocities = self
+                .cfg
+                .snapshot
+                .keys
+                .get(&map.set_id)
+                .is_some_and(|schema| schema.optional_from.is_some());
+
             blocks.push((
                 map.set_id.clone(),
-                Block::IndexedNoNull8(map.dynamic_map_data(&self.world)),
+                Block::IndexedNoNull8(map.dynamic_map_data(&self.world, with_velocities)),
             ));
         }
 

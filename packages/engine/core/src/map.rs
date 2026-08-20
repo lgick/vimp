@@ -12,6 +12,10 @@ use crate::physics::{deg_to_rad, encode_map_object, round2};
 pub const DEFAULT_FRICTION: f32 = 0.2;
 pub const DEFAULT_RESTITUTION: f32 = 0.0;
 
+// порог «тело покоится» для хвоста скоростей в снапшоте: ниже него
+// скорость не стоит 12 байт на строку (Map.js REST_VELOCITY_EPSILON)
+const REST_VELOCITY_EPSILON: f32 = 0.01;
+
 /// Динамический объект карты (physicsDynamic из src/data/maps/*).
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -250,7 +254,17 @@ impl GameMap {
     /// Краткие данные динамических элементов (Map.getDynamicMapData):
     /// индекс → [x, y, angle] (как поля строки блока), значения скруглены
     /// до 2 знаков.
-    pub fn dynamic_map_data(&self, world: &PhysicsWorld) -> Vec<(u8, Vec<FieldValue>)> {
+    ///
+    /// При `with_velocities` движущееся тело отдаёт ещё и хвост
+    /// [vx, vy, angvel] (кадр v4, `optionalFrom` в схеме блока): клиент
+    /// предсказывает динамику карты рядом со своим танком, а оценка скорости
+    /// конечной разностью между кадрами 30 Гц сильнее всего врёт именно в
+    /// момент удара. Покоящееся тело хвост не шлёт.
+    pub fn dynamic_map_data(
+        &self,
+        world: &PhysicsWorld,
+        with_velocities: bool,
+    ) -> Vec<(u8, Vec<FieldValue>)> {
         self.dynamic_bodies
             .iter()
             .enumerate()
@@ -258,14 +272,27 @@ impl GameMap {
                 world.bodies.get(handle).map(|body| {
                     let pos = body.translation();
 
-                    (
-                        index as u8,
-                        vec![
-                            FieldValue::F32(round2(pos.x)),
-                            FieldValue::F32(round2(pos.y)),
-                            FieldValue::F32(round2(body.rotation().angle())),
-                        ],
-                    )
+                    let mut fields = vec![
+                        FieldValue::F32(round2(pos.x)),
+                        FieldValue::F32(round2(pos.y)),
+                        FieldValue::F32(round2(body.rotation().angle())),
+                    ];
+
+                    if with_velocities {
+                        let linvel = body.linvel();
+                        let angvel = body.angvel();
+                        let resting = body.is_sleeping()
+                            || (linvel.x.hypot(linvel.y) < REST_VELOCITY_EPSILON
+                                && angvel.abs() < REST_VELOCITY_EPSILON);
+
+                        if !resting {
+                            fields.push(FieldValue::F32(round2(linvel.x)));
+                            fields.push(FieldValue::F32(round2(linvel.y)));
+                            fields.push(FieldValue::F32(round2(angvel)));
+                        }
+                    }
+
+                    (index as u8, fields)
                 })
             })
             .collect()

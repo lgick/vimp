@@ -168,6 +168,23 @@ pub struct BlockSchema {
     pub class: BlockClass,
     #[serde(default)]
     pub fields: Vec<FieldSchema>,
+    /// Индекс первого поля опционального хвоста: поля `[optional_from..]`
+    /// пишутся в кадр не всегда, их наличие задаёт флаг-байт перед строкой
+    /// (кадр v4, блок динамики карты: покоящееся тело не платит за
+    /// скорости). `None` — строка фиксированной ширины, флаг-байта нет.
+    /// Раскладка полей при этом не меняется: распаковка всегда отдаёт
+    /// строку полной ширины, отсутствующий хвост читается как нули
+    /// (см. `client/unpack.rs`), поэтому потребители строки — интерполятор,
+    /// hot-буфер, JS — остаются фиксированной ширины.
+    #[serde(default)]
+    pub optional_from: Option<usize>,
+}
+
+impl BlockSchema {
+    /// Число полей, которые пишутся в строку всегда (без хвоста).
+    pub fn required_len(&self) -> usize {
+        self.optional_from.unwrap_or(self.fields.len())
+    }
 }
 
 /// Длина player-блока предикшена (predicted player state), см.
@@ -202,6 +219,20 @@ impl SnapshotConfig {
             }
 
             seen_ids.push(schema.id);
+
+            // хвост, который начинается за последним полем (или охватывает
+            // всю строку), не кодирует ничего — флаг-байт стал бы чистым
+            // расходом трафика на каждой строке
+            if let Some(from) = schema.optional_from
+                && (from == 0 || from >= schema.fields.len())
+            {
+                return Err(format!(
+                    "[core snapshot] Ключ '{key}': optionalFrom {from} вне диапазона \
+                     1..{} — опциональный хвост должен быть непустым, а обязательная \
+                     часть строки не может быть пустой",
+                    schema.fields.len().saturating_sub(1)
+                ));
+            }
         }
 
         Ok(())
@@ -246,6 +277,7 @@ pub mod test_support {
             id,
             kind: BlockKind::Indexed8,
             class: BlockClass::Hot,
+            optional_from: None,
             fields: vec![
                 field_interp("x", FieldType::F32, Interp::Lerp),
                 field_interp("y", FieldType::F32, Interp::Lerp),
@@ -266,6 +298,7 @@ pub mod test_support {
             id,
             kind: BlockKind::List16,
             class: BlockClass::Event,
+            optional_from: None,
             fields: vec![
                 field("startX", FieldType::F32),
                 field("startY", FieldType::F32),
@@ -284,6 +317,7 @@ pub mod test_support {
             id,
             kind: BlockKind::Indexed32,
             class: BlockClass::Event,
+            optional_from: None,
             fields: vec![
                 field("x", FieldType::F32),
                 field("y", FieldType::F32),
@@ -300,6 +334,7 @@ pub mod test_support {
             id,
             kind: BlockKind::List16,
             class: BlockClass::Event,
+            optional_from: None,
             fields: vec![
                 field("x", FieldType::F32),
                 field("y", FieldType::F32),
@@ -308,15 +343,22 @@ pub mod test_support {
         }
     }
 
+    /// Динамика карты с опциональным хвостом скоростей (кадр v4):
+    /// покоящееся тело шлёт только трансформацию.
     pub fn dynamics_schema(id: u8) -> BlockSchema {
         BlockSchema {
             id,
             kind: BlockKind::IndexedNoNull8,
             class: BlockClass::Hot,
+            optional_from: Some(3),
             fields: vec![
                 field_interp("x", FieldType::F32, Interp::Lerp),
                 field_interp("y", FieldType::F32, Interp::Lerp),
                 field_interp("angle", FieldType::F32, Interp::LerpAngle),
+                field_interp("vx", FieldType::F32, Interp::Lerp),
+                field_interp("vy", FieldType::F32, Interp::Lerp),
+                // угловая СКОРОСТЬ, а не угол — интерполируется как число
+                field_interp("angvel", FieldType::F32, Interp::Lerp),
             ],
         }
     }
@@ -347,6 +389,25 @@ mod validate_tests {
     #[test]
     fn valid_schema_passes() {
         assert!(full_snapshot_config(3, 5).validate().is_ok());
+    }
+
+    #[test]
+    fn optional_from_out_of_range_fails() {
+        let mut cfg = full_snapshot_config(3, 5);
+
+        cfg.keys.get_mut("c1").unwrap().optional_from = Some(6);
+
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("optionalFrom"));
+    }
+
+    #[test]
+    fn optional_from_zero_fails() {
+        let mut cfg = full_snapshot_config(3, 5);
+
+        cfg.keys.get_mut("c1").unwrap().optional_from = Some(0);
+
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

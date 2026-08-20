@@ -15,7 +15,11 @@ export const ENGINE_API_VERSION = 3;
 // увеличивать при любом изменении байтовой раскладки в ядре
 // v2: per-user player-блок (gameId, inputSeq, состояние своего танка) — Фаза 5b
 // v3: id автора в событиях оружия (tracers +shooterId, bombs +ownerId) — Фаза 5c
-export const SNAPSHOT_FORMAT_VERSION = 3;
+// v4: опциональный хвост строки блока (schema.optionalFrom) — скорости
+//     динамики карты (vx/vy/angvel) у движущихся тел, покоящиеся не дорожают
+// v5: угловая скорость танка (m1 +angvel) — предсказание доворота чужого
+//     корпуса при контакте
+export const SNAPSHOT_FORMAT_VERSION = 5;
 
 // Реестр ключей снапшота (SNAPSHOT_KEYS) — игровая схема: живёт в
 // gameConfig.snapshot игры (например src/config/snapshot.js в vimp-tanks),

@@ -222,14 +222,14 @@ key registry is game data: the game plugin's `src/config/snapshot.js`
 (e.g. [`vimp-tanks`'s](https://github.com/lgick/vimp-tanks/blob/main/src/config/snapshot.js))
 (`gameConfig.snapshot`); the format version stays with the engine —
 [packages/engine/src/config/opcodes.js](../../packages/engine/src/config/opcodes.js)
-(`SNAPSHOT_FORMAT_VERSION = 3`). Big-endian, a manual block layout with no
+(`SNAPSHOT_FORMAT_VERSION = 5`). Big-endian, a manual block layout with no
 libraries. On a version mismatch the client drops the frame.
 
 The server packs the **body** (the broadcast part) once per tick
 (`packBody`), then assembles a `packFrame` per user = a personal header +
 a copy of the body.
 
-### Frame layout (v3)
+### Frame layout (v5)
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -258,11 +258,11 @@ layout (id + typed fields). Example from the reference plugin
 
 | Key | id | kind | Data format |
 | :--: | :--: | --- | --- |
-| `m1` | 1 | `tanks` | `{gameId: [x, y, angle, gunRotation, vx, vy, engineLoad, condition, size, teamId] \| null}`; `null` — remove from the canvas |
+| `m1` | 1 | `tanks` | `{gameId: [x, y, angle, gunRotation, vx, vy, engineLoad, condition, size, teamId, angvel] \| null}`; `null` — remove from the canvas |
 | `w1` | 2 | `tracers` | array `[startX, startY, endX, endY, bodyX, bodyY, wasHit, shooterId]` |
 | `w2` | 3 | `bombs` | `{shotId(base36): [x, y, angle, size, time, ownerId] \| null}` |
 | `w2e` | 4 | `explosions` | array `[x, y, radius]` |
-| `c1`/`c2` | 5/6 | `dynamics` | `{'dN': [x, y, angle]}` — dynamic map elements |
+| `c1`/`c2` | 5/6 | `dynamics` | `{'dN': [x, y, angle] \| [x, y, angle, vx, vy, angvel]}` — dynamic map elements; the velocity tail is optional (see below) |
 
 Every float is originally rounded by the host to 2 decimals; the decoder
 restores values by rounding the Float32 again (the player block isn't
@@ -271,13 +271,26 @@ rounded). Game entity events can carry an author id (`vimp-tanks` uses
 duplicates of locally spawned entities (the client core, the game plugin's
 `core/src/client/shot.rs`, e.g. `vimp-tanks`'s).
 
+**Optional row tail** (`optionalFrom`, v4). A schema may declare that its
+row's fields from index `optionalFrom` on are written only when they carry
+something: such a row starts with a flag byte (`1` — the tail follows, `0` —
+the row ends after the mandatory part). `vimp-tanks` uses it for the dynamic
+map elements: a resting crate ships `[x, y, angle]` and does not pay the
+12 bytes for `[vx, vy, angvel]` every frame, while a crate that was just hit
+ships its velocities — the client predicts map dynamics next to its own tank,
+and a velocity estimated by finite differences between 30 Hz frames is worst
+exactly at the moment of impact. Decoding always yields a **full-width** row:
+a missing tail reads as zeros ("the body rests"), so the interpolator, the
+hot buffer and the JS side stay fixed-width.
+
 Each schema entry is more than `{id, kind}`: `class` (`'hot'` —
 interpolated by the client between frames, `'event'` — one-shot, delivered
 as-is in the frame) and `fields` — the row's field schema (`name`, `ty`:
 `f32`/`u8`/`u16`/`u32`, `interp`: `lerp`/`lerpAngle`/`discrete`, for
 `class: 'hot'` only). `fields` must match the key's Row struct in
 `packages/engine/core/src/snapshot.rs` exactly in field count and type
-order (`GameCore`/`ClientCore` reject the constructor on a mismatch).
+order (`GameCore`/`ClientCore` reject the constructor on a mismatch), and
+`optionalFrom` (if present) must point at a non-empty tail inside `fields`.
 
 When adding a new weapon/entity, its snapshot key **must** be registered in
 the game plugin's schema (`src/config/snapshot.js`, e.g. `vimp-tanks`'s) — with a full

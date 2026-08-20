@@ -3,7 +3,7 @@ use crate::config::{
 };
 
 // Бинарный пакер snapshot-кадра: порт SnapshotPacker из
-// src/lib/snapshotCodec.js. Раскладка (v3) идентична байт-в-байт —
+// src/lib/snapshotCodec.js. Раскладка (v5) идентична байт-в-байт —
 // клиент распаковывает существующим unpackFrame. Big-endian.
 
 const CAMERA_FLAG_HAS_CAMERA: u8 = 1;
@@ -131,8 +131,36 @@ impl SnapshotPacker {
     /// зависит от `kind` (см. `BlockKind`), раскладка полей строки —
     /// от `schema.fields` (см. `FieldSchema`).
     fn write_block(buf: &mut Vec<u8>, schema: &BlockSchema, block: &Block) {
+        // Строка со схемой без хвоста пишется как есть. Со схемой с хвостом
+        // (`optionalFrom`) строка начинается с флаг-байта: 1 — хвост дальше
+        // есть, 0 — строка обрывается на обязательной части (кадр v4,
+        // покоящееся тело динамики не платит за скорости). Наличие хвоста
+        // задаёт длина переданной строки: `required_len()` или полная.
         fn write_row(buf: &mut Vec<u8>, schema: &BlockSchema, fields: &[FieldValue]) {
-            for (i, field) in schema.fields.iter().enumerate() {
+            debug_assert!(
+                fields.len() == schema.fields.len() || fields.len() == schema.required_len(),
+                "[core snapshot] длина строки {} не равна ни полной ширине схемы {}, \
+                 ни её обязательной части {}",
+                fields.len(),
+                schema.fields.len(),
+                schema.required_len()
+            );
+
+            let len = if schema.optional_from.is_some() {
+                let has_tail = fields.len() > schema.required_len();
+
+                buf.push(has_tail as u8);
+
+                if has_tail {
+                    schema.fields.len()
+                } else {
+                    schema.required_len()
+                }
+            } else {
+                schema.fields.len()
+            };
+
+            for (i, field) in schema.fields.iter().take(len).enumerate() {
                 write_field(buf, field.ty, fields[i]);
             }
         }
@@ -262,7 +290,7 @@ impl SnapshotPacker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::test_support::{tanks_schema, tracers_schema};
+    use crate::config::test_support::{dynamics_schema, tanks_schema, tracers_schema};
     use indexmap::IndexMap;
 
     fn test_config() -> SnapshotConfig {
@@ -270,6 +298,7 @@ mod tests {
 
         keys.insert("m1".to_string(), tanks_schema(1));
         keys.insert("w1".to_string(), tracers_schema(2));
+        keys.insert("c1".to_string(), dynamics_schema(5));
 
         SnapshotConfig {
             version: 3,
@@ -359,5 +388,40 @@ mod tests {
         assert_eq!(body[4 + 30], 1);
         assert_eq!(body[4 + 31], 9); // второй танк
         assert_eq!(body[4 + 32], 0); // null-маркер
+    }
+
+    /// Раскладка строки с опциональным хвостом: индекс, флаг-байт, затем
+    /// обязательные поля и — только при флаге 1 — хвост.
+    #[test]
+    fn dynamics_optional_tail_layout() {
+        let mut packer = SnapshotPacker::new(test_config());
+        let f32s = |values: &[f32]| -> Vec<FieldValue> {
+            values.iter().copied().map(FieldValue::F32).collect()
+        };
+
+        packer
+            .pack_body(&[(
+                "c1".to_string(),
+                Block::IndexedNoNull8(vec![
+                    (0, f32s(&[1.0, 2.0, 3.0])),
+                    (1, f32s(&[4.0, 5.0, 6.0, 7.0, 8.0, 9.0])),
+                ]),
+            )])
+            .unwrap();
+
+        let frame = packer.pack_frame(0.0, 0, None, None).to_vec();
+        let body = &frame[15..]; // заголовок без камеры/игрока: 15 байт
+
+        assert_eq!(body[0], 5); // id ключа c1
+        assert_eq!(body[1], 2); // количество тел
+        assert_eq!(body[2], 0); // индекс первого
+        assert_eq!(body[3], 0); // хвоста нет
+        assert_eq!(f32::from_be_bytes(body[4..8].try_into().unwrap()), 1.0);
+
+        // первая строка заняла 2 + 12 байт, вторая идёт сразу за ней
+        assert_eq!(body[16], 1); // индекс второго
+        assert_eq!(body[17], 1); // хвост есть
+        assert_eq!(f32::from_be_bytes(body[30..34].try_into().unwrap()), 7.0);
+        assert_eq!(body.len(), 2 + (2 + 12) + (2 + 24));
     }
 }

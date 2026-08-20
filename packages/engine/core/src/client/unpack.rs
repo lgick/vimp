@@ -1,4 +1,4 @@
-//! Декодер бинарного кадра v3 — порт unpackFrame из src/lib/snapshotCodec.js
+//! Декодер бинарного кадра v5 — порт unpackFrame из src/lib/snapshotCodec.js
 //! (срез 2.6). Раскладка зеркальна упаковке core/src/snapshot.rs (big-endian);
 //! float снапшота восстанавливаются повторным округлением до 2 знаков
 //! (round2), player-блок читается без округления (точность нужна предикту).
@@ -244,13 +244,46 @@ pub fn unpack_frame(data: &[u8], cfg: &SnapshotConfig) -> Result<DecodedFrame, U
     })
 }
 
+/// Нулевое значение поля по его типу — отсутствующий опциональный хвост
+/// читается именно так: «тело покоится», то есть нулевые скорости.
+fn zero_field(ty: FieldType) -> FieldValue {
+    match ty {
+        FieldType::F32 => FieldValue::F32(0.0),
+        FieldType::U8 => FieldValue::U8(0),
+        FieldType::U16 => FieldValue::U16(0),
+        FieldType::U32 => FieldValue::U32(0),
+    }
+}
+
 /// Читает строку по позиционной схеме `schema.fields` — generic для любого
 /// kind, раскладка полей внутри строки не зависит от формы блока.
+/// Схема с опциональным хвостом (`optionalFrom`) начинает строку флаг-байтом;
+/// при нулевом флаге хвост в кадре отсутствует и добивается нулями — наружу
+/// строка всегда отдаётся полной ширины (интерполятор и hot-буфер читают
+/// поля по индексу и переменную длину не переживут).
 fn read_row(r: &mut Reader, schema: &BlockSchema) -> Result<Vec<FieldValue>, UnpackError> {
+    let has_tail = match schema.optional_from {
+        None => true,
+        Some(_) => r.u8()? == 1,
+    };
+
+    let read_len = if has_tail {
+        schema.fields.len()
+    } else {
+        schema.required_len()
+    };
+
     schema
         .fields
         .iter()
-        .map(|field| read_field(r, field.ty))
+        .enumerate()
+        .map(|(i, field)| {
+            if i < read_len {
+                read_field(r, field.ty)
+            } else {
+                Ok(zero_field(field.ty))
+            }
+        })
         .collect()
 }
 
@@ -677,6 +710,73 @@ mod tests {
             ),
             (10.0, 20.0, 0.5)
         );
+
+        // строка пришла без опционального хвоста — наружу она всё равно
+        // полной ширины схемы, скорости нулевые
+        assert_eq!(dyn_row.len(), 6);
+        assert_eq!(
+            (
+                field_f32(dyn_row, 3),
+                field_f32(dyn_row, 4),
+                field_f32(dyn_row, 5)
+            ),
+            (0.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn dynamics_optional_tail_round_trip() {
+        let resting = vec![
+            FieldValue::F32(10.0),
+            FieldValue::F32(20.0),
+            FieldValue::F32(0.5),
+        ];
+        let moving = vec![
+            FieldValue::F32(30.0),
+            FieldValue::F32(40.0),
+            FieldValue::F32(1.5),
+            FieldValue::F32(-2.25),
+            FieldValue::F32(3.75),
+            FieldValue::F32(0.9),
+        ];
+
+        let data = packed_frame(
+            &[(
+                "c1".to_string(),
+                Block::IndexedNoNull8(vec![(0, resting), (1, moving)]),
+            )],
+            None,
+            None,
+        );
+        let frame = unpack_frame(&data, &test_config()).ok().unwrap();
+
+        let Some(BlockData::IndexedNoNull8(dynamics)) = frame.snapshot.block_by_key("c1") else {
+            panic!("нет блока c1");
+        };
+
+        // покоящееся тело: хвоста в кадре нет, читается как нулевые скорости
+        assert_eq!(
+            (
+                field_f32(&dynamics[&0], 3),
+                field_f32(&dynamics[&0], 4),
+                field_f32(&dynamics[&0], 5)
+            ),
+            (0.0, 0.0, 0.0)
+        );
+
+        // движущееся: хвост дошёл значениями
+        assert_eq!(
+            (
+                field_f32(&dynamics[&1], 0),
+                field_f32(&dynamics[&1], 3),
+                field_f32(&dynamics[&1], 4),
+                field_f32(&dynamics[&1], 5)
+            ),
+            (30.0, -2.25, 3.75, 0.9)
+        );
+
+        // строка без хвоста дешевле ровно на 3 × f32
+        assert_eq!(data.len(), 15 + 1 + 1 + (2 + 12) + (2 + 12 + 12));
     }
 
     #[test]

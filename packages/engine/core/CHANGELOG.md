@@ -13,6 +13,34 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-20
+
+### Added
+
+- Optional row tail in the snapshot schema: `BlockSchema.optionalFrom` marks
+  the index of the first field that is written only when the row carries it.
+  Such a row starts with a flag byte (`1` — the tail follows, `0` — the row
+  ends after the mandatory part), so a body that has nothing to report does
+  not pay for the tail every frame. Decoding still yields a **full-width**
+  row — a missing tail reads as zeros — so the interpolator, the hot buffer
+  and the JS side stay fixed-width. `SnapshotConfig::validate()` rejects an
+  `optionalFrom` that points outside a non-empty tail.
+- `GameMap::dynamic_map_data` can append the velocity tail
+  (`vx`, `vy`, `angvel`) of a moving body; a resting one (asleep, or below
+  `REST_VELOCITY_EPSILON` in both linear and angular speed) ships only its
+  transform. The client predicts map dynamics next to its own tank, and a
+  velocity estimated by finite differences between 30 Hz frames is worst
+  exactly at the moment of impact.
+
+### Changed
+
+- **Breaking.** `GameMap::dynamic_map_data(world)` takes a second argument,
+  `with_velocities`. `EngineSim::build_snapshot_blocks` derives it from the
+  map set's own schema entry (`optionalFrom` present), so the engine never
+  imposes a row width on the game.
+- **Breaking.** The frame format is v5 (see the npm package's changelog):
+  the engine and the game crate have to ship as a matching pair.
+
 ## [0.5.0] — 2026-08-20
 
 ### Added

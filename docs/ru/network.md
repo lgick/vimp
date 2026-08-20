@@ -128,11 +128,11 @@
 
 ## Бинарный snapshot-кадр (порт 5)
 
-Кодек целиком в Rust-ядре: упаковка — `packages/engine/core/src/snapshot.rs` (у хоста), распаковка — `packages/engine/core/src/client/unpack.rs` (у клиента); обе стороны в одном crate — расхождение раскладок исключено по построению. Реестр ключей — данные игры: `src/config/snapshot.js` игры-плагина (например, [в `vimp-tanks`](https://github.com/lgick/vimp-tanks/blob/main/src/config/snapshot.js)) (`gameConfig.snapshot`); версия формата остаётся у движка — [packages/engine/src/config/opcodes.js](../../packages/engine/src/config/opcodes.js) (`SNAPSHOT_FORMAT_VERSION = 3`). Big-endian, ручной block-layout без библиотек. При несовпадении версии клиент отбрасывает кадр.
+Кодек целиком в Rust-ядре: упаковка — `packages/engine/core/src/snapshot.rs` (у хоста), распаковка — `packages/engine/core/src/client/unpack.rs` (у клиента); обе стороны в одном crate — расхождение раскладок исключено по построению. Реестр ключей — данные игры: `src/config/snapshot.js` игры-плагина (например, [в `vimp-tanks`](https://github.com/lgick/vimp-tanks/blob/main/src/config/snapshot.js)) (`gameConfig.snapshot`); версия формата остаётся у движка — [packages/engine/src/config/opcodes.js](../../packages/engine/src/config/opcodes.js) (`SNAPSHOT_FORMAT_VERSION = 5`). Big-endian, ручной block-layout без библиотек. При несовпадении версии клиент отбрасывает кадр.
 
 Сервер пакует **тело** (broadcast-часть) один раз за тик (`packBody`), затем для каждого пользователя собирает кадр `packFrame` = персональный заголовок + копия тела.
 
-### Раскладка кадра (v3)
+### Раскладка кадра (v5)
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
@@ -156,15 +156,17 @@
 
 | Ключ | id | kind | Формат данных |
 | :--: | :--: | --- | --- |
-| `m1` | 1 | `tanks` | `{gameId: [x, y, angle, gunRotation, vx, vy, engineLoad, condition, size, teamId] \| null}`; `null` — удалить с полотна |
+| `m1` | 1 | `tanks` | `{gameId: [x, y, angle, gunRotation, vx, vy, engineLoad, condition, size, teamId, angvel] \| null}`; `null` — удалить с полотна |
 | `w1` | 2 | `tracers` | массив `[startX, startY, endX, endY, bodyX, bodyY, wasHit, shooterId]` |
 | `w2` | 3 | `bombs` | `{shotId(base36): [x, y, angle, size, time, ownerId] \| null}` |
 | `w2e` | 4 | `explosions` | массив `[x, y, radius]` |
-| `c1`/`c2` | 5/6 | `dynamics` | `{'dN': [x, y, angle]}` — динамические элементы карты |
+| `c1`/`c2` | 5/6 | `dynamics` | `{'dN': [x, y, angle] \| [x, y, angle, vx, vy, angvel]}` — динамические элементы карты; хвост со скоростями опционален (см. ниже) |
 
 Все float исходно округлены хостом до 2 знаков; декодер восстанавливает значения повторным округлением Float32 (player-блок — без округления). События игровых сущностей могут нести id автора (`vimp-tanks` использует `shooterId`/`ownerId`, добавлены в v3), чтобы клиент подавлял авторитетные дубли локально заспавненных сущностей (клиентское ядро, `core/src/client/shot.rs` игры-плагина, например в `vimp-tanks`).
 
-Запись схемы — не только `{id, kind}`: `class` (`'hot'` — интерполируется клиентом между кадрами, `'event'` — одноразовый, кадром как есть) и `fields` — схема полей строки (`name`, `ty`: `f32`/`u8`/`u16`/`u32`, `interp`: `lerp`/`lerpAngle`/`discrete` для `class: 'hot'`). `fields` обязана точно совпадать по количеству и порядку типов с Row-структурой ключа в `packages/engine/core/src/snapshot.rs` (`GameCore`/`ClientCore` отклоняют конструктор при расхождении).
+**Опциональный хвост строки** (`optionalFrom`, v4). Схема вправе объявить, что поля строки начиная с индекса `optionalFrom` пишутся, только когда несут смысл: такая строка начинается с флаг-байта (`1` — дальше хвост, `0` — строка кончилась на обязательной части). `vimp-tanks` использует его для динамических элементов карты: покоящийся ящик шлёт `[x, y, angle]` и не платит 12 байт за `[vx, vy, angvel]` каждый кадр, а только что получивший удар — шлёт скорости: клиент предсказывает динамику карты рядом со своим танком, а оценка скорости конечной разностью между кадрами 30 Гц сильнее всего врёт именно в момент удара. Распаковка всегда отдаёт строку **полной ширины**: отсутствующий хвост читается нулями («тело покоится»), поэтому интерполятор, hot-буфер и JS остаются фиксированной ширины.
+
+Запись схемы — не только `{id, kind}`: `class` (`'hot'` — интерполируется клиентом между кадрами, `'event'` — одноразовый, кадром как есть) и `fields` — схема полей строки (`name`, `ty`: `f32`/`u8`/`u16`/`u32`, `interp`: `lerp`/`lerpAngle`/`discrete` для `class: 'hot'`). `fields` обязана точно совпадать по количеству и порядку типов с Row-структурой ключа в `packages/engine/core/src/snapshot.rs` (`GameCore`/`ClientCore` отклоняют конструктор при расхождении), а `optionalFrom` (если задан) обязан указывать на непустой хвост внутри `fields`.
 
 При добавлении нового оружия/сущности его snapshot-ключ **обязан** быть зарегистрирован в снапшот-схеме игры-плагина (`src/config/snapshot.js`, например в `vimp-tanks`) — с полным `fields` для своего `kind`, иначе `pack_body`/конструктор ядра бросят ошибку. Если существующие `kind` не подходят — добавить новую раскладку блока в `packages/engine/core/src/snapshot.rs` + `packages/engine/core/src/client/unpack.rs` и поднять версию формата. См. доки активной игры-плагина (например, [vimp-tanks/docs/ru/extending.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/extending.md#новое-оружие)).
 

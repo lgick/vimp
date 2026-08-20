@@ -403,11 +403,16 @@ violations. See [debugging.md](debugging.md#prediction-divergence-detector).
 ### Snapshot blocks — a declarative schema
 
 Fixed block layouts are replaced by a schema: `SnapshotConfig.keys` maps each
-key to a `BlockSchema` of exactly four fields — `id` (the block's opcode in
+key to a `BlockSchema` of five fields — `id` (the block's opcode in
 the frame), `kind` (`BlockKind`: the row shape, which is what implies the
 count/id widths and whether rows carry a null marker), `class` (`hot` —
-interpolated / `event` — frame-only) and `fields` (each with a type
-`f32/u8/u16/u32` and an interpolation mode `lerp`/`lerpAngle`/discrete). The
+interpolated / `event` — frame-only), `fields` (each with a type
+`f32/u8/u16/u32` and an interpolation mode `lerp`/`lerpAngle`/discrete) and
+the optional `optionalFrom` (the index of the first field of the row's
+optional tail: those fields are written only when the row carries them, and
+a flag byte in front of the row says whether they follow — see
+[network.md](network.md#entity-blocks-kind-from-the-games-snapshot-schema);
+decoding always yields a full-width row, a missing tail reads as zeros). The
 `d` prefix on `indexedNoNull8` ids is likewise not a schema field — it is
 hardcoded in the decoders. The packer (`snapshot.rs`), unpacker
 (`client/unpack.rs`), interpolator and the engine hot buffer are schema

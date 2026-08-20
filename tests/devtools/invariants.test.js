@@ -7,6 +7,7 @@ import {
   FAIL,
   SKIP,
 } from '../../packages/engine/src/devtools/invariants.js';
+import { SNAPSHOT_FORMAT_VERSION } from '../../packages/engine/src/config/opcodes.js';
 
 // Проверка самих проверок: каждый инвариант обязан ловить свой класс
 // молчаливого отказа и не срабатывать на здоровом прогоне. Контекст здесь
@@ -58,7 +59,7 @@ const client = (overrides = {}) => ({
 });
 
 // кадр в движковом фрейминге: порт SHOT_DATA + версия формата
-const frame = (port = 5, version = 3) => ({
+const frame = (port = 5, version = SNAPSHOT_FORMAT_VERSION) => ({
   method: 'sendShot',
   socketId: 'sock-p1',
   tick: 0,
