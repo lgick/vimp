@@ -6,9 +6,11 @@ use crate::config::FieldValue;
 use crate::physics::{deg_to_rad, encode_map_object, round2};
 
 // параметры поверхности по умолчанию (дефолты planck/Box2D,
-// с которыми сбалансировано ощущение управления)
-const DEFAULT_FRICTION: f32 = 0.2;
-const DEFAULT_RESTITUTION: f32 = 0.0;
+// с которыми сбалансировано ощущение управления). Публичные: клиентская
+// реплика контактов (client::rigid_body::MAP_SURFACE) обязана брать те же
+// значения, иначе предсказание тихо разъедется с хостом
+pub const DEFAULT_FRICTION: f32 = 0.2;
+pub const DEFAULT_RESTITUTION: f32 = 0.0;
 
 /// Динамический объект карты (physicsDynamic из src/data/maps/*).
 #[derive(Clone, Deserialize)]
@@ -203,6 +205,10 @@ impl GameMap {
                     .rotation(deg_to_rad(data.angle))
                     .linear_damping(data.linear_damping.unwrap_or(0.0))
                     .angular_damping(data.angular_damping.unwrap_or(0.01))
+                    // предиктивные контакты на толщину ящика — та же причина,
+                    // что и у танка: дефолтная дистанция предсказания Rapier
+                    // рассчитана на метры и на порядки меньше пути тела за шаг
+                    .soft_ccd_prediction(width.min(height))
                     .user_data(encode_map_object()),
             );
 
@@ -263,5 +269,96 @@ impl GameMap {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TIME_STEP: f32 = 1.0 / 120.0;
+
+    // сплошная стена в верхнем ряду (5 тайлов по 20) и один ящик 20×20 под ней
+    fn map_config() -> MapConfig {
+        serde_json::from_value(serde_json::json!({
+            "step": 20.0,
+            "map": [[1, 1, 1, 1, 1], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+            "physicsStatic": [1],
+            "physicsDynamic": [{
+                "position": [40.0, 60.0],
+                "angle": 0.0,
+                "width": 20.0,
+                "height": 20.0,
+                "density": 1.0
+            }]
+        }))
+        .unwrap()
+    }
+
+    fn make_world() -> PhysicsWorld {
+        let mut world = PhysicsWorld::new();
+
+        world.gravity = Vector::ZERO;
+        world.integration_parameters.dt = TIME_STEP;
+
+        world
+    }
+
+    // глубина самого глубокого перекрытия за прогон: ящик разгоняется в стену
+    fn max_penetration(world: &mut PhysicsWorld, body: RigidBodyHandle) -> f32 {
+        let mut depth: f32 = 0.0;
+
+        // ~17 юнитов за шаг — на порядки больше дефолтных 0.002 и сравнимо
+        // с толщиной ящика: без предсказания контакт рождается уже внутри
+        world.bodies[body].set_linvel(Vector::new(0.0, -2000.0), true);
+
+        for _ in 0..120 {
+            world.step();
+
+            for pair in world.contact_pairs() {
+                for manifold in &pair.manifolds {
+                    for point in &manifold.points {
+                        depth = depth.max(-point.dist);
+                    }
+                }
+            }
+        }
+
+        depth
+    }
+
+    #[test]
+    fn dynamic_body_gets_soft_ccd_prediction_of_thickness() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &map_config(), 1.0, "set");
+
+        let prediction = world.bodies[map.dynamic_bodies[0]].soft_ccd_prediction();
+
+        // без предсказания контакт рождается уже по факту перекрытия: за шаг
+        // 1/120 тело проходит на порядки больше дефолтных 0.002 юнита
+        assert_eq!(prediction, 20.0);
+    }
+
+    #[test]
+    fn soft_ccd_prediction_keeps_penetration_shallow() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &map_config(), 1.0, "set");
+        let handle = map.dynamic_bodies[0];
+
+        let predicted = max_penetration(&mut world, handle);
+
+        let mut plain_world = make_world();
+        let plain_map = GameMap::create(&mut plain_world, &map_config(), 1.0, "set");
+        let plain_handle = plain_map.dynamic_bodies[0];
+
+        plain_world.bodies[plain_handle].set_soft_ccd_prediction(0.0);
+
+        let plain = max_penetration(&mut plain_world, plain_handle);
+
+        assert!(
+            plain > 5.0,
+            "без предсказания ожидалось глубокое перекрытие, получено {plain}"
+        );
+        assert!(predicted < 2.0, "с предсказанием перекрытие {predicted}");
     }
 }

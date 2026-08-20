@@ -13,6 +13,34 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `client::collision` and `client::rigid_body` — the contact primitives a
+  client needs to predict the geometry the host resolves. `collision`
+  brings `box_center_from_origin` (a map body's origin corner → the box
+  centre), `obb_vs_obb` (SAT, returning the minimum translation vector,
+  the depth and a blended contact point) and `collect_tile_contacts` (an
+  OBB against the solid cells of the tile grid); it reads the map through
+  the same `Box2` and the same grid triple as `client::raycast`, so a ray
+  and a contact can never disagree about a wall. `rigid_body` brings the
+  `Body`/`Surface`/`MassProperties` types, `integrate`, `separate_bodies`
+  and `apply_contact_impulse` (a sequential-impulse solver with
+  restitution and a Coulomb friction cone), `box_mass_properties` and
+  `combine_surfaces` (Rapier's `CoefficientCombineRule::Average`). Its
+  `MAP_SURFACE` is built from `map::DEFAULT_FRICTION` /
+  `DEFAULT_RESTITUTION`, now public, so the replica and the host cannot
+  drift apart on surface values. `client::raycast::Box2` is now `Copy`.
+
+### Fixed
+
+- Dynamic map objects no longer sink into geometry on impact. Rapier's
+  default contact prediction distance is 0.002 units, a figure meant for a
+  metre-scale world, while a body in a match covers orders of magnitude more
+  per `1/120` step — so the contact was born only once the shapes already
+  overlapped deeply. `GameMap::create_dynamic` now builds the body with
+  `soft_ccd_prediction(width.min(height))`, the object's own thickness.
+  Static walls are unchanged.
+
 ## [0.4.0] — 2026-08-19
 
 ### Added

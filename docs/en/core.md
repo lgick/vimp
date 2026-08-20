@@ -36,7 +36,8 @@ packages/engine/core/             # vimp-engine-core — rlib, no wasm-bindgen
 │   ├── abi.rs                    # export_game_core_abi!/export_client_core_abi! — the
 │   │                              #   wasm-bindgen boilerplate macros (see ABI sections below);
 │   │                              #   expanded in the game crate, which supplies #[wasm_bindgen]
-│   ├── map.rs                    # GameMap — static/dynamic bodies, map scaling
+│   ├── map.rs                    # GameMap — static/dynamic bodies, map scaling,
+│   │                              #   soft-CCD prediction on dynamics (see Map bodies)
 │   ├── snapshot.rs                # SnapshotPacker + Block — packs the v3 binary frame;
 │   │                              #   Block is generic by shape (Indexed8/Indexed32/
 │   │                              #   List16/IndexedNoNull8), not by game entity — the
@@ -61,7 +62,9 @@ packages/engine/core/             # vimp-engine-core — rlib, no wasm-bindgen
 │       ├── unpack.rs              # the v3 frame decoder + JSON forms
 │       ├── divergence.rs          # prediction divergence detector (ring buffer of records)
 │       ├── interpolator.rs        # the snapshot buffer, seq, lerp (schema-driven)
-│       └── raycast.rs             # DDA over tiles + an OBB slab test
+│       ├── raycast.rs             # DDA over tiles + an OBB slab test
+│       ├── collision.rs           # SAT contacts: OBB vs OBB, OBB vs the tile grid
+│       └── rigid_body.rs          # sequential-impulse contact solver + map surface
 ```
 
 ## Build
@@ -105,6 +108,25 @@ set is documented as the contract in
   locks this in with its own `state_dump_restores_identical_simulation`
   tests.
 
+## Map bodies
+
+`GameMap::create` builds the map's physics from the map JSON: static walls
+are merged into rectangular blocks (`RigidBodyBuilder::fixed()`), each
+`physicsDynamic` entry becomes one dynamic body with a collider offset by
+half its size (the body's position is the object's corner, as in the map
+data).
+
+Every dynamic body is created with
+`soft_ccd_prediction(width.min(height))` — its own thickness. Rapier's
+default prediction distance, 0.002 units, is calibrated for a metre-scale
+world; a body in a match covers orders of magnitude more per `1/120` step,
+so without prediction the contact is born only once the shapes already
+overlap deeply, and the object visibly sinks into the wall before being
+pushed out. Static walls do not need it (they never move).
+
+A game's own bodies (actors, projectiles) are built in the game crate and
+have to set their own prediction distance the same way.
+
 ## Rust traits (`vimp-engine-core`)
 
 The engine crate is pure Rust without wasm-bindgen (errors are
@@ -145,9 +167,20 @@ must not drift from them.
   (`predicted_state`, `replayed_inputs`) that default to `None` (see
   below). The engine provides the `Interpolator` (schema-driven), the
   generic `ClientState<G>` orchestration (network buffer, event-frame
-  queue, render-tick hot buffer) and raycast. Actor prediction, visual
+  queue, render-tick hot buffer), raycast and the collision primitives
+  (`collision`, `rigid_body`). Actor prediction, visual
   spawn prediction and the panel are entirely the game crate's own concern
-  inside its `GameClientDef` implementation, and call the engine raycast.
+  inside its `GameClientDef` implementation, and call the engine primitives.
+
+  `collision` and `rigid_body` let a client predict contacts the way the
+  host resolves them: `obb_vs_obb` / `collect_tile_contacts` produce the
+  `Contact`s (they read the map through the same `Box2` and the same tile
+  grid as `raycast`, so a ray and a contact can never disagree about a
+  wall), `separate_bodies` + `apply_contact_impulse` resolve them on
+  `Body` values, and `MAP_SURFACE` reuses `map::DEFAULT_FRICTION` /
+  `DEFAULT_RESTITUTION` — the same figures the host builds its colliders
+  with. This is an approximation of Rapier, not a copy; the remaining drift
+  is hidden by the game's reconciliation.
 
 The trait's shape is validated by a fixture second client (`TestClient`,
 tests in `packages/engine/core/src/client/game.rs`) before any real second
@@ -209,7 +242,7 @@ one deploy — the version only protects framing within a room).
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| Rust unit | `packages/engine/core/src/*` (`#[cfg(test)]`) | PRNG, the nav grid, A*, the spatial grid; the client module: round-trip unpack, the interpolator (seq/dedup/late/lerp), raycast, the hot buffer; the `GameClientDef` trait's shape validated against a fixture `TestClient` |
+| Rust unit | `packages/engine/core/src/*` (`#[cfg(test)]`) | PRNG, the nav grid, A*, the spatial grid; the client module: round-trip unpack, the interpolator (seq/dedup/late/lerp), raycast, SAT contacts and the contact solver, the hot buffer; the `GameClientDef` trait's shape validated against a fixture `TestClient` |
 | Rust integration | this repo has none — a game's simulation scenarios (driving, weapons, bots, handoff, etc.) are that game repo's concern | — |
 
 `npm run core:test` runs `cargo test --workspace`, which in this repo is
