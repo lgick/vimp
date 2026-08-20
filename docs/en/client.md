@@ -598,14 +598,17 @@ Data flow:
   zero-copy (the view is recreated every tick: WASM memory growth detaches
   the buffer). The buffer carries flags, the camera (already resolved:
   predicted position or interpolated), interpolated tank/dynamic records,
-  and the local tank's predicted record last. The `reconstructHot` adapter
+  and the game's predicted records last — the local actor's
+  (`render_overlay`) followed by any bodies the game predicts itself
+  (`render_rows`: map dynamics, remote actors in contact). The `reconstructHot` adapter
   (`packages/engine/src/lib/reconstructHot.js` — `buildSnapshotKeysById`
   builds the reverse schema index, `reconstructHot(hot, keysById)` walks the
   buffer; shared with the headless runner, which decodes frames through the
   very same code) assembles the previous shape
   `{ m1: { id: [...] }, c1: {...} }` from it and feeds the existing
-  `applyGameData` — GameCtrl/parts were never touched; the predicted record
-  overrides the local actor through the same pipeline.
+  `applyGameData` — GameCtrl/parts were never touched; a trailing record
+  lands in `game[key][id]` like any other, so it overrides the interpolated
+  row of the same entity through the same pipeline.
 - **Event frames** (the `hasFrames` flag): `take_frames()` returns a JSON
   array `[{ game, camera }, …]` — every crossed `renderTime` frame emitted
   exactly once (events `w1`/`w2e`, creations/removals, camera reset/shake),

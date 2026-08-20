@@ -120,10 +120,14 @@ N × (keyId, id, …fields)
                     M       — number of indexedNoNull8 rows
 M × (keyId, index, …fields)
                     predicted tail (one record, game-defined layout)
+                    P × (keyId, id, …fields)  — rows the game predicts itself
 ```
 
 Record width is `2 + fields.length` — the engine derives it from the schema
-it received in `CONFIG_DATA`.
+it received in `CONFIG_DATA`. The tail has no count of its own: the reader
+consumes records until the buffer ends, and every record lands in
+`game[key][id]`, so a trailing record overrides the interpolated row of the
+same entity (that is how both the predicted tail and `render_rows()` work).
 
 > **Constraint:** the hot buffer carries **only `indexed8` and
 > `indexedNoNull8`** blocks. Anything you want animated smoothly at render

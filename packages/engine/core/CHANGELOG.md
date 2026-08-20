@@ -13,6 +13,23 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `GameClientDef` hooks for bodies a game predicts itself (map dynamics,
+  remote actors in contact with the local one), all with empty defaults:
+  `begin_reconcile(&DecodedSnapshot)` hands the game the authoritative frame
+  before the input replay, `finish_reconcile()` runs right after
+  `on_server_state` so the divergence is folded once the replay has carried
+  those bodies too, and `render_rows() -> Vec<PredictedRow>` returns rows for
+  the render tick.
+- `PredictedRow` — a row (`key_id`, `id`, `fields`) with which a game
+  overrides an interpolated one. `write_hot` appends the rows after the
+  predicted tail in the same record shape and brings each row's width to the
+  key's schema (extra fields dropped, missing ones zero-filled), so a stray
+  row cannot shift the parse of the rest of the tail. Reading a record puts
+  it into `game[key][id]`, so a trailing row wins over the interpolated one —
+  the same mechanism the predicted tail of the local actor already used.
+
 ## [0.6.0] — 2026-08-20
 
 ### Added

@@ -165,7 +165,10 @@ String>`; игровой crate маппит их в `JsError`). Статичес
   `update_world`, `update_world_interpolated`, `render_overlay`,
   `apply_input`, `apply_aim` (ввод указателем, дефолт пустой), `set_model`,
   `set_active`, `set_map`, `sync_panel`,
-  `reset`, `cycle_item`, `try_action` плюс два хука детектора рассинхрона
+  `reset`, `cycle_item`, `try_action`, три хука для тел, которые игра
+  предсказывает сама, — `begin_reconcile(snapshot)`/`finish_reconcile()`
+  вокруг replay и `render_rows()` для рендер-тика, все с пустым дефолтом
+  (см. ниже), — плюс два хука детектора рассинхрона
   (`predicted_state`, `replayed_inputs`) с дефолтом `None` (см. ниже).
   Движок предоставляет `Interpolator` (schema-driven), generic-оркестровку
   `ClientState<G>` (сетевой буфер, очередь событийных кадров, hot-буфер

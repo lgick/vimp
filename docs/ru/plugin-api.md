@@ -482,7 +482,11 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
   fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
   fn apply_aim(...) (ввод указателем, дефолт пустой);
   fn set_model(...); fn set_active(...); fn set_map(...); fn sync_panel(...);
-  fn reset(); fn cycle_item(back); fn try_action(...) }`, плюс два
+  fn reset(); fn cycle_item(back); fn try_action(...);
+  fn begin_reconcile(snapshot) / fn finish_reconcile() (авторитетный кадр
+  до replay и расхождение после — дефолт пустой);
+  fn render_rows() -> Vec<PredictedRow> (строки тел, которые игра
+  предсказывает сама, — дефолт пустой) }`, плюс два
   опциональных метода ниже. Движок даёт `Interpolator` (schema-driven),
   generic-оркестрацию `ClientState<G>` (сетевой буфер, очередь событийных
   кадров, hot-буфер рендер-тика), hot-буфер, raycast. Предикт актора,

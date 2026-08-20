@@ -485,7 +485,11 @@ one game).
   fn render_overlay(my_game_id) -> Option<RenderOverlay>; fn apply_input(...);
   fn apply_aim(...) (pointer input, default empty);
   fn set_model(...); fn set_active(...); fn set_map(...); fn sync_panel(...);
-  fn reset(); fn cycle_item(back); fn try_action(...) }`, plus the two
+  fn reset(); fn cycle_item(back); fn try_action(...);
+  fn begin_reconcile(snapshot) / fn finish_reconcile() (the authoritative
+  frame before the replay and the divergence after it — default empty);
+  fn render_rows() -> Vec<PredictedRow> (rows for bodies the game predicts
+  itself — default empty) }`, plus the two
   optional methods below. The engine provides the `Interpolator`
   (schema-driven), the generic `ClientState<G>` orchestration (network
   buffer, event-frame queue, render-tick hot buffer), the hot buffer,

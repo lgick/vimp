@@ -148,6 +148,13 @@ pub trait GameClientDef: Sized {
     fn update_world_interpolated(&mut self, game: &InterpolatedGame);
     fn render_overlay(&self, my_game_id: Option<u32>) -> Option<RenderOverlay>;
 
+    // --- bodies the game predicts itself (map dynamics, remote actors in
+    // --- contact): the authoritative frame before the replay, the divergence
+    // --- after it, and the render-tick rows that override interpolation
+    fn begin_reconcile(&mut self, snapshot: &DecodedSnapshot) {}
+    fn finish_reconcile(&mut self) {}
+    fn render_rows(&self) -> Vec<PredictedRow> { Vec::new() }
+
     // --- both have a default of `None`; implementing them upgrades the
     // --- prediction-drift detector from level 0 to level 1 (see 13-debugging.md)
     fn predicted_state(&self) -> Option<[f32; PLAYER_STATE_LEN]> { None }
@@ -378,6 +385,13 @@ those eight values, or do not predict it.
 3. `render_overlay()` returns the predicted tail appended to the hot buffer;
    returning `None` (no local actor / no model yet) makes the engine fall back
    to the interpolated camera and clears the `PREDICTED` flag.
+4. A game that also predicts *other* bodies (map dynamics, actors in contact
+   with the local one) reads their authoritative state in
+   `begin_reconcile(snapshot)`, lets the replay of step 2 carry them, folds
+   the divergence in `finish_reconcile()`, and returns them from
+   `render_rows()` — each row (`key_id`, `id`, `fields` by the key's schema)
+   is appended after the predicted tail and overrides the interpolated row
+   of the same entity.
 
 **Motion parity is a hard requirement**: the client's predicted movement code
 and the host's `on_fixed_step` movement code must produce identical results.

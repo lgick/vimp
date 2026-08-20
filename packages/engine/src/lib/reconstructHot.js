@@ -1,5 +1,3 @@
-import { HOT_FLAGS } from '../config/opcodes.js';
-
 // Разбор плоского hot-буфера клиентского ядра. Вынесено из client/main.js:
 // раскладку читают двое — браузерный рендер-тик и headless-runner
 // (devtools/VirtualClient.js), а расходиться им нельзя.
@@ -56,7 +54,11 @@ export function parseHot(hot, snapshotKeysById) {
     }
   }
 
-  if (hot[0] & HOT_FLAGS.PREDICTED) {
+  // хвост: predicted-запись своего актора (флаг PREDICTED) и строки тел,
+  // которые игра предсказывает сама, — числа их движок не сообщает,
+  // читаем до конца буфера. Каждая запись кладётся в game[key][id],
+  // поэтому хвост перекрывает интерполированную строку
+  while (i < hot.length) {
     readRecord();
   }
 
@@ -68,8 +70,9 @@ export function parseHot(hot, snapshotKeysById) {
  * [3] N записей Indexed8-группы, затем M записей IndexedNoNull8-группы;
  * каждая запись — keyId, id, поля по схеме игры (ширина = 2 + fields);
  * у IndexedNoNull8 id получает префикс 'd' (динамика карты, зеркало
- * snapshot_to_json ядра). Predicted-запись (последняя) перекрывает свою —
- * предикт поверх интерполяции тем же parse-конвейером.
+ * snapshot_to_json ядра). Хвостовые записи (predicted-запись своего актора
+ * и строки предсказанных игрой тел) перекрывают одноимённые — предикт
+ * поверх интерполяции тем же parse-конвейером.
  * @param {Float32Array} hot - Буфер рендер-тика (hot_ptr/hot_values).
  * @param {Object} snapshotKeysById - Результат buildSnapshotKeysById.
  * @returns {Object} { [ключ схемы]: { [id]: [поля] } }.

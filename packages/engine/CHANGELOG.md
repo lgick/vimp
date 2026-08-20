@@ -9,6 +9,16 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The hot-buffer reader (`reconstructHot`) consumes the whole record tail
+  instead of exactly one predicted record: besides the local actor's, a game
+  core built on `vimp-engine-core` ≥ 0.7.0 may append rows for bodies it
+  predicts itself (map dynamics, actors in contact), and each of them
+  overrides the interpolated row of the same entity. Record width still comes
+  from the game's snapshot schema, so the traversal invariant
+  (`consumed === hot.length`, `devtools/invariants.js`) is unchanged.
+
 ## [0.12.0] — 2026-08-20
 
 ### Changed

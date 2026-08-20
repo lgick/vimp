@@ -163,7 +163,10 @@ must not drift from them.
   `update_world`, `update_world_interpolated`, `render_overlay`,
   `apply_input`, `apply_aim` (pointer input, default empty), `set_model`,
   `set_active`, `set_map`, `sync_panel`,
-  `reset`, `cycle_item`, `try_action`, plus the two divergence hooks
+  `reset`, `cycle_item`, `try_action`, the three hooks for bodies the game
+  predicts itself — `begin_reconcile(snapshot)`/`finish_reconcile()` around
+  the replay and `render_rows()` for the render tick, all defaulting to
+  empty (see below) — plus the two divergence hooks
   (`predicted_state`, `replayed_inputs`) that default to `None` (see
   below). The engine provides the `Interpolator` (schema-driven), the
   generic `ClientState<G>` orchestration (network buffer, event-frame

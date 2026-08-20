@@ -12,6 +12,12 @@
 //! хвоста (набор полей актора) собирает игра — движок дописывает его в
 //! hot-буфер как непрозрачный `Vec<f32>`, не зная раскладки (см.
 //! `RenderOverlay`).
+//!
+//! Тем же хвостом игра перекрывает и ЧУЖИЕ строки кадра
+//! (`GameClientDef::render_rows`): предсказанные телом игры сущности —
+//! динамика карты, контактирующие чужие акторы — дописываются записями
+//! после predicted-хвоста, а разбор hot-буфера кладёт запись в
+//! `game[key][id]`, поэтому последняя запись перекрывает интерполированную.
 
 use serde_json::{Map, Value, json};
 
@@ -25,6 +31,18 @@ use crate::config::{BlockKind, EngineClientConfig, FieldValue, PLAYER_STATE_LEN,
 pub struct RenderOverlay {
     pub camera: [f32; 2],
     pub tail: Vec<f32>,
+}
+
+/// Строка рендер-тика, которой игра перекрывает интерполированную:
+/// `key_id` — числовой id ключа снапшот-реестра, `id` — id строки
+/// (`gameId` для `Indexed8`, индекс для `IndexedNoNull8`), `fields` — поля
+/// по схеме этого ключа. Ширину движок приводит к схеме сам: лишние поля
+/// отбрасываются, недостающие дописываются нулями, иначе одна кривая
+/// запись сдвинула бы разбор всего хвоста.
+pub struct PredictedRow {
+    pub key_id: u8,
+    pub id: u32,
+    pub fields: Vec<f32>,
 }
 
 /// Игровая половина клиентского ядра — зеркало `crate::sim::GameSim<G>` на
@@ -51,6 +69,23 @@ pub trait GameClientDef: Sized {
 
     /// Шаг предикта до текущего рендер-времени.
     fn update(&mut self, local_now: f64);
+
+    /// Авторитетный кадр ПЕРЕД replay предикта: игра снимает с него
+    /// состояние тел, которые ведёт сама (динамика карты, чужие акторы
+    /// в контакте). Дефолт пустой — игре, предсказывающей только своего
+    /// актора, кадр в этой точке не нужен.
+    fn begin_reconcile(&mut self, _snapshot: &DecodedSnapshot) {}
+
+    /// Парный хук ПОСЛЕ `on_server_state`: replay уже переиграл и тела
+    /// игры, так что расхождение старого предсказания с новым считается
+    /// здесь. Дефолт пустой.
+    fn finish_reconcile(&mut self) {}
+
+    /// Строки рендер-тика, которыми игра перекрывает интерполированные
+    /// (см. `PredictedRow`). Дефолт пустой — предсказанных чужих тел нет.
+    fn render_rows(&self) -> Vec<PredictedRow> {
+        Vec::new()
+    }
 
     /// Отслеживание своего актора в пересечённом кадре (дискретные поля,
     /// freeze при уничтожении, reset по forceReset камеры). `my_game_id` —
@@ -189,6 +224,13 @@ impl<G: GameClientDef> ClientState<G> {
             return false;
         }
 
+        // тела, которые игра ведёт сама, снимаются с кадра ДО replay —
+        // порядок тот же, что у своего актора: сначала авторитетное
+        // состояние, потом переигранная история ввода
+        if frame.player.is_some() {
+            self.game.begin_reconcile(&frame.snapshot);
+        }
+
         self.interpolator.push(
             FrameData {
                 snapshot: frame.snapshot,
@@ -214,6 +256,9 @@ impl<G: GameClientDef> ClientState<G> {
                 offset,
                 local_now,
             );
+
+            // replay переиграл и тела игры — расхождение считается после него
+            self.game.finish_reconcile();
         }
 
         true
@@ -257,8 +302,9 @@ impl<G: GameClientDef> ClientState<G> {
         self.game.update(local_now);
 
         let overlay = self.game.render_overlay(self.my_game_id);
+        let rows = self.game.render_rows();
 
-        self.write_hot(result.game.as_ref(), result.camera, overlay.as_ref());
+        self.write_hot(result.game.as_ref(), result.camera, overlay.as_ref(), &rows);
         self.hot.len()
     }
 
@@ -411,12 +457,16 @@ impl<G: GameClientDef> ClientState<G> {
     // плоский Float32-буфер рендер-тика:
     // [0] flags, [1..2] камера x/y, [3] N строк hot-блоков (Indexed8), N×(2+поля),
     // [..] M строк динамики (IndexedNoNull8), M×(2+поля), затем — непрозрачный
-    // predicted-хвост игры (см. GameClientDef::render_overlay).
+    // predicted-хвост игры (см. GameClientDef::render_overlay) и её
+    // предсказанные строки (GameClientDef::render_rows), перекрывающие
+    // интерполированные: разбор кладёт запись в game[key][id], последняя
+    // побеждает.
     fn write_hot(
         &mut self,
         game: Option<&InterpolatedGame>,
         camera: Option<[f32; 2]>,
         overlay: Option<&RenderOverlay>,
+        rows: &[PredictedRow],
     ) {
         self.hot.clear();
 
@@ -493,6 +543,29 @@ impl<G: GameClientDef> ClientState<G> {
         if let Some(overlay) = overlay {
             self.hot.extend_from_slice(&overlay.tail);
         }
+
+        for row in rows {
+            // ширина записи диктуется схемой ключа: неизвестный id пропускаем,
+            // поля подрезаем/дополняем нулями — иначе одна кривая строка
+            // сдвинет разбор всех следующих
+            let Some(width) = self
+                .cfg
+                .snapshot
+                .keys
+                .values()
+                .find(|schema| schema.id == row.key_id)
+                .map(|schema| schema.fields.len())
+            else {
+                continue;
+            };
+
+            self.hot.push(row.key_id as f32);
+            self.hot.push(row.id as f32);
+
+            for index in 0..width {
+                self.hot.push(row.fields.get(index).copied().unwrap_or(0.0));
+            }
+        }
     }
 }
 
@@ -520,6 +593,10 @@ mod fixture {
         // уровень детектора рассинхрона, которым фикстура притворяется:
         // set_model("predicted") → уровень 1 (predicted_state), иначе — 0
         report_state: bool,
+        // set_model("rows") → фикстура ведёт чужое тело и отдаёт его строкой
+        predicted_rows: bool,
+        // порядок вызовов хуков реконсиляции относительно on_server_state
+        pub reconcile_log: Vec<&'static str>,
     }
 
     impl GameClientDef for TestClient {
@@ -535,6 +612,8 @@ mod fixture {
                 alive: true,
                 last_update: None,
                 report_state: false,
+                predicted_rows: false,
+                reconcile_log: Vec::new(),
             }
         }
 
@@ -550,6 +629,15 @@ mod fixture {
             self.y = state[1];
             self.vx = state[3];
             self.vy = state[4];
+            self.reconcile_log.push("state");
+        }
+
+        fn begin_reconcile(&mut self, _snapshot: &DecodedSnapshot) {
+            self.reconcile_log.push("begin");
+        }
+
+        fn finish_reconcile(&mut self) {
+            self.reconcile_log.push("finish");
         }
 
         fn update(&mut self, local_now: f64) {
@@ -586,6 +674,34 @@ mod fixture {
             })
         }
 
+        // чужое тело, которое фикстура «предсказывает»: строка с той же
+        // парой (keyId, id), что и в кадре, — она обязана перекрыть
+        // интерполированную. Вторая строка проверяет приведение ширины
+        // к схеме, третья — отсев неизвестного ключа
+        fn render_rows(&self) -> Vec<PredictedRow> {
+            if !self.predicted_rows {
+                return Vec::new();
+            }
+
+            vec![
+                PredictedRow {
+                    key_id: 1,
+                    id: 2,
+                    fields: vec![111.0, 222.0],
+                },
+                PredictedRow {
+                    key_id: 1,
+                    id: 7,
+                    fields: vec![333.0],
+                },
+                PredictedRow {
+                    key_id: 200,
+                    id: 9,
+                    fields: vec![1.0, 2.0],
+                },
+            ]
+        }
+
         fn predicted_state(&self) -> Option<[f32; PLAYER_STATE_LEN]> {
             self.report_state
                 .then_some([self.x, self.y, 0.0, self.vx, self.vy, 0.0, 0.0, 0.0])
@@ -599,6 +715,7 @@ mod fixture {
 
         fn set_model(&mut self, model_name: &str) {
             self.report_state = model_name == "predicted";
+            self.predicted_rows = model_name == "rows";
         }
 
         fn set_active(&mut self, active: bool) {
@@ -758,6 +875,70 @@ mod tests {
 
         assert_eq!(tail[1], 2.0); // gameId
         assert_eq!(hot[1], tail[2]); // камера следует хвосту (x)
+    }
+
+    #[test]
+    fn reconcile_hooks_wrap_the_replay() {
+        let mut state = make_state();
+
+        state.set_active(true);
+
+        // кадр без player-блока реконсиляции не запускает
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, false), 1000.0);
+        assert!(state.game.reconcile_log.is_empty());
+
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, true), 1100.0);
+
+        // begin — до replay (авторитетное состояние тел игры),
+        // finish — после (расхождение старого предсказания с новым)
+        assert_eq!(state.game.reconcile_log, vec!["begin", "state", "finish"]);
+    }
+
+    #[test]
+    fn render_rows_follow_the_tail_and_keep_schema_width() {
+        let mut state = make_state();
+
+        state.set_active(true);
+        state.set_model("rows");
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, true), 1100.0);
+        state.sample(1150.0);
+
+        let hot = state.hot().to_vec();
+
+        // ширина записи — 2 + поля схемы (2) = 4; неизвестный ключ (200)
+        // отброшен, поэтому строк две, а не три
+        let rows = &hot[hot.len() - 8..];
+
+        assert_eq!(rows[0], 1.0); // keyId
+        assert_eq!(rows[1], 2.0); // id — та же строка, что в кадре
+        assert_eq!(rows[2], 111.0);
+        assert_eq!(rows[3], 222.0);
+
+        // короткая строка дополнена нулём до ширины схемы
+        assert_eq!(rows[4], 1.0);
+        assert_eq!(rows[5], 7.0);
+        assert_eq!(rows[6], 333.0);
+        assert_eq!(rows[7], 0.0);
+
+        // интерполированная строка на месте: перекрытие делает разбор
+        // (последняя запись с той же парой ключ/id побеждает)
+        assert_eq!(hot[5], 2.0);
+        assert_eq!(hot[6], 15.0);
+    }
+
+    #[test]
+    fn render_rows_default_to_empty() {
+        let mut state = make_state();
+
+        state.set_active(true);
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.sample(1150.0);
+
+        // без строк игры буфер заканчивается predicted-хвостом (4 f32)
+        let hot = state.hot().to_vec();
+
+        assert_eq!(hot.len(), 3 + 1 + 4 + 1 + 4);
     }
 
     #[test]

@@ -84,4 +84,45 @@ describe('reconstructHot', () => {
 
     expect(reconstructHot(hot, keysById).a1).toEqual({ 10: [99, 99] });
   });
+
+  it('строки предсказанных телом игры сущностей идут после хвоста', () => {
+    const hot = new Float32Array([
+      HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED,
+      0,
+      0,
+      // группа Indexed8: свой актор (10) и чужой (11)
+      2,
+      1,
+      10,
+      1,
+      1,
+      1,
+      11,
+      2,
+      2,
+      // группа IndexedNoNull8: ящик динамики
+      1,
+      7,
+      4,
+      5,
+      // predicted-хвост своего актора
+      1,
+      10,
+      99,
+      99,
+      // строки игры: чужой актор и ящик — обе перекрывают интерполяцию
+      1,
+      11,
+      77,
+      77,
+      7,
+      4,
+      55,
+    ]);
+
+    expect(reconstructHot(hot, keysById)).toEqual({
+      a1: { 10: [99, 99], 11: [77, 77] },
+      d1: { d4: [55] },
+    });
+  });
 });
