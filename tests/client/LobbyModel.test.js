@@ -10,6 +10,7 @@ const server = (hostId, over = {}) => ({
   currentPlayers: over.currentPlayers ?? 0,
   maxPlayers: over.maxPlayers ?? 8,
   region: over.region || 'EU',
+  ...('gameId' in over ? { gameId: over.gameId } : { gameId: 'tanks' }),
 });
 
 let model;
@@ -97,20 +98,32 @@ describe('LobbyModel: применение списка', () => {
 });
 
 describe('LobbyModel: выбор сервера', () => {
-  it('join известного сервера эмитит join', () => {
+  it('join известного сервера эмитит hostId и gameId комнаты', () => {
     const joins = [];
 
-    model.publisher.on('join', id => joins.push(id));
-    model.setList({ total: 1, servers: [server('a')] });
+    model.publisher.on('join', payload => joins.push(payload));
+    model.setList({ total: 1, servers: [server('a', { gameId: 'snakes' })] });
     model.join('a');
 
-    expect(joins).toEqual(['a']);
+    expect(joins).toEqual([{ hostId: 'a', gameId: 'snakes' }]);
+  });
+
+  // хосты старше 6.4 не присылают gameId — клиент должен зайти на активной
+  // игре, а не отказать во входе
+  it('join сервера без gameId эмитит undefined вместо отказа', () => {
+    const joins = [];
+
+    model.publisher.on('join', payload => joins.push(payload));
+    model.setList({ total: 1, servers: [server('a', { gameId: undefined })] });
+    model.join('a');
+
+    expect(joins).toEqual([{ hostId: 'a', gameId: undefined }]);
   });
 
   it('join неизвестного сервера игнорируется', () => {
     const joins = [];
 
-    model.publisher.on('join', id => joins.push(id));
+    model.publisher.on('join', payload => joins.push(payload));
     model.join('ghost');
 
     expect(joins).toEqual([]);

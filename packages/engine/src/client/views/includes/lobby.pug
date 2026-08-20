@@ -27,6 +27,11 @@ div#lobby(style='display:none')
         //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
         div#lobby-fields
         input#lobby-host(type='button', value='Create server')
+        //- отказ загрузки плагина выбранной игры: восстановим (другая игра,
+        //- повторный клик), поэтому строкой в форме, а не #tech-informer —
+        //- тот кроет вкладку непрозрачным слоем и рассчитан на терминальные
+        //- причины
+        p#lobby-error(style='display:none')
     //- правая панель: вкладки Active Servers / Leaderboard (lobby-page-plan)
     div#lobby-browser-panel.card
       //- абсолютный слой: высоту .card задаёт форма слева (stretch), а

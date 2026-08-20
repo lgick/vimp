@@ -31,7 +31,7 @@ import {
   mergeRoomDefaults,
   reportFormValidity,
 } from './lib/formBuilder.js';
-import { getHostGateState } from './lib/hostGate.js';
+import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
 import { getBootConfig, resolveBootConfig } from './boot.js';
 import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
@@ -80,17 +80,35 @@ import lobbyConfig from '../config/lobby.js';
 import authClientConfig from '../config/authClient.js';
 import clientDefaults from '../config/clientDefaults.js';
 
-// Динамическая загрузка игры по каталогу мастера (Этап 6.3): активная для
-// host остаётся первой записью каталога (граница lobby-page-plan — динамика
-// загрузки ClientPlugin выбранной игры откладывается до появления второй
-// игры), но сам каталог манифестов (gamesManifest) теперь используется
-// целиком — селектором игр и Leaderboard (populateGameSelect/gamesById в
-// initLobby). ClientPlugin (parts, bakers, игровой CSS, хуки ядра) грузится
-// по entries.client её манифеста — движок больше не импортирует игру статически
+// Динамическая загрузка игры по каталогу мастера (Этап 6.3): ClientPlugin
+// (parts, bakers, игровой CSS, хуки ядра) грузится по entries.client манифеста
+// — движок не импортирует игру статически. Первой активируется gamesManifest[0]
+// (или boot.gameId), но активная игра не заморожена: выбор в #lobby-game и
+// вход в чужую комнату переключают её через gameActivator (см. bindActiveGame).
+// Переключение безопасно ровно до старта матча: всё пер-игровое состояние
+// (Factory, Pixi-приложения, clientCore, звук) появляется только в CONFIG_DATA,
+// а после матча lobby-режим перезагружает страницу
 let activeGameManifest;
 let clientPlugin;
-let parts;
 let gamesManifest;
+
+// узел игрового CSS: при переключении игры его текст заменяется, иначе стили
+// двух игр жили бы в head одновременно и конфликтовали селекторами
+let gameStyleNode = null;
+
+// единственная точка присвоения активной игры — и в бутстрапе, и при
+// переключении в лобби
+function bindActiveGame(manifest, plugin) {
+  activeGameManifest = manifest;
+  clientPlugin = plugin;
+
+  if (!gameStyleNode) {
+    gameStyleNode = document.createElement('style');
+    document.head.append(gameStyleNode);
+  }
+
+  gameStyleNode.textContent = plugin.styles ?? '';
+}
 
 // режим загрузки (Этап 2 плана standalone-sdk): lobby — прод с мастером,
 // solo — хост в этой же вкладке (standalone SDK), dedicated — прямой WS к
@@ -138,12 +156,10 @@ try {
     throw new Error('master has no games in its catalog');
   }
 
-  clientPlugin = boot.clientPlugin ?? (await loadClientPlugin(activeGameManifest));
-  parts = clientPlugin.parts;
-
-  const gameStyle = document.createElement('style');
-  gameStyle.textContent = clientPlugin.styles;
-  document.head.append(gameStyle);
+  bindActiveGame(
+    activeGameManifest,
+    boot.clientPlugin ?? (await loadClientPlugin(activeGameManifest)),
+  );
 } catch (e) {
   document.body.textContent = `Failed to load the game: ${e.message}`;
   throw e;
@@ -296,7 +312,7 @@ socketMethods[PS_CONFIG_DATA] = async data => {
 
   // инициализация сущностей игры
   for (const entity of Object.keys(entitiesOnCanvas)) {
-    Factory.add({ [entity]: parts[entity] });
+    Factory.add({ [entity]: clientPlugin.parts[entity] });
   }
 
   gameInformer = document.getElementById(data.gameInform.id);
@@ -1828,13 +1844,62 @@ function populateRoomForm(manifest) {
   }
 }
 
-// каталог манифестов по id (lobby-page-plan): достаточно для формы и
-// leaderboard селектора игр — активная игра для host остаётся
-// gamesManifest[0] (граница задачи, plan/lobby-page-plan.md)
+// каталог манифестов по id: форма и leaderboard селектора игр, а также
+// активация игры перед созданием комнаты и входом в чужую
 const gamesById = new Map(gamesManifest.map(manifest => [manifest.id, manifest]));
 
-// заполняет #lobby-game всем каталогом манифестов мастера (lobby-page-plan) —
-// раньше туда попадал только gamesManifest[0], теперь селектор рабочий
+// ClientPlugin выбранной игры грузится в момент клика (создание комнаты /
+// вход в комнату), а не при смене селектора: просмотр каталога не должен
+// качать бандлы игр, в которые не станут играть
+const activateGame = createGameActivator({ gamesById, loadClientPlugin });
+
+// строка отказа в форме лобби: загрузка плагина восстановима (другая игра,
+// повторный клик), поэтому #tech-informer не годится — он кроет вкладку
+// непрозрачным слоем под терминальные причины
+function showLobbyError(text) {
+  const elem = document.getElementById(lobbyConfig.elems.errorId);
+
+  if (elem) {
+    elem.textContent = text;
+    elem.style.display = '';
+  }
+}
+
+function clearLobbyError() {
+  const elem = document.getElementById(lobbyConfig.elems.errorId);
+
+  if (elem) {
+    elem.textContent = '';
+    elem.style.display = 'none';
+  }
+}
+
+// активирует игру и перепривязывает манифест/плагин/CSS; false — отказ уже
+// показан игроку, лобби остаётся рабочим
+async function selectActiveGame(gameId) {
+  if (gameId === activeGameManifest.id) {
+    return true;
+  }
+
+  try {
+    const { manifest, plugin } = await activateGame(gameId);
+
+    bindActiveGame(manifest, plugin);
+    clearLobbyError();
+
+    return true;
+  } catch (e) {
+    console.error(`[game] failed to activate "${gameId}":`, e);
+    showLobbyError(
+      `Failed to load ${gamesById.get(gameId)?.title ?? gameId}: ${e.message}`,
+    );
+
+    return false;
+  }
+}
+
+// заполняет #lobby-game всем каталогом манифестов мастера — раньше туда
+// попадал только gamesManifest[0], теперь селектор рабочий
 function populateGameSelect() {
   const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
 
@@ -1885,8 +1950,16 @@ function initLobby() {
     lobbyModel.resolvePong(msg.pingId, performance.now());
   });
 
-  // выбор сервера → установка P2P
-  lobbyModel.publisher.on('join', connectToHost);
+  // выбор сервера → активация игры комнаты и установка P2P. gameId нет у
+  // хостов старше 6.4 — тогда заходим на активной игре, как раньше: неизвестная
+  // версия не повод запретить вход
+  lobbyModel.publisher.on('join', async ({ hostId, gameId }) => {
+    if (gameId && gamesById.has(gameId) && !(await selectActiveGame(gameId))) {
+      return;
+    }
+
+    connectToHost(hostId);
+  });
 
   // Leaderboard (lobby-page-plan): контроллер сигнализирует, для какой игры
   // нужны свежие данные (смена #lobby-game или первое открытие вкладки).
@@ -1928,9 +2001,8 @@ function initLobby() {
   populateRoomForm(activeGameManifest);
   lobby.gameChanged(activeGameManifest.id, activeGameManifest.title);
 
-  // селектор игр (lobby-page-plan): работает с каталогом манифестов — меняет
-  // форму создания комнаты и Leaderboard, но НЕ активную игру для host
-  // (граница задачи, см. plan/lobby-page-plan.md)
+  // селектор игр: меняет форму создания комнаты и Leaderboard сразу
+  // (синхронно, без сети); сама игра активируется уже по клику
   const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
 
   const hostBtn = document.getElementById(lobbyConfig.elems.hostBtnId);
@@ -1944,45 +2016,45 @@ function initLobby() {
 
     populateRoomForm(manifest);
     lobby.gameChanged(manifest.id, manifest.title);
-
-    if (hostBtn) {
-      const { disabled, title } = getHostGateState(manifest.id, activeGameManifest);
-
-      hostBtn.disabled = disabled;
-      hostBtn.title = title;
-    }
+    clearLobbyError();
   });
 
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);
 
-  hostBtn?.addEventListener('click', () => {
-    // защита в глубину поверх hostBtn.disabled (code review lobby-page): клик
-    // не должен создать комнату с полями формы чужой игры, даже если
-    // disabled почему-то не выставился/был обойдён
-    if (gameSelect && getHostGateState(gameSelect.value, activeGameManifest).disabled) {
-      return;
-    }
-
+  hostBtn?.addEventListener('click', async () => {
     // нативная валидация (pattern/required) — единственная граница
     // room-формы: она едет клиенту как JSON манифеста, JS-валидаторы
     // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
     // "Form schema"); авторитетный клампинг всё равно в applyRoomOverrides.js
-    // (вызывается из host.worker.js при создании комнаты)
+    // (вызывается из host.worker.js при создании комнаты). Проверяем до
+    // активации игры: неверная форма не должна стоить загрузки плагина
     if (
       !reportFormValidity(document.getElementById(lobbyConfig.elems.fieldsId))
     ) {
       return;
     }
 
+    const manifest = gamesById.get(gameSelect?.value) ?? activeGameManifest;
     const name =
       (nameInput?.value || '').trim() || lobbyConfig.create.defaultName;
-    const { roomDefaults } = activeGameManifest;
 
-    // дефолты манифеста перекрываются значениями сгенерированных полей
-    const overrides = { ...roomDefaults };
+    // значения формы снимаем до await: активация асинхронна, а roomFormFields
+    // пересобираются при смене игры — в комнату должно уехать то, что игрок
+    // видел в момент клика
+    const overrides = { ...manifest.roomDefaults };
 
     for (const [key, field] of roomFormFields) {
       overrides[key] = field.getValue();
+    }
+
+    // повторный клик, пока грузится плагин, не должен поднять вторую комнату;
+    // при успехе лобби закрывается, разблокировка нужна только на отказе
+    hostBtn.disabled = true;
+
+    if (!(await selectActiveGame(manifest.id))) {
+      hostBtn.disabled = false;
+
+      return;
     }
 
     connectAsHost({

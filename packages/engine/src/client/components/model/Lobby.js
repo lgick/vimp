@@ -86,10 +86,14 @@ export default class LobbyModel {
     this._emitList();
   }
 
-  // пользователь выбрал сервер — во внешнего подписчика (P2P-подключение)
+  // пользователь выбрал сервер — во внешнего подписчика (P2P-подключение).
+  // gameId едет вместе с hostId: комната может быть по другой игре, и клиент
+  // обязан активировать её ClientPlugin до подключения
   join(hostId) {
-    if (this._servers.has(hostId)) {
-      this.publisher.emit('join', hostId);
+    const server = this._servers.get(hostId);
+
+    if (server) {
+      this.publisher.emit('join', { hostId, gameId: server.gameId });
     }
   }
 

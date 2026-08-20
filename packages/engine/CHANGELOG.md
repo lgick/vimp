@@ -9,6 +9,26 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- The lobby's game picker now actually hosts the game it shows. "Create
+  server" was disabled whenever the picked game differed from the one loaded
+  at bootstrap, so with more than one game in the master's catalog only the
+  first entry could ever be hosted. The active game is no longer frozen:
+  `src/client/lib/gameActivator.js` loads the picked game's `ClientPlugin` on
+  click (cached per `gameId`, a failed load is not cached so a retry
+  re-imports) and `bindActiveGame` re-points the manifest, the plugin and the
+  injected game stylesheet at it, after which `roomDefaults` and the
+  `room.game` entries sent to the Worker come from the picked manifest. The
+  artificial gate (`src/client/lib/hostGate.js`) is gone.
+- Joining a room of a game other than the loaded one connected with the wrong
+  `ClientPlugin`. The `join` event now carries the room's `gameId`, and that
+  game is activated before P2P is established; a host that sends no `gameId`
+  (older than 6.4) still joins on the active game.
+- A `ClientPlugin` that fails to load at lobby time is reported inline
+  (`#lobby-error`) and leaves the lobby usable, instead of the bootstrap path
+  that replaces the whole document body.
+
 ## [0.11.0] — 2026-08-19
 
 ### Added

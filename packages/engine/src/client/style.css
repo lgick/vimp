@@ -619,6 +619,14 @@ body.hide-cursor {
   margin: 16px auto 0;
 }
 
+#lobby-error {
+  margin: 8px 0 0;
+  color: #d98282;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
 #lobby-search {
   display: block;
   width: 100%;

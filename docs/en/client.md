@@ -145,21 +145,32 @@ before commands. The host has no chat rate limit (only a length limit,
   (`GET /games/manifest.json`, `GameCatalog` — see [master.md](master.md))
   and dynamically loads the active game's `ClientPlugin` by its manifest's
   `entries.client` (`packages/engine/src/lib/gamePlugin.js`,
-  `loadClientPlugin`), rejecting a mismatched `engineApi`. The **active game
-  for hosting** is always the catalog's first manifest entry
-  (`activeGameManifest = gamesManifest[0]`) — dynamically loading a
-  different game's `ClientPlugin` on host/join is out of scope until a
-  second game actually ships (see [plugin-api.md](plugin-api.md)). The
-  lobby's game picker (`#lobby-game`, `populateGameSelect`) is populated
-  with the **whole** catalog (lobby page plan) and is functional: changing
-  it swaps the room-creation form and the Leaderboard tab's game to match,
-  but does **not** change which game is actually hosted. It also brings up
+  `loadClientPlugin`), rejecting a mismatched `engineApi`. The catalog's
+  first manifest entry (or `boot.gameId`) is only the **initial** active
+  game — it is not frozen: `bindActiveGame` re-points
+  `activeGameManifest`, `clientPlugin` and the injected game stylesheet at
+  whatever game the player picks, and `client/lib/gameActivator.js` loads
+  that game's `ClientPlugin` on demand (cached per `gameId`; a failed load
+  is **not** cached, so a retry re-imports). The switch is safe because all
+  per-game state — `Factory` entities, Pixi apps, `clientCore`, sounds — is
+  built at match start (`CONFIG_DATA`) from the bindings as they stand
+  then, and lobby mode reloads the page after a match; the lobby is
+  therefore always in a pristine pre-match state. Activation happens at
+  **click** time, not on picker change, so browsing the catalog downloads
+  nothing. The lobby's game picker (`#lobby-game`, `populateGameSelect`) is
+  populated with the whole catalog; changing it swaps the room-creation
+  form and the Leaderboard tab's game synchronously. Bootstrap also brings up
   the **LobbyAuth** login gate independently of the signaling socket (see below)
   and connects `SignalingClient`. The lobby (`initLobby`) opens only once
   both `welcome` (from the master) and `authenticated` (from LobbyAuth) have
   fired — `#lobby` stays hidden until the player is signed in. Picking a
-  server → `connectToHost` creates a `WebRtcManager`, establishes P2P, and
-  remembers `currentHostId` (for `/like`·`/unlike`).
+  server activates that room's game (the `join` payload carries its
+  `gameId`; hosts older than 6.4 send none, and the join proceeds on the
+  active game) and then `connectToHost` creates a `WebRtcManager`,
+  establishes P2P, and remembers `currentHostId` (for `/like`·`/unlike`). A
+  plugin that fails to load is reported inline in `#lobby-error` and leaves
+  the lobby usable — `#tech-informer` covers the whole tab and is reserved
+  for terminal causes.
 - **Server rating (`/like`·`/unlike`)**: outgoing chat goes through
   `handleChatSend` — it intercepts `/like <reason>`/`/unlike <reason>` and,
   instead of sending it to the host (port `CHAT_DATA`), sends the vote
@@ -472,9 +483,12 @@ picker (`#lobby-game`, `populateGameSelect`) is always populated with the
 **whole** master catalog (lobby page plan — it used to hold only the
 active game and stay hidden with a single-game catalog); picking a
 different entry rebuilds the room form from that manifest's `roomForm` and
-triggers a Leaderboard refresh via `gameChanged`, but the *active game for
-hosting* stays `gamesManifest[0]` regardless (see the Bootstrap note
-above). On submit, each built field's `getValue()` (already unit-converted,
+triggers a Leaderboard refresh via `gameChanged`. On submit, the form is
+validated first (an invalid form costs no plugin download), the field
+values are read **before** the `await` that activates the picked game, and
+both the `roomDefaults` being overridden and the `room.game` entries sent
+to the Worker come from the *picked* manifest (see the Bootstrap note
+above). Each built field's `getValue()` (already unit-converted,
 e.g. `unit:'s'` seconds→ms) overrides the matching `roomDefaults` key, and
 the result is sent as the room object to `connectAsHost` → `HostController`
 → the Worker, where `applyRoomOverrides`
