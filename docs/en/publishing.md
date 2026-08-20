@@ -477,6 +477,11 @@ cd ../.. && npm link @vimp-games/tanks        # engine ← plugin
 cd ../vimp-tanks && npm link vimp-engine      # plugin ← engine
 ```
 
+With more than one game plugin, link them in a **single** command —
+`npm link @vimp-games/tanks @vimp-games/snakes`. `npm link` records the
+link state nowhere, so a second call reifies the tree from `package.json`
+and replaces the previously linked package with a registry copy.
+
 Both directions matter: without the reverse link the plugin's
 `vimp-engine/*` imports resolve to a registry copy inside its own
 `node_modules` — a second module instance with a silently different

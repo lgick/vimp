@@ -54,22 +54,30 @@ export function buildLinkPlan(observed, { root, engineDir }) {
   const unlink = [];
   const relink = [];
 
-  for (const entry of observed) {
-    if (entry.gameLinked) {
-      unlink.push({
-        label: `unlink ${entry.name}`,
-        cwd: root,
-        command: 'npm',
-        args: ['unlink', '--no-save', entry.name],
-      });
-      unlink.push({
-        label: `npm install (vimp)`,
-        cwd: root,
-        command: 'npm',
-        args: ['install'],
-      });
-    }
+  // Все игры корня — одной командой. `npm link` не сохраняет состояние
+  // линков нигде: следующий вызов реифицирует дерево по package.json и
+  // возвращает предыдущий пакет копией из реестра. Пара `npm link tanks`
+  // + `npm link snakes` оставляла линк только на последней игре.
+  const rootGames = observed
+    .filter(entry => entry.gameLinked)
+    .map(entry => entry.name);
 
+  if (rootGames.length) {
+    unlink.push({
+      label: `unlink ${rootGames.join(', ')}`,
+      cwd: root,
+      command: 'npm',
+      args: ['unlink', '--no-save', ...rootGames],
+    });
+    unlink.push({
+      label: `npm install (vimp)`,
+      cwd: root,
+      command: 'npm',
+      args: ['install'],
+    });
+  }
+
+  for (const entry of observed) {
     if (entry.engineLinked) {
       unlink.push({
         label: `unlink vimp-engine в ${entry.name}`,
@@ -97,27 +105,28 @@ export function buildLinkPlan(observed, { root, engineDir }) {
         args: ['link'],
       });
     }
+  }
 
-    if (entry.engineLinked) {
-      relink.push({
-        label: 'register vimp-engine',
-        cwd: engineDir,
-        command: 'npm',
-        args: ['link'],
-      });
-    }
+  // движок регистрируется один раз, сколько бы игр на него ни ссылалось
+  if (observed.some(entry => entry.engineLinked)) {
+    relink.push({
+      label: 'register vimp-engine',
+      cwd: engineDir,
+      command: 'npm',
+      args: ['link'],
+    });
+  }
+
+  if (rootGames.length) {
+    relink.push({
+      label: `link ${rootGames.join(', ')} в vimp`,
+      cwd: root,
+      command: 'npm',
+      args: ['link', ...rootGames],
+    });
   }
 
   for (const entry of observed) {
-    if (entry.gameLinked) {
-      relink.push({
-        label: `link ${entry.name} в vimp`,
-        cwd: root,
-        command: 'npm',
-        args: ['link', entry.name],
-      });
-    }
-
     if (entry.engineLinked) {
       relink.push({
         label: `link vimp-engine в ${entry.name}`,

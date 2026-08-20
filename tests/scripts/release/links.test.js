@@ -34,6 +34,47 @@ describe('buildLinkPlan', () => {
     ]);
   });
 
+  // `npm link` не хранит состояние линков: следующий вызов реифицирует
+  // дерево по package.json и подменяет ранее слинкованный пакет копией из
+  // реестра. Пара `npm link tanks` + `npm link snakes` возвращала линк
+  // только последней игре — dev-сервер отдаёт исходники плагина из
+  // /@fs/, и вторая игра переставала грузиться.
+  it('снимает и возвращает все игры корня одной командой', () => {
+    const plan = buildLinkPlan(
+      [
+        {
+          name: '@vimp-games/tanks',
+          dir: '/vimp-tanks',
+          gameLinked: true,
+          engineLinked: true,
+        },
+        {
+          name: '@vimp-games/snakes',
+          dir: '/vimp-snakes',
+          gameLinked: true,
+          engineLinked: true,
+        },
+      ],
+      paths,
+    );
+
+    const rootSteps = step => step.cwd === paths.root;
+
+    expect(plan.unlink.filter(rootSteps).map(step => step.args)).toEqual([
+      ['unlink', '--no-save', '@vimp-games/tanks', '@vimp-games/snakes'],
+      ['install'],
+    ]);
+
+    expect(plan.relink.filter(rootSteps).map(step => step.args)).toEqual([
+      ['link', '@vimp-games/tanks', '@vimp-games/snakes'],
+    ]);
+
+    // движок регистрируется один раз на все игры
+    expect(
+      plan.relink.filter(step => step.cwd === paths.engineDir),
+    ).toHaveLength(1);
+  });
+
   it('ничего не делает, когда линков нет', () => {
     const plan = buildLinkPlan(
       [{ name: '@vimp-games/sf', dir: '/sf', gameLinked: false, engineLinked: false }],
