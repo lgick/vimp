@@ -192,6 +192,11 @@ pub struct ClientState<G: GameClientDef> {
     // детектор рассинхрона предикта; None в боевом конфиге — путь кадра
     // остаётся ровно таким же, как до этапа 5
     divergence: Option<DivergenceTracker>,
+
+    // обратный индекс «id ключа → ширина строки»: id однобайтовый, поэтому
+    // массив дешевле карты и без хеширования. Нужен write_hot, чтобы не
+    // искать схему перебором на каждую предсказанную строку каждого кадра
+    row_widths: Box<[Option<u16>; 256]>,
 }
 
 impl<G: GameClientDef> ClientState<G> {
@@ -199,6 +204,12 @@ impl<G: GameClientDef> ClientState<G> {
         let interpolator = Interpolator::new(&cfg.interpolation, cfg.snapshot.clone());
         let game = G::new(game_cfg, &cfg);
         let divergence = cfg.divergence.clone().map(DivergenceTracker::new);
+
+        let mut row_widths = Box::new([None; 256]);
+
+        for schema in cfg.snapshot.keys.values() {
+            row_widths[schema.id as usize] = Some(schema.fields.len() as u16);
+        }
 
         Self {
             cfg,
@@ -208,6 +219,7 @@ impl<G: GameClientDef> ClientState<G> {
             frames_out: Vec::new(),
             hot: Vec::new(),
             divergence,
+            row_widths,
         }
     }
 
@@ -558,16 +570,11 @@ impl<G: GameClientDef> ClientState<G> {
             // ширина записи диктуется схемой ключа: неизвестный id пропускаем,
             // поля подрезаем/дополняем нулями — иначе одна кривая строка
             // сдвинет разбор всех следующих
-            let Some(width) = self
-                .cfg
-                .snapshot
-                .keys
-                .values()
-                .find(|schema| schema.id == row.key_id)
-                .map(|schema| schema.fields.len())
-            else {
+            let Some(width) = self.row_widths[row.key_id as usize] else {
                 continue;
             };
+
+            let width = width as usize;
 
             self.hot.push(row.key_id as f32);
             self.hot.push(row.id as f32);
