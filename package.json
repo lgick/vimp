@@ -51,6 +51,6 @@
   },
   "dependencies": {
     "@vimp-games/snakes": "^0.4.0",
-    "@vimp-games/tanks": "^0.11.1"
+    "@vimp-games/tanks": "^0.11.2"
   }
 }
