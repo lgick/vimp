@@ -1,6 +1,6 @@
 {
   "name": "create-vimp-game",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Scaffolder for VIMP game plugins",
   "keywords": [
     "vimp",
