@@ -1,4 +1,4 @@
-# Этап 3. `MapDynamics`: явный id тела вместо позиции в множестве
+# Этап 3. `MapDynamics`: явный id тела вместо позиции в множестве ✅ выполнен
 
 **Репозиторий**: `vimp-tanks` (плагин), рабочая директория
 `/Users/dmitry/Sites/my/vimp-tanks`.
@@ -147,12 +147,12 @@ npm run sim:scenarios
 
 ## Критерий готовности
 
-- [ ] `render_data` не использует `enumerate()` как источник `id`;
-- [ ] индекс объекта хранится явно и очищается вместе с телами;
-- [ ] `debug_assert` связывает ключ и id;
-- [ ] тест с дырой в множестве добавлен и ловит регрессию;
-- [ ] запись в `CHANGELOG.md` → `[Unreleased] / Fixed`;
-- [ ] `cargo test --workspace`, `npx eslint .`, `npm test`,
+- [x] `render_data` не использует `enumerate()` как источник `id`;
+- [x] индекс объекта хранится явно и очищается вместе с телами;
+- [x] `debug_assert` связывает ключ и id;
+- [x] тест с дырой в множестве добавлен и ловит регрессию;
+- [x] запись в `CHANGELOG.md` → `[Unreleased] / Fixed`;
+- [x] `cargo test --workspace`, `npx eslint .`, `npm test`,
       `npm run sim:scenarios` — зелёные.
 
 **Влияние на релиз**: только плагин (`@vimp-games/tanks`), патч.
