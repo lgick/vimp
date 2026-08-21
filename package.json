@@ -50,7 +50,7 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@vimp-games/snakes": "^0.5.0",
-    "@vimp-games/tanks": "^0.12.0"
+    "@vimp-games/snakes": "^0.5.1",
+    "@vimp-games/tanks": "^0.12.1"
   }
 }
