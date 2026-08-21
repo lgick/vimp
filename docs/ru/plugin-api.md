@@ -308,9 +308,19 @@ export default {
     onAuth(core, authData)   { core.set_model(authData.model); },
     onPanel(core, panelData) { core.sync_panel(JSON.stringify(panelData)); },
     onLocalAction(core, action, name, now) { /* try_fire / cycle_weapon; → JSON спавна | null */ },
+    services(core) { return { mapDynamics: /* … */ }; },  // необязательный
   },
 };
 ```
+
+`hooks.services(core)` — **необязательный**: возвращает игровые сервисы,
+которые подмешиваются в клиентский пул рядом с движковыми (`renderer`,
+`soundManager`, `localPlayer`, `assetsBase`) и доходят до part'а по
+`componentDependencies`. Так part говорит со своим игровым ядром, а движок не
+знает, что именно ему отдают: плагин танков раздаёт так `mapDynamics`
+(`toWorld(key, localX, localY)` поверх `ClientCore.map_dynamics_to_world`),
+чтобы эффект выстрела привязал осколки к задетому ящику. При совпадении имён
+побеждает движковый ключ.
 
 **Ключевое: модули Stat/Panel/Vote/Chat — движковые, но вся их
 параметризация — из конфига игры.** Следствия:
@@ -385,7 +395,16 @@ engine-crate от wasm-bindgen не зависит вовсе.
 сохраняются), `decode_frame` плюс отладочная пара
 `debug_json` и `take_divergence` (тоже из макроса). Игровые методы
 (`set_model`, `try_fire`, `cycle_weapon`, `sync_panel`) в минимум не
-входят — их зовут только хуки ClientPlugin.
+входят — их зовут только хуки ClientPlugin; до своей половины ядра игра
+добирается через `ClientState::game()`, когда её обёртка ABI отдаёт наружу
+что-то своё (так плагин танков отдаёт геометрию предсказанной динамики
+карты).
+
+Payload `set_map`, который движок передаёт ядру, — `{map, step, scale,
+setId, physicsStatic, physicsDynamic}`: сырые поля MAP_DATA без масштаба
+(ядро масштабирует их само). `setId` — ключ снапшота, которым едет динамика
+этой карты (`c1`/`c2`): без него игра не отличит свой блок динамики от блока
+чужого конструктора карт.
 
 Два **опциональных** trait-метода `GameClientDef` уточняют детектор
 рассинхрона предикта и имеют дефолт `None`, так что плагин вправе их

@@ -13,6 +13,12 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `ClientState::game()` — access to the game half of the core: a plugin's ABI
+  wrapper (`ClientCore`) reaches its own subsystems through it, whose shape the
+  engine never knows.
+
 ## [0.7.0] — 2026-08-21
 
 ### Added

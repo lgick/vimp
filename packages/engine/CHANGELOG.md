@@ -9,6 +9,18 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- Optional `ClientPlugin` hook `hooks.services(core)`: the game returns its own
+  services, which are merged into the client's service pool next to the
+  engine's own (`renderer`, `soundManager`, `localPlayer`, `assetsBase`) and
+  reach a part through `componentDependencies`. That is how a part talks to the
+  game core without the engine knowing what is handed over; engine keys win a
+  name clash.
+- `setId` in the `set_map` payload handed to the client core — the snapshot key
+  the map's dynamics travels under (`c1`/`c2`), without which a game cannot tell
+  its own dynamics block from another map constructor's.
+
 ## [0.13.0] — 2026-08-21
 
 ### Added

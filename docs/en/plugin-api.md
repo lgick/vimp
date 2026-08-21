@@ -309,9 +309,19 @@ export default {
     onAuth(core, authData)   { core.set_model(authData.model); },
     onPanel(core, panelData) { core.sync_panel(JSON.stringify(panelData)); },
     onLocalAction(core, action, name, now) { /* try_fire / cycle_weapon; → spawn JSON | null */ },
+    services(core) { return { mapDynamics: /* … */ }; },  // optional
   },
 };
 ```
+
+`hooks.services(core)` is **optional**: it returns game services that are
+merged into the client's service pool next to the engine's own (`renderer`,
+`soundManager`, `localPlayer`, `assetsBase`) and reach a part through
+`componentDependencies`. That is how a part talks to the game's own core
+without the engine knowing what is being handed over — the tanks plugin
+serves `mapDynamics` (`toWorld(key, localX, localY)` over
+`ClientCore.map_dynamics_to_world`) so the shot effect can anchor its debris
+to the box it hit. Engine keys win a name clash.
 
 **Key point: the Stat/Panel/Vote/Chat modules are engine-owned but fully
 parameterized by the game's config.** Consequences:
@@ -386,7 +396,15 @@ queue — after a long tab pause, keeping prediction and identity),
 `decode_frame`, plus the debugging pair `debug_json` and
 `take_divergence` (also macro-generated). Game methods (`set_model`,
 `try_fire`, `cycle_weapon`, `sync_panel`) are not part of the minimum — only
-ClientPlugin hooks call them.
+ClientPlugin hooks call them; a game reaches its own half through
+`ClientState::game()` when its ABI wrapper exposes something of its own (the
+tanks plugin serves the geometry of the predicted map dynamics that way).
+
+The `set_map` payload the engine hands to the core is `{map, step, scale,
+setId, physicsStatic, physicsDynamic}` — the raw MAP_DATA fields, unscaled
+(the core scales them itself). `setId` is the snapshot key the map's dynamics
+travels under (`c1`/`c2`): without it a game cannot tell its own dynamics
+block from another map constructor's.
 
 Two **optional** `GameClientDef` trait methods sharpen the prediction
 divergence detector and default to `None`, so a plugin may ignore them

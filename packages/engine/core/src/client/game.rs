@@ -264,6 +264,12 @@ impl<G: GameClientDef> ClientState<G> {
         true
     }
 
+    /// Игровая половина ядра: игровая обёртка ABI (`ClientCore` плагина)
+    /// достаёт через неё свои подсистемы — движок их формы не знает.
+    pub fn game(&self) -> &G {
+        &self.game
+    }
+
     pub fn my_game_id(&self) -> Option<u32> {
         self.my_game_id
     }

@@ -708,6 +708,14 @@ data, calls `update(data)` on an existing one, or removes it (`null`).
   `${assetsBase}img/<file>`, the same way sounds resolve to
   `${assetsBase}sounds/`. The engine ships no game images — they travel in
   the plugin package (`dist/img/`).
+  Next to the engine's own services the pool carries the **game's** ones:
+  `ClientPlugin.hooks.services(core)` (optional) returns a map that is merged
+  into the pool before the engine keys, so a game reaches its own core from a
+  part without the engine knowing what it hands over (the tanks plugin serves
+  `mapDynamics` that way — the geometry of the predicted map dynamics, which
+  the shot effect uses to anchor its debris to the box it hit). An engine key
+  always wins a name clash, and a service nobody declared in
+  `componentDependencies` is simply never handed out.
 
 ## SoundManager
 

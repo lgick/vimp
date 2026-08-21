@@ -334,6 +334,12 @@ socketMethods[PS_CONFIG_DATA] = async data => {
     path: `${activeGameManifest.assetsBase}sounds/`,
   };
 
+  // сервисы игры для её же parts: движок их не описывает и не использует —
+  // это доступ к тому, что живёт в игровом ядре (например, геометрия
+  // предсказанной динамики карты). Собираются один раз на ядро; полотно,
+  // которому сервис не объявлен в componentDependencies, его не получит
+  const gameServices = clientPlugin.hooks.services?.(clientCore) || {};
+
   // создание полотен игры: canvas-элементы генерируются из конфига
   // канвасов игры (в HTML их нет)
   const canvasesConfig = modulesConfig.canvasManager.canvases;
@@ -362,8 +368,10 @@ socketMethods[PS_CONFIG_DATA] = async data => {
       },
     });
 
-    // пул всех доступных сервисов в этом контексте
+    // пул всех доступных сервисов в этом контексте (движковые плюс игровые:
+    // об игровых движок не знает ничего — их отдаёт плагин, см. gameServices)
     const availableServices = {
+      ...gameServices,
       renderer: app.renderer,
       soundManager,
       // «свой ли это персонаж»: part сравнивает id своего экземпляра (четвёртый
@@ -510,6 +518,7 @@ function applyMapData(data, { notifyHost = true } = {}) {
         map,
         step,
         scale,
+        setId,
         physicsStatic,
         physicsDynamic: data.physicsDynamic,
       }),

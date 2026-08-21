@@ -198,6 +198,7 @@ class VirtualClient {
           map: data.map,
           step: data.step,
           scale: data.scale,
+          setId: data.setId,
           physicsStatic: data.physicsStatic,
           physicsDynamic: data.physicsDynamic,
         }),
