@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-21
+
 ### Added
 
 - Optional `ClientPlugin` hook `hooks.services(core)`: the game returns its own
@@ -731,6 +733,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.14.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.0
 [0.13.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.13.0
 [0.11.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.11.1
 [0.11.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.11.0
