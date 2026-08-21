@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-21
+
 ### Added
 
 - The hot-buffer reader (`reconstructHot`) consumes the whole record tail
@@ -717,6 +719,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.13.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.13.0
 [0.11.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.11.1
 [0.11.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.11.0
 [0.10.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.10.2
