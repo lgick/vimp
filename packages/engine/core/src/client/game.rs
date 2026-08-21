@@ -486,7 +486,11 @@ impl<G: GameClientDef> ClientState<G> {
             flags |= super::HOT_HAS_FRAMES;
         }
 
-        if overlay.is_some() {
+        // флаг означает «за группами есть хвостовые записи»: predicted-хвост
+        // своего актора и/или строки тел, которые игра предсказывает сама
+        // (render_rows). Без строк в флаге JS-потребитель, гейтящий разбор
+        // по HOT_HAS_GAME | HOT_HAS_PREDICTED, молча выбросил бы их
+        if overlay.is_some() || !rows.is_empty() {
             flags |= super::HOT_HAS_PREDICTED;
         }
 
@@ -931,6 +935,32 @@ mod tests {
         // (последняя запись с той же парой ключ/id побеждает)
         assert_eq!(hot[5], 2.0);
         assert_eq!(hot[6], 15.0);
+    }
+
+    #[test]
+    fn game_rows_alone_still_raise_the_tail_flag() {
+        // строки игры без predicted-состояния своего актора: флаг обязан
+        // подняться, иначе JS-потребитель не станет разбирать буфер
+        let mut state = make_state();
+
+        state.set_active(true);
+        state.set_model("rows");
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, true), 1100.0);
+        state.sample(1150.0);
+
+        let hot = state.hot().to_vec();
+        let flags = hot[0] as u32;
+
+        assert!(flags & HOT_HAS_PREDICTED != 0);
+
+        // хвост на месте: две строки игры по 4 f32
+        let rows = &hot[hot.len() - 8..];
+
+        assert_eq!(rows[0], 1.0);
+        assert_eq!(rows[1], 2.0);
+        assert_eq!(rows[4], 1.0);
+        assert_eq!(rows[5], 7.0);
     }
 
     #[test]

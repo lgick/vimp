@@ -125,4 +125,20 @@ describe('reconstructHot', () => {
       d1: { d4: [55] },
     });
   });
+
+  it('усечённая хвостовая запись — ошибка, а не строка с дырами', () => {
+    const hot = new Float32Array([
+      HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED,
+      0,
+      0,
+      0,
+      0,
+      // хвост обрезан посреди записи: ключу a1 нужно 4 float'а, есть 3
+      1,
+      10,
+      99,
+    ]);
+
+    expect(() => reconstructHot(hot, keysById)).toThrow(/needs \d+ floats/);
+  });
 });

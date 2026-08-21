@@ -37,6 +37,16 @@ export function parseHot(hot, snapshotKeysById) {
     }
 
     const { key, kind, width } = spec;
+
+    // запись должна помещаться целиком: усечённая тихо дала бы строку
+    // с недостающими полями, а обход уехал бы за конец буфера
+    if (i + width > hot.length) {
+      throw new Error(
+        `hot buffer: record of key id ${hot[i]} needs ${width} floats, ` +
+          `${hot.length - i} left`,
+      );
+    }
+
     const id = kind === 'indexedNoNull8' ? `d${hot[i + 1]}` : hot[i + 1];
 
     (game[key] ??= {})[id] = Array.from(hot.subarray(i + 2, i + width));

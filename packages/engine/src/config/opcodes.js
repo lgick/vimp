@@ -31,6 +31,8 @@ export const SNAPSHOT_FORMAT_VERSION = 5;
 export const HOT_FLAGS = {
   GAME: 1,
   CAMERA: 2,
+  // «за группами есть хвостовые записи»: свой актор (render_overlay)
+  // и/или тела, предсказанные игрой (render_rows)
   PREDICTED: 4,
   FRAMES: 8,
 };

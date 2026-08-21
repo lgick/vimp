@@ -608,7 +608,10 @@ Data flow:
   `{ m1: { id: [...] }, c1: {...} }` from it and feeds the existing
   `applyGameData` — GameCtrl/parts were never touched; a trailing record
   lands in `game[key][id]` like any other, so it overrides the interpolated
-  row of the same entity through the same pipeline.
+  row of the same entity through the same pipeline. The `PREDICTED` flag is
+  raised by either tail — the local actor's record or the game's own rows —
+  and the consumer gates the whole parse on it (`GAME | PREDICTED`), so a
+  buffer that carries rows alone is still parsed.
 - **Event frames** (the `hasFrames` flag): `take_frames()` returns a JSON
   array `[{ game, camera }, …]` — every crossed `renderTime` frame emitted
   exactly once (events `w1`/`w2e`, creations/removals, camera reset/shake),

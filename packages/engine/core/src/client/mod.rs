@@ -16,5 +16,7 @@ pub mod unpack;
 // флаги hot-буфера ([0]); зеркалятся в src/config/opcodes.js (HOT_FLAGS)
 pub const HOT_HAS_GAME: u32 = 1;
 pub const HOT_HAS_CAMERA: u32 = 2;
+// «за группами есть хвостовые записи»: свой актор (render_overlay)
+// и/или тела, предсказанные игрой (render_rows)
 pub const HOT_HAS_PREDICTED: u32 = 4;
 pub const HOT_HAS_FRAMES: u32 = 8;

@@ -9,6 +9,17 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- The hot buffer's `PREDICTED` flag is now raised when the game returned only
+  its own predicted rows (`render_rows`) without a predicted record for the
+  local actor: such a buffer used to be dropped by the client without being
+  parsed at all, since both consumers gate the parse on
+  `HOT_HAS_GAME | HOT_HAS_PREDICTED`.
+- The hot-buffer reader rejects a truncated trailing record with an explicit
+  error instead of silently producing a row with missing fields and walking
+  past the end of the buffer.
+
 ## [0.14.0] — 2026-08-21
 
 ### Added
