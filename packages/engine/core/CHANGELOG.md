@@ -13,6 +13,8 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-21
+
 ### Added
 
 - `ClientState::game()` — access to the game half of the core: a plugin's ABI
@@ -197,6 +199,7 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.8.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.0
 [0.7.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.7.0
 [0.5.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.5.0
 [0.4.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.4.0
