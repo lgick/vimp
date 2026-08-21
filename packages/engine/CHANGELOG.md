@@ -9,6 +9,26 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- The panel's line height follows its font size (16px for 14px text,
+  `src/client/style.css`): at 12px the line box was shorter than the glyphs,
+  so the bar only held together thanks to its own `height`/`overflow`.
+
+## [0.14.3] — 2026-08-21
+
+### Changed
+
+- The panel's font size is 14px — 16px turned out to be too large for the
+  24px bar (`src/client/style.css`, `b8efdb6`).
+
+## [0.14.2] — 2026-08-21
+
+### Changed
+
+- The panel's font size is 16px instead of 10px, which was hard to read at
+  the top of the canvas (`src/client/style.css`, `bb5418c`).
+
 ## [0.14.1] — 2026-08-21
 
 ### Fixed

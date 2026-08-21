@@ -946,14 +946,17 @@ mod tests {
 
     #[test]
     fn game_rows_alone_still_raise_the_tail_flag() {
-        // строки игры без predicted-состояния своего актора: флаг обязан
-        // подняться, иначе JS-потребитель не станет разбирать буфер
+        // строки игры без predicted-хвоста своего актора: флаг обязан
+        // подняться, иначе JS-потребитель не станет разбирать буфер.
+        // Кадры идут БЕЗ player-блока (спектатор): только так my_game_id
+        // остаётся None и render_overlay отдаёт None — иначе хвост своего
+        // актора поднял бы флаг сам, и ветка осталась бы непроверенной
         let mut state = make_state();
 
         state.set_active(true);
         state.set_model("rows");
-        state.push_frame(&frame_bytes(1000.0, 1, 10.0, true), 1000.0);
-        state.push_frame(&frame_bytes(1100.0, 2, 20.0, true), 1100.0);
+        state.push_frame(&frame_bytes(1000.0, 1, 10.0, false), 1000.0);
+        state.push_frame(&frame_bytes(1100.0, 2, 20.0, false), 1100.0);
         state.sample(1150.0);
 
         let hot = state.hot().to_vec();

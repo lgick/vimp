@@ -13,6 +13,23 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-08-21
+
+Released without journal entries: the only change is internal — `write_hot`
+now looks a row's width up in a reverse `id → width` index built once in
+`ClientState::new`, instead of scanning the snapshot schema for every
+predicted row of every frame (`8c379eb`).
+
+## [0.8.1] — 2026-08-21
+
+### Fixed
+
+- The hot buffer's `HOT_HAS_PREDICTED` flag is raised when the game returned
+  only its own predicted rows (`GameClientDef::render_rows`) without a
+  predicted record for the local actor. The flag means "there are trailing
+  records behind the groups", and both JS consumers gate the parse of the
+  whole buffer on it, so such a buffer used to be dropped unparsed.
+
 ## [0.8.0] — 2026-08-21
 
 ### Added

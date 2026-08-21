@@ -46,7 +46,9 @@ body.hide-cursor {
   background-color: #fff;
   text-align: center;
   font-size: 14px;
-  line-height: 12px;
+  /* межстрочный не меньше кегля: при 12px глифы 14px вылезали за строку,
+     и ячейки панели держались только на её height/overflow */
+  line-height: 16px;
   position: absolute;
   top: 0;
   left: 0;
