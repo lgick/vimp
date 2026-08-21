@@ -1,4 +1,4 @@
-# Этап 2. Одна карта на обе клиентские подсистемы
+# Этап 2. Одна карта на обе клиентские подсистемы ✅ выполнен
 
 **Репозиторий**: `vimp-tanks` (плагин), рабочая директория
 `/Users/dmitry/Sites/my/vimp-tanks`.
@@ -218,13 +218,13 @@ npm run sim:scenarios
 
 ## Критерий готовности
 
-- [ ] `MAP_DATA` разбирается ровно в одном месте (`TanksClient::set_map`);
-- [ ] `Predictor` и `ShotPredictor` держат `Option<Rc<Grid>>` и получают её
+- [x] `MAP_DATA` разбирается ровно в одном месте (`TanksClient::set_map`);
+- [x] `Predictor` и `ShotPredictor` держат `Option<Rc<Grid>>` и получают её
       извне;
-- [ ] тест утверждает, что сетка у обеих подсистем одна;
-- [ ] `docs/en/core.md` и `docs/ru/core.md` обновлены одинаково;
-- [ ] запись в `CHANGELOG.md` → `[Unreleased] / Fixed`;
-- [ ] `cargo test --workspace`, `npx eslint .`, `npm test`,
+- [x] тест утверждает, что сетка у обеих подсистем одна;
+- [x] `docs/en/core.md` и `docs/ru/core.md` обновлены одинаково;
+- [x] запись в `CHANGELOG.md` → `[Unreleased] / Fixed`;
+- [x] `cargo test --workspace`, `npx eslint .`, `npm test`,
       `npm run sim:scenarios` — зелёные, без warning'ов компилятора.
 
 **Влияние на релиз**: затронут только код плагина (`@vimp-games/tanks`),
