@@ -260,8 +260,10 @@ client bypassing the form gets no more rights than one that filled it in.
 `validateAuth` checks, in this order and before the JS validator: length
 (`too long`), membership in a `select`/`radio` field's declared `options`
 (`not an option` — a browser cannot submit anything else, so neither can a
-bypassing client; a `source` list is not checked, the host does not resolve
-catalogs), then `regExp` (`invalid format`, anchored exactly as in the
+bypassing client; a field whose `options` list is empty or absent accepts
+*nothing*, matching the form's unconditional `no options available`; a
+`source` list is not checked, the host does not resolve catalogs), then
+`regExp` (`invalid format`, anchored exactly as in the
 browser). `maxlength` and `regExp` apply to text fields only, exactly as in
 the form.
 

@@ -178,7 +178,8 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] The host also applies the auth descriptor's own declarative rules
       (`validateAuth`), so a client that bypasses the form is bound by them
       too: length, membership in a `select`/`radio` field's declared
-      `options` (`not an option`), then `maxlength`/`regExp` on text fields.
+      `options` (`not an option`; an empty or absent list accepts nothing,
+      as in the form), then `maxlength`/`regExp` on text fields.
       `required` and `min`/`max` are the exceptions — an empty value is left
       to your validator, and a numeric auth field cannot work at all (the
       value must be a string).

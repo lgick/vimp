@@ -63,8 +63,10 @@ bumps the minor version).
   validator, so a client that bypasses the form is bound by the same rules
   the form enforces — a `select` field with no game validator no longer
   accepts an arbitrary string. `maxlength`/`regExp` apply to text fields
-  only, as in the form; a `source` list is not checked (the host resolves no
-  catalogs). An empty value still passes these checks (`required` is
+  only, as in the form; a field whose `options` list is empty or absent
+  accepts nothing at all (the form rejects it unconditionally with `no
+  options available`, so the host must not be the laxer of the two); a
+  `source` list is not checked (the host resolves no catalogs). An empty value still passes these checks (`required` is
   deliberately not enforced on the host: the solo path answers with the
   schema defaults, and those may be `''`), and a `regExp` that does not
   compile is no constraint rather than a rejection — the same as on the

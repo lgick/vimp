@@ -213,6 +213,29 @@ describe('validateAuth', () => {
     expect(validateAuth({ lvl: '1' }, numericParams)).toBeUndefined();
   });
 
+  // у поля без вариантов валидного значения нет по определению: форма
+  // отказывает безусловно ('no options available'), и хост не вправе
+  // пропускать то, чего игрок отправить не может
+  it('select без вариантов не принимает ничего', () => {
+    const empty = [{ name: 'side', options: { control: 'select', options: [] } }];
+    const missing = [{ name: 'side', options: { control: 'select' } }];
+    const broken = [
+      { name: 'side', options: { control: 'select', options: 'red' } },
+    ];
+
+    expect(validateAuth({ side: 'red' }, empty)).toEqual([
+      { name: 'side', error: 'not an option' },
+    ]);
+    expect(validateAuth({ side: 'red' }, missing)).toEqual([
+      { name: 'side', error: 'not an option' },
+    ]);
+    // список не массив — тот же дефект схемы, и он не должен бросать
+    expect(() => validateAuth({ side: 'red' }, broken)).not.toThrow();
+    expect(validateAuth({ side: 'red' }, broken)).toEqual([
+      { name: 'side', error: 'not an option' },
+    ]);
+  });
+
   it('поле с source хост не проверяет по списку (каталога он не знает)', () => {
     const params = [
       { name: 'map', options: { control: 'select', source: 'maps' } },

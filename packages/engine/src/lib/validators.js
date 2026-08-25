@@ -33,8 +33,13 @@ const isTextControl = control => control === 'text' || control === undefined;
 // source-варианты хост не резолвит (их и форма в auth не резолвит: она
 // строится с пустым ctx) — сверяем только объявленный inline-список.
 // String(): и <option>.value, и <input type=radio>.value — DOM-свойства,
-// они всегда строки, так что options: [1, 2] форма отдаёт как '1'/'2'
+// они всегда строки, так что options: [1, 2] форма отдаёт как '1'/'2'.
+// Списка нет вовсе (или он не массив — дефект схемы) — валидного значения у
+// поля не существует, и форма это говорит прямо ('no options available'):
+// пропустить здесь что угодно значило бы дать обошедшему форму клиенту
+// больше прав, чем игроку, который войти не может вовсе
 const isDeclaredOption = (list, value) =>
+  Array.isArray(list) &&
   normalizeOptions(list).some(opt => String(opt.value) === value);
 
 // regExp дескриптора якорится тем же anchorPattern, что и на клиенте
@@ -121,8 +126,6 @@ export const validateAuth = (data, authParams, validators = {}) => {
     if (
       OPTION_CONTROLS.includes(options?.control) &&
       !options.source &&
-      Array.isArray(options.options) &&
-      options.options.length > 0 &&
       !isDeclaredOption(options.options, value)
     ) {
       errors.push({ name, error: 'not an option' });
