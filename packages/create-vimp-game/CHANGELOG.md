@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hint next to the field's label and to validate without a native browser
   popup (see `vimp-engine`'s own changelog).
 
+## [0.1.13] — 2026-08-21
+
+Covers `0.1.5` … `0.1.13`, which this journal skipped at the time: version
+bumps only, one per engine release. Each moved the
+`vimp-engine`/`vimp-engine-core` versions the generator writes into a
+scaffolded game (`src/versions.generated.json`, now `0.14.4`/`0.8.3`);
+nothing in the CLI, the generator or the template changed.
+
 ## [0.1.4] — 2026-08-19
 
 ### Fixed
@@ -65,5 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build of a scaffolded game is green without ffmpeg; `assets/audio-raw/*.wav`
   keeps the full `npm run audio:process` pipeline demonstrable.
 
+[0.1.13]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.13
 [0.1.4]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.4
 [0.1.0]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.0

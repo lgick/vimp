@@ -32,22 +32,18 @@ describe('AuthModel.add / update', () => {
     });
   });
 
-  it('update с проходящим regExp принимает значение', () => {
+  // формат поля проверяет formBuilder.collectFormErrors перед сабмитом —
+  // модель второй, параллельной проверки по options.regExp больше не
+  // делает: по проводу (PS_AUTH_DATA) regExp приезжает строкой, у которой
+  // нет .test, а молчаливое зануление значения не давало игроку ни строки
+  // ошибки, ни понимания, куда делся ввод
+  it('update принимает значение как есть, даже когда в options лежит regExp', () => {
     const model = makeModel();
-    model.add({ name: 'login', value: '', options: { regExp: /^[a-z]+$/ } });
+    model.add({ name: 'login', value: '', options: { regExp: '^[a-z]+$' } });
     const events = collect(model);
 
-    model.update({ name: 'login', value: 'abc' });
-    expect(events.find(e => e.type === 'form').data.value).toBe('abc');
-  });
-
-  it('update с непроходящим regExp сбрасывает значение в пустое', () => {
-    const model = makeModel();
-    model.add({ name: 'login', value: '', options: { regExp: /^[a-z]+$/ } });
-    const events = collect(model);
-
-    model.update({ name: 'login', value: '123' });
-    expect(events.find(e => e.type === 'form').data.value).toBe('');
+    expect(() => model.update({ name: 'login', value: '123' })).not.toThrow();
+    expect(events.find(e => e.type === 'form').data.value).toBe('123');
   });
 
   it('update для имени без предшествующего add не падает (нет записи в _options)', () => {

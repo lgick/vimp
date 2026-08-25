@@ -94,11 +94,11 @@ describe('AuthView.renderData', () => {
 });
 
 describe('AuthView: единственный вариант select/radio', () => {
-  // vimp-snakes/model: поле скрыто (singleOption), поправить рассинхрон
-  // некому — при устаревшем/несуществующем значении с сервера (например,
-  // localStorage[storage] от версии игры, где вариантов было больше) поле
-  // должно принудительно нести единственно возможное значение
-  it('поправляет устаревшее value в params на принудительное — тот же массив едет в AuthCtrl.init', () => {
+  // vimp-snakes/model: строка поля не рендерится, значение закрепляет
+  // formBuilder. Сам params (тот же массив main.js отдаёт следом в
+  // AuthCtrl.init) форма не трогает — его нормализует main.js до
+  // разветвления на solo-путь, где формы нет вовсе
+  it('не рендерит строку поля и не мутирует params', () => {
     const params = [
       {
         name: 'model',
@@ -109,15 +109,16 @@ describe('AuthView: единственный вариант select/radio', () =>
 
     new AuthView(makeModel(), elems, null, params);
 
-    expect(params[0].value).toBe('s1');
+    expect(document.getElementById('auth-fields').children).toHaveLength(0);
+    expect(params[0].value).toBe('s0-no-longer-exists');
   });
 
-  it('не трогает params для поля с несколькими вариантами', () => {
-    const params = [...authParams];
+  it('поле с несколькими вариантами рендерится строкой', () => {
+    new AuthView(makeModel(), elems, null, authParams);
 
-    new AuthView(makeModel(), elems, null, params);
-
-    expect(params.find(p => p.name === 'team').value).toBe('2');
+    expect(
+      document.getElementById('auth-fields').querySelectorAll('.form-row'),
+    ).toHaveLength(2);
   });
 });
 
@@ -186,6 +187,21 @@ describe('AuthView: события DOM', () => {
 
     model.publisher.emit('ok');
     expect(document.getElementById('auth').style.display).toBe('none');
+  });
+
+  it('правка поля гасит показанную ошибку сразу, не дожидаясь blur/клика', () => {
+    const view = new AuthView(makeModel(), elems, null, authParams);
+    const error = document.getElementById('auth-error');
+
+    view.renderError([{ name: 'login', error: 'too short' }]);
+    expect(error.textContent).not.toBe('');
+
+    const input = document.getElementById('auth-fields').querySelector('input');
+
+    input.value = 'Bob';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(error.textContent).toBe('');
   });
 
   it('клик по enter с невалидным полем не эмитит enter и рисует ошибку', () => {

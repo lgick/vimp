@@ -26,12 +26,13 @@ div#lobby(style='display:none')
         //- поля настроек комнаты генерируются по явной схеме roomForm
         //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
         div#lobby-fields
-        input#lobby-host(type='button', value='Create server')
-        //- отказ загрузки плагина выбранной игры: восстановим (другая игра,
-        //- повторный клик), поэтому строкой в форме, а не #tech-informer —
+        //- ошибки формы (formBuilder.renderFormErrors) и отказ загрузки
+        //- плагина выбранной игры — строкой в форме, а не в #tech-informer:
         //- тот кроет вкладку непрозрачным слоем и рассчитан на терминальные
-        //- причины
+        //- причины, а эти восстановимы (поправить поле, другая игра,
+        //- повторный клик). Над кнопкой — рядом с полями, к которым относятся
         div#lobby-error.form-error
+        input#lobby-host(type='button', value='Create server')
     //- правая панель: вкладки Active Servers / Leaderboard (lobby-page-plan)
     div#lobby-browser-panel.card
       //- абсолютный слой: высоту .card задаёт форма слева (stretch), а

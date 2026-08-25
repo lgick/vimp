@@ -462,8 +462,10 @@ body.hide-cursor {
   margin: 0 5px;
 }
 
+/* пустой блок ошибок не должен занимать место: #lobby-error — флекс-элемент
+   #lobby-create с gap:8px, и одного обнуления margin там мало */
 .form-error:empty {
-  margin: 0;
+  display: none;
 }
 
 #auth-enter {

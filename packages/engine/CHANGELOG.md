@@ -15,16 +15,20 @@ bumps the minor version).
   optional keys, `min`/`max` (numeric text fields): rendered as a
   "(min–max)" hint suffix on the field's label, and checked by the new
   `collectFormErrors()` (`src/client/lib/formBuilder.js`).
-- `select`/`radio` fields whose resolved choices (`options`/`source`) number
-  ≤ 1 are automatically not rendered as a form row (still built and
-  submitted) — nothing for the player to actually choose. The single choice
-  is now also forced as the field's value and cannot be overridden by
-  `setValue()` afterwards (a stale `localStorage`-remembered value, or a
-  server default, for an option since removed from the list no longer
-  desyncs a hidden `<select>` to `''` with no way for the player to fix it —
-  `formBuilder.js`, `AuthView` also corrects the initial `params[].value` it
-  hands to `AuthCtrl`/`AuthModel` so the corrected value is what actually
-  reaches the server, not the stale one).
+- A `select`/`radio` field resolving (`options`/`source`) to exactly one
+  choice is automatically not rendered as a form row — nothing for the
+  player to actually choose — while still being built and submitted. That
+  choice is also forced as the field's value: `setValue()` becomes a no-op,
+  so a stale `localStorage`-remembered value or a `default` naming an option
+  since removed from the list can no longer desync a hidden `<select>` to
+  `''` with no way for the player to fix it. The same rule is applied to
+  `PS_AUTH_DATA.params[].value` before the form is built
+  (`resolveForcedValue()`, a new `formBuilder.js` export), so the solo path
+  (`boot.autoAuth`), which answers the host without rendering a form at all,
+  reaches the same value.
+- A `select`/`radio` resolving to *zero* choices is treated as a schema or
+  catalog defect rather than "nothing to choose": the row is rendered, a
+  `console.error` names the field, and validation applies as usual.
 
 ### Changed
 
@@ -33,8 +37,10 @@ bumps the minor version).
   lines inside `#lobby-error`/`#auth-error` instead
   (`collectFormErrors()`/`renderFormErrors()`, `src/client/lib/formBuilder.js`),
   the same rendering `AuthView.renderError` already used for server-pushed
-  errors. `#lobby-error`/`#auth-error` share one `.form-error` style.
-  `collectFormErrors()` checks `regExp` on numeric text fields too (against
+  errors. `#lobby-error`/`#auth-error` share one `.form-error` style, and an
+  error line is titled with the field's `label` (the caption the player sees
+  next to it), falling back to its `name` for server-pushed errors.
+- `collectFormErrors()` checks `regExp` on numeric text fields too (against
   the raw displayed string, e.g. the range pattern `build-game-manifest.js`
   still generates for `roomForm` fields without `min`/`max`) — it previously
   checked `regExp` only on non-numeric text fields, so an out-of-range
@@ -45,6 +51,35 @@ bumps the minor version).
   accepted any value containing a matching substring, so e.g. `99` passed
   silently against `rangeToPattern`'s un-anchored 1–32 pattern (a plain `9`
   at the start already matched) and the invalid room was created anyway.
+- Validation covers only fields with a rendered row: `hidden: true` and
+  single-choice `select`/`radio` are skipped, the way the native
+  `reportValidity()` walk over the container's controls skipped them. An
+  error on a field the player can neither see nor fix would only lock the
+  form.
+- A numeric text field (`numeric`/`unit`) is implicitly `required`: an empty
+  one reports `required` and an unparseable one `must be a number`, instead
+  of silently submitting the `default` its reader falls back to. No game
+  declares `required` on `maxPlayers`/`roundTime`/`mapTime`, so an empty box
+  used to create the room on the default value.
+- Checks now run emptiness → `must be a number` → `min`/`max` → `maxlength`
+  → `regExp`. The range comes before the pattern because a generated
+  `regExp` encodes the same bounds, but `must be ≤ 32` repeats the label's
+  hint while `invalid format` says nothing; the pattern is left to catch
+  what the range cannot (a fraction, a leading zero).
+- Editing any room- or auth-form field clears the errors shown for it as the
+  player types: both views now listen for `input` on their field container,
+  where the previous clearing rode on `change` — which a text input only
+  fires on blur, i.e. after the next click on the submit button. The lobby's
+  error block moved above the "Create server" button, next to the fields it
+  describes, and no longer occupies a row of its own while empty
+  (`.form-error:empty`).
+- `AuthModel.update()` no longer re-validates the value against
+  `options.regExp` and no longer blanks it on a mismatch: form validation is
+  `collectFormErrors()` alone. Over the wire (`PS_AUTH_DATA`) `regExp`
+  arrives as a JSON string, which has no `.test` — the check threw a
+  `TypeError` on the first edit of any auth field declaring one, and the
+  silent blanking it did with a `RegExp` object gave the player neither an
+  error line nor a clue where the input went.
 
 ## [0.14.4] — 2026-08-21
 

@@ -4,6 +4,8 @@
 // элементы формы, без визуальной кастомизации. Валидация — не нативная
 // (никаких браузерных попапов): collectFormErrors/renderFormErrors ниже
 // собирают и рисуют ошибки в разметку (#lobby-error/#auth-error).
+// Проверяются только поля, у которых есть строка в DOM: ошибка на скрытом
+// поле игроку не видна и исправить её нечем — она просто запирает форму.
 
 function normalizeOptions(list) {
   return (list || []).map(opt =>
@@ -21,6 +23,26 @@ function resolveOptions(descriptor, ctx) {
   return normalizeOptions(descriptor.options);
 }
 
+// ровно один резолвнутый вариант — единственно возможное значение поля:
+// строка формы для него не рендерится (игроку нечего выбирать и нечем
+// поправить рассинхрон), поэтому ничто извне (устаревший localStorage,
+// default из схемы, серверное PS_AUTH_DATA) не должно иметь возможности
+// его переопределить — native <select>.value на несуществующем option
+// молча схлопывается в '' без единой ошибки (vimp-snakes/model)
+function forcedValue(options) {
+  return options.length === 1 ? options[0].value : undefined;
+}
+
+// то же правило вне формы: solo-путь (boot.autoAuth) отвечает хосту без
+// всякой формы и должен прийти ровно к тому же значению, что и она
+export function resolveForcedValue(descriptor, ctx = {}) {
+  if (descriptor.control !== 'select' && descriptor.control !== 'radio') {
+    return undefined;
+  }
+
+  return forcedValue(resolveOptions(descriptor, ctx));
+}
+
 // unit:'s' — значение хранится в мс, показывается/редактируется в секундах
 function toDisplay(descriptor, value) {
   return descriptor.unit === 's' ? value / 1000 : value;
@@ -33,13 +55,7 @@ function toStored(descriptor, value) {
 function buildSelect(descriptor, ctx) {
   const el = document.createElement('select');
   const options = resolveOptions(descriptor, ctx);
-  // ровно один вариант — единственно возможное значение поля: строка
-  // скрыта (playerу нечего выбирать и нечем поправить рассинхрон), поэтому
-  // ничто извне (устаревший localStorage, default из схемы, серверное
-  // PS_AUTH_DATA) не должно иметь возможности его переопределить —
-  // native <select>.value на несуществующем option молча схлопывается
-  // в '' без единой ошибки (см. review репозитория, vimp-snakes/model)
-  const forced = options.length === 1 ? options[0].value : undefined;
+  const forced = forcedValue(options);
 
   el.name = descriptor.name;
 
@@ -57,7 +73,8 @@ function buildSelect(descriptor, ctx) {
 
   return {
     el,
-    singleOption: options.length <= 1,
+    singleOption: forced !== undefined,
+    noOptions: options.length === 0,
     getValue: () => el.value,
     setValue(value) {
       if (forced !== undefined) {
@@ -82,6 +99,10 @@ function buildText(descriptor) {
   el.type = 'text';
   el.name = descriptor.name;
 
+  // pattern/required — семантика контрола (a11y, автозаполнение), НЕ
+  // валидация: обе формы — обычные div, не <form>, и reportValidity()
+  // движок не зовёт (см. collectFormErrors). maxLength — единственный из
+  // трёх с реальным эффектом: он ограничивает сам ввод
   if (descriptor.regExp) {
     el.pattern = descriptor.regExp;
   }
@@ -151,9 +172,9 @@ function buildRadio(descriptor, ctx) {
   const groupName = `field-radio-${descriptor.name}-${++idSeq}`;
   const inputs = [];
   const options = resolveOptions(descriptor, ctx);
-  // см. buildSelect: ровно один вариант — принудительное и неизменяемое
+  // см. forcedValue: ровно один вариант — принудительное и неизменяемое
   // значение, строка скрыта и поправить рассинхрон нечем
-  const forced = options.length === 1 ? String(options[0].value) : undefined;
+  const forced = forcedValue(options);
 
   options.forEach(({ value, label }) => {
     const wrap = document.createElement('span');
@@ -182,7 +203,8 @@ function buildRadio(descriptor, ctx) {
 
   return {
     el,
-    singleOption: options.length <= 1,
+    singleOption: forced !== undefined,
+    noOptions: options.length === 0,
     getValue,
     setValue(value) {
       if (forced !== undefined) {
@@ -265,9 +287,19 @@ function buildLabelSuffix(descriptor) {
 // отдельно от min/max, а не вместо них
 function validateField(descriptor, field) {
   const value = field.getValue();
-  const isEmpty = value === undefined || value === null || value === '';
+  const isText = descriptor.control === 'text';
+  // у числового поля getValue() уже откатился к default (чтобы пустая
+  // строка не уехала нулём), поэтому пустоту видно только по сырой строке
+  const raw = isText ? field.el.value : undefined;
+  const isEmpty = isText
+    ? raw === ''
+    : value === undefined || value === null || value === '';
+  const numeric = isText && (descriptor.numeric || descriptor.unit !== undefined);
 
-  if (descriptor.required && isEmpty) {
+  // числовое поле всегда несёт число и «необязательным» быть не может:
+  // пустой ввод getValue() подменяет default'ом (чтобы не уехал нолём), и
+  // без этой ветки пустой Max players молча создавал бы комнату с дефолтом
+  if ((descriptor.required || numeric) && isEmpty) {
     return 'required';
   }
 
@@ -275,51 +307,70 @@ function validateField(descriptor, field) {
     return null;
   }
 
-  if (descriptor.control === 'text') {
-    const numeric = descriptor.numeric || descriptor.unit !== undefined;
-
-    // HTML `pattern` matches the WHOLE value (browsers wrap it in
-    // `^(?:…)$` themselves) — a bare `new RegExp(descriptor.regExp)` has no
-    // such anchor and would accept "99" against a "single digit" pattern
-    // off a partial match, so it must be anchored the same way here
-    if (descriptor.regExp && !new RegExp(`^(?:${descriptor.regExp})$`).test(field.el.value)) {
-      return 'invalid format';
+  if (numeric) {
+    // без этой проверки нечисловой ввод молча подменялся бы default'ом
+    // из getValue() и уезжал на хост как «валидный»
+    if (!Number.isFinite(Number(raw))) {
+      return 'must be a number';
     }
 
-    if (numeric) {
-      const displayValue = descriptor.unit === 's' ? value / 1000 : value;
+    const displayValue = descriptor.unit === 's' ? value / 1000 : value;
 
-      if (descriptor.min !== undefined && displayValue < descriptor.min) {
-        return `must be ≥ ${descriptor.min}`;
-      }
-
-      if (descriptor.max !== undefined && displayValue > descriptor.max) {
-        return `must be ≤ ${descriptor.max}`;
-      }
-    } else if (descriptor.maxlength !== undefined && String(value).length > descriptor.maxlength) {
-      return `must be at most ${descriptor.maxlength} characters`;
+    // min/max раньше regExp: тот же диапазон regExp кодирует точным
+    // паттерном (rangeToPattern), но «must be ≤ 32» говорит игроку то же,
+    // что подсказка в подписи поля, а «invalid format» — ничего
+    if (descriptor.min !== undefined && displayValue < descriptor.min) {
+      return `must be ≥ ${descriptor.min}`;
     }
+
+    if (descriptor.max !== undefined && displayValue > descriptor.max) {
+      return `must be ≤ ${descriptor.max}`;
+    }
+  } else if (
+    isText &&
+    descriptor.maxlength !== undefined &&
+    String(value).length > descriptor.maxlength
+  ) {
+    return `must be at most ${descriptor.maxlength} characters`;
+  }
+
+  // HTML `pattern` matches the WHOLE value (browsers wrap it in `^(?:…)$`
+  // themselves) — a bare `new RegExp(descriptor.regExp)` has no such anchor
+  // and would accept "99" against a "single digit" pattern off a partial
+  // match, so it must be anchored the same way here. Проверяется последним:
+  // ловит то, что диапазон пропускает (дробное, ведущий ноль)
+  if (isText && descriptor.regExp && !new RegExp(`^(?:${descriptor.regExp})$`).test(raw)) {
+    return 'invalid format';
   }
 
   return null;
 }
 
 // валидирует всю форму перед сабмитом (замена бывшего reportFormValidity/
-// native reportValidity): порядок ошибок — порядок дескрипторов
+// native reportValidity): порядок ошибок — порядок дескрипторов.
+// Поля без строки в DOM (hidden, единственный вариант) пропускаются: их
+// ошибку игрок не видит и исправить не может — она бы заперла форму
+// навсегда (нативный reportValidity обходил только контролы в DOM и до них
+// тоже не добирался). label — подпись из формы, чтобы имя в ошибке
+// совпадало с тем, что игрок видит рядом с полем
 export function collectFormErrors(descriptors, fields) {
   const errors = [];
 
   descriptors.forEach(descriptor => {
     const field = fields.get(descriptor.name);
 
-    if (!field) {
+    if (!field || field.rendered === false) {
       return;
     }
 
     const error = validateField(descriptor, field);
 
     if (error) {
-      errors.push({ name: descriptor.name, error });
+      errors.push({
+        name: descriptor.name,
+        label: descriptor.label || descriptor.name,
+        error,
+      });
     }
   });
 
@@ -336,10 +387,13 @@ export function renderFormErrors(container, errors) {
 
   container.textContent = '';
 
-  (errors || []).forEach(({ name, error }) => {
+  (errors || []).forEach(({ name, label, error }) => {
     const line = document.createElement('div');
+    // серверные ошибки (PS_AUTH_DATA/validators) приезжают без label —
+    // для них, как и раньше, остаётся имя поля
+    const title = String(label || name).toUpperCase();
 
-    line.textContent = error ? `${name.toUpperCase()}: ${error}` : `${name.toUpperCase()} is not correctly!`;
+    line.textContent = error ? `${title}: ${error}` : `${title} is not correctly!`;
 
     container.appendChild(line);
   });
@@ -350,6 +404,7 @@ export function renderFormErrors(container, errors) {
 // если передан, подписывается на все поля разом. hidden:true, а также
 // select/radio с единственным резолвнутым вариантом (singleOption) — поле
 // строится и участвует в сабмите (fields Map), но строка не попадает в DOM
+// и помечается field.rendered = false (collectFormErrors такие пропускает)
 export function buildForm(descriptors, container, ctx = {}, onChange) {
   const fields = new Map();
 
@@ -373,9 +428,22 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
 
     fields.set(descriptor.name, field);
 
+    // пустой список вариантов — дефект схемы или каталога, а не «нечего
+    // выбирать»: значения у поля нет вовсе. Такое поле остаётся видимым
+    // (и валидируемым) — молча спрятать его значит отправить на хост
+    // пустую строку и получить отказ уже от игровых validators
+    if (field.noOptions) {
+      console.error(
+        `formBuilder: field "${descriptor.name}" resolved to no options`,
+      );
+    }
+
     if (descriptor.hidden || field.singleOption) {
+      field.rendered = false;
       return;
     }
+
+    field.rendered = true;
 
     const row = document.createElement('div');
 

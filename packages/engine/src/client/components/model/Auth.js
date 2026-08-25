@@ -31,21 +31,14 @@ export default class AuthModel {
   }
 
   // обновление данных
-  // если value невалиден, возвращается текущий value
+  // формат поля проверяет formBuilder.collectFormErrors перед сабмитом —
+  // единственный контур валидации формы (раньше здесь была вторая,
+  // параллельная проверка по options.regExp, которая молча зануляла
+  // значение и падала на строке из JSON: у неё нет .test)
   update(data) {
-    const { name } = data;
-    const { regExp } = this._options[name] ?? {};
-    let { value } = data;
+    const { name, value } = data;
 
-    if (regExp) {
-      if (regExp.test(value)) {
-        this._data[name] = value;
-      } else {
-        this._data[name] = value = '';
-      }
-    } else {
-      this._data[name] = value;
-    }
+    this._data[name] = value;
 
     this.publisher.emit('form', { name, value });
   }

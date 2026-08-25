@@ -31,7 +31,15 @@ export default class AuthView {
     this._renderTexts(elems, texts);
     this._renderFields(elems, params);
 
-    // форма заполнена; клиентская проверка (pattern/required/min/max) —
+    // показанные ошибки гаснут по мере правки формы, а не по следующему
+    // клику: renderData чистит их по событию модели, а оно приходит из
+    // 'change', то есть у text-инпута только на blur. Слушатель
+    // делегированный — контейнер постоянен, пересобираются только поля
+    this._fieldsContainer?.addEventListener('input', () => {
+      this._error.textContent = '';
+    });
+
+    // форма заполнена; клиентская проверка (required/regExp/min/max) —
     // сервер всё равно валидирует своими validators (renderError), это лишь
     // UX-фильтр до отправки
     this._enter.onclick = () => {
@@ -73,23 +81,12 @@ export default class AuthView {
     }));
 
     this._descriptors = descriptors;
+    // params сюда приходят чужие (PS_AUTH_DATA, тот же массив main.js
+    // отдаёт следом в AuthCtrl.init) и остаются нетронутыми: значение поля
+    // с единственным вариантом закрепляет main.js (resolveForcedValue) до
+    // разветвления на solo-путь, а не эта форма
     this._fields = buildForm(descriptors, container, {}, ({ name, value }) => {
       this.publisher.emit('input', { name, value });
-    });
-
-    // единственный резолвнутый вариант select/radio — принудительное
-    // значение поля (formBuilder.js): строка скрыта, игроку нечем поправить
-    // рассинхрон, если сервер прислал что-то другое (например, устаревший
-    // localStorage[storage] от версии игры, где вариантов было больше).
-    // Правим это же в исходном params — main.js передаёт тот же массив
-    // следом в AuthCtrl.init, а AuthModel._data не связана с DOM-полями и
-    // без этой правки уехала бы с рассинхронизированным значением
-    params.forEach(param => {
-      const field = this._fields.get(param.name);
-
-      if (field?.singleOption) {
-        param.value = field.getValue();
-      }
     });
   }
 

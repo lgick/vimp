@@ -176,13 +176,21 @@ generator converts the real clamp bounds into an exact regex with
 `min`/`max` render a "(min–max)" hint suffix on the field's label and are
 checked by `collectFormErrors()`; failures for both the room and auth form
 render as lines inside `#lobby-error`/`#auth-error`
-(`formBuilder.js`, `renderFormErrors()`). The authoritative clamp still
-happens on the host regardless.
+(`formBuilder.js`, `renderFormErrors()`), titled with the field's `label`.
+`regExp` is matched against the whole displayed value — the engine wraps it
+in `^(?:…)$`, exactly as a browser applies the `pattern` attribute — so
+write it unanchored. Fields with no rendered row (`hidden`, and the
+single-choice `select`/`radio` below) are skipped by validation: an error
+the player cannot see or fix would only lock the form. The authoritative
+clamp still happens on the host regardless.
 
 Form control set in v3 is exactly: **`text`, `select`, `checkbox`, `radio`**.
-A `select`/`radio` descriptor whose resolved choices number ≤ 1 is still
-built and submitted, but its row is not rendered — nothing for the player to
-choose. Descriptor fields: `name`, `control`, `label`, `default`, `hidden`,
+A `select`/`radio` descriptor resolving to exactly one choice is still built
+and submitted, but its row is not rendered — nothing for the player to
+choose — and that choice is forced (`setValue()` becomes a no-op, so a stale
+`storage`/`default` cannot desync the hidden control). Resolving to zero
+choices is a defect, not "nothing to choose": the row is rendered, the
+engine logs a `console.error`, validation applies. Descriptor fields: `name`, `control`, `label`, `default`, `hidden`,
 `numeric`, `unit: 's'` (stored in ms, displayed in seconds), `min`, `max`,
 `regExp`, `required`, `maxlength`, `options` (`[value]` or
 `[{value,label}]`), `source: 'maps'` (room form only), `storage` (auth form

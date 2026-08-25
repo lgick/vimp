@@ -174,8 +174,11 @@ A form is an **ordered array of descriptors** — array order is field order:
   // numeric text fields (unit set, or numeric:true): the value is parsed as
   // a Number and converted through the same unit as `default`/the stored
   // value (ms for unit:'s') — formBuilder converts to/from the displayed
-  // unit itself. Empty/invalid input falls back to `default` instead of
-  // becoming 0 on submit
+  // unit itself. Reading such a field never yields 0 for empty/invalid
+  // input — it falls back to `default` — but the submit does not get that
+  // far: a numeric field is implicitly `required` ("required" when empty,
+  // "must be a number" when unparseable), because silently creating a room
+  // on the default is not what the player asked for
   numeric: true,
   unit:    's',                // value is stored in ms, displayed/edited in seconds
   // bounds of a numeric text field (display unit, e.g. seconds for
@@ -187,10 +190,14 @@ A form is an **ordered array of descriptors** — array order is field order:
   max: 8,
   // validation (text): the engine never shows native browser validation
   // popups — collectFormErrors()/renderFormErrors() (formBuilder.js) check
-  // every control before submit (room form: click on "Create server"; auth
-  // form: click on "#auth-enter") and render every failing field as a line
-  // in #lobby-error/#auth-error, replacing reportValidity()
-  regExp:    '^#[0-9a-f]{6}$', // pattern to match (text)
+  // every rendered control before submit (room form: click on "Create
+  // server"; auth form: click on "#auth-enter") and render every failing
+  // field as a line in #lobby-error/#auth-error, replacing reportValidity()
+  // — the line is titled with this field's `label`
+  regExp:    '^#[0-9a-f]{6}$', // matched against the WHOLE displayed value:
+                              // the engine wraps it in ^(?:…)$ exactly as a
+                              // browser applies the `pattern` attribute, so
+                              // write it unanchored (own ^/$ are harmless)
   required:  true,
   maxlength: 32,
   // choices (select/radio):
@@ -203,20 +210,37 @@ A form is an **ordered array of descriptors** — array order is field order:
 
 `control` → markup, all rendered by `formBuilder.js` as plain native elements:
 - `select` — `<select>` (from `options` or `source:'maps'`); a `select` (or
-  `radio`) descriptor whose resolved choices number ≤ 1 is built and
+  `radio`) descriptor resolving to **exactly one** choice is built and
   submitted like every other field, but its `.form-row` is not rendered —
-  there is nothing for the player to actually choose.
+  there is nothing for the player to actually choose. That one choice is
+  then also **forced**: `setValue()` on the field is a no-op, so neither a
+  remembered `storage` value nor a `default` for a choice since removed from
+  the list can desync the hidden control. Resolving to **zero** choices is a
+  schema/catalog defect, not "nothing to choose": the row *is* rendered
+  (empty), the engine logs a `console.error`, and validation applies as
+  usual.
 - `text` — `<input type=text>`; numeric fields (`numeric`/`unit`) convert
-  to/from the stored unit; `pattern`/`required`/`maxlength`/`min`/`max` come
-  from the descriptor.
+  to/from the stored unit. `regExp`/`required` are mirrored onto the control
+  as `pattern`/`required` for semantics only (neither form is a `<form>` and
+  the engine never calls `reportValidity()`); `maxlength` is the one that
+  still acts on its own, by capping the input.
 - `checkbox` — `<input type=checkbox>` (boolean settings).
 - `radio` — a group of `<input type=radio>` sharing one generated `name`,
   one per option.
 
 **Validation split.** `roomForm` travels to the client as JSON in the game
 manifest (`/games/<id>/manifest.json`) — functions don't survive JSON, so the
-room form only gets the declarative checks above (`pattern`/`required`/
-`maxlength`/`min`/`max`); the authoritative bound on room values is still
+room form only gets the declarative checks above, applied in this order:
+emptiness (`required`, always on for a numeric field) → `must be a number`
+→ `min`/`max` → `maxlength` → `regExp`. The range is checked before the
+pattern on purpose: a generated `regExp` encodes the same bounds, but
+"must be ≤ 32" repeats the hint in the label while "invalid format" says
+nothing — the pattern is left to catch what the range cannot (a fraction, a
+leading zero).
+**fields with no rendered row** — `hidden: true` and the single-choice
+`select`/`radio` above — are skipped by validation: the player can neither
+see nor fix an error on them, so reporting one would only lock the form.
+The authoritative bound on room values is still
 enforced by the host Worker at room creation (the timer/limit clamps in
 `applyRoomOverrides.js`, called from `host.worker.js`). The auth form comes
 from plugin code (`authSchema`) instead, so it gets both the same

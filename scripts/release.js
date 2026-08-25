@@ -377,8 +377,9 @@ async function main(argv) {
     ui.log('режим --dry-run: изменяющие команды не выполняются');
   }
 
-  // --relink: аварийное восстановление после SIGKILL, когда обработчики
-  // возврата линков не отработали
+  // --relink: штатная привязка локальных чекаутов игр (npm run link:games,
+  // docs/en/getting-started.md), она же аварийное восстановление после
+  // SIGKILL, когда обработчики возврата линков не отработали
   if (args.relink) {
     const games = await selectGames(root, {
       yes: args.yes,

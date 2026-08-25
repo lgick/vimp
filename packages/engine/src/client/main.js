@@ -31,6 +31,7 @@ import {
   mergeRoomDefaults,
   collectFormErrors,
   renderFormErrors,
+  resolveForcedValue,
 } from './lib/formBuilder.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
@@ -431,6 +432,17 @@ socketMethods[PS_AUTH_DATA] = data => {
 
     if (storage) {
       param.value = localStorage[storage] || param.value || '';
+    }
+
+    // поле с единственным вариантом форма не показывает и править не даёт
+    // (formBuilder.js): его значение задаёт схема, а не память клиента —
+    // устаревший localStorage[storage] от версии игры, где вариантов было
+    // больше, иначе уехал бы на хост и получил отказ от validators. Здесь,
+    // а не в AuthView: solo-путь ниже отвечает вообще без формы
+    const forced = resolveForcedValue(param.options);
+
+    if (forced !== undefined) {
+      param.value = forced;
     }
   });
 
@@ -2007,6 +2019,15 @@ function initLobby() {
   // ничьих на границе LIMIT). Ник неизменен на сессию — один вызов до
   // первого gameChanged/рендера Leaderboard
   lobbyView.setSelfNick(lobbyAuthModel.getNick());
+
+  // показанные ошибки гаснут по мере правки формы, а не по следующему
+  // клику: 'input' — единственное событие, которое приходит по ходу ввода
+  // ('change' у text-инпута приходит только на blur, то есть уже после
+  // клика по кнопке). Слушатель делегированный и вешается один раз: сам
+  // #lobby-fields постоянен, пересобираются только его дети
+  document
+    .getElementById(lobbyConfig.elems.fieldsId)
+    ?.addEventListener('input', clearLobbyError);
 
   // создание комнаты в этой же вкладке (хост-игрок через loopback)
   populateGameSelect();
