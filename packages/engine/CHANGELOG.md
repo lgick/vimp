@@ -28,7 +28,38 @@ bumps the minor version).
   reaches the same value.
 - A `select`/`radio` resolving to *zero* choices is treated as a schema or
   catalog defect rather than "nothing to choose": the row is rendered, a
-  `console.error` names the field, and validation applies as usual.
+  `console.error` names the field, and the field always fails validation
+  with `no options available` — `required` or not. No game declares
+  `required` on `map`, so an empty map catalog used to create the room with
+  `map: ''`; and "required" would have pointed the player at a field there
+  is nothing to put in.
+- Once the player has submitted once, editing a field **re-checks the form**
+  instead of clearing the error block (`bindLiveErrors()`, a new
+  `formBuilder.js` export, used by both the room and the auth form): a line
+  disappears when its own field is fixed, so a player with three errors no
+  longer loses the other two by starting to fix the first.
+
+### Fixed
+
+- A `regExp` that does not compile no longer kills the submit. It arrives
+  from the game manifest as a string, and the `SyntaxError` from `new
+  RegExp()` escaped `collectFormErrors()` into the click handler: "Create
+  server" and `#auth-enter` stopped doing anything at all, with nothing
+  rendered in the error block — the native `pattern` attribute behaved the
+  other way round, a browser ignores a pattern it cannot read. Such a
+  pattern is now no constraint at all, named once in a `console.error`, and
+  contract rule `B5` catches it before the game ships. Compiled patterns are
+  also cached, instead of being rebuilt per field per submit.
+- A `select`/`radio` resolving to exactly one choice no longer sends a
+  non-string value to the host. `resolveForcedValue()` returned the schema's
+  own value, while a rendered control always yields a DOM string — a game
+  declaring `options: [1, 2]` therefore failed `validateAuth` with
+  "Property must be a string" on a field whose row is not rendered, leaving
+  the player no way to fix it.
+- A text field holding only whitespace is empty rather than `0`: values are
+  trimmed before the checks (`Number(' ')` is `0`, so a space used to create
+  a room on a numeric field declared without `min`/`max`/`regExp`), and
+  padding around a valid value no longer changes the verdict.
 
 ### Changed
 
@@ -66,13 +97,13 @@ bumps the minor version).
   `regExp` encodes the same bounds, but `must be ≤ 32` repeats the label's
   hint while `invalid format` says nothing; the pattern is left to catch
   what the range cannot (a fraction, a leading zero).
-- Editing any room- or auth-form field clears the errors shown for it as the
-  player types: both views now listen for `input` on their field container,
-  where the previous clearing rode on `change` — which a text input only
-  fires on blur, i.e. after the next click on the submit button. The lobby's
-  error block moved above the "Create server" button, next to the fields it
-  describes, and no longer occupies a row of its own while empty
-  (`.form-error:empty`).
+- Errors shown for a room- or auth-form field now respond to typing rather
+  than to the next click: both views listen for `input` on their field
+  container, where the previous clearing rode on `change` — which a text
+  input only fires on blur, i.e. after the next click on the submit button.
+  The lobby's error block moved above the "Create server" button, next to
+  the fields it describes, and no longer occupies a row of its own while
+  empty (`.form-error:empty`).
 - `AuthModel.update()` no longer re-validates the value against
   `options.regExp` and no longer blanks it on a mismatch: form validation is
   `collectFormErrors()` alone. Over the wire (`PS_AUTH_DATA`) `regExp`
@@ -107,7 +138,21 @@ bumps the minor version).
 - A contract rule's verdict may now carry its own `level`, overriding the
   rule's for that run (`verdict(violations, note, level)`,
   `src/devtools/contract/result.js`) — a rule whose violation is only
-  partially provable can report it without blocking.
+  partially provable can report it without blocking. An unrecognised level
+  falls back to the rule's own and says so on `console.error`: silently
+  accepting one would disable `hasBlockingFailure()` for that rule, since it
+  compares against `error`. `runRules(ctx, ruleList)` takes an explicit rule
+  list so that resolution is testable on its own.
+- Contract rule `B5` (`roomForm`) also checks that each `regExp` compiles,
+  in the anchored form the client uses.
+- Contract rule `C6` (`statColumns`) reads the declaration body, not just
+  the selector: a column counts as laid out only when a `#stat` rule naming
+  a cell declares a width (`width`/`min-width`/`max-width`/`flex`/
+  `flex-basis`/`grid-template-columns`). It also stopped losing rules nested
+  in `@media`/`@supports` (the previous split on `}` saw the wrapper and
+  dropped the selector) and now recognises `th` alongside `td`/`span` — so
+  the rule no longer passed a colour-only rule as a layout, nor warned about
+  a column that is in fact styled.
 
 ## [0.14.4] — 2026-08-21
 

@@ -1,5 +1,10 @@
 import Publisher from '../../../lib/Publisher.js';
-import { buildForm, collectFormErrors, renderFormErrors } from '../../lib/formBuilder.js';
+import {
+  bindLiveErrors,
+  buildForm,
+  collectFormErrors,
+  renderFormErrors,
+} from '../../lib/formBuilder.js';
 
 // Singleton AuthView
 
@@ -31,19 +36,21 @@ export default class AuthView {
     this._renderTexts(elems, texts);
     this._renderFields(elems, params);
 
-    // показанные ошибки гаснут по мере правки формы, а не по следующему
-    // клику: renderData чистит их по событию модели, а оно приходит из
-    // 'change', то есть у text-инпута только на blur. Слушатель
-    // делегированный — контейнер постоянен, пересобираются только поля
-    this._fieldsContainer?.addEventListener('input', () => {
-      this._error.textContent = '';
-    });
+    // показанные ошибки уходят по мере починки полей, а не все разом по
+    // первому нажатию клавиши: renderData чистил их по событию модели, а
+    // оно приходит из 'change', то есть у text-инпута только на blur
+    const armErrors = bindLiveErrors(this._fieldsContainer, this._error, () => ({
+      descriptors: this._descriptors,
+      fields: this._fields,
+    }));
 
     // форма заполнена; клиентская проверка (required/regExp/min/max) —
     // сервер всё равно валидирует своими validators (renderError), это лишь
     // UX-фильтр до отправки
     this._enter.onclick = () => {
       const errors = collectFormErrors(this._descriptors, this._fields);
+
+      armErrors();
 
       if (errors.length) {
         renderFormErrors(this._error, errors);
@@ -166,7 +173,9 @@ export default class AuthView {
   renderData(data) {
     const { name, value } = data;
 
-    this._error.textContent = '';
+    // через renderFormErrors, а не this._error.textContent: проверка
+    // контейнера уже внутри (кривой elems.errorId — не повод падать)
+    renderFormErrors(this._error, []);
     this._fields.get(name)?.setValue(value);
   }
 

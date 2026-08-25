@@ -129,6 +129,10 @@ name the violation. Do not verify those by eye — run the tool
       as an error when the plugin declares no `hooks.services()`, and as a
       warning when it does (the checker cannot call the hook without a live
       core — run with `--strict` to fail on those too).
+- [ ] Do not reuse an engine service name in `hooks.services()`: the engine
+      merges your map *first* (`{ ...gameServices, renderer, … }`), so a
+      `renderer` of yours is silently overwritten by the engine's and no rule
+      can see it.
 - [ ] ⚙ `C8` Baker names in `bakedAssets` must exist in `bakers`; unknown names are
       skipped silently.
 - [ ] ⚙ `B6, C5` The panel key `t` is hardcoded by the engine (round time in seconds).
@@ -146,7 +150,9 @@ name the violation. Do not verify those by eye — run the tool
       (`#stat …:nth-child(1)…(5)`) and the `.line1`–`.line3` row classes. A
       sixth column is fine, but it gets no width of its own until you restate
       the layout in `ClientPlugin.styles` — `C6` warns for every declared
-      column your styles leave unaddressed.
+      column your styles leave unaddressed. It looks for a width declaration
+      (`width`/`min-width`/`flex`/…) on a `#stat` selector naming a cell, so
+      a rule that only sets a colour does not count as laying the column out.
 - [ ] ⚙ `C7` `keySetList[0]` is the spectator set and must contain `nextPlayer` and
       `prevPlayer`; `keySetList[1]` is the player set.
 - [ ] ⚙ `C7` Key codes `67` (chat), `77` (vote), `9` (stat), `27` (escape), `13`
@@ -166,8 +172,14 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] `authSchema.validators` are functions, are not serialised, and run on
       the host.
 - [ ] ⚙ `B5` Only `text`, `select`, `checkbox`, `radio` controls exist in v3. An
-      unknown `control` skips the field with a `console.error`.
-      `min`/`max`/`step` no longer exist — use `regExp`.
+      unknown `control` skips the field with a `console.error`. Native
+      `min`/`max`/`step` attributes are never emitted (these fields are
+      `type=text`): the descriptor's own `min`/`max` numbers drive the label
+      hint and the check instead, alongside `regExp`.
+- [ ] ⚙ `B5` A `regExp` that does not compile is no constraint at all — the
+      engine drops the check with a `console.error` and the field passes.
+      The engine anchors it as `^(?:…)$`, the way a browser applies
+      `pattern`, so write it unanchored.
 
 ## Assets and maps
 

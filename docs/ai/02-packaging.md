@@ -179,10 +179,15 @@ render as lines inside `#lobby-error`/`#auth-error`
 (`formBuilder.js`, `renderFormErrors()`), titled with the field's `label`.
 `regExp` is matched against the whole displayed value — the engine wraps it
 in `^(?:…)$`, exactly as a browser applies the `pattern` attribute — so
-write it unanchored. Fields with no rendered row (`hidden`, and the
-single-choice `select`/`radio` below) are skipped by validation: an error
-the player cannot see or fix would only lock the form. The authoritative
-clamp still happens on the host regardless.
+write it unanchored; one that does not compile is no constraint at all (the
+field passes, the engine logs a `console.error`, `vimp-contract` rule `B5`
+catches it first). Text values are trimmed before the checks, so a field
+holding only spaces is empty rather than `0`. Fields with no rendered row
+(`hidden`, and the single-choice `select`/`radio` below) are skipped by
+validation: an error the player cannot see or fix would only lock the form.
+After the first submit, editing a field re-checks the form — a line
+disappears when its own field is fixed, not all of them on the first
+keystroke. The authoritative clamp still happens on the host regardless.
 
 Form control set in v3 is exactly: **`text`, `select`, `checkbox`, `radio`**.
 A `select`/`radio` descriptor resolving to exactly one choice is still built
@@ -190,7 +195,8 @@ and submitted, but its row is not rendered — nothing for the player to
 choose — and that choice is forced (`setValue()` becomes a no-op, so a stale
 `storage`/`default` cannot desync the hidden control). Resolving to zero
 choices is a defect, not "nothing to choose": the row is rendered, the
-engine logs a `console.error`, validation applies. Descriptor fields: `name`, `control`, `label`, `default`, `hidden`,
+engine logs a `console.error`, and the field always fails with
+`no options available`, `required` or not. Descriptor fields: `name`, `control`, `label`, `default`, `hidden`,
 `numeric`, `unit: 's'` (stored in ms, displayed in seconds), `min`, `max`,
 `regExp`, `required`, `maxlength`, `options` (`[value]` or
 `[{value,label}]`), `source: 'maps'` (room form only), `storage` (auth form

@@ -31,8 +31,9 @@ import {
   mergeRoomDefaults,
   collectFormErrors,
   renderFormErrors,
-  resolveForcedValue,
+  bindLiveErrors,
 } from './lib/formBuilder.js';
+import { normalizeAuthParams } from './lib/authParams.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
 import { getBootConfig, resolveBootConfig } from './boot.js';
@@ -427,24 +428,10 @@ socketMethods[PS_AUTH_DATA] = data => {
 
   document.getElementById('logo').textContent = texts?.title || 'VIMP';
 
-  params.forEach(param => {
-    const { storage } = param.options;
-
-    if (storage) {
-      param.value = localStorage[storage] || param.value || '';
-    }
-
-    // поле с единственным вариантом форма не показывает и править не даёт
-    // (formBuilder.js): его значение задаёт схема, а не память клиента —
-    // устаревший localStorage[storage] от версии игры, где вариантов было
-    // больше, иначе уехал бы на хост и получил отказ от validators. Здесь,
-    // а не в AuthView: solo-путь ниже отвечает вообще без формы
-    const forced = resolveForcedValue(param.options);
-
-    if (forced !== undefined) {
-      param.value = forced;
-    }
-  });
+  // память клиента (localStorage) + принудительное значение поля с
+  // единственным вариантом. Здесь, а не в AuthView: solo-путь ниже отвечает
+  // хосту вообще без формы и обязан прийти к тем же значениям
+  normalizeAuthParams(params);
 
   // solo: формы нет — отвечаем дефолтами схемы, перекрытыми boot.autoAuth
   if (boot.autoAuth) {
@@ -2020,14 +2007,14 @@ function initLobby() {
   // первого gameChanged/рендера Leaderboard
   lobbyView.setSelfNick(lobbyAuthModel.getNick());
 
-  // показанные ошибки гаснут по мере правки формы, а не по следующему
-  // клику: 'input' — единственное событие, которое приходит по ходу ввода
-  // ('change' у text-инпута приходит только на blur, то есть уже после
-  // клика по кнопке). Слушатель делегированный и вешается один раз: сам
-  // #lobby-fields постоянен, пересобираются только его дети
-  document
-    .getElementById(lobbyConfig.elems.fieldsId)
-    ?.addEventListener('input', clearLobbyError);
+  // показанные ошибки уходят по мере починки полей, а не все разом по
+  // первому нажатию клавиши (formBuilder.bindLiveErrors); вооружается
+  // первым кликом по Create server
+  const armFormErrors = bindLiveErrors(
+    document.getElementById(lobbyConfig.elems.fieldsId),
+    document.getElementById(lobbyConfig.elems.errorId),
+    () => ({ descriptors: roomFormDescriptors, fields: roomFormFields }),
+  );
 
   // создание комнаты в этой же вкладке (хост-игрок через loopback)
   populateGameSelect();
@@ -2062,6 +2049,9 @@ function initLobby() {
     // (вызывается из host.worker.js при создании комнаты). Проверяем до
     // активации игры: неверная форма не должна стоить загрузки плагина
     const formErrors = collectFormErrors(roomFormDescriptors, roomFormFields);
+
+    // с этого момента правка поля перепроверяет форму, а не гасит блок
+    armFormErrors();
 
     if (formErrors.length) {
       renderFormErrors(document.getElementById(lobbyConfig.elems.errorId), formErrors);

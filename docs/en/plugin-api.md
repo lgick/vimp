@@ -197,7 +197,11 @@ A form is an **ordered array of descriptors** — array order is field order:
   regExp:    '^#[0-9a-f]{6}$', // matched against the WHOLE displayed value:
                               // the engine wraps it in ^(?:…)$ exactly as a
                               // browser applies the `pattern` attribute, so
-                              // write it unanchored (own ^/$ are harmless)
+                              // write it unanchored (own ^/$ are harmless).
+                              // One that does not compile is not a constraint
+                              // at all: the field passes and the engine logs a
+                              // console.error — `vimp-contract` (rule B5)
+                              // catches it before it ever ships
   required:  true,
   maxlength: 32,
   // choices (select/radio):
@@ -217,8 +221,9 @@ A form is an **ordered array of descriptors** — array order is field order:
   remembered `storage` value nor a `default` for a choice since removed from
   the list can desync the hidden control. Resolving to **zero** choices is a
   schema/catalog defect, not "nothing to choose": the row *is* rendered
-  (empty), the engine logs a `console.error`, and validation applies as
-  usual.
+  (empty), the engine logs a `console.error`, and the field always fails
+  validation with `no options available` — `required` or not, since there is
+  no value to submit and "required" would send the player somewhere empty.
 - `text` — `<input type=text>`; numeric fields (`numeric`/`unit`) convert
   to/from the stored unit. `regExp`/`required` are mirrored onto the control
   as `pattern`/`required` for semantics only (neither form is a `<form>` and
@@ -231,8 +236,10 @@ A form is an **ordered array of descriptors** — array order is field order:
 **Validation split.** `roomForm` travels to the client as JSON in the game
 manifest (`/games/<id>/manifest.json`) — functions don't survive JSON, so the
 room form only gets the declarative checks above, applied in this order:
-emptiness (`required`, always on for a numeric field) → `must be a number`
-→ `min`/`max` → `maxlength` → `regExp`. The range is checked before the
+`no options available` (an empty `select`/`radio`) → emptiness (`required`,
+always on for a numeric field; a text value is trimmed first, so a field
+holding only spaces counts as empty) → `must be a number` → `min`/`max` →
+`maxlength` → `regExp`. The range is checked before the
 pattern on purpose: a generated `regExp` encodes the same bounds, but
 "must be ≤ 32" repeats the hint in the label while "invalid format" says
 nothing — the pattern is left to catch what the range cannot (a fraction, a
@@ -247,6 +254,12 @@ from plugin code (`authSchema`) instead, so it gets both the same
 declarative checks and JS validators (`authSchema.validators`, resolved by
 `validateAuth` on the host and mirrored on the client, rendered through the
 same `renderFormErrors`).
+
+Once the player has submitted once, editing any field **re-checks the form**
+rather than clearing the block: a line disappears when its own field is
+fixed, so the list of what is still wrong survives the first keystroke.
+Before that first submit nothing is shown — the player is still filling the
+form in.
 
 Where each half of the contract lives:
 - **Room form**: `GameManifest.roomForm` (next to `roomDefaults`, which

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import {
   runRules,
 } from '../../../packages/engine/src/devtools/contract/index.js';
 import {
+  ERROR,
   FAIL,
   PASS,
   SKIP,
@@ -240,6 +241,25 @@ describe('B. host', () => {
     expect(found).toMatch(/control "range" does not exist/);
   });
 
+  it('B5 catches a regExp that does not compile', () => {
+    // regExp едет клиенту строкой и компилируется там: без этой проверки
+    // дефект всплывал бы уже в браузере игрока (formBuilder снимает
+    // ограничение с поля и пишет console.error)
+    const ctx = {
+      ...base,
+      gameConfig: {
+        ...base.gameConfig,
+        roomForm: [
+          { name: 'maxPlayers', control: 'text', regExp: '[1-8' },
+          { name: 'roundTime', control: 'text', regExp: '[1-8]' },
+        ],
+      },
+    };
+
+    expect(violations('B5', ctx)).toMatch(/"maxPlayers": regExp "\[1-8" does not compile/);
+    expect(violations('B5', ctx)).not.toMatch(/roundTime/);
+  });
+
   it("B6 catches the reserved panel key 't'", () => {
     expect(
       violations('B6', {
@@ -466,6 +486,37 @@ describe('C. client', () => {
     ).toBe(PASS);
   });
 
+  it('C6 reads the rule body: a selector without a width covers nothing', () => {
+    const stat = base.clientConfig.modules.stat;
+    const sixColumns = withModules(base, {
+      stat: {
+        params: {
+          ...stat.params,
+          columns: ['name', 'status', 'eaten', 'kills', 'score', 'ping'],
+        },
+      },
+    });
+    const withStyles = styles => ({
+      ...base,
+      clientPlugin: { ...base.clientPlugin, styles },
+      clientConfig: sixColumns,
+    });
+
+    // правило про раскладку, а не про цвет
+    expect(check('C6', withStyles('#stat table td:nth-child(6) { color: red; }')).status).toBe(FAIL);
+
+    // @media/@supports заворачивают правило во второй уровень скобок
+    expect(
+      check(
+        'C6',
+        withStyles('@media (min-width: 600px) { #stat table td:nth-child(6) { width: 10%; } }'),
+      ).status,
+    ).toBe(PASS);
+
+    // ячейка — не только td/span: заголовочная колонка тоже раскладка
+    expect(check('C6', withStyles('#stat table th:nth-child(6) { width: 10%; }')).status).toBe(PASS);
+  });
+
   it('C6 accepts fewer columns than the engine lays out', () => {
     const stat = base.clientConfig.modules.stat;
 
@@ -613,6 +664,36 @@ describe('E. assets', () => {
     expect(
       check('E1', built(['sounds/shot.webm', 'sounds/shot.mp3'])).status,
     ).toBe(PASS);
+  });
+});
+
+describe('runRules: уровень вердикта', () => {
+  const fake = (level, id = 'X1') => ({
+    id,
+    name: 'fake',
+    title: 'fake',
+    level: ERROR,
+    check: () => ({ status: FAIL, violations: ['boom'], level }),
+  });
+
+  it('вердикт понижает уровень правила на этом прогоне', () => {
+    const [result] = runRules({}, [fake(WARN)]);
+
+    expect(result.level).toBe(WARN);
+    expect(hasBlockingFailure({ results: [result] })).toBe(false);
+  });
+
+  it('неизвестный уровень громко откатывается к объявленному правилом', () => {
+    // молчаливый откат означал бы, что опечатка ('warning' вместо WARN)
+    // отключает блокировку прогона и никто об этом не узнаёт
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const [result] = runRules({}, [fake('warning')]);
+
+    expect(result.level).toBe(ERROR);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('unknown level "warning"'));
+    expect(hasBlockingFailure({ results: [result] })).toBe(true);
+
+    error.mockRestore();
   });
 });
 

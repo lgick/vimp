@@ -1,6 +1,6 @@
 import { loadContext } from './loadContext.js';
 import { rules } from './rules/index.js';
-import { ERROR, FAIL, summarize } from './result.js';
+import { ERROR, FAIL, WARN, summarize } from './result.js';
 
 // Статическая проверка контракта «движок ↔ игра»: то же намерение, что у
 // headless-раннера (молчаливое нарушение обязано становиться строкой),
@@ -35,21 +35,43 @@ export async function checkContract(gameDir) {
   };
 }
 
+// Вердикт может нести собственный уровень (см. verdict) — но только один из
+// двух известных: неизвестное значение молча перестало бы блокировать прогон
+// (hasBlockingFailure сравнивает с ERROR), то есть опечатка в правиле
+// отключала бы его без единой строки. Поэтому она громкая, а уровень берётся
+// объявленный правилом.
+function resolveLevel(level, rule) {
+  if (level === undefined) {
+    return rule.level;
+  }
+
+  if (level !== ERROR && level !== WARN) {
+    console.error(
+      `contract: rule ${rule.id} returned unknown level "${level}" — ` +
+        `falling back to "${rule.level}"`,
+    );
+
+    return rule.level;
+  }
+
+  return level;
+}
+
 /**
  * Прогон правил по готовому контексту (тесты собирают его вручную).
  * @param {Object} ctx
+ * @param {Array<Object>} [ruleList] - Набор правил; по умолчанию все.
  * @returns {Array<Object>} Результаты правил.
  */
-export function runRules(ctx) {
-  return rules.map(rule => {
+export function runRules(ctx, ruleList = rules) {
+  return ruleList.map(rule => {
     const { status, violations, note, level } = rule.check(ctx);
 
     return {
       id: rule.id,
       name: rule.name,
       title: rule.title,
-      // вердикт может понизить уровень правила на этом прогоне (см. verdict)
-      level: level ?? rule.level,
+      level: resolveLevel(level, rule),
       status,
       violations,
       note,

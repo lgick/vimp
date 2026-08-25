@@ -9,18 +9,26 @@ import { WARN, skip, verdict } from '../result.js';
 // объявить сколько угодно. Ширина — соглашение, а не отказ, отсюда warn.
 const ENGINE_COLUMNS = 5;
 
-// Индексы колонок, которым стили плагина что-то задают. Селектор ячеек без
+// Правило разбирает CSS плагина эвристикой, а не парсером: «колонку кроет
+// объявление ширины на селекторе с #stat и ячейкой».
+// Пара «селектор + тело»: [^{}] не перешагивает вложенную скобку, поэтому
+// matchAll ловит именно внутреннее правило, в том числе завёрнутое в
+// @media/@supports (разбор по split('}') видел там обёртку и терял селектор).
+const RULE = /([^{}]+)\{([^{}]*)\}/g;
+// ячейка колонки: движковая раскладка адресует их как `#stat … td|span`
+const CELL = /(?:^|[\s.#>+~])(?:td|th|span)(?=[\s.:#>+~,[]|$)/;
+// правило про раскладку, а не про цвет: колонку кроет только объявление
+// ширины или её грид/флекс-эквивалент
+const WIDTH =
+  /(?:^|[\s;])(?:width|min-width|max-width|flex|flex-basis|grid-template-columns)\s*:/;
+
+// Индексы колонок, которым стили плагина задают ширину. Селектор ячеек без
 // nth-child ('#stat table td') правит всю таблицу разом.
 function styledColumns(styles, total) {
   const covered = new Set();
 
-  for (const block of String(styles || '').split('}')) {
-    const selector = block.split('{')[0];
-
-    if (
-      !selector.includes('#stat') ||
-      !(selector.includes('td') || selector.includes('span'))
-    ) {
+  for (const [, selector, body] of String(styles || '').matchAll(RULE)) {
+    if (!selector.includes('#stat') || !CELL.test(selector) || !WIDTH.test(body)) {
       continue;
     }
 

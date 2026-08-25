@@ -6,6 +6,7 @@ import {
   collectFormErrors,
   renderFormErrors,
   resolveForcedValue,
+  bindLiveErrors,
 } from '../../../packages/engine/src/client/lib/formBuilder.js';
 
 describe('formBuilder.buildField: select', () => {
@@ -563,7 +564,22 @@ describe('formBuilder.collectFormErrors', () => {
     expect(fields.get('map').singleOption).toBe(false);
     expect(error).toHaveBeenCalled();
     expect(collectFormErrors(descriptors, fields)).toEqual([
-      { name: 'map', label: 'Map', error: 'required' },
+      { name: 'map', label: 'Map', error: 'no options available' },
+    ]);
+
+    error.mockRestore();
+  });
+
+  it('select без вариантов — ошибка и без required (vimp-tanks/map)', () => {
+    const container = document.createElement('div');
+    // ни одна игра не ставит required на `map`: без собственной ошибки
+    // пустого резолва комната создавалась бы с map: ''
+    const descriptors = [{ name: 'map', control: 'select', label: 'Map', source: 'maps' }];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fields = buildForm(descriptors, container, { sources: { maps: [] } });
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'map', label: 'Map', error: 'no options available' },
     ]);
 
     error.mockRestore();
@@ -620,6 +636,45 @@ describe('formBuilder.collectFormErrors', () => {
     expect(collectFormErrors(descriptors, fields)).toEqual([
       { name: 'maxPlayers', label: 'Max players', error: 'must be a number' },
     ]);
+  });
+
+  it('пробелы вокруг значения не мешают, но одни пробелы — пустое поле', () => {
+    const container = document.createElement('div');
+    // Number(' ') === 0: без trim пробел уехал бы нулём в игру, объявившую
+    // numeric без min/max и без regExp
+    const descriptors = [
+      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', default: 8 },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('maxPlayers').el.value = ' 6 ';
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+
+    fields.get('maxPlayers').el.value = '   ';
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'maxPlayers', label: 'Max players', error: 'required' },
+    ]);
+  });
+
+  it('некомпилируемый regExp не роняет сабмит — поле проходит, дефект в консоли', () => {
+    const container = document.createElement('div');
+    // regExp приезжает из манифеста строкой: SyntaxError из new RegExp ушёл
+    // бы из collectFormErrors в обработчик клика, и кнопка перестала бы
+    // работать вовсе, не показав игроку ни строки
+    const descriptors = [
+      { name: 'color', control: 'text', label: 'Color', regExp: '^#[0-9a-f{6}$', default: '' },
+    ];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fields = buildForm(descriptors, container);
+
+    fields.get('color').el.value = 'zzz';
+
+    expect(() => collectFormErrors(descriptors, fields)).not.toThrow();
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+    // паттерн компилируется один раз на строку, а не на каждую проверку
+    expect(error).toHaveBeenCalledTimes(1);
+
+    error.mockRestore();
   });
 
   it('валидная форма не даёт ошибок', () => {
@@ -691,5 +746,64 @@ describe('formBuilder.resolveForcedValue', () => {
     expect(
       resolveForcedValue({ control: 'select', source: 'maps' }, { sources: { maps: ['pool'] } }),
     ).toBe('pool');
+  });
+
+  it('нестроковый вариант приводится к строке — как отдал бы DOM', () => {
+    // <option>.value и <input type=radio>.value — DOM-свойства, всегда
+    // строки. Нестроковое значение validateAuth отбивает «Property must be
+    // a string», а строки поля в DOM нет — поправить нечем
+    expect(resolveForcedValue({ control: 'select', options: [{ value: 1, label: 'Solo' }] })).toBe(
+      '1',
+    );
+    expect(resolveForcedValue({ control: 'radio', options: [7] })).toBe('7');
+  });
+});
+
+describe('formBuilder.bindLiveErrors', () => {
+  const makeForm = () => {
+    const container = document.createElement('div');
+    const errorContainer = document.createElement('div');
+    const descriptors = [
+      { name: 'login', control: 'text', label: 'Login', required: true, default: '' },
+      { name: 'motd', control: 'text', label: 'MOTD', required: true, default: '' },
+    ];
+    const fields = buildForm(descriptors, container);
+    const arm = bindLiveErrors(container, errorContainer, () => ({ descriptors, fields }));
+
+    return { container, errorContainer, descriptors, fields, arm };
+  };
+
+  const type = (field, value) => {
+    field.el.value = value;
+    field.el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  it('до первого сабмита правка формы ничего не рисует', () => {
+    const { errorContainer, fields } = makeForm();
+
+    type(fields.get('login'), 'B');
+
+    expect(errorContainer.textContent).toBe('');
+  });
+
+  it('после сабмита строка уходит по мере починки своего поля', () => {
+    const { errorContainer, descriptors, fields, arm } = makeForm();
+
+    arm();
+    renderFormErrors(errorContainer, collectFormErrors(descriptors, fields));
+    expect(errorContainer.children).toHaveLength(2);
+
+    // правка одного поля не должна уносить ошибку второго — иначе игрок
+    // теряет список того, что ещё не починено
+    type(fields.get('login'), 'Bob');
+    expect(errorContainer.children).toHaveLength(1);
+    expect(errorContainer.textContent).toBe('MOTD: required');
+
+    type(fields.get('motd'), 'hi');
+    expect(errorContainer.children).toHaveLength(0);
+  });
+
+  it('пустой контейнер полей не роняет привязку', () => {
+    expect(() => bindLiveErrors(null, document.createElement('div'), () => ({}))).not.toThrow();
   });
 });

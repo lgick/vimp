@@ -189,10 +189,13 @@ describe('AuthView: события DOM', () => {
     expect(document.getElementById('auth').style.display).toBe('none');
   });
 
-  it('правка поля гасит показанную ошибку сразу, не дожидаясь blur/клика', () => {
+  it('правка поля перепроверяет форму сразу, не дожидаясь blur/клика', () => {
     const view = new AuthView(makeModel(), elems, null, authParams);
     const error = document.getElementById('auth-error');
 
+    // серверная ошибка приходит уже после клика по enter — к этому моменту
+    // живая перевалидация вооружена
+    document.getElementById('auth-enter').click();
     view.renderError([{ name: 'login', error: 'too short' }]);
     expect(error.textContent).not.toBe('');
 
@@ -202,6 +205,27 @@ describe('AuthView: события DOM', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
 
     expect(error.textContent).toBe('');
+  });
+
+  it('починка одного поля не уносит ошибку второго', () => {
+    const requiredParams = [
+      { name: 'login', value: '', options: { control: 'text', label: 'Login', required: true } },
+      { name: 'clan', value: '', options: { control: 'text', label: 'Clan', required: true } },
+    ];
+
+    new AuthView(makeModel(), elems, null, requiredParams);
+
+    const error = document.getElementById('auth-error');
+
+    document.getElementById('auth-enter').click();
+    expect(error.children).toHaveLength(2);
+
+    const [login] = document.getElementById('auth-fields').querySelectorAll('input');
+
+    login.value = 'Bob';
+    login.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(error.textContent).toBe('CLAN: required');
   });
 
   it('клик по enter с невалидным полем не эмитит enter и рисует ошибку', () => {

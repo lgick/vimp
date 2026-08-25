@@ -3,7 +3,8 @@ import { ERROR, skip, verdict } from '../result.js';
 // roomForm. Поле вне белого списка форма показывает, лобби отправляет, а
 // хост молча выбрасывает — правило игры, построенное на своей настройке
 // комнаты, не работает и ничего об этом не сообщает. Контролов в v3 ровно
-// четыре: неизвестный пропускается с console.error.
+// четыре: неизвестный пропускается с console.error. `regExp` едет в манифесте
+// строкой и компилируется уже у игрока — некомпилируемая ловится здесь.
 const HONOURED = ['maps', 'maxPlayers', 'map', 'roundTime', 'mapTime', 'friendlyFire'];
 const CONTROLS = ['text', 'select', 'checkbox', 'radio'];
 
@@ -35,6 +36,20 @@ export default {
           `roomForm field "${field.name}": control "${field.control}" does ` +
             `not exist (${CONTROLS.join(', ')})`,
         );
+      }
+
+      if (field.regExp !== undefined) {
+        try {
+          // ровно та форма, что компилирует клиент: браузер якорит атрибут
+          // `pattern` сам, и formBuilder повторяет это за ним
+          RegExp(`^(?:${field.regExp})$`);
+        } catch (e) {
+          violations.push(
+            `roomForm field "${field.name}": regExp "${field.regExp}" does ` +
+              `not compile (${e.message}) — the client drops the check with ` +
+              'a console.error, so the field ends up with no pattern at all',
+          );
+        }
       }
     }
 

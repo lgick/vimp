@@ -7,6 +7,16 @@
 // Проверяются только поля, у которых есть строка в DOM: ошибка на скрытом
 // поле игроку не видна и исправить её нечем — она просто запирает форму.
 
+// контролы, у которых есть список вариантов: держим одним списком, чтобы
+// resolveForcedValue не расходился с builders при добавлении нового
+const OPTION_CONTROLS = ['select', 'radio'];
+
+// числовое text-поле: unit задан или numeric:true. Правило одно на билдер и
+// на валидацию, поэтому живёт в одном месте
+function isNumeric(descriptor) {
+  return descriptor.numeric === true || descriptor.unit !== undefined;
+}
+
 function normalizeOptions(list) {
   return (list || []).map(opt =>
     opt !== null && typeof opt === 'object' ? opt : { value: opt, label: String(opt) },
@@ -36,11 +46,17 @@ function forcedValue(options) {
 // то же правило вне формы: solo-путь (boot.autoAuth) отвечает хосту без
 // всякой формы и должен прийти ровно к тому же значению, что и она
 export function resolveForcedValue(descriptor, ctx = {}) {
-  if (descriptor.control !== 'select' && descriptor.control !== 'radio') {
+  if (!OPTION_CONTROLS.includes(descriptor.control)) {
     return undefined;
   }
 
-  return forcedValue(resolveOptions(descriptor, ctx));
+  const forced = forcedValue(resolveOptions(descriptor, ctx));
+
+  // форма отдала бы строку: и <option>.value, и <input type=radio>.value —
+  // DOM-свойства, они всегда строки. Нестроковое значение (options: [1, 2])
+  // validateAuth отбивает «Property must be a string» (lib/validators.js), а
+  // строки поля в DOM нет — игроку нечем это поправить
+  return forced === undefined ? undefined : String(forced);
 }
 
 // unit:'s' — значение хранится в мс, показывается/редактируется в секундах
@@ -94,7 +110,7 @@ function buildSelect(descriptor, ctx) {
 // вместо превращения его в 0 на сабмите
 function buildText(descriptor) {
   const el = document.createElement('input');
-  const numeric = descriptor.numeric || descriptor.unit !== undefined;
+  const numeric = isNumeric(descriptor);
 
   el.type = 'text';
   el.name = descriptor.name;
@@ -131,6 +147,11 @@ function buildText(descriptor) {
   return {
     el,
     getValue,
+    // «сырая» строка поля, до конвертации единицы и отката к default:
+    // единственный способ отличить пустой ввод от валидного значения, и
+    // то же самое, что матчил нативный `pattern`. Часть контракта поля —
+    // валидации незачем знать, из какого элемента оно построено
+    getRaw: () => el.value,
     setValue(value) {
       el.value = numeric ? toDisplay(descriptor, value) : (value ?? '');
     },
@@ -276,25 +297,69 @@ function buildLabelSuffix(descriptor) {
   return unit === 's' ? ` (s, ${range})` : ` (${range})`;
 }
 
+// скомпилированные паттерны полей: строка regExp -> RegExp, либо null, если
+// она не компилируется. Кэш на модуль — дескрипторы приезжают из манифеста и
+// живут всю сессию, а сабмит иначе пересобирал бы RegExp на каждое поле
+const patterns = new Map();
+
+// HTML `pattern` matches the WHOLE value (browsers wrap it in `^(?:…)$`
+// themselves) — a bare `new RegExp(descriptor.regExp)` has no such anchor and
+// would accept "99" against a "single digit" pattern off a partial match, so
+// it must be anchored the same way here.
+// regExp приезжает из манифеста игры строкой: невалидный паттерн — дефект
+// схемы, а не повод убить сабмит. Без перехвата SyntaxError уходит из
+// collectFormErrors в обработчик клика, кнопка перестаёт делать что-либо и
+// игрок не видит ни строки (нативный `pattern` вёл себя ровно наоборот:
+// нечитаемый паттерн браузер игнорирует). Контракт-чекер ловит это раньше —
+// правило B5, roomForm
+function fieldPattern(regExp) {
+  if (!patterns.has(regExp)) {
+    let pattern = null;
+
+    try {
+      pattern = new RegExp(`^(?:${regExp})$`);
+    } catch (e) {
+      console.error(`formBuilder: invalid regExp "${regExp}" — ${e.message}`);
+    }
+
+    patterns.set(regExp, pattern);
+  }
+
+  return patterns.get(regExp);
+}
+
 // ошибка одного поля, либо null — required/regExp/maxlength (не-numeric
 // text)/min/max (numeric text); сообщения не зависят от локали браузера, в
 // отличие от бывшего reportValidity(). regExp сверяется с "сырой" строкой
-// поля (field.el.value) — тем же значением, которое раньше матчил нативный
+// поля (field.getRaw()) — тем же значением, которое раньше матчил нативный
 // pattern: у числового text-поля getValue() отдаёт число в единице
 // хранения (мс для unit:'s'), а не отображаемую строку, так что regExp
 // (сгенерированный build-game-manifest.js диапазон вроде "^([1-8])$" для
 // maxPlayers — единственная граница у манифестов без min/max) проверяется
 // отдельно от min/max, а не вместо них
 function validateField(descriptor, field) {
+  // резолв вариантов дал пустой список: допустимого значения у поля нет
+  // вовсе — дефект схемы или каталога (buildForm уже написал console.error).
+  // Отдельным сообщением, а не через required: заполнить такое поле нечем, и
+  // «required» повело бы игрока туда, где ничего нет. Проверяется первой —
+  // required у поля может и не стоять (ни одна игра не ставит его на `map`),
+  // а пустая строка не должна уезжать на хост молча
+  if (field.noOptions) {
+    return 'no options available';
+  }
+
   const value = field.getValue();
   const isText = descriptor.control === 'text';
   // у числового поля getValue() уже откатился к default (чтобы пустая
-  // строка не уехала нулём), поэтому пустоту видно только по сырой строке
-  const raw = isText ? field.el.value : undefined;
-  const isEmpty = isText
-    ? raw === ''
-    : value === undefined || value === null || value === '';
-  const numeric = isText && (descriptor.numeric || descriptor.unit !== undefined);
+  // строка не уехала нулём), поэтому пустоту видно только по сырой строке.
+  // trim: Number(' ') === 0, то есть без него пробел прошёл бы нулём — и
+  // наоборот, ' 8 ' игрок считает валидной восьмёркой
+  const raw = field.getRaw?.().trim();
+  const isEmpty =
+    raw !== undefined
+      ? raw === ''
+      : value === undefined || value === null || value === '';
+  const numeric = isText && isNumeric(descriptor);
 
   // числовое поле всегда несёт число и «необязательным» быть не может:
   // пустой ввод getValue() подменяет default'ом (чтобы не уехал нолём), и
@@ -314,7 +379,7 @@ function validateField(descriptor, field) {
       return 'must be a number';
     }
 
-    const displayValue = descriptor.unit === 's' ? value / 1000 : value;
+    const displayValue = toDisplay(descriptor, value);
 
     // min/max раньше regExp: тот же диапазон regExp кодирует точным
     // паттерном (rangeToPattern), но «must be ≤ 32» говорит игроку то же,
@@ -334,13 +399,15 @@ function validateField(descriptor, field) {
     return `must be at most ${descriptor.maxlength} characters`;
   }
 
-  // HTML `pattern` matches the WHOLE value (browsers wrap it in `^(?:…)$`
-  // themselves) — a bare `new RegExp(descriptor.regExp)` has no such anchor
-  // and would accept "99" against a "single digit" pattern off a partial
-  // match, so it must be anchored the same way here. Проверяется последним:
-  // ловит то, что диапазон пропускает (дробное, ведущий ноль)
-  if (isText && descriptor.regExp && !new RegExp(`^(?:${descriptor.regExp})$`).test(raw)) {
-    return 'invalid format';
+  // Проверяется последним: ловит то, что диапазон пропускает (дробное,
+  // ведущий ноль). Нечитаемый паттерн — не ограничение (fieldPattern уже
+  // назвал дефект в консоли), поле проходит
+  if (isText && descriptor.regExp) {
+    const pattern = fieldPattern(descriptor.regExp);
+
+    if (pattern && !pattern.test(raw)) {
+      return 'invalid format';
+    }
   }
 
   return null;
@@ -399,6 +466,34 @@ export function renderFormErrors(container, errors) {
   });
 }
 
+// перевалидация формы по ходу правки: строка уходит из блока ошибок, когда
+// починено именно её поле, а не всё разом по первому нажатию клавиши —
+// иначе игрок с тремя ошибками теряет список, начав править первую.
+// Вооружается первым сабмитом (возвращённой функцией): до него игрок ещё
+// заполняет форму, и «required» на поле, в которое он только что начал
+// печатать, — чистый шум. 'input' — единственное событие по ходу ввода
+// ('change' у text-инпута приходит на blur, то есть уже после клика по
+// кнопке); слушатель делегированный и вешается один раз: контейнер
+// постоянен, пересобираются только поля. Пустой список тоже рендерится —
+// так из блока уходят и не-формные строки (отказ загрузки плагина в лобби)
+export function bindLiveErrors(container, errorContainer, getForm) {
+  let armed = false;
+
+  container?.addEventListener('input', () => {
+    if (!armed) {
+      return;
+    }
+
+    const { descriptors, fields } = getForm();
+
+    renderFormErrors(errorContainer, collectFormErrors(descriptors, fields));
+  });
+
+  return () => {
+    armed = true;
+  };
+}
+
 // собирает форму (упорядоченный массив дескрипторов = порядок полей) в
 // контейнер: одна .form-row на дескриптор (.form-label + контрол); onChange,
 // если передан, подписывается на все поля разом. hidden:true, а также
@@ -429,9 +524,10 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
     fields.set(descriptor.name, field);
 
     // пустой список вариантов — дефект схемы или каталога, а не «нечего
-    // выбирать»: значения у поля нет вовсе. Такое поле остаётся видимым
-    // (и валидируемым) — молча спрятать его значит отправить на хост
-    // пустую строку и получить отказ уже от игровых validators
+    // выбирать»: значения у поля нет вовсе. Такое поле остаётся видимым, а
+    // валидация даёт ему собственное 'no options available' (см.
+    // validateField) — молча спрятать его значит отправить на хост пустую
+    // строку и получить отказ уже от игровых validators
     if (field.noOptions) {
       console.error(
         `formBuilder: field "${descriptor.name}" resolved to no options`,
