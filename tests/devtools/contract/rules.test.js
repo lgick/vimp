@@ -5,9 +5,14 @@ import path from 'node:path';
 import { loadContext } from '../../../packages/engine/src/devtools/contract/loadContext.js';
 import { rules } from '../../../packages/engine/src/devtools/contract/rules/index.js';
 import {
+  hasBlockingFailure,
+  runRules,
+} from '../../../packages/engine/src/devtools/contract/index.js';
+import {
   FAIL,
   PASS,
   SKIP,
+  WARN,
 } from '../../../packages/engine/src/devtools/contract/result.js';
 import { ENGINE_API_VERSION } from '../../../packages/engine/src/config/opcodes.js';
 
@@ -352,6 +357,37 @@ describe('C. client', () => {
         }),
       }),
     ).toMatch(/service "physics"/);
+    // у фикстуры miniGame нет hooks.services — имя может быть только
+    // undefined, это отказ, а не предупреждение
+    expect(
+      check('C4', {
+        ...base,
+        clientConfig: withParts(base, {
+          componentDependencies: { physics: ['Actor'] },
+        }),
+      }).level,
+    ).toBeUndefined();
+  });
+
+  it('C4 downgrades an unknown service to a warning when hooks.services exists', () => {
+    // hooks.services(core) доливает игровые сервисы в пул (client/main.js),
+    // а перечислить их без живого ядра чекер не может — правило обязано
+    // сказать об имени, но не валить прогон (vimp-tanks/mapDynamics)
+    const ctx = {
+      ...base,
+      clientPlugin: {
+        ...base.clientPlugin,
+        hooks: { ...base.clientPlugin.hooks, services: () => ({}) },
+      },
+      clientConfig: withParts(base, {
+        componentDependencies: { mapDynamics: ['ShotEffect'] },
+      }),
+    };
+
+    expect(check('C4', ctx).status).toBe(FAIL);
+    expect(check('C4', ctx).level).toBe(WARN);
+    expect(violations('C4', ctx)).toMatch(/hooks\.services\(\)/);
+    expect(hasBlockingFailure({ results: runRules(ctx) })).toBe(false);
   });
 
   it('C4 accepts localPlayer — the fourth service of the pool', () => {

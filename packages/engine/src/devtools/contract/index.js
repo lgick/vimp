@@ -42,13 +42,14 @@ export async function checkContract(gameDir) {
  */
 export function runRules(ctx) {
   return rules.map(rule => {
-    const { status, violations, note } = rule.check(ctx);
+    const { status, violations, note, level } = rule.check(ctx);
 
     return {
       id: rule.id,
       name: rule.name,
       title: rule.title,
-      level: rule.level,
+      // вердикт может понизить уровень правила на этом прогоне (см. verdict)
+      level: level ?? rule.level,
       status,
       violations,
       note,

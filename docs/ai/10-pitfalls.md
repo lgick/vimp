@@ -121,9 +121,14 @@ name the violation. Do not verify those by eye — run the tool
       The engine marks the stage `sortableChildren` and calls
       `sortChildren()` after every `addChild`; PixiJS v8 sorts by `zIndex`
       there. A `layer` property on the instance does nothing.
-- [ ] ⚙ `C4` The available dependency services are exactly `renderer`,
-      `soundManager` and `assetsBase`. Any other name in
-      `componentDependencies` resolves to `undefined`.
+- [ ] ⚙ `C4` The engine provides exactly four dependency services:
+      `renderer`, `soundManager`, `assetsBase`, `localPlayer`. Your game adds
+      its own by returning them from `ClientPlugin.hooks.services(core)` —
+      the engine merges that map into the pool. A name that neither side
+      provides resolves to `undefined` in the part, silently. `C4` reports it
+      as an error when the plugin declares no `hooks.services()`, and as a
+      warning when it does (the checker cannot call the hook without a live
+      core — run with `--strict` to fail on those too).
 - [ ] ⚙ `C8` Baker names in `bakedAssets` must exist in `bakers`; unknown names are
       skipped silently.
 - [ ] ⚙ `B6, C5` The panel key `t` is hardcoded by the engine (round time in seconds).

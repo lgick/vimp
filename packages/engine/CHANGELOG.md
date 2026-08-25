@@ -81,6 +81,24 @@ bumps the minor version).
   silent blanking it did with a `RegExp` object gave the player neither an
   error line nor a clue where the input went.
 
+### Fixed
+
+- Contract rule `C4` (`componentDependencies`) no longer fails a game for
+  naming a service the game itself provides. The rule matched only the
+  engine's own four (`renderer`, `soundManager`, `assetsBase`,
+  `localPlayer`) and predated `ClientPlugin.hooks.services(core)`, whose
+  return value `src/client/main.js` merges into the same pool — so any game
+  using that documented hook (`@vimp-games/tanks` and its `mapDynamics`)
+  failed the checker on a correct declaration. A plugin declaring
+  `hooks.services()` now gets a warning instead: the hook needs a live core
+  the static checker cannot build, so the name stays in the report without
+  blocking (`--strict` still fails on it). Without such a hook the unknown
+  name remains an error, as before.
+- A contract rule's verdict may now carry its own `level`, overriding the
+  rule's for that run (`verdict(violations, note, level)`,
+  `src/devtools/contract/result.js`) — a rule whose violation is only
+  partially provable can report it without blocking.
+
 ## [0.14.4] — 2026-08-21
 
 ### Changed

@@ -24,15 +24,21 @@ export function skip(note) {
 
 /**
  * Вердикт по списку нарушений: пустой список — pass.
+ * `level` перекрывает уровень правила на этом прогоне: у правила он один на
+ * все случаи, а бывает, что нарушение доказуемо только частично (C4 не может
+ * перечислить игровые сервисы, не запустив игровой код) — такое обязано
+ * попасть в отчёт, но не обязано валить прогон.
  * @param {Array<string>} violations
  * @param {string} [note]
- * @returns {Object} { status, violations, note }.
+ * @param {string} [level] - ERROR или WARN; по умолчанию — уровень правила.
+ * @returns {Object} { status, violations, note, level }.
  */
-export function verdict(violations, note) {
+export function verdict(violations, note, level) {
   return {
     status: violations.length ? FAIL : PASS,
     violations,
     note,
+    level,
   };
 }
 
