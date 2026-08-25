@@ -46,6 +46,19 @@ bumps the minor version).
 
 ### Changed
 
+- The host now applies the declarative part of the auth descriptor itself:
+  `validateAuth` (`src/lib/validators.js`) checks `maxlength` (`too long`)
+  and `regExp` (`invalid format`, anchored as `^(?:…)$`, the way the client
+  and the browser apply `pattern`) before running the game's validator, so a
+  client that bypasses the form is bound by the same rules the form enforces.
+  An empty value still passes those checks (`required` is deliberately not
+  enforced on the host: the solo path answers with the schema defaults, and
+  those may be `''`), and a `regExp` that does not compile is no constraint
+  rather than a rejection — the same as on the client.
+- Contract rule `C10` additionally reports an `authSchema` param whose
+  `validator` names a function `authSchema.validators` does not provide (an
+  engine validator such as `isValidName` still resolves): the host skips an
+  unresolved validator silently, so a typo left the field checked by nobody.
 - Room-form and auth-form validation no longer shows native browser
   validation popups (`reportValidity()`): failing fields are rendered as
   lines inside `#lobby-error`/`#auth-error` instead

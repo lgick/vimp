@@ -171,6 +171,13 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] ⚙ `C10` There is no nickname field — identity comes from the lobby JWT.
 - [ ] `authSchema.validators` are functions, are not serialised, and run on
       the host.
+- [ ] ⚙ `C10` A param's `validator` names a function `authSchema.validators`
+      actually provides — a typo leaves the field checked by nobody, and the
+      host skips an unresolved validator silently.
+- [ ] The host also applies the auth descriptor's own `maxlength` and
+      `regExp` (`validateAuth`), so a client that bypasses the form is bound
+      by the same declarative rules. `required` is the exception: an empty
+      value passes them and is left to your validator.
 - [ ] ⚙ `B5` Only `text`, `select`, `checkbox`, `radio` controls exist in v3. An
       unknown `control` skips the field with a `console.error`. Native
       `min`/`max`/`step` attributes are never emitted (these fields are

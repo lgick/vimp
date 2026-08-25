@@ -603,6 +603,31 @@ describe('C. client', () => {
     expect(found).toMatch(/"nickname" looks like a nickname field/);
     expect(found).toMatch(/no param named exactly "model"/);
   });
+
+  it('C10 catches a validator name authSchema.validators does not provide', () => {
+    const found = violations('C10', {
+      ...base,
+      authSchema: {
+        elems: { fieldsId: 'auth-fields' },
+        params: [{ name: 'model', options: { validator: 'isValidMdoel' } }],
+        validators: { isValidModel: () => true },
+      },
+    });
+
+    expect(found).toMatch(/names validator "isValidMdoel"/);
+  });
+
+  it('C10 accepts an engine validator the game does not redeclare', () => {
+    const found = violations('C10', {
+      ...base,
+      authSchema: {
+        elems: { fieldsId: 'auth-fields' },
+        params: [{ name: 'model', options: { validator: 'isValidName' } }],
+      },
+    });
+
+    expect(found).toBe('');
+  });
 });
 
 // ***** D. снапшот ***** //

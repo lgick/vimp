@@ -1,17 +1,21 @@
 import { ERROR, skip, verdict } from '../result.js';
+import { engineValidatorNames } from '../../../lib/validators.js';
 
-// authSchema. Три ошибки, каждая из которых уже случалась:
+// authSchema. Четыре ошибки, каждая из которых уже случалась:
 // formId вместо fieldsId (контейнер резолвится в null и экран авторизации
 // умирает TypeError на первом рендере), поле ника (личность приходит из
 // JWT лобби) и поле выбора модели под своим именем — движок читает
-// params.model, всё остальное до Participant не доезжает.
+// params.model, всё остальное до Participant не доезжает, и имя валидатора,
+// которого нет в authSchema.validators (поле не проверяется никем).
 const NICKNAME = /^(name|nick|nickname|player|playername|login|username)$/i;
 
 export default {
   id: 'C10',
   name: 'authSchema',
   level: ERROR,
-  title: 'authSchema: fieldsId, no nickname field, the model field',
+  title:
+    'authSchema: fieldsId, no nickname field, the model field, resolvable ' +
+    'validators',
 
   check(ctx) {
     if (!ctx.authSchema) {
@@ -39,6 +43,27 @@ export default {
         violations.push(
           `authSchema param "${field.name}" looks like a nickname field — ` +
             'identity comes from the lobby JWT',
+        );
+      }
+    }
+
+    const validators = ctx.authSchema.validators ?? {};
+
+    for (const field of params) {
+      const validatorName = field.options?.validator;
+
+      // опечатка в имени = поле не проверяется никем: validateAuth
+      // пропускает нерезолвнутый валидатор молча (норма для клиента, где
+      // игровых валидаторов нет вовсе, и дыра на хосте)
+      if (
+        validatorName !== undefined &&
+        typeof validators[validatorName] !== 'function' &&
+        !engineValidatorNames.includes(validatorName)
+      ) {
+        violations.push(
+          `authSchema param "${field.name}" names validator ` +
+            `"${validatorName}", which authSchema.validators does not ` +
+            'provide — the host skips the check silently',
         );
       }
     }

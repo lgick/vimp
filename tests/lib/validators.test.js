@@ -84,6 +84,49 @@ describe('validateAuth', () => {
     expect(validateAuth({ free: 'anything' }, params)).toBeUndefined();
   });
 
+  // декларативная часть дескриптора: те же правила, что отбивают форму,
+  // применяет и хост — иначе клиент, обошедший форму, получал бы больше прав
+  it('отбивает строку длиннее maxlength', () => {
+    const params = [{ name: 'tag', options: { maxlength: 15 } }];
+
+    expect(validateAuth({ tag: 'x'.repeat(16) }, params)).toEqual([
+      { name: 'tag', error: 'too long' },
+    ]);
+    expect(validateAuth({ tag: 'x'.repeat(15) }, params)).toBeUndefined();
+  });
+
+  it('отбивает значение, не матчащееся под regExp', () => {
+    const params = [{ name: 'tag', options: { regExp: '[a-z]+' } }];
+
+    expect(validateAuth({ tag: 'ABC' }, params)).toEqual([
+      { name: 'tag', error: 'invalid format' },
+    ]);
+    // паттерн якорится целиком, как и на клиенте (anchorPattern)
+    expect(validateAuth({ tag: 'abc9' }, params)).toEqual([
+      { name: 'tag', error: 'invalid format' },
+    ]);
+    expect(validateAuth({ tag: 'abc' }, params)).toBeUndefined();
+  });
+
+  it('поле без maxlength/regExp проходит любой строкой', () => {
+    const params = [{ name: 'tag', options: { control: 'text' } }];
+
+    expect(validateAuth({ tag: 'x'.repeat(10000) }, params)).toBeUndefined();
+  });
+
+  it('некомпилируемый regExp — не ограничение, а не отказ (как на клиенте)', () => {
+    const params = [{ name: 'tag', options: { regExp: '[' } }];
+
+    expect(() => validateAuth({ tag: 'anything' }, params)).not.toThrow();
+    expect(validateAuth({ tag: 'anything' }, params)).toBeUndefined();
+  });
+
+  it('пустое значение декларативные правила пропускают (required не проверяется)', () => {
+    const params = [{ name: 'tag', options: { regExp: '[a-z]+', required: true } }];
+
+    expect(validateAuth({ tag: '' }, params)).toBeUndefined();
+  });
+
   it('незарегистрированное имя валидатора молча пропускает поле (без ошибки и без throw)', () => {
     const params = [{ name: 'model', options: { validator: 'isValidModel' } }];
     // validators не передан — isValidModel не найден в rules

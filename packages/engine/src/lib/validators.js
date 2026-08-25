@@ -1,3 +1,5 @@
+import { anchorPattern } from './formPattern.js';
+
 const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w\\s#]{0,13})[\\w]{1}$');
 
 /**
@@ -8,11 +10,28 @@ const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w\\s#]{0,13})[\\w]{1}$');
 export const isValidName = name =>
   typeof name === 'string' && NAME_REGEXP.test(name);
 
+// regExp дескриптора якорится тем же anchorPattern, что и на клиенте
+// (formBuilder.fieldPattern). Некомпилируемый паттерн — дефект схемы игры,
+// а не ограничение: поле проходит, иначе игра с битым regExp не пускала бы
+// в комнату вообще никого
+const matchesPattern = (regExp, value) => {
+  try {
+    return anchorPattern(regExp).test(value);
+  } catch {
+    return true;
+  }
+};
+
 // движковые правила валидации; игровые (например isValidModel)
 // инжектируются третьим аргументом validateAuth (authSchema игры)
 const validationRules = {
   isValidName,
 };
+
+// имена валидаторов, которые validateAuth резолвит сам: правило C10
+// проверяет, что имя из дескриптора резолвится хоть где-то — движковое
+// имя схема игры дублировать в validators не обязана
+export const engineValidatorNames = Object.keys(validationRules);
 
 /**
  * Валидирует объект с данными для авторизации.
@@ -35,6 +54,27 @@ export const validateAuth = (data, authParams, validators = {}) => {
 
     if (typeof value !== 'string') {
       return [{ name, error: `Property must be a string` }];
+    }
+
+    // те же декларативные правила, по которым отказывает форма
+    // (client/lib/formBuilder.js → validateField): клиент, обошедший форму,
+    // не должен получать больше прав, чем клиент, её заполнивший. Пустое
+    // значение пропускается ровно как на клиенте (required здесь не
+    // проверяется: solo-путь boot.autoAuth отвечает дефолтами схемы, среди
+    // которых бывает '') — пустота остаётся делом игрового валидатора
+    if (value !== '') {
+      if (
+        options?.maxlength !== undefined &&
+        value.length > options.maxlength
+      ) {
+        errors.push({ name, error: 'too long' });
+        continue;
+      }
+
+      if (options?.regExp && !matchesPattern(options.regExp, value)) {
+        errors.push({ name, error: 'invalid format' });
+        continue;
+      }
     }
 
     if (options?.validator) {

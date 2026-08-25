@@ -255,6 +255,18 @@ declarative checks and JS validators (`authSchema.validators`, resolved by
 `validateAuth` on the host and mirrored on the client, rendered through the
 same `renderFormErrors`).
 
+For the auth form the host repeats the declarative part itself: `validateAuth`
+applies the descriptor's `maxlength` (`too long`) and `regExp` (`invalid
+format`, anchored exactly as in the browser) before the JS validator, so a
+client that bypasses the form gets no more rights than one that filled it in.
+Two deliberate exceptions: `required` is **not** enforced there — the solo path
+(`boot.autoAuth`) answers with the schema defaults, and those may be `''` — so
+an empty value skips the declarative checks and is left to the game's
+validator; and a `regExp` that does not compile is a schema defect, not a
+restriction, so the field passes (the same as on the client). A `validator`
+name that `authSchema.validators` does not provide leaves the field unchecked
+by anyone — `C10` reports it.
+
 A form **checks itself as the player types**: a value out of range is
 reported the moment it is entered, not on the next click, and a line
 disappears when its own field is fixed, so the list of what is still wrong
