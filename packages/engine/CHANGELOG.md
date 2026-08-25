@@ -66,11 +66,11 @@ bumps the minor version).
   only, as in the form; a field whose `options` list is empty or absent
   accepts nothing at all (the form rejects it unconditionally with `no
   options available`, so the host must not be the laxer of the two); a
-  `source` list is not checked (the host resolves no catalogs). An empty value still passes these checks (`required` is
-  deliberately not enforced on the host: the solo path answers with the
-  schema defaults, and those may be `''`), and a `regExp` that does not
-  compile is no constraint rather than a rejection — the same as on the
-  client.
+  `source` list is not checked (the host resolves no catalogs). An empty
+  value still passes these checks (`required` is deliberately not enforced
+  on the host: the solo path answers with the schema defaults, and those may
+  be `''`), and a `regExp` that does not compile is no constraint rather
+  than a rejection — the same as on the client.
 - An auth field with no `maxlength` is capped at 256 characters. The game's
   `regExp` now runs on the host — the Worker holding the authoritative match,
   or the whole `dedicated` process — where a catastrophic pattern such as
