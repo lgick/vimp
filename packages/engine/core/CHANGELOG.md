@@ -13,6 +13,13 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-08-21
+
+Released without journal entries: the only change is a test — the
+`game_rows_alone_still_raise_the_tail_flag` case now feeds spectator frames
+(no player block), so `my_game_id` stays `None` and the branch it means to
+cover is actually reached (`d66d2aa`). No crate code changed.
+
 ## [0.8.2] — 2026-08-21
 
 Released without journal entries: the only change is internal — `write_hot`
@@ -216,8 +223,12 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.8.3]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.3
+[0.8.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.2
+[0.8.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.1
 [0.8.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.0
 [0.7.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.7.0
+[0.6.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.6.0
 [0.5.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.5.0
 [0.4.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.4.0
 [0.3.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.3.0

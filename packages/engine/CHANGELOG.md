@@ -970,9 +970,12 @@ and republished so its manifest stamps `engineApi: 2`.
 
 [0.15.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.15.0
 [0.14.4]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.4
+[0.14.3]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.3
+[0.14.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.2
 [0.14.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.1
 [0.14.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.0
 [0.13.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.13.0
+[0.12.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.12.0
 [0.11.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.11.1
 [0.11.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.11.0
 [0.10.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.10.2
