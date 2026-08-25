@@ -1,7 +1,9 @@
 // Общий билдер полей форм (room-форма и auth-форма используют один
 // контракт дескрипторов — docs/en/plugin-api.md, раздел "Form schema").
 // control: 'select'|'text'|'checkbox'|'radio'; все контролы — нативные
-// элементы формы, без визуальной кастомизации.
+// элементы формы, без визуальной кастомизации. Валидация — не нативная
+// (никаких браузерных попапов): collectFormErrors/renderFormErrors ниже
+// собирают и рисуют ошибки в разметку (#lobby-error/#auth-error).
 
 function normalizeOptions(list) {
   return (list || []).map(opt =>
@@ -30,10 +32,11 @@ function toStored(descriptor, value) {
 
 function buildSelect(descriptor, ctx) {
   const el = document.createElement('select');
+  const options = resolveOptions(descriptor, ctx);
 
   el.name = descriptor.name;
 
-  resolveOptions(descriptor, ctx).forEach(({ value, label }) => {
+  options.forEach(({ value, label }) => {
     const option = document.createElement('option');
 
     option.value = value;
@@ -43,6 +46,7 @@ function buildSelect(descriptor, ctx) {
 
   return {
     el,
+    singleOption: options.length <= 1,
     getValue: () => el.value,
     setValue(value) {
       el.value = value;
@@ -131,8 +135,9 @@ function buildRadio(descriptor, ctx) {
   const el = document.createElement('div');
   const groupName = `field-radio-${descriptor.name}-${++idSeq}`;
   const inputs = [];
+  const options = resolveOptions(descriptor, ctx);
 
-  resolveOptions(descriptor, ctx).forEach(({ value, label }) => {
+  options.forEach(({ value, label }) => {
     const wrap = document.createElement('span');
     const input = document.createElement('input');
 
@@ -155,6 +160,7 @@ function buildRadio(descriptor, ctx) {
 
   return {
     el,
+    singleOption: options.length <= 1,
     getValue,
     setValue(value) {
       inputs.forEach(input => {
@@ -205,30 +211,110 @@ export function mergeRoomDefaults(descriptors, roomDefaults) {
   }));
 }
 
-// нативная валидация (pattern/required/maxlength) перед сабмитом room- и
-// auth-формы: обе — обычные div (lobby.pug/auth.pug), не <form>, поэтому
-// reportValidity вызывается на каждом контроле напрямую (Constraint
-// Validation API работает и вне <form>). Останавливается на первом
-// невалидном контроле — иначе браузер фокусирует/подсвечивает последний
-// вызванный reportValidity, а не первый по порядку поля
-export function reportFormValidity(container) {
-  if (!container) {
-    return true;
+// суффикс подписи поля: диапазон (min/max, если задан хотя бы один из них),
+// иначе просто единица (unit:'s') — та же строка, что и раньше, "(s)".
+// Полноценные HTML5 min/max тут не годятся: числовые поля — type=text
+// (unit-конвертация мс<->с сама по себе не native-совместима), поэтому
+// диапазон — только подсказка + вход в collectFormErrors ниже
+function buildLabelSuffix(descriptor) {
+  const { min, max, unit } = descriptor;
+
+  if (min === undefined && max === undefined) {
+    return unit === 's' ? ' (s)' : '';
   }
 
-  for (const el of container.querySelectorAll('input, select')) {
-    if (!el.reportValidity()) {
-      return false;
+  const range = `${min ?? '…'}–${max ?? '…'}`;
+
+  return unit === 's' ? ` (s, ${range})` : ` (${range})`;
+}
+
+// ошибка одного поля по его текущему значению, либо null — required/regExp/
+// maxlength (не-numeric text)/min/max (numeric text); сообщения не зависят
+// от локали браузера, в отличие от бывшего reportValidity()
+function validateField(descriptor, value) {
+  const isEmpty = value === undefined || value === null || value === '';
+
+  if (descriptor.required && isEmpty) {
+    return 'required';
+  }
+
+  if (isEmpty) {
+    return null;
+  }
+
+  if (descriptor.control === 'text') {
+    const numeric = descriptor.numeric || descriptor.unit !== undefined;
+
+    if (numeric) {
+      const displayValue = descriptor.unit === 's' ? value / 1000 : value;
+
+      if (descriptor.min !== undefined && displayValue < descriptor.min) {
+        return `must be ≥ ${descriptor.min}`;
+      }
+
+      if (descriptor.max !== undefined && displayValue > descriptor.max) {
+        return `must be ≤ ${descriptor.max}`;
+      }
+    } else {
+      if (descriptor.maxlength !== undefined && String(value).length > descriptor.maxlength) {
+        return `must be at most ${descriptor.maxlength} characters`;
+      }
+
+      if (descriptor.regExp && !new RegExp(descriptor.regExp).test(value)) {
+        return 'invalid format';
+      }
     }
   }
 
-  return true;
+  return null;
+}
+
+// валидирует всю форму перед сабмитом (замена бывшего reportFormValidity/
+// native reportValidity): порядок ошибок — порядок дескрипторов
+export function collectFormErrors(descriptors, fields) {
+  const errors = [];
+
+  descriptors.forEach(descriptor => {
+    const field = fields.get(descriptor.name);
+
+    if (!field) {
+      return;
+    }
+
+    const error = validateField(descriptor, field.getValue());
+
+    if (error) {
+      errors.push({ name: descriptor.name, error });
+    }
+  });
+
+  return errors;
+}
+
+// рисует ошибки формы в разметку — общий рендер для #lobby-error и
+// #auth-error (и для клиентской collectFormErrors, и для серверных ошибок
+// PS_AUTH_DATA/validators, чей формат уже {name, error})
+export function renderFormErrors(container, errors) {
+  if (!container) {
+    return;
+  }
+
+  container.textContent = '';
+
+  (errors || []).forEach(({ name, error }) => {
+    const line = document.createElement('div');
+
+    line.textContent = error ? `${name.toUpperCase()}: ${error}` : `${name.toUpperCase()} is not correctly!`;
+
+    container.appendChild(line);
+  });
 }
 
 // собирает форму (упорядоченный массив дескрипторов = порядок полей) в
 // контейнер: одна .form-row на дескриптор (.form-label + контрол); onChange,
-// если передан, подписывается на все поля разом. hidden:true — поле строится
-// и участвует в сабмите (fields Map), но строка не попадает в DOM
+// если передан, подписывается на все поля разом. hidden:true, а также
+// select/radio с единственным резолвнутым вариантом (singleOption) — поле
+// строится и участвует в сабмите (fields Map), но строка не попадает в DOM
 export function buildForm(descriptors, container, ctx = {}, onChange) {
   const fields = new Map();
 
@@ -252,7 +338,7 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
 
     fields.set(descriptor.name, field);
 
-    if (descriptor.hidden) {
+    if (descriptor.hidden || field.singleOption) {
       return;
     }
 
@@ -266,7 +352,7 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
     const label = document.createElement(field.labelFor ? 'label' : 'span');
 
     label.className = 'form-label';
-    label.textContent = (descriptor.label || descriptor.name) + (descriptor.unit === 's' ? ' (s)' : '');
+    label.textContent = (descriptor.label || descriptor.name) + buildLabelSuffix(descriptor);
 
     if (field.labelFor) {
       label.htmlFor = field.labelFor;

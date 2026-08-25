@@ -9,6 +9,25 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `roomForm`/`authSchema.params[].options` field descriptors accept two new
+  optional keys, `min`/`max` (numeric text fields): rendered as a
+  "(min–max)" hint suffix on the field's label, and checked by the new
+  `collectFormErrors()` (`src/client/lib/formBuilder.js`).
+- `select`/`radio` fields whose resolved choices (`options`/`source`) number
+  ≤ 1 are automatically not rendered as a form row (still built and
+  submitted) — nothing for the player to actually choose.
+
+### Changed
+
+- Room-form and auth-form validation no longer shows native browser
+  validation popups (`reportValidity()`): failing fields are rendered as
+  lines inside `#lobby-error`/`#auth-error` instead
+  (`collectFormErrors()`/`renderFormErrors()`, `src/client/lib/formBuilder.js`),
+  the same rendering `AuthView.renderError` already used for server-pushed
+  errors. `#lobby-error`/`#auth-error` share one `.form-error` style.
+
 ## [0.14.4] — 2026-08-21
 
 ### Changed

@@ -3,6 +3,8 @@ import {
   buildField,
   buildForm,
   mergeRoomDefaults,
+  collectFormErrors,
+  renderFormErrors,
 } from '../../../packages/engine/src/client/lib/formBuilder.js';
 
 describe('formBuilder.buildField: select', () => {
@@ -228,6 +230,72 @@ describe('formBuilder.buildForm', () => {
     expect(container.querySelector('.form-label').textContent).toBe('Round time (s)');
   });
 
+  it('добавляет суффикс с диапазоном к подписи для min/max', () => {
+    const container = document.createElement('div');
+
+    buildForm(
+      [
+        {
+          name: 'maxPlayers',
+          control: 'text',
+          numeric: true,
+          label: 'Max players',
+          min: 1,
+          max: 30,
+          default: 8,
+        },
+      ],
+      container,
+    );
+
+    expect(container.querySelector('.form-label').textContent).toBe('Max players (1–30)');
+  });
+
+  it('комбинирует unit:"s" и диапазон в одном суффиксе', () => {
+    const container = document.createElement('div');
+
+    buildForm(
+      [
+        {
+          name: 'roundTime',
+          control: 'text',
+          label: 'Round time',
+          unit: 's',
+          min: 10,
+          max: 3600,
+          default: 60000,
+        },
+      ],
+      container,
+    );
+
+    expect(container.querySelector('.form-label').textContent).toBe('Round time (s, 10–3600)');
+  });
+
+  it('select с единственным резолвнутым вариантом не рендерит .form-row, но попадает в fields', () => {
+    const container = document.createElement('div');
+
+    const fields = buildForm(
+      [{ name: 'map', control: 'select', label: 'Map', options: ['pool mini'], default: 'pool mini' }],
+      container,
+    );
+
+    expect(container.querySelectorAll('.form-row')).toHaveLength(0);
+    expect(fields.get('map').getValue()).toBe('pool mini');
+  });
+
+  it('radio с единственным резолвнутым вариантом не рендерит .form-row', () => {
+    const container = document.createElement('div');
+
+    const fields = buildForm(
+      [{ name: 'team', control: 'radio', label: 'Team', options: [{ value: '1', label: 'Red' }], default: '1' }],
+      container,
+    );
+
+    expect(container.querySelectorAll('.form-row')).toHaveLength(0);
+    expect(fields.get('team').getValue()).toBe('1');
+  });
+
   it('подписывает onChange на все поля разом', () => {
     const container = document.createElement('div');
     const events = [];
@@ -314,5 +382,109 @@ describe('formBuilder.mergeRoomDefaults', () => {
 
     expect(descriptors.find(d => d.name === 'friendlyFire').default).toBe(false);
     expect(descriptors.find(d => d.name === 'maxPlayers').default).toBe(8);
+  });
+});
+
+describe('formBuilder.collectFormErrors', () => {
+  it('пустая обязательная строка — ошибка "required"', () => {
+    const container = document.createElement('div');
+    const descriptors = [{ name: 'login', control: 'text', label: 'Login', required: true, default: '' }];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('login').el.value = '';
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([{ name: 'login', error: 'required' }]);
+  });
+
+  it('значение не матчится под regExp — ошибка формата', () => {
+    const container = document.createElement('div');
+    const descriptors = [
+      { name: 'color', control: 'text', label: 'Color', regExp: '^#[0-9a-f]{6}$', default: '#ffffff' },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('color').el.value = 'not-a-color';
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([{ name: 'color', error: 'invalid format' }]);
+  });
+
+  it('строка длиннее maxlength — ошибка длины', () => {
+    const container = document.createElement('div');
+    const descriptors = [{ name: 'login', control: 'text', label: 'Login', maxlength: 4, default: '' }];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('login').el.value = 'toolong';
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'login', error: 'must be at most 4 characters' },
+    ]);
+  });
+
+  it('числовое значение вне min/max — ошибка диапазона', () => {
+    const container = document.createElement('div');
+    const descriptors = [
+      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 30, default: 8 },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('maxPlayers').el.value = '40';
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'maxPlayers', error: 'must be ≤ 30' },
+    ]);
+
+    fields.get('maxPlayers').el.value = '0';
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'maxPlayers', error: 'must be ≥ 1' },
+    ]);
+  });
+
+  it('min/max сравниваются в отображаемой единице (unit:"s")', () => {
+    const container = document.createElement('div');
+    const descriptors = [
+      { name: 'roundTime', control: 'text', unit: 's', label: 'Round time', min: 10, max: 3600, default: 60000 },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('roundTime').el.value = '5';
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'roundTime', error: 'must be ≥ 10' },
+    ]);
+  });
+
+  it('валидная форма не даёт ошибок', () => {
+    const container = document.createElement('div');
+    const descriptors = [
+      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 30, default: 8 },
+      { name: 'friendlyFire', control: 'checkbox', label: 'Friendly fire', default: false },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+  });
+});
+
+describe('formBuilder.renderFormErrors', () => {
+  it('рендерит по одной строке на ошибку', () => {
+    const container = document.createElement('div');
+
+    renderFormErrors(container, [
+      { name: 'login', error: 'too short' },
+      { name: 'team', error: '' },
+    ]);
+
+    const lines = [...container.children];
+    expect(lines).toHaveLength(2);
+    expect(lines[0].textContent).toBe('LOGIN: too short');
+    expect(lines[1].textContent).toBe('TEAM is not correctly!');
+  });
+
+  it('пустой список ошибок очищает контейнер', () => {
+    const container = document.createElement('div');
+    container.textContent = 'старая ошибка';
+
+    renderFormErrors(container, []);
+
+    expect(container.textContent).toBe('');
   });
 });

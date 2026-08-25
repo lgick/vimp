@@ -351,7 +351,7 @@ the client shows it instead of the generic "Host left".
   actually present in `auth.pug`.
 - `params[]` — `{ name, value, options }`, the per-player field schema
   (same field-descriptor contract as `roomForm`): `options` carries
-  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  `control`/`label`/`unit`/`numeric`/`min`/`max`/`options`/`source`/`storage`/`regExp`/`required`/`maxlength`/`hidden`
   plus the pre-existing `validator` (a key into `authSchema.validators`,
   checked host-side only — validator code never crosses the wire). The
   client builds one form control per param via `formBuilder.js` and inserts

@@ -62,13 +62,14 @@ Worker-инфраструктура, мета-механизмы, MVC-карка
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
   "roomForm": [
-    // regExp у maxPlayers/roundTime/mapTime генерирует build-game-manifest.js
-    // — точный диапазонный паттерн (например, "^([1-8])$" для maxPlayers
-    // 1..roomDefaults.maxPlayers), а не вручную в game.js; здесь опущен для
-    // читаемости
-    { "name": "maxPlayers", "control": "text", "label": "Max players", "numeric": true, "regExp": "<сгенерирован>" },
-    { "name": "roundTime", "control": "text", "label": "Round time", "unit": "s", "numeric": true, "regExp": "<сгенерирован>" },
-    { "name": "mapTime", "control": "text", "label": "Map time", "unit": "s", "numeric": true, "regExp": "<сгенерирован>" },
+    // regExp И min/max у maxPlayers/roundTime/mapTime генерирует
+    // build-game-manifest.js из одних и тех же границ — точный диапазонный
+    // паттерн (например, "^([1-8])$" для maxPlayers 1..roomDefaults.maxPlayers)
+    // плюс сами два числа, из которых он собран, а не вручную в game.js;
+    // здесь опущен для читаемости
+    { "name": "maxPlayers", "control": "text", "label": "Max players", "numeric": true, "min": 1, "max": 8, "regExp": "<сгенерирован>" },
+    { "name": "roundTime", "control": "text", "label": "Round time", "unit": "s", "numeric": true, "min": 10, "max": 3600, "regExp": "<сгенерирован>" },
+    { "name": "mapTime", "control": "text", "label": "Map time", "unit": "s", "numeric": true, "min": 10, "max": 3600, "regExp": "<сгенерирован>" },
     { "name": "friendlyFire", "control": "checkbox", "label": "Friendly fire" },
     { "name": "map", "control": "select", "label": "Map", "source": "maps" }
   ]
@@ -174,11 +175,20 @@ keysets) в манифест **не входят** — едут кодом пл�
   // Пустой/невалидный ввод откатывается к `default`, а не превращается в 0
   numeric: true,
   unit:    's',                // значение хранится в мс, показывается/редактируется в секундах
-  // нативная валидация (text): стандартные HTML constraint-validation
-  // атрибуты — движок вызывает reportValidity() на каждом контроле перед
-  // сабмитом (room-форма — клик по «Create server»; auth-форма — клик по
-  // «#auth-enter»)
-  regExp:    '^#[0-9a-f]{6}$', // задаёт `pattern`
+  // границы числового text-поля (в единице отображения, например в
+  // секундах для unit:'s'): рендерятся суффиксом «(min–max)» в подписи
+  // (вместе с unit — например «(s, 10–3600)»), и проверяются
+  // collectFormErrors ниже. Любой из ключей можно опустить (в подсказке
+  // покажется «…», в валидации не проверяется)
+  min: 1,
+  max: 8,
+  // валидация (text): движок никогда не показывает нативные браузерные
+  // попапы валидации — collectFormErrors()/renderFormErrors()
+  // (formBuilder.js) проверяют каждый контрол перед сабмитом (room-форма —
+  // клик по «Create server»; auth-форма — клик по «#auth-enter») и рисуют
+  // каждое невалидное поле строкой в #lobby-error/#auth-error, заменяя
+  // reportValidity()
+  regExp:    '^#[0-9a-f]{6}$', // паттерн для сверки (text)
   required:  true,
   maxlength: 32,
   // варианты (select/radio):
@@ -190,24 +200,27 @@ keysets) в манифест **не входят** — едут кодом пл�
 ```
 
 `control` → разметка, всё рендерит `formBuilder.js` нативными элементами:
-- `select` — `<select>` (из `options` или `source:'maps'`).
+- `select` — `<select>` (из `options` или `source:'maps'`); дескриптор
+  `select` (или `radio`), у которого после резолва вариантов ≤ 1, строится
+  и участвует в сабмите как любое другое поле, но его `.form-row` не
+  рендерится — игроку нечего в нём выбирать.
 - `text` — `<input type=text>`; числовые поля (`numeric`/`unit`)
   конвертируют туда-обратно единицу хранения; `pattern`/`required`/
-  `maxlength` — из дескриптора.
+  `maxlength`/`min`/`max` — из дескриптора.
 - `checkbox` — `<input type=checkbox>` (булевые настройки).
 - `radio` — группа `<input type=radio>` с общим сгенерированным `name`,
   по одному на вариант.
 
 **Разделение валидации.** `roomForm` едет клиенту как JSON манифеста игры
 (`/games/<id>/manifest.json`) — функции не переживают сериализацию в JSON,
-поэтому room-форма получает только нативную HTML-валидацию
-(`pattern`/`required`); авторитетную границу значений комнаты всё равно
-накладывает Worker хоста при создании комнаты (клампы таймеров/лимита в
-`applyRoomOverrides.js`, которую вызывает `host.worker.js`). Auth-форма
-приходит из кода плагина (`authSchema`),
-поэтому у неё есть и нативная валидация, и JS-валидаторы
+поэтому room-форма получает только декларативные проверки выше
+(`pattern`/`required`/`maxlength`/`min`/`max`); авторитетную границу значений
+комнаты всё равно накладывает Worker хоста при создании комнаты (клампы
+таймеров/лимита в `applyRoomOverrides.js`, которую вызывает
+`host.worker.js`). Auth-форма приходит из кода плагина (`authSchema`),
+поэтому у неё есть и те же декларативные проверки, и JS-валидаторы
 (`authSchema.validators`, резолвятся через `validateAuth` на хосте и
-зеркалятся на клиенте).
+зеркалятся на клиенте, рендерятся тем же `renderFormErrors`).
 
 Где живёт каждая половина контракта:
 - **Room-форма**: `GameManifest.roomForm` (рядом с `roomDefaults`, который
@@ -217,7 +230,7 @@ keysets) в манифест **не входят** — едут кодом пл�
   `PS_AUTH_DATA.params[].options` — см.
   [network.md](network.md#авторизация-порт-1) — `params[i]` — это
   `{ name, value, options }`, где `options` несёт
-  `control`/`label`/`unit`/`numeric`/`options`/`source`/`storage`/`regExp`/`required`/`maxlength`/`hidden`
+  `control`/`label`/`unit`/`numeric`/`min`/`max`/`options`/`source`/`storage`/`regExp`/`required`/`maxlength`/`hidden`
   (плюс уже существующий ключ `validator`, резолвится через
   `authSchema.validators`).
 

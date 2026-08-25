@@ -204,7 +204,7 @@ Payload `AUTH_DATA` (`PS_AUTH_DATA`): `{ elems, params, texts }`
   с реальными id в `auth.pug`.
 - `params[]` — `{ name, value, options }`, схема полей игрока (тот же
   контракт дескрипторов, что и `roomForm`): `options` несёт
-  `control`/`label`/`min`/`max`/`step`/`unit`/`options`/`source`/`storage`/`regExp`
+  `control`/`label`/`unit`/`numeric`/`min`/`max`/`options`/`source`/`storage`/`regExp`/`required`/`maxlength`/`hidden`
   плюс уже существующий `validator` (ключ в `authSchema.validators`,
   проверяется только на хосте — код валидатора по проводу не идёт). Клиент
   строит по одному контролу на param через `formBuilder.js` и вставляет в

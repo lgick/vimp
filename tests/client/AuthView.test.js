@@ -159,6 +159,20 @@ describe('AuthView: события DOM', () => {
     model.publisher.emit('ok');
     expect(document.getElementById('auth').style.display).toBe('none');
   });
+
+  it('клик по enter с невалидным полем не эмитит enter и рисует ошибку', () => {
+    const requiredParams = [
+      { name: 'login', value: '', options: { control: 'text', label: 'Login', required: true } },
+    ];
+    const view = new AuthView(makeModel(), elems, null, requiredParams);
+    const enterSpy = vi.fn();
+    view.publisher.on('enter', enterSpy);
+
+    document.getElementById('auth-enter').click();
+
+    expect(enterSpy).not.toHaveBeenCalled();
+    expect(document.getElementById('auth-error').textContent).toBe('LOGIN: required');
+  });
 });
 
 describe('AuthView: тексты игры (authSchema.texts, Д2)', () => {

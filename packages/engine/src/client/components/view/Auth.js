@@ -1,5 +1,5 @@
 import Publisher from '../../../lib/Publisher.js';
-import { buildForm, reportFormValidity } from '../../lib/formBuilder.js';
+import { buildForm, collectFormErrors, renderFormErrors } from '../../lib/formBuilder.js';
 
 // Singleton AuthView
 
@@ -24,19 +24,26 @@ export default class AuthView {
     this._enter = document.getElementById(elems.enterId);
     this._fieldsContainer = document.getElementById(elems.fieldsId);
     this._fields = new Map();
+    this._descriptors = [];
 
     this.publisher = new Publisher();
 
     this._renderTexts(elems, texts);
     this._renderFields(elems, params);
 
-    // форма заполнена; нативная проверка (pattern/required) — сервер всё
-    // равно валидирует своими validators (renderError), это лишь UX-фильтр
-    // до отправки
+    // форма заполнена; клиентская проверка (pattern/required/min/max) —
+    // сервер всё равно валидирует своими validators (renderError), это лишь
+    // UX-фильтр до отправки
     this._enter.onclick = () => {
-      if (reportFormValidity(this._fieldsContainer)) {
-        authView.publisher.emit('enter');
+      const errors = collectFormErrors(this._descriptors, this._fields);
+
+      if (errors.length) {
+        renderFormErrors(this._error, errors);
+
+        return;
       }
+
+      authView.publisher.emit('enter');
     };
 
     this._mPublic.on('form', 'renderData', this);
@@ -65,6 +72,7 @@ export default class AuthView {
       ...descriptorRest,
     }));
 
+    this._descriptors = descriptors;
     this._fields = buildForm(descriptors, container, {}, ({ name, value }) => {
       this.publisher.emit('input', { name, value });
     });
@@ -150,18 +158,9 @@ export default class AuthView {
     this._fields.get(name)?.setValue(value);
   }
 
-  // отображает ошибки
+  // отображает серверные ошибки (PS_AUTH_DATA/validators) — тот же рендер,
+  // что и у клиентской collectFormErrors (formBuilder.renderFormErrors)
   renderError(data) {
-    this._error.textContent = '';
-
-    data.forEach(item => {
-      const name = item.name.toUpperCase();
-      const err = item.error;
-      const line = document.createElement('div');
-
-      line.textContent = err ? `${name}: ${err}` : `${name} is not correctly!`;
-
-      this._error.appendChild(line);
-    });
+    renderFormErrors(this._error, data);
   }
 }

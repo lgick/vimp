@@ -43,7 +43,7 @@ const SHELL = [
         children: [
           // заголовок и help-секции заполняет AuthView из authSchema.texts
           { tag: 'h2', id: 'auth-title' },
-          { tag: 'div', id: 'auth-error' },
+          { tag: 'div', id: 'auth-error', attrs: { class: 'form-error' } },
           { tag: 'div', id: 'auth-fields' },
           {
             tag: 'input',

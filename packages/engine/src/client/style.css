@@ -453,14 +453,16 @@ body.hide-cursor {
   z-index: 8;
 }
 
-#auth-error {
+/* общий стиль ошибок формы — #lobby-error и #auth-error (formBuilder.js
+   renderFormErrors рендерит в них один и тот же список <div>) */
+.form-error {
   color: #e00;
   font-size: 12px;
   line-height: 15px;
   margin: 0 5px;
 }
 
-#auth-error:empty {
+.form-error:empty {
   margin: 0;
 }
 
@@ -619,14 +621,6 @@ body.hide-cursor {
 
 #lobby-host {
   margin: 16px auto 0;
-}
-
-#lobby-error {
-  margin: 8px 0 0;
-  color: #d98282;
-  font-size: 12px;
-  line-height: 16px;
-  text-align: center;
 }
 
 #lobby-search {

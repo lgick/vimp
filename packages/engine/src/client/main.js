@@ -29,7 +29,8 @@ import VoteCtrl from './components/controller/Vote.js';
 import {
   buildForm,
   mergeRoomDefaults,
-  reportFormValidity,
+  collectFormErrors,
+  renderFormErrors,
 } from './lib/formBuilder.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
@@ -1822,6 +1823,9 @@ let leaderboardReqId = 0;
 
 // поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
 let roomFormFields = new Map();
+// дескрипторы той же формы (после mergeRoomDefaults) — нужны отдельно для
+// collectFormErrors при сабмите
+let roomFormDescriptors = [];
 
 // генерирует форму создания комнаты по явной схеме манифеста (roomForm,
 // docs/en/plugin-api.md "Form schema") — движок не выводит контролы из типа
@@ -1834,12 +1838,12 @@ function populateRoomForm(manifest) {
   }
 
   if (Array.isArray(manifest.roomForm)) {
-    const descriptors = mergeRoomDefaults(
+    roomFormDescriptors = mergeRoomDefaults(
       manifest.roomForm,
       manifest.roomDefaults,
     );
 
-    roomFormFields = buildForm(descriptors, container, {
+    roomFormFields = buildForm(roomFormDescriptors, container, {
       sources: { maps: manifest.maps?.list },
     });
   } else {
@@ -1850,6 +1854,7 @@ function populateRoomForm(manifest) {
     );
     container.textContent = '';
     roomFormFields = new Map();
+    roomFormDescriptors = [];
   }
 }
 
@@ -1870,7 +1875,6 @@ function showLobbyError(text) {
 
   if (elem) {
     elem.textContent = text;
-    elem.style.display = '';
   }
 }
 
@@ -1879,7 +1883,6 @@ function clearLobbyError() {
 
   if (elem) {
     elem.textContent = '';
-    elem.style.display = 'none';
   }
 }
 
@@ -2031,17 +2034,21 @@ function initLobby() {
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);
 
   hostBtn?.addEventListener('click', async () => {
-    // нативная валидация (pattern/required) — единственная граница
+    // валидация (pattern/required/min/max) — единственная граница
     // room-формы: она едет клиенту как JSON манифеста, JS-валидаторы
     // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
     // "Form schema"); авторитетный клампинг всё равно в applyRoomOverrides.js
     // (вызывается из host.worker.js при создании комнаты). Проверяем до
     // активации игры: неверная форма не должна стоить загрузки плагина
-    if (
-      !reportFormValidity(document.getElementById(lobbyConfig.elems.fieldsId))
-    ) {
+    const formErrors = collectFormErrors(roomFormDescriptors, roomFormFields);
+
+    if (formErrors.length) {
+      renderFormErrors(document.getElementById(lobbyConfig.elems.errorId), formErrors);
+
       return;
     }
+
+    clearLobbyError();
 
     const manifest = gamesById.get(gameSelect?.value) ?? activeGameManifest;
     const name =
