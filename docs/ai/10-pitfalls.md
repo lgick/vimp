@@ -172,12 +172,19 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] `authSchema.validators` are functions, are not serialised, and run on
       the host.
 - [ ] ⚙ `C10` A param's `validator` names a function `authSchema.validators`
-      actually provides — a typo leaves the field checked by nobody, and the
-      host skips an unresolved validator silently.
-- [ ] The host also applies the auth descriptor's own `maxlength` and
-      `regExp` (`validateAuth`), so a client that bypasses the form is bound
-      by the same declarative rules. `required` is the exception: an empty
-      value passes them and is left to your validator.
+      actually provides — a typo (or a non-function value) leaves the field
+      checked by nobody: the host skips an unresolved validator silently and
+      writes a `console.error` when the port machine is built.
+- [ ] The host also applies the auth descriptor's own declarative rules
+      (`validateAuth`), so a client that bypasses the form is bound by them
+      too: length, membership in a `select`/`radio` field's declared
+      `options` (`not an option`), then `maxlength`/`regExp` on text fields.
+      `required` and `min`/`max` are the exceptions — an empty value is left
+      to your validator, and a numeric auth field cannot work at all (the
+      value must be a string).
+- [ ] A field with no `maxlength` is capped at 256 characters on the host:
+      your `regExp` runs there against whatever the client sent, and a
+      catastrophic pattern would freeze the match, not just a tab.
 - [ ] ⚙ `B5` Only `text`, `select`, `checkbox`, `radio` controls exist in v3. An
       unknown `control` skips the field with a `console.error`. Native
       `min`/`max`/`step` attributes are never emitted (these fields are

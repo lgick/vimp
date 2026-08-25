@@ -617,6 +617,31 @@ describe('C. client', () => {
     expect(found).toMatch(/names validator "isValidMdoel"/);
   });
 
+  it('C10 catches an engine validator name overridden by a non-function', () => {
+    const found = violations('C10', {
+      ...base,
+      authSchema: {
+        elems: { fieldsId: 'auth-fields' },
+        params: [{ name: 'model', options: { validator: 'isValidName' } }],
+        validators: { isValidName: null },
+      },
+    });
+
+    expect(found).toMatch(/names validator "isValidName"/);
+  });
+
+  it('C10 catches a validator name when the schema declares no validators at all', () => {
+    const found = violations('C10', {
+      ...base,
+      authSchema: {
+        elems: { fieldsId: 'auth-fields' },
+        params: [{ name: 'model', options: { validator: 'isValidModel' } }],
+      },
+    });
+
+    expect(found).toMatch(/names validator "isValidModel"/);
+  });
+
   it('C10 accepts an engine validator the game does not redeclare', () => {
     const found = violations('C10', {
       ...base,

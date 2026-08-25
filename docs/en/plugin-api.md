@@ -255,17 +255,35 @@ declarative checks and JS validators (`authSchema.validators`, resolved by
 `validateAuth` on the host and mirrored on the client, rendered through the
 same `renderFormErrors`).
 
-For the auth form the host repeats the declarative part itself: `validateAuth`
-applies the descriptor's `maxlength` (`too long`) and `regExp` (`invalid
-format`, anchored exactly as in the browser) before the JS validator, so a
-client that bypasses the form gets no more rights than one that filled it in.
-Two deliberate exceptions: `required` is **not** enforced there — the solo path
-(`boot.autoAuth`) answers with the schema defaults, and those may be `''` — so
-an empty value skips the declarative checks and is left to the game's
-validator; and a `regExp` that does not compile is a schema defect, not a
-restriction, so the field passes (the same as on the client). A `validator`
-name that `authSchema.validators` does not provide leaves the field unchecked
-by anyone — `C10` reports it.
+For the auth form the host repeats the declarative part itself, so that a
+client bypassing the form gets no more rights than one that filled it in.
+`validateAuth` checks, in this order and before the JS validator: length
+(`too long`), membership in a `select`/`radio` field's declared `options`
+(`not an option` — a browser cannot submit anything else, so neither can a
+bypassing client; a `source` list is not checked, the host does not resolve
+catalogs), then `regExp` (`invalid format`, anchored exactly as in the
+browser). `maxlength` and `regExp` apply to text fields only, exactly as in
+the form.
+
+A field with no `maxlength` is still capped at **256 characters**: the game's
+`regExp` now runs on the host — the Worker holding the authoritative match, or
+the whole `dedicated` process — and a catastrophic pattern such as `(a+)+b`
+turns a few dozen characters into minutes of a blocked event loop.
+
+Three deliberate gaps. `required` is **not** enforced on the host: the solo
+path (`boot.autoAuth`) answers with the schema defaults, and those may be
+`''`, so an empty value skips the checks above and is left to the game's
+validator. `min`/`max` are not applied either, and cannot matter: a numeric
+field submits a *number*, and `validateAuth` rejects a non-string value
+outright (`Property must be a string`) — `authSchema` has no numeric fields.
+And a `regExp` that does not compile is a schema defect, not a restriction, so
+the field passes (the same as on the client).
+
+A `validator` name that `authSchema.validators` does not provide **as a
+function** leaves the field checked by nobody: the host skips it silently
+rather than calling a non-function. `C10` reports it statically, and the host
+writes a `console.error` when the port machine is built, for those who do not
+run the contract checker.
 
 A form **checks itself as the player types**: a value out of range is
 reported the moment it is entered, not on the next click, and a line

@@ -7,7 +7,7 @@
 
 import wsports from '../config/wsports.js';
 import closeCodes from '../config/closeCodes.js';
-import { validateAuth } from '../lib/validators.js';
+import { resolveValidator, validateAuth } from '../lib/validators.js';
 
 // PC (client ports): порты получения данных от клиента
 const PC_CONFIG_READY = wsports.client.CONFIG_READY;
@@ -48,6 +48,22 @@ export default class PortMachine {
       ...(identity.params ?? []),
       ...(authSchema.params ?? []),
     ];
+
+    // Правило C10 говорит это статически, но контракт-чекер запускают не
+    // все: нерезолвнутое имя валидатора означает поле, которое не проверяет
+    // никто (validateAuth пропускает его молча — для клиента это норма)
+    for (const { name, options } of this._authParams) {
+      if (
+        options?.validator &&
+        !resolveValidator(options.validator, authSchema.validators)
+      ) {
+        console.error(
+          `PortMachine: authSchema param "${name}" names validator ` +
+            `"${options.validator}", which authSchema.validators does not ` +
+            'provide — the field is checked by nobody',
+        );
+      }
+    }
 
     // состояние подключений: socketId → { gameId, methods, enabled }
     this._clients = new Map();

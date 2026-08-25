@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { isValidName, validateAuth, clampLimit } from '../../packages/engine/src/lib/validators.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  isValidName,
+  validateAuth,
+  resolveValidator,
+  clampLimit,
+} from '../../packages/engine/src/lib/validators.js';
 
 describe('isValidName', () => {
   it('принимает корректные имена', () => {
@@ -108,10 +113,56 @@ describe('validateAuth', () => {
     expect(validateAuth({ tag: 'abc' }, params)).toBeUndefined();
   });
 
-  it('поле без maxlength/regExp проходит любой строкой', () => {
+  it('maxlength коротит игровой валидатор (слишком длинное значение до него не доходит)', () => {
+    const params = [
+      { name: 'tag', options: { maxlength: 5, validator: 'isValidTag' } },
+    ];
+    const isValidTag = vi.fn(() => true);
+
+    expect(validateAuth({ tag: 'xxxxxx' }, params, { isValidTag })).toEqual([
+      { name: 'tag', error: 'too long' },
+    ]);
+    expect(isValidTag).not.toHaveBeenCalled();
+  });
+
+  // поле без maxlength всё равно ограничено потолком: regExp игры крутится
+  // на хосте (Worker авторитетного матча / процесс dedicated), и без
+  // потолка катастрофический паттерн замораживает комнату
+  it('поле без maxlength ограничено потолком в 256 символов', () => {
     const params = [{ name: 'tag', options: { control: 'text' } }];
 
-    expect(validateAuth({ tag: 'x'.repeat(10000) }, params)).toBeUndefined();
+    expect(validateAuth({ tag: 'x'.repeat(256) }, params)).toBeUndefined();
+    expect(validateAuth({ tag: 'x'.repeat(257) }, params)).toEqual([
+      { name: 'tag', error: 'too long' },
+    ]);
+  });
+
+  it('катастрофический regExp не блокирует хост: потолок отбивает раньше матча', () => {
+    const params = [{ name: 'tag', options: { regExp: '(a+)+b' } }];
+    const started = Date.now();
+
+    expect(validateAuth({ tag: 'a'.repeat(300) }, params)).toEqual([
+      { name: 'tag', error: 'too long' },
+    ]);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
+
+  // паритет с формой: maxlength/regExp она применяет только к text-полю,
+  // хост обязан к тому же — иначе отбивает вариант, который сам предложил
+  it('maxlength/regExp не применяются к нетекстовому контролу (как и в форме)', () => {
+    const params = [
+      {
+        name: 'side',
+        options: {
+          control: 'select',
+          options: ['RED'],
+          regExp: '[a-z]+',
+          maxlength: 1,
+        },
+      },
+    ];
+
+    expect(validateAuth({ side: 'RED' }, params)).toBeUndefined();
   });
 
   it('некомпилируемый regExp — не ограничение, а не отказ (как на клиенте)', () => {
@@ -127,11 +178,99 @@ describe('validateAuth', () => {
     expect(validateAuth({ tag: '' }, params)).toBeUndefined();
   });
 
+  // список вариантов — самое жёсткое ограничение формы: <select> значения
+  // вне своих options не отдаст, и хост обязан требовать того же
+  it('отбивает значение вне списка вариантов select/radio', () => {
+    const params = [
+      { name: 'side', options: { control: 'select', options: ['red', 'blue'] } },
+    ];
+
+    expect(validateAuth({ side: 'green' }, params)).toEqual([
+      { name: 'side', error: 'not an option' },
+    ]);
+    expect(validateAuth({ side: 'red' }, params)).toBeUndefined();
+  });
+
+  it('вариант-объект сверяется по value, числовой — по строковому виду', () => {
+    const objectParams = [
+      {
+        name: 'side',
+        options: {
+          control: 'radio',
+          options: [{ value: 'red', label: 'Red' }],
+        },
+      },
+    ];
+    const numericParams = [
+      { name: 'lvl', options: { control: 'select', options: [1, 2] } },
+    ];
+
+    expect(validateAuth({ side: 'red' }, objectParams)).toBeUndefined();
+    expect(validateAuth({ side: 'Red' }, objectParams)).toEqual([
+      { name: 'side', error: 'not an option' },
+    ]);
+    // форма отдаёт значение <option> строкой, хост сравнивает с ним
+    expect(validateAuth({ lvl: '1' }, numericParams)).toBeUndefined();
+  });
+
+  it('поле с source хост не проверяет по списку (каталога он не знает)', () => {
+    const params = [
+      { name: 'map', options: { control: 'select', source: 'maps' } },
+    ];
+
+    expect(validateAuth({ map: 'anything' }, params)).toBeUndefined();
+  });
+
+  // гостевой контур (createGuestIdentity) — единственное место в
+  // поставляемом коде, где новая проверка длины срабатывает сегодня
+  it('гостевой ник длиннее maxlength отбивается как too long, а не not valid', () => {
+    const params = [
+      {
+        name: 'name',
+        options: { control: 'text', maxlength: 15, validator: 'isValidName' },
+      },
+    ];
+
+    expect(validateAuth({ name: 'a'.repeat(16) }, params)).toEqual([
+      { name: 'name', error: 'too long' },
+    ]);
+  });
+
+  it('валидатор-не-функция не бросает: поле проходит, как и незнакомое имя', () => {
+    const params = [{ name: 'model', options: { validator: 'isValidModel' } }];
+    const broken = { isValidModel: 'm1' };
+
+    expect(() => validateAuth({ model: 'm1' }, params, broken)).not.toThrow();
+    expect(validateAuth({ model: 'm1' }, params, broken)).toBeUndefined();
+  });
+
   it('незарегистрированное имя валидатора молча пропускает поле (без ошибки и без throw)', () => {
     const params = [{ name: 'model', options: { validator: 'isValidModel' } }];
     // validators не передан — isValidModel не найден в rules
     expect(() => validateAuth({ model: 'm1' }, params)).not.toThrow();
     expect(validateAuth({ model: 'm1' }, params)).toBeUndefined();
+  });
+});
+
+// одно определение «валидатор резолвится» на движок: им пользуется и
+// validateAuth, и правило C10, и конструктор PortMachine
+describe('resolveValidator', () => {
+  it('резолвит движковое имя и игровое, игровое перекрывает движковое', () => {
+    const gameRule = () => true;
+
+    expect(resolveValidator('isValidName')).toBe(isValidName);
+    expect(resolveValidator('isValidModel', { isValidModel: gameRule })).toBe(
+      gameRule,
+    );
+    expect(resolveValidator('isValidName', { isValidName: gameRule })).toBe(
+      gameRule,
+    );
+  });
+
+  it('незнакомое имя и не-функция резолвятся в undefined', () => {
+    expect(resolveValidator('isValidMdoel')).toBeUndefined();
+    expect(resolveValidator('isValidModel', { isValidModel: 'm1' })).toBeUndefined();
+    expect(resolveValidator('isValidName', { isValidName: null })).toBeUndefined();
   });
 });
 

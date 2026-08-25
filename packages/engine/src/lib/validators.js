@@ -1,4 +1,5 @@
 import { anchorPattern } from './formPattern.js';
+import { normalizeOptions } from './formOptions.js';
 
 const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w\\s#]{0,13})[\\w]{1}$');
 
@@ -9,6 +10,32 @@ const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w\\s#]{0,13})[\\w]{1}$');
  */
 export const isValidName = name =>
   typeof name === 'string' && NAME_REGEXP.test(name);
+
+// потолок длины поля формы, когда maxlength в дескрипторе не объявлен.
+// regExp игры исполняется на хосте против строки, которую прислал клиент, и
+// катастрофический паттерн вроде "(a+)+b" превращает три десятка символов в
+// минуты заблокированного event loop — а хост это либо Worker с авторитетным
+// матчем (замирает комната целиком), либо процесс dedicated. 256 — с запасом
+// на любое поле auth-формы (ник, имя модели): длиннее не бывает у формы и не
+// нужно тому, кто её обошёл
+const MAX_FIELD_LENGTH = 256;
+
+// контролы со списком вариантов: браузер другого значения и не отдаст —
+// <option>.value и <input type=radio>.value это ровно объявленный список
+const OPTION_CONTROLS = ['select', 'radio'];
+
+// maxlength/regExp форма применяет только к text-полю (formBuilder.
+// validateField), и хост обязан к тому же: отбить значение варианта, который
+// сам же предложил список, значит завести игрока в тупик. Контрол по
+// умолчанию — text (тот же дефолт, что у билдера формы)
+const isTextControl = control => control === 'text' || control === undefined;
+
+// source-варианты хост не резолвит (их и форма в auth не резолвит: она
+// строится с пустым ctx) — сверяем только объявленный inline-список.
+// String(): и <option>.value, и <input type=radio>.value — DOM-свойства,
+// они всегда строки, так что options: [1, 2] форма отдаёт как '1'/'2'
+const isDeclaredOption = (list, value) =>
+  normalizeOptions(list).some(opt => String(opt.value) === value);
 
 // regExp дескриптора якорится тем же anchorPattern, что и на клиенте
 // (formBuilder.fieldPattern). Некомпилируемый паттерн — дефект схемы игры,
@@ -28,10 +55,21 @@ const validationRules = {
   isValidName,
 };
 
-// имена валидаторов, которые validateAuth резолвит сам: правило C10
-// проверяет, что имя из дескриптора резолвится хоть где-то — движковое
-// имя схема игры дублировать в validators не обязана
-export const engineValidatorNames = Object.keys(validationRules);
+/**
+ * Резолвит имя валидатора из дескриптора: движковые правила, перекрытые
+ * игровыми. Одно определение на движок — им пользуется и validateAuth
+ * (чтобы звать), и правило C10 с PortMachine (чтобы проверять): две копии
+ * этого правила уже разъезжались на типе значения, и не-функция в
+ * validators игры уходила TypeError'ом прямо в обработчик сообщения.
+ * @param {string} name - Имя из options.validator.
+ * @param {Object} [validators] - authSchema.validators игры.
+ * @returns {Function|undefined} Функция либо undefined, если имя не резолвится.
+ */
+export const resolveValidator = (name, validators = {}) => {
+  const fn = { ...validationRules, ...validators }[name];
+
+  return typeof fn === 'function' ? fn : undefined;
+};
 
 /**
  * Валидирует объект с данными для авторизации.
@@ -42,7 +80,6 @@ export const engineValidatorNames = Object.keys(validationRules);
  * @returns {Array|undefined} - Массив ошибок или undefined.
  */
 export const validateAuth = (data, authParams, validators = {}) => {
-  const rules = { ...validationRules, ...validators };
   const errors = [];
 
   for (const { name, options } of authParams) {
@@ -56,35 +93,60 @@ export const validateAuth = (data, authParams, validators = {}) => {
       return [{ name, error: `Property must be a string` }];
     }
 
-    // те же декларативные правила, по которым отказывает форма
+    // Те же декларативные правила, по которым отказывает форма
     // (client/lib/formBuilder.js → validateField): клиент, обошедший форму,
     // не должен получать больше прав, чем клиент, её заполнивший. Пустое
     // значение пропускается ровно как на клиенте (required здесь не
     // проверяется: solo-путь boot.autoAuth отвечает дефолтами схемы, среди
-    // которых бывает '') — пустота остаётся делом игрового валидатора
-    if (value !== '') {
-      if (
-        options?.maxlength !== undefined &&
-        value.length > options.maxlength
-      ) {
-        errors.push({ name, error: 'too long' });
-        continue;
-      }
+    // которых бывает '') — пустота остаётся делом игрового валидатора.
+    // min/max формы здесь не применяются и не нужны: числовое поле отдаёт из
+    // формы число, а нестроковое значение отбито выше, то есть числовых
+    // полей в authSchema не бывает вовсе
 
-      if (options?.regExp && !matchesPattern(options.regExp, value)) {
-        errors.push({ name, error: 'invalid format' });
-        continue;
-      }
+    // длина — первой и безусловно: потолок ограничивает не столько ввод,
+    // сколько работу паттерна ниже (см. MAX_FIELD_LENGTH)
+    const limit =
+      isTextControl(options?.control) && options?.maxlength !== undefined
+        ? options.maxlength
+        : MAX_FIELD_LENGTH;
+
+    if (value.length > limit) {
+      errors.push({ name, error: 'too long' });
+      continue;
+    }
+
+    // членство в списке вариантов — самое жёсткое ограничение формы: без
+    // этой проверки поле-select без игрового валидатора принимает от
+    // обошедшего форму клиента любую строку
+    if (
+      OPTION_CONTROLS.includes(options?.control) &&
+      !options.source &&
+      Array.isArray(options.options) &&
+      options.options.length > 0 &&
+      !isDeclaredOption(options.options, value)
+    ) {
+      errors.push({ name, error: 'not an option' });
+      continue;
+    }
+
+    if (
+      value !== '' &&
+      isTextControl(options?.control) &&
+      options?.regExp &&
+      !matchesPattern(options.regExp, value)
+    ) {
+      errors.push({ name, error: 'invalid format' });
+      continue;
     }
 
     if (options?.validator) {
-      const validatorFn = rules[options.validator];
+      const validatorFn = resolveValidator(options.validator, validators);
 
-      // validateAuth используется и клиентом (без игровых validators —
-      // это норма, авторитет проверки на хосте), и хостом (с authSchema.validators
-      // игры — здесь отсутствие validatorFn обычно опечатка в имени валидатора
-      // конфига игры). В обоих случаях просто пропускаем поле без ошибки,
-      // сохраняя прежнее поведение (эта ветка никогда не добавляла в errors).
+      // нерезолвнутое имя (опечатка) и не-функция ведут себя одинаково —
+      // поле проходит. Для клиента это норма (игровые валидаторы к нему не
+      // едут, авторитет проверки на хосте), для хоста — дефект схемы, о
+      // котором говорят C10 и console.error в PortMachine: звать что попало
+      // нельзя, TypeError отсюда уходит прямо в обработчик сообщения
       if (validatorFn && !validatorFn(value)) {
         errors.push({ name, error: 'not valid' });
       }

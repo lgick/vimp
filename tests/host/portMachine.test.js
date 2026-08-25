@@ -64,6 +64,25 @@ describe('PortMachine', () => {
     vi.resetModules();
   });
 
+  // C10 говорит это статически, но контракт-чекер запускают не все:
+  // нерезолвнутое имя означает поле, которое не проверяет никто
+  it('нерезолвнутое имя валидатора в схеме — console.error при сборке машины', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    makeMachine(createGuestIdentity());
+    expect(spy).not.toHaveBeenCalled();
+
+    hostPlugin.authSchema = {
+      ...hostPlugin.authSchema,
+      params: [{ name: 'model', options: { validator: 'isValidMdoel' } }],
+      validators: { isValidModel: () => true },
+    };
+    makeMachine(createGuestIdentity());
+
+    expect(spy.mock.calls[0][0]).toMatch(/names validator "isValidMdoel"/);
+    spy.mockRestore();
+  });
+
   it('гостевой путь доводит клиента до участника матча', async () => {
     machine.connect('s1');
 

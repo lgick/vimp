@@ -11,6 +11,15 @@ bumps the minor version).
 
 ### Added
 
+- `vimp-engine/lib/validators.js` exports `resolveValidator(name, validators)`
+  — the single definition of "a validator name resolves" (engine rules
+  overridden by the game's, a non-function resolving to `undefined`), used by
+  `validateAuth`, by contract rule `C10` and by the host's own startup check.
+- `vimp-engine/lib/formOptions.js` — `normalizeOptions(list)`, the descriptor
+  option-list parsing (`'red'` or `{ value, label }`) moved out of
+  `src/client/lib/formBuilder.js` so the host can check membership against
+  the same list the form offers, without importing the client layer (the same
+  arrangement as `lib/formPattern.js`).
 - `roomForm`/`authSchema.params[].options` field descriptors accept two new
   optional keys, `min`/`max` (numeric text fields): rendered as a
   "(min–max)" hint suffix on the field's label, and checked by the new
@@ -47,18 +56,33 @@ bumps the minor version).
 ### Changed
 
 - The host now applies the declarative part of the auth descriptor itself:
-  `validateAuth` (`src/lib/validators.js`) checks `maxlength` (`too long`)
-  and `regExp` (`invalid format`, anchored as `^(?:…)$`, the way the client
-  and the browser apply `pattern`) before running the game's validator, so a
-  client that bypasses the form is bound by the same rules the form enforces.
-  An empty value still passes those checks (`required` is deliberately not
-  enforced on the host: the solo path answers with the schema defaults, and
-  those may be `''`), and a `regExp` that does not compile is no constraint
-  rather than a rejection — the same as on the client.
+  `validateAuth` (`src/lib/validators.js`) checks length (`too long`),
+  membership in a `select`/`radio` field's declared `options` (`not an
+  option`) and `regExp` (`invalid format`, anchored as `^(?:…)$`, the way the
+  client and the browser apply `pattern`) before running the game's
+  validator, so a client that bypasses the form is bound by the same rules
+  the form enforces — a `select` field with no game validator no longer
+  accepts an arbitrary string. `maxlength`/`regExp` apply to text fields
+  only, as in the form; a `source` list is not checked (the host resolves no
+  catalogs). An empty value still passes these checks (`required` is
+  deliberately not enforced on the host: the solo path answers with the
+  schema defaults, and those may be `''`), and a `regExp` that does not
+  compile is no constraint rather than a rejection — the same as on the
+  client.
+- An auth field with no `maxlength` is capped at 256 characters. The game's
+  `regExp` now runs on the host — the Worker holding the authoritative match,
+  or the whole `dedicated` process — where a catastrophic pattern such as
+  `(a+)+b` would turn a few dozen characters of a single `PC_AUTH_RESPONSE`
+  into minutes of a blocked event loop.
 - Contract rule `C10` additionally reports an `authSchema` param whose
-  `validator` names a function `authSchema.validators` does not provide (an
-  engine validator such as `isValidName` still resolves): the host skips an
-  unresolved validator silently, so a typo left the field checked by nobody.
+  `validator` names something `authSchema.validators` does not provide as a
+  function (an engine validator such as `isValidName` still resolves): the
+  host skips an unresolved validator silently, so a typo left the field
+  checked by nobody. The host itself now says the same at runtime — a
+  `console.error` per offending param when the port machine is built — for
+  those who do not run the contract checker. A non-function under a correct
+  name is no longer called at all: it used to throw a `TypeError` out of the
+  Worker's message handler.
 - Room-form and auth-form validation no longer shows native browser
   validation popups (`reportValidity()`): failing fields are rendered as
   lines inside `#lobby-error`/`#auth-error` instead

@@ -1,4 +1,5 @@
 import { anchorPattern } from '../../lib/formPattern.js';
+import { normalizeOptions } from '../../lib/formOptions.js';
 
 // Общий билдер полей форм (room-форма и auth-форма используют один
 // контракт дескрипторов — docs/en/plugin-api.md, раздел "Form schema").
@@ -17,12 +18,6 @@ const OPTION_CONTROLS = ['select', 'radio'];
 // на валидацию, поэтому живёт в одном месте
 function isNumeric(descriptor) {
   return descriptor.numeric === true || descriptor.unit !== undefined;
-}
-
-function normalizeOptions(list) {
-  return (list || []).map(opt =>
-    opt !== null && typeof opt === 'object' ? opt : { value: opt, label: String(opt) },
-  );
 }
 
 // 'source' — спец-источник вариантов из каталога движка (например карты),

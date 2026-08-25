@@ -1,5 +1,5 @@
 import { ERROR, skip, verdict } from '../result.js';
-import { engineValidatorNames } from '../../../lib/validators.js';
+import { resolveValidator } from '../../../lib/validators.js';
 
 // authSchema. Четыре ошибки, каждая из которых уже случалась:
 // formId вместо fieldsId (контейнер резолвится в null и экран авторизации
@@ -38,6 +38,8 @@ export default {
       );
     }
 
+    const validators = ctx.authSchema.validators;
+
     for (const field of params) {
       if (NICKNAME.test(field.name)) {
         violations.push(
@@ -45,25 +47,21 @@ export default {
             'identity comes from the lobby JWT',
         );
       }
-    }
 
-    const validators = ctx.authSchema.validators ?? {};
-
-    for (const field of params) {
       const validatorName = field.options?.validator;
 
-      // опечатка в имени = поле не проверяется никем: validateAuth
-      // пропускает нерезолвнутый валидатор молча (норма для клиента, где
-      // игровых валидаторов нет вовсе, и дыра на хосте)
+      // опечатка в имени (как и не-функция под верным именем) = поле не
+      // проверяется никем: validateAuth пропускает нерезолвнутый валидатор
+      // молча. Резолвер — тот же, которым зовёт хост (lib/validators.js),
+      // чтобы правило не обещало того, чего не проверяет
       if (
         validatorName !== undefined &&
-        typeof validators[validatorName] !== 'function' &&
-        !engineValidatorNames.includes(validatorName)
+        !resolveValidator(validatorName, validators)
       ) {
         violations.push(
           `authSchema param "${field.name}" names validator ` +
             `"${validatorName}", which authSchema.validators does not ` +
-            'provide — the host skips the check silently',
+            'provide as a function — the host skips the check silently',
         );
       }
     }
