@@ -47,6 +47,16 @@ cd vimp && npm link @vimp-games/tanks  # engine ← plugin
 cd vimp-tanks && npm link vimp-engine  # plugin ← engine
 ```
 
+`npm run link:games` does the same four steps for you, for one or more
+games at once: it discovers game checkouts (`node_modules/@vimp-games/*`
+symlinks, the global `npm link` registry, and sibling directories next to
+this repo whose `package.json` name is in the `@vimp-games` scope — e.g.
+`../vimp-tanks`), asks per game whether to link it, and links both
+directions. Non-interactive: `npm run link:games -- --yes --game
+../vimp-tanks --game ../vimp-snakes` (repeat `--game`). It is the same
+`scripts/release.js --relink` used to restore links after a release run —
+see [publishing.md](publishing.md).
+
 Both directions matter:
 
 - **engine ← plugin** — the dev `/@fs/` entries resolve into the checkout, so
@@ -63,7 +73,8 @@ to the same optimized dependency as the engine's own
 (see [client.md](client.md)) holds in dev as well.
 
 `npm install` in either repository replaces the symlinks with registry
-copies — re-run the two `npm link <name>` commands afterwards. Verify with:
+copies — re-run the two `npm link <name>` commands afterwards (or `npm run
+link:games`). Verify with:
 
 ```bash
 readlink node_modules/@vimp-games/tanks   # in the engine → ../../../vimp-tanks

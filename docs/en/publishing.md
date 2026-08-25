@@ -62,7 +62,7 @@ outgoing commits and asks for an explicit confirmation, because that push
 | `--dry-run` | prints and checks everything, publishes and commits nothing. **Only after `--`**: `npm run release --dry-run` hands the flag to npm, not to the script — the run then goes live while every child `npm publish` is a no-op. Preflight refuses when it finds `npm_config_dry_run` in the environment, and the flag is stripped from every child command. A rehearsal writes no version, so `npm publish --dry-run` answers "cannot publish over the previously published versions" for anything due a bump — that one refusal is swallowed in a rehearsal, every other one still fails the step |
 | `--only=crate,engine,scaffold,games,prod` | a subset of the steps |
 | `--game=<path>` | a game for non-interactive runs (repeatable) |
-| `--relink` | only restore the local links and exit (after a `SIGKILL`); works offline — it asks no registry |
+| `--relink` | only (re)link the discovered/selected games and exit; works offline — it asks no registry. Emergency use: restore links after a `SIGKILL`. Routine use: `npm run link:games` is this flag under an easier-to-find name, for setting up local game checkouts (see [getting-started.md](getting-started.md#linking-a-local-game-plugin)) |
 | `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` is still asked |
 | `--help` | the full description |
 

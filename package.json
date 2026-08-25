@@ -37,6 +37,7 @@
     "sim:replay": "node packages/engine/bin/vimp-sim.js --scenario",
     "sim:check": "node packages/engine/bin/vimp-sim.js --no-write",
     "create:game": "node packages/create-vimp-game/bin/create-vimp-game.js",
+    "link:games": "node scripts/release.js --relink",
     "release": "node scripts/release.js"
   },
   "devDependencies": {

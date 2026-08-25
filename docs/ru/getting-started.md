@@ -47,6 +47,16 @@ cd vimp && npm link @vimp-games/tanks  # движок ← плагин
 cd vimp-tanks && npm link vimp-engine  # плагин ← движок
 ```
 
+`npm run link:games` делает те же четыре шага за вас, сразу для одной или
+нескольких игр: находит чекауты игр (симлинки в `node_modules/@vimp-games/*`,
+глобальный реестр `npm link`, соседние с этим репозиторием каталоги, чей
+`package.json` называется в scope `@vimp-games` — например `../vimp-tanks`),
+по каждой найденной спрашивает, привязывать ли, и линкует в оба направления.
+Неинтерактивно: `npm run link:games -- --yes --game ../vimp-tanks --game
+../vimp-snakes` (флаг `--game` можно повторять). Это та же команда
+`scripts/release.js --relink`, которой релиз возвращает линки после себя —
+см. [publishing.md](publishing.md).
+
 Важны оба направления:
 
 - **движок ← плагин** — dev-entries `/@fs/` резолвятся в чекаут, поэтому
@@ -63,7 +73,8 @@ cd vimp-tanks && npm link vimp-engine  # плагин ← движок
 экземпляра (см. [client.md](client.md)) выполняется и в dev.
 
 `npm install` в любом из репозиториев заменяет симлинки registry-копиями —
-после установки повторите две команды `npm link <имя>`. Проверка:
+после установки повторите две команды `npm link <имя>` (или `npm run
+link:games`). Проверка:
 
 ```bash
 readlink node_modules/@vimp-games/tanks   # в движке → ../../../vimp-tanks
