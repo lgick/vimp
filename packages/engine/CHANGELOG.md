@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-08-25
+
 ### Added
 
 - `vimp-engine/lib/validators.js` exports `resolveValidator(name, validators)`
@@ -966,6 +968,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.15.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.15.0
 [0.14.4]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.4
 [0.14.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.1
 [0.14.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.0
