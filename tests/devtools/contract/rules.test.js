@@ -424,17 +424,59 @@ describe('C. client', () => {
     ).toMatch(/expected 'time'/);
   });
 
-  it('C6 warns on a stat with a different column count', () => {
+  it('C6 warns on a column the engine CSS does not lay out', () => {
     const stat = base.clientConfig.modules.stat;
-    const result = check('C6', {
+    const sixColumns = {
       ...base,
       clientConfig: withModules(base, {
-        stat: { params: { ...stat.params, columns: ['names', 'score'] } },
+        stat: {
+          params: {
+            ...stat.params,
+            columns: ['name', 'status', 'eaten', 'kills', 'score', 'ping'],
+          },
+        },
       }),
-    });
+    };
+    const result = check('C6', sixColumns);
 
     expect(result.status).toBe(FAIL);
     expect(rule('C6').level).toBe('warn');
+    expect(result.violations.join('')).toMatch(/no width to column\(s\) 6/);
+  });
+
+  it('C6 accepts extra columns the plugin styles itself (vimp-snakes)', () => {
+    const stat = base.clientConfig.modules.stat;
+
+    expect(
+      check('C6', {
+        ...base,
+        clientPlugin: {
+          ...base.clientPlugin,
+          styles: '#stat .stat-head span:nth-child(6),\n#stat table td:nth-child(6) { width: 10%; }',
+        },
+        clientConfig: withModules(base, {
+          stat: {
+            params: {
+              ...stat.params,
+              columns: ['name', 'status', 'eaten', 'kills', 'score', 'ping'],
+            },
+          },
+        }),
+      }).status,
+    ).toBe(PASS);
+  });
+
+  it('C6 accepts fewer columns than the engine lays out', () => {
+    const stat = base.clientConfig.modules.stat;
+
+    expect(
+      check('C6', {
+        ...base,
+        clientConfig: withModules(base, {
+          stat: { params: { ...stat.params, columns: ['names', 'score'] } },
+        }),
+      }).status,
+    ).toBe(PASS);
   });
 
   it('C7 catches spectator keys, engine codes and playerKeys drift', () => {

@@ -94,6 +94,16 @@ bumps the minor version).
   the static checker cannot build, so the name stays in the report without
   blocking (`--strict` still fails on it). Without such a hook the unknown
   name remains an error, as before.
+- Contract rule `C6` (`statColumns`) no longer warns about the column count
+  itself. How many stat columns there are is the game's decision — its schema
+  declares them and the engine drops writes to undeclared ones
+  (`src/host/meta/modules/Stat.js`) — so the count was never the engine's
+  business. What is: the engine CSS lays out five
+  (`#stat …:nth-child(1)…(5)`), and a further column has no width until the
+  plugin restates the layout. The rule now reads `ClientPlugin.styles` and
+  warns only about declared columns those styles leave unaddressed, so a game
+  that ships the layout it needs (`@vimp-games/snakes`, six columns) passes,
+  and one that does not is still told which column collapses.
 - A contract rule's verdict may now carry its own `level`, overriding the
   rule's for that run (`verdict(violations, note, level)`,
   `src/devtools/contract/result.js`) — a rule whose violation is only

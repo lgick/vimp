@@ -296,9 +296,13 @@ modules: {
   `heads` (spectators) gets rows but no aggregate header.
 - `sortList` — per table, a list of `[columnIndex, descending]` pairs. Sorting
   is **numeric** (`~~textContent`), so a text column sorts as `0`.
-- The engine's CSS assumes **five columns** and the class names
-  `.line1`–`.line3` for row styling. Deviating means writing your own CSS in
-  `styles`.
+- How many columns there are is your call — the engine writes its own five
+  names (`name`, `status`, `score`, `deaths`, `latency`) into the columns you
+  declare and drops the rest, and anything past them you populate yourself.
+  But its CSS only lays out five (`#stat …:nth-child(1)…(5)`, plus the
+  `.line1`–`.line3` row classes): a further column has no width until you
+  restate the layout in `styles`. Contract rule `C6` warns about exactly
+  that gap.
 
 ## Chat
 

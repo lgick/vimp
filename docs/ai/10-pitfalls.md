@@ -136,11 +136,17 @@ name the violation. Do not verify those by eye — run the tool
       `t` in your host panel schema.
 - [ ] `panel.fields[*].value` on the host is both the HUD starting value and
       the core's starting resource amount — they cannot diverge.
-- [ ] ⚙ `C6` The engine writes exactly five stat names: `name`, `status`, `score`,
-      `deaths`, `latency`. Invented columns are never populated.
+- [ ] The engine writes five stat names of its own: `name`, `status`, `score`,
+      `deaths`, `latency`, and only into columns your schema declares — a
+      write to an undeclared one is dropped. Any further column is yours to
+      declare *and* to populate from your host code; the engine never fills
+      it for you.
 - [ ] Stat sorting is numeric (`~~textContent`); a text column sorts as `0`.
-- [ ] ⚙ `C6` The engine's CSS assumes five stat columns and the `.line1`–`.line3`
-      classes — deviating means shipping your own CSS in `styles`.
+- [ ] ⚙ `C6` The engine's CSS lays out five stat columns
+      (`#stat …:nth-child(1)…(5)`) and the `.line1`–`.line3` row classes. A
+      sixth column is fine, but it gets no width of its own until you restate
+      the layout in `ClientPlugin.styles` — `C6` warns for every declared
+      column your styles leave unaddressed.
 - [ ] ⚙ `C7` `keySetList[0]` is the spectator set and must contain `nextPlayer` and
       `prevPlayer`; `keySetList[1]` is the player set.
 - [ ] ⚙ `C7` Key codes `67` (chat), `77` (vote), `9` (stat), `27` (escape), `13`
