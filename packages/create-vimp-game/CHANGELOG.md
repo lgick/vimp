@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] — 2026-08-25
+
 ### Changed
 
 - The template's `build-game-manifest.js` now also writes `min`/`max` on the
@@ -73,6 +75,7 @@ nothing in the CLI, the generator or the template changed.
   build of a scaffolded game is green without ffmpeg; `assets/audio-raw/*.wav`
   keeps the full `npm run audio:process` pipeline demonstrable.
 
+[0.1.14]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.14
 [0.1.13]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.13
 [0.1.4]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.4
 [0.1.0]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.0
