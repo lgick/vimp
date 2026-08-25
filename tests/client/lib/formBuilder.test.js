@@ -33,6 +33,22 @@ describe('formBuilder.buildField: select', () => {
     expect(values).toEqual(['a', 'b', 'c']);
     expect(field.getValue()).toBe('b');
   });
+
+  it('единственный вариант — принудительное значение, default/setValue его не переопределяют', () => {
+    const field = buildField({
+      name: 'model',
+      control: 'select',
+      options: ['s1'],
+      // сервер (устаревший localStorage, например) прислал значение,
+      // которого больше нет в списке — было бы default, если бы не forced
+      default: 's0',
+    });
+
+    expect(field.getValue()).toBe('s1');
+
+    field.setValue('s0');
+    expect(field.getValue()).toBe('s1');
+  });
 });
 
 describe('formBuilder.buildField: text (нечисловой)', () => {
@@ -197,6 +213,20 @@ describe('formBuilder.buildField: radio', () => {
     const label = field.el.querySelector('label');
     expect(label.htmlFor).toBe(input.id);
     expect(label.textContent).toBe('Red');
+  });
+
+  it('единственный вариант — принудительное значение, default/setValue его не переопределяют', () => {
+    const field = buildField({
+      name: 'team',
+      control: 'radio',
+      options: [{ value: '1', label: 'Red' }],
+      default: '9',
+    });
+
+    expect(field.getValue()).toBe('1');
+
+    field.setValue('9');
+    expect(field.getValue()).toBe('1');
   });
 });
 
@@ -436,6 +466,58 @@ describe('formBuilder.collectFormErrors', () => {
     expect(collectFormErrors(descriptors, fields)).toEqual([
       { name: 'maxPlayers', error: 'must be ≥ 1' },
     ]);
+  });
+
+  it('regExp у numeric-поля проверяется тоже — единственная граница у манифестов без min/max (vimp-snakes/maxPlayers)', () => {
+    const container = document.createElement('div');
+    const descriptors = [
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        regExp: '^([1-8])$',
+        default: 8,
+      },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('maxPlayers').el.value = '40';
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'maxPlayers', error: 'invalid format' },
+    ]);
+
+    fields.get('maxPlayers').el.value = '8';
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+  });
+
+  it('regExp неявно закреплён по всей строке — как нативный pattern (rangeToPattern не даёт своих ^…$)', () => {
+    const container = document.createElement('div');
+    // ровно то, что build-game-manifest.js/rangeToPattern генерирует для
+    // maxPlayers 1..32 — без собственных ^/$: правило рассчитано на
+    // атрибут pattern, который браузер сам оборачивает в ^(?:…)$
+    const descriptors = [
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        regExp: '(?:[1-9]|1[0-9]|2[0-9]|3[0-2])',
+        default: 8,
+      },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    // без якорей "99" матчится частично (первая "9" — валидная цифра) —
+    // именно так значение вне диапазона молча проходило на lobby
+    fields.get('maxPlayers').el.value = '99';
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'maxPlayers', error: 'invalid format' },
+    ]);
+
+    fields.get('maxPlayers').el.value = '32';
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
   });
 
   it('min/max сравниваются в отображаемой единице (unit:"s")', () => {

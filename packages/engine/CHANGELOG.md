@@ -17,7 +17,14 @@ bumps the minor version).
   `collectFormErrors()` (`src/client/lib/formBuilder.js`).
 - `select`/`radio` fields whose resolved choices (`options`/`source`) number
   ≤ 1 are automatically not rendered as a form row (still built and
-  submitted) — nothing for the player to actually choose.
+  submitted) — nothing for the player to actually choose. The single choice
+  is now also forced as the field's value and cannot be overridden by
+  `setValue()` afterwards (a stale `localStorage`-remembered value, or a
+  server default, for an option since removed from the list no longer
+  desyncs a hidden `<select>` to `''` with no way for the player to fix it —
+  `formBuilder.js`, `AuthView` also corrects the initial `params[].value` it
+  hands to `AuthCtrl`/`AuthModel` so the corrected value is what actually
+  reaches the server, not the stale one).
 
 ### Changed
 
@@ -27,6 +34,17 @@ bumps the minor version).
   (`collectFormErrors()`/`renderFormErrors()`, `src/client/lib/formBuilder.js`),
   the same rendering `AuthView.renderError` already used for server-pushed
   errors. `#lobby-error`/`#auth-error` share one `.form-error` style.
+  `collectFormErrors()` checks `regExp` on numeric text fields too (against
+  the raw displayed string, e.g. the range pattern `build-game-manifest.js`
+  still generates for `roomForm` fields without `min`/`max`) — it previously
+  checked `regExp` only on non-numeric text fields, so an out-of-range
+  `maxPlayers`/`roundTime`/`mapTime` on a manifest built before the
+  `min`/`max` keys above went unreported. That `regExp` check is also now
+  anchored to the whole value (`^(?:…)$`, matching how a browser applies the
+  `pattern` attribute) — unanchored, `new RegExp(descriptor.regExp).test()`
+  accepted any value containing a matching substring, so e.g. `99` passed
+  silently against `rangeToPattern`'s un-anchored 1–32 pattern (a plain `9`
+  at the start already matched) and the invalid room was created anyway.
 
 ## [0.14.4] — 2026-08-21
 

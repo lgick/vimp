@@ -93,6 +93,34 @@ describe('AuthView.renderData', () => {
   });
 });
 
+describe('AuthView: единственный вариант select/radio', () => {
+  // vimp-snakes/model: поле скрыто (singleOption), поправить рассинхрон
+  // некому — при устаревшем/несуществующем значении с сервера (например,
+  // localStorage[storage] от версии игры, где вариантов было больше) поле
+  // должно принудительно нести единственно возможное значение
+  it('поправляет устаревшее value в params на принудительное — тот же массив едет в AuthCtrl.init', () => {
+    const params = [
+      {
+        name: 'model',
+        value: 's0-no-longer-exists',
+        options: { control: 'select', label: 'Snake', options: ['s1'], storage: 'model' },
+      },
+    ];
+
+    new AuthView(makeModel(), elems, null, params);
+
+    expect(params[0].value).toBe('s1');
+  });
+
+  it('не трогает params для поля с несколькими вариантами', () => {
+    const params = [...authParams];
+
+    new AuthView(makeModel(), elems, null, params);
+
+    expect(params.find(p => p.name === 'team').value).toBe('2');
+  });
+});
+
 describe('AuthView.renderError', () => {
   it('добавляет строку ошибки с текстом', () => {
     const view = new AuthView(makeModel(), elems, null, authParams);

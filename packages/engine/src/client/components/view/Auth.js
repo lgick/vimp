@@ -76,6 +76,21 @@ export default class AuthView {
     this._fields = buildForm(descriptors, container, {}, ({ name, value }) => {
       this.publisher.emit('input', { name, value });
     });
+
+    // единственный резолвнутый вариант select/radio — принудительное
+    // значение поля (formBuilder.js): строка скрыта, игроку нечем поправить
+    // рассинхрон, если сервер прислал что-то другое (например, устаревший
+    // localStorage[storage] от версии игры, где вариантов было больше).
+    // Правим это же в исходном params — main.js передаёт тот же массив
+    // следом в AuthCtrl.init, а AuthModel._data не связана с DOM-полями и
+    // без этой правки уехала бы с рассинхронизированным значением
+    params.forEach(param => {
+      const field = this._fields.get(param.name);
+
+      if (field?.singleOption) {
+        param.value = field.getValue();
+      }
+    });
   }
 
   // заполняет нейтральный каркас текстами игры: заголовок и help-секции

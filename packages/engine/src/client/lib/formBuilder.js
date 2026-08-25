@@ -33,6 +33,13 @@ function toStored(descriptor, value) {
 function buildSelect(descriptor, ctx) {
   const el = document.createElement('select');
   const options = resolveOptions(descriptor, ctx);
+  // ровно один вариант — единственно возможное значение поля: строка
+  // скрыта (playerу нечего выбирать и нечем поправить рассинхрон), поэтому
+  // ничто извне (устаревший localStorage, default из схемы, серверное
+  // PS_AUTH_DATA) не должно иметь возможности его переопределить —
+  // native <select>.value на несуществующем option молча схлопывается
+  // в '' без единой ошибки (см. review репозитория, vimp-snakes/model)
+  const forced = options.length === 1 ? options[0].value : undefined;
 
   el.name = descriptor.name;
 
@@ -44,11 +51,19 @@ function buildSelect(descriptor, ctx) {
     el.appendChild(option);
   });
 
+  if (forced !== undefined) {
+    el.value = forced;
+  }
+
   return {
     el,
     singleOption: options.length <= 1,
     getValue: () => el.value,
     setValue(value) {
+      if (forced !== undefined) {
+        return;
+      }
+
       el.value = value;
     },
     onChange(cb) {
@@ -136,6 +151,9 @@ function buildRadio(descriptor, ctx) {
   const groupName = `field-radio-${descriptor.name}-${++idSeq}`;
   const inputs = [];
   const options = resolveOptions(descriptor, ctx);
+  // см. buildSelect: ровно один вариант — принудительное и неизменяемое
+  // значение, строка скрыта и поправить рассинхрон нечем
+  const forced = options.length === 1 ? String(options[0].value) : undefined;
 
   options.forEach(({ value, label }) => {
     const wrap = document.createElement('span');
@@ -156,6 +174,10 @@ function buildRadio(descriptor, ctx) {
     inputs.push(input);
   });
 
+  if (forced !== undefined) {
+    inputs[0].checked = true;
+  }
+
   const getValue = () => inputs.find(input => input.checked)?.value;
 
   return {
@@ -163,6 +185,10 @@ function buildRadio(descriptor, ctx) {
     singleOption: options.length <= 1,
     getValue,
     setValue(value) {
+      if (forced !== undefined) {
+        return;
+      }
+
       inputs.forEach(input => {
         input.checked = input.value === String(value);
       });
@@ -228,10 +254,17 @@ function buildLabelSuffix(descriptor) {
   return unit === 's' ? ` (s, ${range})` : ` (${range})`;
 }
 
-// ошибка одного поля по его текущему значению, либо null — required/regExp/
-// maxlength (не-numeric text)/min/max (numeric text); сообщения не зависят
-// от локали браузера, в отличие от бывшего reportValidity()
-function validateField(descriptor, value) {
+// ошибка одного поля, либо null — required/regExp/maxlength (не-numeric
+// text)/min/max (numeric text); сообщения не зависят от локали браузера, в
+// отличие от бывшего reportValidity(). regExp сверяется с "сырой" строкой
+// поля (field.el.value) — тем же значением, которое раньше матчил нативный
+// pattern: у числового text-поля getValue() отдаёт число в единице
+// хранения (мс для unit:'s'), а не отображаемую строку, так что regExp
+// (сгенерированный build-game-manifest.js диапазон вроде "^([1-8])$" для
+// maxPlayers — единственная граница у манифестов без min/max) проверяется
+// отдельно от min/max, а не вместо них
+function validateField(descriptor, field) {
+  const value = field.getValue();
   const isEmpty = value === undefined || value === null || value === '';
 
   if (descriptor.required && isEmpty) {
@@ -245,6 +278,14 @@ function validateField(descriptor, value) {
   if (descriptor.control === 'text') {
     const numeric = descriptor.numeric || descriptor.unit !== undefined;
 
+    // HTML `pattern` matches the WHOLE value (browsers wrap it in
+    // `^(?:…)$` themselves) — a bare `new RegExp(descriptor.regExp)` has no
+    // such anchor and would accept "99" against a "single digit" pattern
+    // off a partial match, so it must be anchored the same way here
+    if (descriptor.regExp && !new RegExp(`^(?:${descriptor.regExp})$`).test(field.el.value)) {
+      return 'invalid format';
+    }
+
     if (numeric) {
       const displayValue = descriptor.unit === 's' ? value / 1000 : value;
 
@@ -255,14 +296,8 @@ function validateField(descriptor, value) {
       if (descriptor.max !== undefined && displayValue > descriptor.max) {
         return `must be ≤ ${descriptor.max}`;
       }
-    } else {
-      if (descriptor.maxlength !== undefined && String(value).length > descriptor.maxlength) {
-        return `must be at most ${descriptor.maxlength} characters`;
-      }
-
-      if (descriptor.regExp && !new RegExp(descriptor.regExp).test(value)) {
-        return 'invalid format';
-      }
+    } else if (descriptor.maxlength !== undefined && String(value).length > descriptor.maxlength) {
+      return `must be at most ${descriptor.maxlength} characters`;
     }
   }
 
@@ -281,7 +316,7 @@ export function collectFormErrors(descriptors, fields) {
       return;
     }
 
-    const error = validateField(descriptor, field.getValue());
+    const error = validateField(descriptor, field);
 
     if (error) {
       errors.push({ name: descriptor.name, error });
