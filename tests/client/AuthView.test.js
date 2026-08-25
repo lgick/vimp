@@ -71,7 +71,11 @@ describe('AuthView: показ/скрытие', () => {
 });
 
 describe('AuthView.renderData', () => {
-  it('заполняет текстовый инпут и чистит ошибку', () => {
+  it('заполняет текстовый инпут и не трогает блок ошибок', () => {
+    // блок ведёт bindLiveErrors ('input', по ходу правки). Чистка, стоявшая
+    // здесь, висела на событии модели, а оно приходит из 'change' — у
+    // text-инпута это blur: переход в следующее поле сносил ошибки полей,
+    // которых игрок ещё не касался
     const view = new AuthView(makeModel(), elems, null, authParams);
     document.getElementById('auth-error').textContent = 'старая ошибка';
 
@@ -79,7 +83,7 @@ describe('AuthView.renderData', () => {
 
     const input = document.querySelector('input[name="login"]');
     expect(input.value).toBe('Alice');
-    expect(document.getElementById('auth-error').textContent).toBe('');
+    expect(document.getElementById('auth-error').textContent).toBe('старая ошибка');
   });
 
   it('отмечает нужный radio-инпут', () => {
@@ -212,8 +216,9 @@ describe('AuthView: события DOM', () => {
       { name: 'login', value: '', options: { control: 'text', label: 'Login', required: true } },
       { name: 'clan', value: '', options: { control: 'text', label: 'Clan', required: true } },
     ];
+    const model = makeModel();
 
-    new AuthView(makeModel(), elems, null, requiredParams);
+    new AuthView(model, elems, null, requiredParams);
 
     const error = document.getElementById('auth-error');
 
@@ -224,6 +229,12 @@ describe('AuthView: события DOM', () => {
 
     login.value = 'Bob';
     login.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(error.textContent).toBe('CLAN: required');
+
+    // и переход в следующее поле её не сносит: blur даёт 'change', тот идёт
+    // через модель обратно в renderData, который раньше чистил блок целиком
+    model.publisher.emit('form', { name: 'login', value: 'Bob' });
 
     expect(error.textContent).toBe('CLAN: required');
   });

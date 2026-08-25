@@ -181,13 +181,14 @@ render as lines inside `#lobby-error`/`#auth-error`
 in `^(?:…)$`, exactly as a browser applies the `pattern` attribute — so
 write it unanchored; one that does not compile is no constraint at all (the
 field passes, the engine logs a `console.error`, `vimp-contract` rule `B5`
-catches it first). Text values are trimmed before the checks, so a field
-holding only spaces is empty rather than `0`. Fields with no rendered row
+catches it first). Text values are trimmed both when checked and when
+read, so a field holding only spaces is empty rather than `0` and the value
+that travels to the host is the one that was checked. Fields with no rendered row
 (`hidden`, and the single-choice `select`/`radio` below) are skipped by
 validation: an error the player cannot see or fix would only lock the form.
-After the first submit, editing a field re-checks the form — a line
+The form re-checks itself as the player types — a line
 disappears when its own field is fixed, not all of them on the first
-keystroke. The authoritative clamp still happens on the host regardless.
+keystroke; before the first submit only touched fields report anything. The authoritative clamp still happens on the host regardless.
 
 Form control set in v3 is exactly: **`text`, `select`, `checkbox`, `radio`**.
 A `select`/`radio` descriptor resolving to exactly one choice is still built

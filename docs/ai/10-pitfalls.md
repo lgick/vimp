@@ -180,6 +180,9 @@ name the violation. Do not verify those by eye — run the tool
       engine drops the check with a `console.error` and the field passes.
       The engine anchors it as `^(?:…)$`, the way a browser applies
       `pattern`, so write it unanchored.
+- [ ] Keep that `regExp` linear. The form re-checks itself on every
+      keystroke, so a pattern that backtracks catastrophically freezes the
+      tab while the player types, not just on submit.
 
 ## Assets and maps
 

@@ -26,13 +26,7 @@ import StatCtrl from './components/controller/Stat.js';
 import VoteModel from './components/model/Vote.js';
 import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
-import {
-  buildForm,
-  mergeRoomDefaults,
-  collectFormErrors,
-  renderFormErrors,
-  bindLiveErrors,
-} from './lib/formBuilder.js';
+import { buildForm, mergeRoomDefaults, bindLiveErrors } from './lib/formBuilder.js';
 import { normalizeAuthParams } from './lib/authParams.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
@@ -1823,7 +1817,7 @@ let leaderboardReqId = 0;
 // поля формы комнаты, сгенерированные по manifest.roomForm: key -> field
 let roomFormFields = new Map();
 // дескрипторы той же формы (после mergeRoomDefaults) — нужны отдельно для
-// collectFormErrors при сабмите
+// валидации (bindLiveErrors по ходу правки и при сабмите)
 let roomFormDescriptors = [];
 
 // генерирует форму создания комнаты по явной схеме манифеста (roomForm,
@@ -2007,10 +2001,9 @@ function initLobby() {
   // первого gameChanged/рендера Leaderboard
   lobbyView.setSelfNick(lobbyAuthModel.getNick());
 
-  // показанные ошибки уходят по мере починки полей, а не все разом по
-  // первому нажатию клавиши (formBuilder.bindLiveErrors); вооружается
-  // первым кликом по Create server
-  const armFormErrors = bindLiveErrors(
+  // ошибки формы видны по ходу правки (formBuilder.bindLiveErrors): до
+  // первого клика по Create server — по тронутым полям, после — по всей форме
+  const liveErrors = bindLiveErrors(
     document.getElementById(lobbyConfig.elems.fieldsId),
     document.getElementById(lobbyConfig.elems.errorId),
     () => ({ descriptors: roomFormDescriptors, fields: roomFormFields }),
@@ -2036,7 +2029,8 @@ function initLobby() {
 
     populateRoomForm(manifest);
     lobby.gameChanged(manifest.id, manifest.title);
-    clearLobbyError();
+    // форма пересобрана: она снова ничья, а блок ошибок чистит сам disarm
+    liveErrors.disarm();
   });
 
   const nameInput = document.getElementById(lobbyConfig.elems.nameId);
@@ -2047,19 +2041,13 @@ function initLobby() {
     // (как в auth-форме) туда не сериализуются (docs/en/plugin-api.md
     // "Form schema"); авторитетный клампинг всё равно в applyRoomOverrides.js
     // (вызывается из host.worker.js при создании комнаты). Проверяем до
-    // активации игры: неверная форма не должна стоить загрузки плагина
-    const formErrors = collectFormErrors(roomFormDescriptors, roomFormFields);
-
-    // с этого момента правка поля перепроверяет форму, а не гасит блок
-    armFormErrors();
-
-    if (formErrors.length) {
-      renderFormErrors(document.getElementById(lobbyConfig.elems.errorId), formErrors);
-
+    // активации игры: неверная форма не должна стоить загрузки плагина.
+    // arm() и рисует ошибки, и снимает фильтр «только тронутые поля»: клик —
+    // это ответ за форму целиком, включая поля, которых игрок не касался.
+    // Он же чистит блок, когда ошибок нет
+    if (liveErrors.arm().length) {
       return;
     }
-
-    clearLobbyError();
 
     const manifest = gamesById.get(gameSelect?.value) ?? activeGameManifest;
     const name =

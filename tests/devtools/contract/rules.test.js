@@ -486,35 +486,61 @@ describe('C. client', () => {
     ).toBe(PASS);
   });
 
-  it('C6 reads the rule body: a selector without a width covers nothing', () => {
+  // C6 разбирает CSS плагина эвристикой, и каждый её механизм ломается
+  // по-своему — поэтому по кейсу на механизм, а не три expect в одном
+  const sixColumnsWithStyles = styles => {
     const stat = base.clientConfig.modules.stat;
-    const sixColumns = withModules(base, {
-      stat: {
-        params: {
-          ...stat.params,
-          columns: ['name', 'status', 'eaten', 'kills', 'score', 'ping'],
-        },
-      },
-    });
-    const withStyles = styles => ({
+
+    return {
       ...base,
       clientPlugin: { ...base.clientPlugin, styles },
-      clientConfig: sixColumns,
-    });
+      clientConfig: withModules(base, {
+        stat: {
+          params: {
+            ...stat.params,
+            columns: ['name', 'status', 'eaten', 'kills', 'score', 'ping'],
+          },
+        },
+      }),
+    };
+  };
 
-    // правило про раскладку, а не про цвет
-    expect(check('C6', withStyles('#stat table td:nth-child(6) { color: red; }')).status).toBe(FAIL);
+  it('C6 reads the rule body: a colour is not a layout', () => {
+    expect(
+      check('C6', sixColumnsWithStyles('#stat table td:nth-child(6) { color: red; }')).status,
+    ).toBe(FAIL);
+  });
 
+  it('C6 finds a rule nested in @media', () => {
     // @media/@supports заворачивают правило во второй уровень скобок
     expect(
       check(
         'C6',
-        withStyles('@media (min-width: 600px) { #stat table td:nth-child(6) { width: 10%; } }'),
+        sixColumnsWithStyles(
+          '@media (min-width: 600px) { #stat table td:nth-child(6) { width: 10%; } }',
+        ),
       ).status,
     ).toBe(PASS);
+  });
 
-    // ячейка — не только td/span: заголовочная колонка тоже раскладка
-    expect(check('C6', withStyles('#stat table th:nth-child(6) { width: 10%; }')).status).toBe(PASS);
+  it('C6 counts th and flex-grow as a layout too', () => {
+    expect(
+      check('C6', sixColumnsWithStyles('#stat table th:nth-child(6) { width: 10%; }')).status,
+    ).toBe(PASS);
+    expect(
+      check('C6', sixColumnsWithStyles('#stat table td:nth-child(6) { flex-grow: 1; }')).status,
+    ).toBe(PASS);
+  });
+
+  it('C6 takes a grid track list on the container as covering every column', () => {
+    // grid-template-columns перечисляет треки разом и стоит на контейнере,
+    // который селектором ячейки по определению не является
+    expect(
+      check(
+        'C6',
+        sixColumnsWithStyles('#stat table { grid-template-columns: repeat(6, 1fr); }'),
+      ).status,
+    ).toBe(PASS);
   });
 
   it('C6 accepts fewer columns than the engine lays out', () => {

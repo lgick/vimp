@@ -33,33 +33,16 @@ bumps the minor version).
   `required` on `map`, so an empty map catalog used to create the room with
   `map: ''`; and "required" would have pointed the player at a field there
   is nothing to put in.
-- Once the player has submitted once, editing a field **re-checks the form**
-  instead of clearing the error block (`bindLiveErrors()`, a new
-  `formBuilder.js` export, used by both the room and the auth form): a line
-  disappears when its own field is fixed, so a player with three errors no
-  longer loses the other two by starting to fix the first.
-
-### Fixed
-
-- A `regExp` that does not compile no longer kills the submit. It arrives
-  from the game manifest as a string, and the `SyntaxError` from `new
-  RegExp()` escaped `collectFormErrors()` into the click handler: "Create
-  server" and `#auth-enter` stopped doing anything at all, with nothing
-  rendered in the error block — the native `pattern` attribute behaved the
-  other way round, a browser ignores a pattern it cannot read. Such a
-  pattern is now no constraint at all, named once in a `console.error`, and
-  contract rule `B5` catches it before the game ships. Compiled patterns are
-  also cached, instead of being rebuilt per field per submit.
-- A `select`/`radio` resolving to exactly one choice no longer sends a
-  non-string value to the host. `resolveForcedValue()` returned the schema's
-  own value, while a rendered control always yields a DOM string — a game
-  declaring `options: [1, 2]` therefore failed `validateAuth` with
-  "Property must be a string" on a field whose row is not rendered, leaving
-  the player no way to fix it.
-- A text field holding only whitespace is empty rather than `0`: values are
-  trimmed before the checks (`Number(' ')` is `0`, so a space used to create
-  a room on a numeric field declared without `min`/`max`/`regExp`), and
-  padding around a valid value no longer changes the verdict.
+- Both forms check themselves **as the player types** (`bindLiveErrors()`, a
+  new `formBuilder.js` export, used by the room and the auth form alike): a
+  value out of range is reported the moment it is entered rather than on the
+  next click of the submit button, and a line disappears when its own field
+  is fixed, so a player with three errors no longer loses the other two by
+  starting to fix the first. Before the first submit only fields the player
+  has actually touched can report anything — `required` on a field nobody
+  has opened yet is noise, not help; submitting lifts that filter, since a
+  click answers for the whole form. Rebuilding the form (switching games in
+  the lobby) puts it back: the new form is nobody's until it is touched.
 
 ### Changed
 
@@ -97,11 +80,7 @@ bumps the minor version).
   `regExp` encodes the same bounds, but `must be ≤ 32` repeats the label's
   hint while `invalid format` says nothing; the pattern is left to catch
   what the range cannot (a fraction, a leading zero).
-- Errors shown for a room- or auth-form field now respond to typing rather
-  than to the next click: both views listen for `input` on their field
-  container, where the previous clearing rode on `change` — which a text
-  input only fires on blur, i.e. after the next click on the submit button.
-  The lobby's error block moved above the "Create server" button, next to
+- The lobby's error block moved above the "Create server" button, next to
   the fields it describes, and no longer occupies a row of its own while
   empty (`.form-error:empty`).
 - `AuthModel.update()` no longer re-validates the value against
@@ -114,6 +93,38 @@ bumps the minor version).
 
 ### Fixed
 
+- A `regExp` that does not compile no longer kills the submit. It arrives
+  from the game manifest as a string, and the `SyntaxError` from `new
+  RegExp()` escaped `collectFormErrors()` into the click handler: "Create
+  server" and `#auth-enter` stopped doing anything at all, with nothing
+  rendered in the error block — the native `pattern` attribute behaved the
+  other way round, a browser ignores a pattern it cannot read. Such a
+  pattern is now no constraint at all, named once in a `console.error`, and
+  contract rule `B5` catches it before the game ships. Compiled patterns are
+  also cached, instead of being rebuilt per field per submit.
+- A `select`/`radio` resolving to exactly one choice no longer sends a
+  non-string value to the host. `resolveForcedValue()` returned the schema's
+  own value, while a rendered control always yields a DOM string — a game
+  declaring `options: [1, 2]` therefore failed `validateAuth` with
+  "Property must be a string" on a field whose row is not rendered, leaving
+  the player no way to fix it.
+- A text field is trimmed on both sides of the border it sits on: the value
+  it reports and the value it is checked against are now the same string.
+  Only whitespace counts as empty rather than as `0` (`Number(' ')` is `0`,
+  so a space used to create a room on a numeric field declared without
+  `min`/`max`/`regExp`), and padding around a valid value neither changes
+  the verdict nor travels to the host — the client used to pass
+  `"  Bob  "` and let the host's own `isValidName` reject it.
+- The auth form's error block is no longer wiped on blur.
+  `AuthView.renderData()` cleared it on every model `form` event, and that
+  event rides on `change` — which a text input fires when it loses focus, so
+  moving from a field the player had just fixed to the next one took the
+  errors of every field they had not touched yet with it. The block is owned
+  by the live re-check alone now.
+- A `select`/`radio` that resolves to no choices at all and has no rendered
+  row (`hidden: true`) is left out of the submit entirely, instead of
+  contributing an empty string: there is no value to send, so the host keeps
+  the `roomDefaults`/schema one.
 - Contract rule `C4` (`componentDependencies`) no longer fails a game for
   naming a service the game itself provides. The rule matched only the
   engine's own four (`renderer`, `soundManager`, `assetsBase`,
@@ -144,15 +155,18 @@ bumps the minor version).
   compares against `error`. `runRules(ctx, ruleList)` takes an explicit rule
   list so that resolution is testable on its own.
 - Contract rule `B5` (`roomForm`) also checks that each `regExp` compiles,
-  in the anchored form the client uses.
+  in the anchored form the client uses — both sides now build it through one
+  `anchorPattern()` (`src/lib/formPattern.js`), so the rule cannot drift
+  from what it predicts.
 - Contract rule `C6` (`statColumns`) reads the declaration body, not just
   the selector: a column counts as laid out only when a `#stat` rule naming
   a cell declares a width (`width`/`min-width`/`max-width`/`flex`/
   `flex-basis`/`grid-template-columns`). It also stopped losing rules nested
   in `@media`/`@supports` (the previous split on `}` saw the wrapper and
-  dropped the selector) and now recognises `th` alongside `td`/`span` — so
-  the rule no longer passed a colour-only rule as a layout, nor warned about
-  a column that is in fact styled.
+  dropped the selector), recognises `th` alongside `td`/`span`, and takes a
+  `grid-template-columns` track list on the container as covering every
+  column — so the rule no longer passes a colour-only rule as a layout, nor
+  warns about a column that is in fact styled.
 
 ## [0.14.4] — 2026-08-21
 

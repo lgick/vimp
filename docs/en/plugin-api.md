@@ -255,11 +255,21 @@ declarative checks and JS validators (`authSchema.validators`, resolved by
 `validateAuth` on the host and mirrored on the client, rendered through the
 same `renderFormErrors`).
 
-Once the player has submitted once, editing any field **re-checks the form**
-rather than clearing the block: a line disappears when its own field is
-fixed, so the list of what is still wrong survives the first keystroke.
-Before that first submit nothing is shown — the player is still filling the
-form in.
+A form **checks itself as the player types**: a value out of range is
+reported the moment it is entered, not on the next click, and a line
+disappears when its own field is fixed, so the list of what is still wrong
+survives the first keystroke. Before the first submit only fields the player
+has actually touched can report anything — `required` on a field nobody has
+opened yet is noise; the submit lifts that filter, because a click answers
+for the whole form. Rebuilding the form (switching games in the lobby) puts
+it back.
+
+Errors pushed by the server (`AuthView.renderError`) are a snapshot of the
+last submit: the engine cannot re-check them, so any edit to the form clears
+them and the next submit brings back whichever still apply. Text values are
+trimmed on the way out as well as on the way in — what the field reports is
+the same string that was checked, so the client never passes `"  Bob  "` and
+leaves the host to reject it.
 
 Where each half of the contract lives:
 - **Room form**: `GameManifest.roomForm` (next to `roomDefaults`, which

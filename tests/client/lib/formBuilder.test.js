@@ -570,6 +570,23 @@ describe('formBuilder.collectFormErrors', () => {
     error.mockRestore();
   });
 
+  it('скрытое поле без вариантов не попадает в сабмит вовсе', () => {
+    const container = document.createElement('div');
+    // строки нет — ошибку показать некому (её не видно и не исправить), но и
+    // пустая строка не значение: ключа не должно быть в fields, иначе он
+    // уедет в overrides и перекроет roomDefaults
+    const descriptors = [
+      { name: 'map', control: 'select', label: 'Map', source: 'maps', hidden: true },
+    ];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fields = buildForm(descriptors, container, { sources: { maps: [] } });
+
+    expect(fields.has('map')).toBe(false);
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+
+    error.mockRestore();
+  });
+
   it('select без вариантов — ошибка и без required (vimp-tanks/map)', () => {
     const container = document.createElement('div');
     // ни одна игра не ставит required на `map`: без собственной ошибки
@@ -649,11 +666,40 @@ describe('formBuilder.collectFormErrors', () => {
 
     fields.get('maxPlayers').el.value = ' 6 ';
     expect(collectFormErrors(descriptors, fields)).toEqual([]);
+    expect(fields.get('maxPlayers').getValue()).toBe(6);
 
     fields.get('maxPlayers').el.value = '   ';
     expect(collectFormErrors(descriptors, fields)).toEqual([
       { name: 'maxPlayers', label: 'Max players', error: 'required' },
     ]);
+  });
+
+  it('нечисловое поле уезжает тем же значением, которое проверено', () => {
+    const container = document.createElement('div');
+    // валидация тримит — значит и getValue() обязан: иначе клиент говорит
+    // «ок» на строке с пробелами, а хост (isValidName) её отбивает
+    const descriptors = [
+      { name: 'login', control: 'text', label: 'Login', regExp: '[a-z]{2,10}', maxlength: 10, default: '' },
+    ];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('login').el.value = '  abc  ';
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+    expect(fields.get('login').getValue()).toBe('abc');
+  });
+
+  it('maxlength считает то же значение, что уезжает на хост', () => {
+    const container = document.createElement('div');
+    // el.maxLength режет ввод с клавиатуры, но не setValue: auth-поле
+    // засевается из localStorage[storage], и там строка бывает с пробелами
+    const descriptors = [{ name: 'login', control: 'text', label: 'Login', maxlength: 5, default: '' }];
+    const fields = buildForm(descriptors, container);
+
+    fields.get('login').setValue(' abcde ');
+
+    expect(collectFormErrors(descriptors, fields)).toEqual([]);
+    expect(fields.get('login').getValue()).toBe('abcde');
   });
 
   it('некомпилируемый regExp не роняет сабмит — поле проходит, дефект в консоли', () => {
@@ -760,17 +806,18 @@ describe('formBuilder.resolveForcedValue', () => {
 });
 
 describe('formBuilder.bindLiveErrors', () => {
-  const makeForm = () => {
+  const makeForm = (extra = []) => {
     const container = document.createElement('div');
     const errorContainer = document.createElement('div');
     const descriptors = [
       { name: 'login', control: 'text', label: 'Login', required: true, default: '' },
       { name: 'motd', control: 'text', label: 'MOTD', required: true, default: '' },
+      ...extra,
     ];
     const fields = buildForm(descriptors, container);
-    const arm = bindLiveErrors(container, errorContainer, () => ({ descriptors, fields }));
+    const live = bindLiveErrors(container, errorContainer, () => ({ descriptors, fields }));
 
-    return { container, errorContainer, descriptors, fields, arm };
+    return { container, errorContainer, descriptors, fields, live };
   };
 
   const type = (field, value) => {
@@ -778,19 +825,38 @@ describe('formBuilder.bindLiveErrors', () => {
     field.el.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
-  it('до первого сабмита правка формы ничего не рисует', () => {
+  it('неверное значение видно сразу при вводе, до всякого сабмита', () => {
+    const { errorContainer, fields } = makeForm([
+      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 8, default: 8 },
+    ]);
+
+    type(fields.get('maxPlayers'), '99');
+
+    expect(errorContainer.textContent).toBe('MAX PLAYERS: must be ≤ 8');
+  });
+
+  it('поле, которого игрок не касался, до сабмита молчит', () => {
     const { errorContainer, fields } = makeForm();
 
+    // login тронут и пуст — но «required» на нём это ответ на то, что игрок
+    // делает прямо сейчас; motd он ещё не открывал, и шуметь про него рано
     type(fields.get('login'), 'B');
+    type(fields.get('login'), '');
 
-    expect(errorContainer.textContent).toBe('');
+    expect(errorContainer.textContent).toBe('LOGIN: required');
+  });
+
+  it('сабмит снимает фильтр и отдаёт отрисованные ошибки', () => {
+    const { errorContainer, live } = makeForm();
+
+    expect(live.arm()).toHaveLength(2);
+    expect(errorContainer.children).toHaveLength(2);
   });
 
   it('после сабмита строка уходит по мере починки своего поля', () => {
-    const { errorContainer, descriptors, fields, arm } = makeForm();
+    const { errorContainer, fields, live } = makeForm();
 
-    arm();
-    renderFormErrors(errorContainer, collectFormErrors(descriptors, fields));
+    live.arm();
     expect(errorContainer.children).toHaveLength(2);
 
     // правка одного поля не должна уносить ошибку второго — иначе игрок
@@ -801,6 +867,45 @@ describe('formBuilder.bindLiveErrors', () => {
 
     type(fields.get('motd'), 'hi');
     expect(errorContainer.children).toHaveLength(0);
+  });
+
+  it('disarm возвращает форму в исходное — она снова ничья', () => {
+    const { errorContainer, fields, live } = makeForm();
+
+    live.arm();
+    expect(errorContainer.children).toHaveLength(2);
+
+    // смена игры в лобби: форма пересобрана, игрок её ещё не отправлял
+    expect(live.disarm()).toEqual([]);
+    expect(errorContainer.textContent).toBe('');
+
+    type(fields.get('motd'), 'hi');
+    expect(errorContainer.textContent).toBe('');
+  });
+
+  it('правка radio засчитывается своему полю, а не сгенерированному name', () => {
+    const { errorContainer, fields, live } = makeForm([
+      {
+        name: 'team',
+        control: 'radio',
+        label: 'Team',
+        required: true,
+        options: [
+          { value: '1', label: 'Red' },
+          { value: '2', label: 'Blue' },
+        ],
+      },
+    ]);
+
+    live.arm();
+    expect(errorContainer.textContent).toContain('TEAM: required');
+
+    const input = fields.get('team').el.querySelector('input');
+
+    input.checked = true;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(errorContainer.textContent).not.toContain('TEAM');
   });
 
   it('пустой контейнер полей не роняет привязку', () => {

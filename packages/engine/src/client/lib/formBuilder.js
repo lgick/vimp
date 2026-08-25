@@ -1,3 +1,5 @@
+import { anchorPattern } from '../../lib/formPattern.js';
+
 // Общий билдер полей форм (room-форма и auth-форма используют один
 // контракт дескрипторов — docs/en/plugin-api.md, раздел "Form schema").
 // control: 'select'|'text'|'checkbox'|'radio'; все контролы — нативные
@@ -135,7 +137,11 @@ function buildText(descriptor) {
 
   const getValue = () => {
     if (!numeric) {
-      return el.value;
+      // то же, что лобби уже делает с именем комнаты (main.js: name.trim()):
+      // незначащие пробелы — опечатка ввода, а не значение. Валидация
+      // смотрит на ту же строку (validateField), иначе она разрешала бы то,
+      // что потом отбивает хост (isValidName не терпит крайних пробелов)
+      return el.value.trim();
     }
 
     const n = Number(el.value);
@@ -148,9 +154,9 @@ function buildText(descriptor) {
     el,
     getValue,
     // «сырая» строка поля, до конвертации единицы и отката к default:
-    // единственный способ отличить пустой ввод от валидного значения, и
-    // то же самое, что матчил нативный `pattern`. Часть контракта поля —
-    // валидации незачем знать, из какого элемента оно построено
+    // единственный способ отличить пустой ввод от валидного значения (у
+    // числового поля getValue() подменяет пустоту дефолтом). Часть контракта
+    // поля — валидации незачем знать, из какого элемента оно построено
     getRaw: () => el.value,
     setValue(value) {
       el.value = numeric ? toDisplay(descriptor, value) : (value ?? '');
@@ -302,22 +308,18 @@ function buildLabelSuffix(descriptor) {
 // живут всю сессию, а сабмит иначе пересобирал бы RegExp на каждое поле
 const patterns = new Map();
 
-// HTML `pattern` matches the WHOLE value (browsers wrap it in `^(?:…)$`
-// themselves) — a bare `new RegExp(descriptor.regExp)` has no such anchor and
-// would accept "99" against a "single digit" pattern off a partial match, so
-// it must be anchored the same way here.
 // regExp приезжает из манифеста игры строкой: невалидный паттерн — дефект
 // схемы, а не повод убить сабмит. Без перехвата SyntaxError уходит из
 // collectFormErrors в обработчик клика, кнопка перестаёт делать что-либо и
 // игрок не видит ни строки (нативный `pattern` вёл себя ровно наоборот:
 // нечитаемый паттерн браузер игнорирует). Контракт-чекер ловит это раньше —
-// правило B5, roomForm
+// правило B5, roomForm; якорение общее с ним (lib/formPattern.js)
 function fieldPattern(regExp) {
   if (!patterns.has(regExp)) {
     let pattern = null;
 
     try {
-      pattern = new RegExp(`^(?:${regExp})$`);
+      pattern = anchorPattern(regExp);
     } catch (e) {
       console.error(`formBuilder: invalid regExp "${regExp}" — ${e.message}`);
     }
@@ -353,12 +355,13 @@ function validateField(descriptor, field) {
   // у числового поля getValue() уже откатился к default (чтобы пустая
   // строка не уехала нулём), поэтому пустоту видно только по сырой строке.
   // trim: Number(' ') === 0, то есть без него пробел прошёл бы нулём — и
-  // наоборот, ' 8 ' игрок считает валидной восьмёркой
-  const raw = field.getRaw?.().trim();
-  const isEmpty =
-    raw !== undefined
-      ? raw === ''
-      : value === undefined || value === null || value === '';
+  // наоборот, ' 8 ' игрок считает валидной восьмёркой. У нечислового поля
+  // это ровно то же, что вернёт getValue(): обе стороны обязаны смотреть на
+  // одну строку, иначе клиент разрешает то, что отбивает хост
+  const raw = isText ? (field.getRaw?.() ?? '').trim() : undefined;
+  const isEmpty = isText
+    ? raw === ''
+    : value === undefined || value === null || value === '';
   const numeric = isText && isNumeric(descriptor);
 
   // числовое поле всегда несёт число и «необязательным» быть не может:
@@ -466,31 +469,76 @@ export function renderFormErrors(container, errors) {
   });
 }
 
-// перевалидация формы по ходу правки: строка уходит из блока ошибок, когда
-// починено именно её поле, а не всё разом по первому нажатию клавиши —
-// иначе игрок с тремя ошибками теряет список, начав править первую.
-// Вооружается первым сабмитом (возвращённой функцией): до него игрок ещё
-// заполняет форму, и «required» на поле, в которое он только что начал
-// печатать, — чистый шум. 'input' — единственное событие по ходу ввода
-// ('change' у text-инпута приходит на blur, то есть уже после клика по
-// кнопке); слушатель делегированный и вешается один раз: контейнер
-// постоянен, пересобираются только поля. Пустой список тоже рендерится —
-// так из блока уходят и не-формные строки (отказ загрузки плагина в лобби)
-export function bindLiveErrors(container, errorContainer, getForm) {
-  let armed = false;
+// какому полю принадлежит событие ввода: у radio-группы field.el — обёртка
+// вокруг нескольких input'ов, а их собственный name сгенерирован и с именем
+// поля не совпадает, поэтому ищем по вхождению узла, а не по name
+function fieldNameOf(fields, target) {
+  for (const [name, field] of fields) {
+    if (field.el === target || field.el.contains?.(target)) {
+      return name;
+    }
+  }
 
-  container?.addEventListener('input', () => {
-    if (!armed) {
-      return;
+  return undefined;
+}
+
+// перевалидация формы по ходу правки — вместо «одна ошибка на клик».
+//
+// Показывается не всё подряд: до сабмита — только поля, которых игрок уже
+// касался. Неверное значение он видит сразу, как ввёл (а не после клика по
+// кнопке), но «required» на поле, которое ещё не заполняли, не шумит.
+// Сабмит (arm) снимает фильтр: клик — это ответ за всю форму целиком.
+//
+// Строка уходит из блока, когда починено именно её поле, а не всё разом по
+// первому нажатию клавиши — иначе игрок с тремя ошибками теряет список,
+// начав править первую.
+//
+// 'input' — единственное событие по ходу ввода ('change' у text-инпута
+// приходит на blur, то есть уже после клика по кнопке); слушатель
+// делегированный и вешается один раз: контейнер постоянен, пересобираются
+// только поля. Пустой список тоже рендерится — так из блока уходят и
+// не-формные строки (отказ загрузки плагина в лобби).
+export function bindLiveErrors(container, errorContainer, getForm) {
+  let touched = new Set();
+  let all = false;
+
+  const render = () => {
+    const { descriptors, fields } = getForm();
+    const errors = collectFormErrors(descriptors, fields).filter(
+      error => all || touched.has(error.name),
+    );
+
+    renderFormErrors(errorContainer, errors);
+
+    return errors;
+  };
+
+  container?.addEventListener('input', event => {
+    const name = fieldNameOf(getForm().fields, event.target);
+
+    if (name !== undefined) {
+      touched.add(name);
     }
 
-    const { descriptors, fields } = getForm();
-
-    renderFormErrors(errorContainer, collectFormErrors(descriptors, fields));
+    render();
   });
 
-  return () => {
-    armed = true;
+  return {
+    // сабмит: показываем и то, чего игрок не трогал. Возвращает отрисованные
+    // ошибки, чтобы вызывающему не пришлось собирать их вторым проходом
+    arm: () => {
+      all = true;
+
+      return render();
+    },
+    // форма пересобрана (смена игры) — она снова ничья: ни одного тронутого
+    // поля, ни одного сабмита
+    disarm: () => {
+      all = false;
+      touched = new Set();
+
+      return render();
+    },
   };
 }
 
@@ -536,6 +584,14 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
 
     if (descriptor.hidden || field.singleOption) {
       field.rendered = false;
+
+      // строки нет — ошибку показать некому (её не видно и не исправить), но
+      // и пустая строка не значение: пусть ключ вообще не попадёт в сабмит,
+      // на хосте останется roomDefaults/значение схемы
+      if (field.noOptions) {
+        fields.delete(descriptor.name);
+      }
+
       return;
     }
 

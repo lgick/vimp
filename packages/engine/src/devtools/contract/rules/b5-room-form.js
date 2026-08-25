@@ -1,4 +1,5 @@
 import { ERROR, skip, verdict } from '../result.js';
+import { anchorPattern } from '../../../lib/formPattern.js';
 
 // roomForm. Поле вне белого списка форма показывает, лобби отправляет, а
 // хост молча выбрасывает — правило игры, построенное на своей настройке
@@ -40,9 +41,9 @@ export default {
 
       if (field.regExp !== undefined) {
         try {
-          // ровно та форма, что компилирует клиент: браузер якорит атрибут
-          // `pattern` сам, и formBuilder повторяет это за ним
-          RegExp(`^(?:${field.regExp})$`);
+          // ровно та форма, что компилирует клиент (общий anchorPattern):
+          // иначе «компилируется» у чекера и у игрока разъедется молча
+          anchorPattern(field.regExp);
         } catch (e) {
           violations.push(
             `roomForm field "${field.name}": regExp "${field.regExp}" does ` +

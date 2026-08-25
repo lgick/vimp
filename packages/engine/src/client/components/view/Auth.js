@@ -1,10 +1,5 @@
 import Publisher from '../../../lib/Publisher.js';
-import {
-  bindLiveErrors,
-  buildForm,
-  collectFormErrors,
-  renderFormErrors,
-} from '../../lib/formBuilder.js';
+import { bindLiveErrors, buildForm, renderFormErrors } from '../../lib/formBuilder.js';
 
 // Singleton AuthView
 
@@ -36,10 +31,9 @@ export default class AuthView {
     this._renderTexts(elems, texts);
     this._renderFields(elems, params);
 
-    // показанные ошибки уходят по мере починки полей, а не все разом по
-    // первому нажатию клавиши: renderData чистил их по событию модели, а
-    // оно приходит из 'change', то есть у text-инпута только на blur
-    const armErrors = bindLiveErrors(this._fieldsContainer, this._error, () => ({
+    // ошибки видны по ходу правки (см. bindLiveErrors), а не по клику:
+    // до сабмита — по тронутым полям, после — по всей форме
+    this._liveErrors = bindLiveErrors(this._fieldsContainer, this._error, () => ({
       descriptors: this._descriptors,
       fields: this._fields,
     }));
@@ -48,13 +42,7 @@ export default class AuthView {
     // сервер всё равно валидирует своими validators (renderError), это лишь
     // UX-фильтр до отправки
     this._enter.onclick = () => {
-      const errors = collectFormErrors(this._descriptors, this._fields);
-
-      armErrors();
-
-      if (errors.length) {
-        renderFormErrors(this._error, errors);
-
+      if (this._liveErrors.arm().length) {
         return;
       }
 
@@ -173,9 +161,11 @@ export default class AuthView {
   renderData(data) {
     const { name, value } = data;
 
-    // через renderFormErrors, а не this._error.textContent: проверка
-    // контейнера уже внутри (кривой elems.errorId — не повод падать)
-    renderFormErrors(this._error, []);
+    // блок ошибок ведёт bindLiveErrors — он перевалидирует форму по 'input',
+    // то есть по ходу правки. Чистка, стоявшая здесь, висела на событии
+    // модели, а оно приходит из 'change' (у text-инпута — blur): игрок,
+    // перейдя из починенного поля в следующее, терял ошибки полей, которых
+    // ещё не касался
     this._fields.get(name)?.setValue(value);
   }
 

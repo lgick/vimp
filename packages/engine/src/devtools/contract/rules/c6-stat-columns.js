@@ -18,9 +18,13 @@ const RULE = /([^{}]+)\{([^{}]*)\}/g;
 // ячейка колонки: движковая раскладка адресует их как `#stat … td|span`
 const CELL = /(?:^|[\s.#>+~])(?:td|th|span)(?=[\s.:#>+~,[]|$)/;
 // правило про раскладку, а не про цвет: колонку кроет только объявление
-// ширины или её грид/флекс-эквивалент
+// ширины или её флекс-эквивалент
 const WIDTH =
-  /(?:^|[\s;])(?:width|min-width|max-width|flex|flex-basis|grid-template-columns)\s*:/;
+  /(?:^|[\s;])(?:width|min-width|max-width|flex|flex-basis|flex-grow)\s*:/;
+// трек-лист грида задаёт ширины всем колонкам разом и стоит на контейнере
+// (`#stat table`, `#stat .stat-head`), который CELL по определению не
+// проходит, — поэтому отдельной веткой, а не пунктом в WIDTH
+const GRID = /(?:^|[\s;])grid-template-columns\s*:/;
 
 // Индексы колонок, которым стили плагина задают ширину. Селектор ячеек без
 // nth-child ('#stat table td') правит всю таблицу разом.
@@ -28,7 +32,20 @@ function styledColumns(styles, total) {
   const covered = new Set();
 
   for (const [, selector, body] of String(styles || '').matchAll(RULE)) {
-    if (!selector.includes('#stat') || !CELL.test(selector) || !WIDTH.test(body)) {
+    if (!selector.includes('#stat')) {
+      continue;
+    }
+
+    // грид на контейнере перечисляет все треки сразу — колонки покрыты все
+    if (GRID.test(body)) {
+      for (let index = 1; index <= total; index += 1) {
+        covered.add(index);
+      }
+
+      continue;
+    }
+
+    if (!CELL.test(selector) || !WIDTH.test(body)) {
       continue;
     }
 
