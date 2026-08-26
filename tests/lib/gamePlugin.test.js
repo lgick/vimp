@@ -127,6 +127,32 @@ describe('gamePlugin: assertGameConfigShape', () => {
       assertGameConfigShape({ id: 'tanks', gameConfig: typo }),
     ).toThrow(/'spectator' is not a key of teams \(team1, spectators\)/);
   });
+
+  // noSpectators (opt-in): наблюдателей нет как концепции — ключа
+  // spectatorTeam в конфиге тоже нет, и требовать его нечего
+  it('под noSpectators не требует spectatorTeam', () => {
+    const { spectatorTeam, ...rest } = validGameConfig;
+
+    expect(() =>
+      assertGameConfigShape({
+        id: 'snakes',
+        gameConfig: { ...rest, teams: { players: 1 }, noSpectators: true },
+      }),
+    ).not.toThrow();
+  });
+
+  // вход без наблюдателей ведёт в единственную команду: вторая означала бы
+  // «куда-нибудь», а ParticipantManager выбирает её однозначно
+  it('под noSpectators требует ровно одну команду', () => {
+    const { spectatorTeam, ...rest } = validGameConfig;
+
+    expect(() =>
+      assertGameConfigShape({
+        id: 'snakes',
+        gameConfig: { ...rest, teams: { red: 1, blue: 2 }, noSpectators: true },
+      }),
+    ).toThrow(/noSpectators requires exactly one team, got 2 \(red, blue\)/);
+  });
 });
 
 describe('gamePlugin: assertEngineApiCompatible', () => {

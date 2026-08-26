@@ -332,7 +332,10 @@ export default {
 
   gameConfig: {                       // игровая половина бывшего config/game.js
     teams: { team1: 1, team2: 2, spectators: 3 },   // произвольное число команд — обязательное поле
-    spectatorTeam: 'spectators',      // обязательное поле, ключ из teams
+    spectatorTeam: 'spectators',      // обязательное поле (кроме noSpectators), ключ из teams
+    // noSpectators: true,            // opt-in: наблюдателей нет вовсе — ровно одна команда,
+    //                                // подключившийся входит в неё сразу, без голосования
+    // endlessRound: true,            // opt-in: движок сам раунд не перезапускает
     parts: { models, weapons, friendlyFire },   // из src/data игры-плагина (например, vimp-tanks)
     snapshot,                         // снапшот-схема ключей (config/snapshot.js) — обязательное поле
     playerKeys, // spectatorKeys — движковые (наблюдение — механизм движка)

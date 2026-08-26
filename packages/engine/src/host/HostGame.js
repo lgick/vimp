@@ -111,8 +111,16 @@ export default class HostGame {
     this._idleTimeoutForSpectator = data.idleKickTimeout?.spectator || null;
 
     this._teams = data.teams;
-    this._spectatorTeam = data.spectatorTeam;
-    this._spectatorId = this._teams[this._spectatorTeam];
+
+    // opt-in флаги игры: noSpectators — наблюдателей нет как концепции
+    // (spectatorTeam/spectatorId равны null, вход ведёт прямо в игру),
+    // endlessRound — раунд не перезапускается сам. Флаги независимы
+    this._noSpectators = data.noSpectators === true;
+    this._endlessRound = data.endlessRound === true;
+    this._spectatorTeam = this._noSpectators ? null : data.spectatorTeam;
+    this._spectatorId = this._noSpectators
+      ? null
+      : this._teams[this._spectatorTeam];
 
     // единый реестр участников (игроки + scripted)
     this._participants = new ParticipantManager(
@@ -168,7 +176,7 @@ export default class HostGame {
 
     this._timerManager = new TimerManager(data.timers, {
       onMapTimeEnd: () => this._roundManager.onMapTimeEnd(),
-      onRoundTimeEnd: () => this._roundManager.initiateNewRound(),
+      onRoundTimeEnd: () => this._roundManager.onRoundTimeEnd(),
       onShotTick: dt => this._onShotTick(dt),
       onIdleCheck: () => this._kickIdleUsers(),
       onSendPing: () => this._sendPing(),
@@ -195,6 +203,8 @@ export default class HostGame {
       teams: this._teams,
       spectatorTeam: this._spectatorTeam,
       spectatorId: this._spectatorId,
+      noSpectators: this._noSpectators,
+      endlessRound: this._endlessRound,
       maps: data.maps,
       mapList: this._mapList,
       mapsInVote: data.mapsInVote,
@@ -501,6 +511,13 @@ export default class HostGame {
     this._socketManager.sendTechInform(socketId);
     this._socketManager.sendFirstVote(socketId);
     this._chat.pushSystem('USER_JOINED', [user.name]);
+
+    // noSpectators: голосования за вход нет — участник уже в играющей
+    // команде, осталось выдать ему актора. Именно здесь, а не в createUser:
+    // sendFirstShot выше шлёт keyset наблюдателя и затёр бы клавиши игрока
+    if (this._noSpectators) {
+      this._roundManager.admitPlayer(gameId);
+    }
   }
 
   // обрабатывает уничтожение игрока (прокси к RoundManager; из событий ядра)
@@ -836,7 +853,9 @@ export default class HostGame {
 
     this._chat.addUser(gameId);
     this._vote.addUser(gameId);
-    this._stat.addUser(gameId, this._spectatorId, { name });
+    // строка stat заводится в той команде, куда участник и попал:
+    // наблюдатели, а под noSpectators — сразу играющая команда
+    this._stat.addUser(gameId, this._participants.joinTeamId, { name });
     this._panel.addUser(gameId);
     this._RTTManager.addUser(gameId);
 
@@ -1021,6 +1040,13 @@ export default class HostGame {
 
   setPlayerState(gameId, state) {
     this._playerDataSync.setState(gameId, state);
+  }
+
+  // прибавка к рангу для игр, которые не эмитят CoreEvent::Death и потому
+  // никогда не проходят через RoundManager.reportKill: прямая прокладка к
+  // PlayerDataSync, без раунд-логики и без проверки team-wipe
+  addPlayerRank(gameId, delta) {
+    this._playerDataSync.addRank(gameId, delta);
   }
 
   // hostId + per-room секрет комнаты, подтверждённые мастером при

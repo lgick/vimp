@@ -332,7 +332,10 @@ export default {
 
   gameConfig: {                       // the game half of the former config/game.js
     teams: { team1: 1, team2: 2, spectators: 3 },   // any number of teams — required
-    spectatorTeam: 'spectators',                    // required, must be a key of teams
+    spectatorTeam: 'spectators',                    // required (unless noSpectators), must be a key of teams
+    // noSpectators: true,            // opt-in: no spectator team at all — exactly one team,
+    //                                // a joining human enters it directly (no vote)
+    // endlessRound: true,            // opt-in: the engine never restarts the round by itself
     parts: { models, weapons, friendlyFire },   // from the game plugin's src/data (e.g. vimp-tanks's)
     snapshot,                         // the snapshot key schema (config/snapshot.js) — required
     playerKeys, // spectatorKeys are engine-owned (spectating is an engine mechanism)

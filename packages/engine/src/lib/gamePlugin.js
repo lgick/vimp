@@ -54,8 +54,11 @@ const REQUIRED_GAME_CONFIG_PATHS = [
   // без них HostGame разыменовывает undefined (this._teams[spectatorTeam])
   // и игра умирает тремя разными сообщениями вместо одного контрактного
   'teams',
-  'spectatorTeam',
 ];
+
+// spectatorTeam обязателен ровно до тех пор, пока игра не объявила
+// noSpectators: там наблюдателей нет как концепции и ключа тоже нет
+const SPECTATOR_CONFIG_PATH = 'spectatorTeam';
 
 function getPath(obj, dottedPath) {
   return dottedPath
@@ -68,7 +71,12 @@ export function assertGameConfigShape(hostPlugin) {
   // null проходил бы проверку присутствия, хотя ни одно из этих полей не
   // бывает пустым по контракту: движок разыменовывает их сразу, и гейт,
   // заведённый ради текста вместо TypeError, сам отвечал бы TypeError
-  const missing = REQUIRED_GAME_CONFIG_PATHS.filter(p => {
+  const noSpectators = hostPlugin.gameConfig?.noSpectators === true;
+  const required = noSpectators
+    ? REQUIRED_GAME_CONFIG_PATHS
+    : [...REQUIRED_GAME_CONFIG_PATHS, SPECTATOR_CONFIG_PATH];
+
+  const missing = required.filter(p => {
     const value = getPath(hostPlugin.gameConfig, p);
 
     return value === undefined || value === null;
@@ -86,6 +94,20 @@ export function assertGameConfigShape(hostPlugin) {
   // undefined, после чего участник заходит в несуществующую команду
   // (ParticipantManager.createHuman валится на её счётчике)
   const { teams, spectatorTeam } = hostPlugin.gameConfig;
+
+  // noSpectators: связывать нечего — зато команда обязана быть ровно одна.
+  // Вторая играющая команда без наблюдателей означала бы вход «куда-нибудь»,
+  // а ParticipantManager выбирает команду входа однозначно
+  if (noSpectators) {
+    if (Object.keys(teams).length !== 1) {
+      throw new Error(
+        `game "${hostPlugin.id}": noSpectators requires exactly one team, ` +
+          `got ${Object.keys(teams).length} (${Object.keys(teams).join(', ')})`,
+      );
+    }
+
+    return;
+  }
 
   if (teams[spectatorTeam] === undefined) {
     throw new Error(

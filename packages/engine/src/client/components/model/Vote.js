@@ -14,8 +14,10 @@ export default class VoteModel {
 
     this._formatMessage = data.formatMessage;
 
-    this._menu = data.menu; // меню
-    this._templates = data.templates; // шаблоны голосований
+    // игра может не объявлять голосований вовсе (noSpectators): меню по 'm'
+    // тогда пустое, а не падение на длине undefined
+    this._menu = data.menu || []; // меню
+    this._templates = data.templates || {}; // шаблоны голосований
 
     this._type = ''; // тип ('menu', 'vote')
     this._waitingValues = false; // ожидания значений

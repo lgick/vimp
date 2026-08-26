@@ -41,7 +41,10 @@ Sound cues fired here: `frag` to the killer, `death` to the victim,
 ## Teams
 
 - `gameConfig.teams` maps team names to numeric ids and **includes the
-  spectator team**; `spectatorTeam` names which one it is.
+  spectator team**; `spectatorTeam` names which one it is — unless the game
+  declares `noSpectators: true`, in which case `teams` holds exactly one team,
+  `spectatorTeam` is omitted, and a joining human goes straight into that team
+  (`RoundManager.admitPlayer` on `firstShotReady`, no vote, no team change).
 - One playing team is a valid configuration (the engine's minimal test fixture
   uses exactly one).
 - Joining a full team triggers `scripted.removeOneForHuman(team)`; if that
@@ -51,7 +54,9 @@ Sound cues fired here: `frag` to the killer, `death` to the victim,
 - Switching team inside `timers.teamChangeGracePeriod` (10 s from round start)
   is free. Outside it, the switcher dies and spectates until the next round.
 - Dropping below **2 active humans** resets statistics and immediately starts
-  a new round.
+  a new round — unless the game declares `endlessRound: true`, which switches
+  off every engine-initiated round restart (this rule, the team wipe and the
+  round timer). `/nr` and map changes still restart it.
 
 ## Map rotation
 

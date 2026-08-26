@@ -28,8 +28,13 @@ export const buildClientConfig = (game, defaults, gameClient) => {
     structuredClone(gameClient),
   );
 
-  // время ожидания vote-модуля
-  config.modules.vote.params.time = game.timers.voteTime;
+  // время ожидания vote-модуля. Игра без голосований (noSpectators) не
+  // объявляет modules.vote.params вовсе — движковые дефолты дают только
+  // elems, поэтому params здесь и заводится
+  config.modules.vote.params = {
+    ...config.modules.vote.params,
+    time: game.timers.voteTime,
+  };
 
   // данные для client-side prediction (реплика движения своего танка
   // и визуального спавна его снарядов)

@@ -2,14 +2,15 @@ import { assertGameConfigShape } from '../../../lib/gamePlugin.js';
 import { ERROR, skip, verdict } from '../result.js';
 
 // Тот же гейт, что стоит на боевом пути загрузки плагина
-// (lib/gamePlugin.js): девять обязательных путей gameConfig плюс связь
-// spectatorTeam ↔ teams. Дублировать его список здесь нельзя — он обязан
-// эволюционировать в одном месте.
+// (lib/gamePlugin.js): обязательные пути gameConfig плюс связь
+// spectatorTeam ↔ teams (под noSpectators — «ровно одна команда»).
+// Дублировать его список здесь нельзя — он обязан эволюционировать в одном
+// месте.
 export default {
   id: 'B3',
   name: 'gameConfigShape',
   level: ERROR,
-  title: 'gameConfig has the nine paths the engine reads before any logic',
+  title: 'gameConfig has the paths the engine reads before any logic',
 
   check(ctx) {
     if (!ctx.hostPlugin) {

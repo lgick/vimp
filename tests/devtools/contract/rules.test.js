@@ -249,6 +249,34 @@ describe('B. host', () => {
     ).toMatch(/no playing team/);
   });
 
+  it('B4 accepts a single-team game under noSpectators', () => {
+    expect(
+      violations('B4', {
+        ...base,
+        gameConfig: {
+          ...base.gameConfig,
+          teams: { players: 1 },
+          spectatorTeam: undefined,
+          noSpectators: true,
+        },
+      }),
+    ).toBe('');
+  });
+
+  it('B4 catches a second team under noSpectators', () => {
+    expect(
+      violations('B4', {
+        ...base,
+        gameConfig: {
+          ...base.gameConfig,
+          teams: { red: 1, blue: 2 },
+          spectatorTeam: undefined,
+          noSpectators: true,
+        },
+      }),
+    ).toMatch(/requires exactly one team/);
+  });
+
   it('B5 catches a field the host drops and an unknown control', () => {
     const found = violations('B5', {
       ...base,

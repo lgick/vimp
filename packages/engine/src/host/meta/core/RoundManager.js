@@ -49,6 +49,13 @@ class RoundManager {
     this._teams = deps.teams;
     this._spectatorTeam = deps.spectatorTeam;
     this._spectatorId = deps.spectatorId;
+
+    // opt-in флаги игры (gameConfig): noSpectators — наблюдателей нет как
+    // концепции (spectatorTeam/spectatorId равны null, вход ведёт прямо в
+    // игру); endlessRound — раунд не перезапускается сам, только по явной
+    // команде игры или игрока. Флаги независимы
+    this._noSpectators = deps.noSpectators === true;
+    this._endlessRound = deps.endlessRound === true;
     this._maps = deps.maps;
     this._mapList = deps.mapList;
     this._mapsInVote = deps.mapsInVote;
@@ -77,6 +84,16 @@ class RoundManager {
 
   get removedPlayersList() {
     return this._removedPlayersList;
+  }
+
+  // истечение времени раунда. Под endlessRound раунд не заканчивается сам:
+  // явные перезапуски (/nr, смена карты) продолжают работать
+  onRoundTimeEnd() {
+    if (this._endlessRound) {
+      return;
+    }
+
+    this.initiateNewRound();
   }
 
   // запускает голосование за смену карты по истечении времени карты
@@ -147,18 +164,22 @@ class RoundManager {
       this._socketManager.sendSpectatorDefaultShot(user.socketId);
       this._socketManager.sendClear(user.socketId);
 
-      // перемещение пользователя в наблюдатели
-      this._stat.moveUser(gameId, user.teamId, this._spectatorId);
+      // перемещение пользователя в наблюдатели. Под noSpectators переводить
+      // некуда: участник остаётся в своей играющей команде и получит актора
+      // заново, как только загрузит карту (admitPlayer)
+      if (!this._noSpectators) {
+        this._stat.moveUser(gameId, user.teamId, this._spectatorId);
+        user.team = this._spectatorTeam;
+        user.teamId = this._spectatorId;
+      }
 
       // обнулить параметры
-      user.team = this._spectatorTeam;
-      user.teamId = this._spectatorId;
       user.status = 'spectator';
       user.isWatching = true;
       user.watchedGameId = this._participants.getActiveList()[0] || null;
       user.forceCameraReset = true;
 
-      this._participants.addToTeam(gameId, this._spectatorTeam);
+      this._participants.addToTeam(gameId, user.team);
 
       this.sendMap(gameId);
     }
@@ -273,6 +294,30 @@ class RoundManager {
     }
   }
 
+  // Впускает участника прямо в играющую команду — путь входа игр с
+  // noSpectators: ни голосования, ни смены команды, ни правила «<2 игроков».
+  // Команду участник получил ещё в ParticipantManager.createHuman, здесь
+  // выдаётся только актор. Возвращает false, если свободной точки нет.
+  admitPlayer(gameId) {
+    const user = this._participants.get(gameId);
+
+    if (!user || user.team === this._spectatorTeam) {
+      return false;
+    }
+
+    const respawns = this._scaledMapData?.respawns?.[user.team];
+    const index = this._participants.getTeamSize(user.team) - 1;
+    const respawnData = respawns?.[index];
+
+    if (!respawnData) {
+      return false;
+    }
+
+    this._setActivePlayer(user, respawnData);
+
+    return true;
+  }
+
   // меняет ник игрока
   changeName(gameId, name) {
     const user = this._participants.get(gameId);
@@ -332,8 +377,10 @@ class RoundManager {
 
     this._stat.moveUser(gameId, oldTeamId, newTeamId);
 
-    // если активных игроков меньше 2-х, рестарт раунда
+    // если активных игроков меньше 2-х, рестарт раунда (под endlessRound
+    // правило выключено: оно обнуляло бы stat на каждом входе и выходе)
     if (
+      !this._endlessRound &&
       this._participants
         .getHumans()
         .filter(u => u.teamId !== this._spectatorId && u.gameId !== gameId)
@@ -489,6 +536,12 @@ class RoundManager {
 
   // проверяет уничтожение всей команды
   _checkTeamWipe(victimTeamId, killerTeamId) {
+    // под endlessRound раунд не заканчивается вообще: вычищенная команда —
+    // не повод для результата и отложенного перезапуска
+    if (this._endlessRound) {
+      return;
+    }
+
     // если раунд уже в процессе завершения
     if (this._isRoundEnding) {
       return;

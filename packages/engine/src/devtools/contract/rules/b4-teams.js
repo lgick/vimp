@@ -3,6 +3,7 @@ import { ERROR, skip, verdict } from '../result.js';
 // teams/spectatorTeam. Опечатка в spectatorTeam ловится гейтом B3; здесь —
 // вторая половина контракта: играющая команда должна быть хотя бы одна,
 // иначе раунд некому начинать, а все участники висят наблюдателями.
+// Под noSpectators наблюдателей нет вовсе: команда обязана быть ровно одна.
 export default {
   id: 'B4',
   name: 'teams',
@@ -18,6 +19,19 @@ export default {
 
     const { spectatorTeam } = ctx.gameConfig;
     const violations = [];
+
+    if (ctx.gameConfig.noSpectators === true) {
+      const names = Object.keys(teams);
+
+      if (names.length !== 1) {
+        violations.push(
+          `noSpectators requires exactly one team, got ${names.length} ` +
+            `(${names.join(', ')})`,
+        );
+      }
+
+      return verdict(violations);
+    }
 
     if (teams[spectatorTeam] === undefined) {
       violations.push(

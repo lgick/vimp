@@ -9,6 +9,40 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `vimp.addPlayerRank(gameId, delta)` on the `HostGame` facade — a direct
+  path to `PlayerDataSync.addRank` for games that never emit
+  `CoreEvent::Death` and therefore never reach `RoundManager.reportKill`,
+  where the built-in ±1 rank rule (and its team-wipe branch) lives. Nothing
+  changes for existing games.
+- `gameConfig.noSpectators: true` — opt-in for single-team games that have no
+  spectator concept at all. `teams` must then declare exactly one team,
+  `spectatorTeam` is no longer required (and `spectatorTeam`/`spectatorId` are
+  `null` inside the host), a joining human is created directly in the playing
+  team, their stat row is written there, and `RoundManager.admitPlayer(gameId)`
+  gives them an actor as soon as their first frame is acknowledged — no vote,
+  no team change. Rule `B4` and the boot gate accept the shorter config.
+- `gameConfig.endlessRound: true` — opt-in for games whose round never ends.
+  The engine then stops restarting the round on its own: the "fewer than two
+  active humans" branch of `changeTeam` no longer wipes the stat table, a team
+  wipe no longer ends the round, and the round timer expiring does nothing.
+  Explicit restarts (`/nr`, a map change) keep working. The flag is
+  independent of `noSpectators`.
+- A game may now omit `modules.vote` from its client config entirely: the vote
+  time is merged into whatever `params` there are, and an absent menu or
+  template set renders as an empty menu instead of throwing.
+
+### Fixed
+
+- The game canvas is centred in its container. `CanvasManagerModel.resize`
+  sized the letterbox correctly, but `ensureCanvas` mounted a bare `<canvas>`
+  in normal flow and no rule in the engine's stylesheet ever touched it, so
+  the whole black bar ended up on one side. The canvas is now placed with
+  `inset: 0; margin: auto` under the same `.vimp-shell` marker the other
+  engine screens use; the resize maths is untouched, and the visible world
+  width is unchanged.
+
 ## [0.18.1] — 2026-08-26
 
 ### Fixed

@@ -110,6 +110,10 @@ Plus one cross-check: `spectatorTeam` must be a **key of `teams`**. A typo
 there leaves the spectator team id `undefined`, and the first participant to
 join lands in a team that does not exist — the gate names the typo instead.
 
+A game that declares `noSpectators: true` is exempt from both: `spectatorTeam`
+drops off the required list, and `teams` must instead declare **exactly one**
+team — the one every joining human is put into.
+
 ## Config merge order
 
 ```
@@ -162,7 +166,9 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 | `parts.*` (free-form) | any | extra keys are passed to the client config untouched (tanks uses `mapConstructor`, `hitscanService`) |
 | `snapshot` | schema object | the binary protocol layout — see `06-snapshot-protocol.md` |
 | `teams` | `{ teamName: teamId }` | includes the spectator team; **required** |
-| `spectatorTeam` | `string` | which key of `teams` is spectators; **required** |
+| `spectatorTeam` | `string` | which key of `teams` is spectators; **required** unless `noSpectators` |
+| `noSpectators` | `boolean` | opt-in: no spectator concept at all. `teams` holds exactly one team, `spectatorTeam` is omitted (`spectatorTeam`/`spectatorId` are `null` in the host), a joining human is created in the playing team with their stat row there, and gets an actor from `RoundManager.admitPlayer` on `firstShotReady` — no vote, no team change |
+| `endlessRound` | `boolean` | opt-in: the engine never restarts the round by itself — no stat wipe when fewer than two humans are active, no round end on a team wipe, no restart when the round timer expires. `/nr` and map changes still work. Independent of `noSpectators` |
 | `scripted` | `{ namePrefix, defaultModel }` | bot naming/model defaults |
 | `maps` | `{ mapName: mapObject }` | bundled maps (replaced by the master catalog at runtime) |
 | `currentMap` | `string` | default map |
@@ -381,9 +387,14 @@ From `onCoreEvent` the `vimp` object gives you:
 
 ```js
 vimp.getPlayerRank(gameId)          // number
+vimp.addPlayerRank(gameId, delta)   // add to it, no round logic involved
 vimp.getPlayerState(gameId)         // your blob
 vimp.setPlayerState(gameId, state)  // replace it
 ```
+
+`addPlayerRank` is the escape hatch for a game that never emits
+`CoreEvent::Death` and therefore never reaches `reportKill`: it writes the
+rank directly, so the ±1 rule above is yours to apply.
 
 State is flushed to the master on map change, round end and participant
 departure — not on every mutation.

@@ -267,7 +267,8 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   Worker'ов (Этап 5.2): `HostController` сохраняет их в `_room`, поэтому
   подменённый Worker наследует их сразу.
 
-`HostGame` даёт `getPlayerRank(gameId)`/`getPlayerState(gameId)`/
+`HostGame` даёт `getPlayerRank(gameId)`/`addPlayerRank(gameId, delta)`/
+`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` для игровых плагинов (и
 будущей чат-команды `/rank`, Этап B5), чтобы читать/писать rank и
 непрозрачный блок state. Rust/WASM-ядро игры вообще не участвует —

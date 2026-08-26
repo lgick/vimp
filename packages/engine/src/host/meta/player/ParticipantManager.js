@@ -9,8 +9,15 @@ class ParticipantManager {
   // { namePrefix, defaultModel }
   constructor(teams, spectatorTeam, maxPlayers, scripted = {}) {
     this._teams = teams; // { team1: 1, team2: 2, spectators: 3 }
-    this._spectatorTeam = spectatorTeam;
-    this._spectatorId = teams[spectatorTeam];
+
+    // noSpectators (opt-in движка): наблюдателей нет как концепции, и
+    // spectatorTeam приходит null. Команда входа тогда — единственная
+    // играющая, а не резервная: человек заходит сразу в игру
+    this._spectatorTeam = spectatorTeam ?? null;
+    this._spectatorId =
+      this._spectatorTeam === null ? null : teams[spectatorTeam];
+    this._joinTeam = this._spectatorTeam ?? Object.keys(teams)[0];
+    this._joinTeamId = teams[this._joinTeam];
     this._maxPlayers = maxPlayers;
     this._scripted = scripted;
 
@@ -32,7 +39,18 @@ class ParticipantManager {
     return counter.toString(10);
   }
 
-  // создаёт участника-человека (спектатор), возвращает gameId
+  // команда, в которую попадает подключившийся человек: наблюдатели, а под
+  // noSpectators — единственная играющая команда
+  get joinTeam() {
+    return this._joinTeam;
+  }
+
+  get joinTeamId() {
+    return this._joinTeamId;
+  }
+
+  // создаёт участника-человека (наблюдателя, а под noSpectators — игрока),
+  // возвращает gameId
   createHuman(params, socketId) {
     const gameId = this._nextGameId();
     const name = this.checkName(params.name);
@@ -41,15 +59,15 @@ class ParticipantManager {
       gameId,
       name,
       model: params.model,
-      team: this._spectatorTeam,
-      teamId: this._spectatorId,
+      team: this._joinTeam,
+      teamId: this._joinTeamId,
       socketId,
       watchedGameId: this._activePlayersList[0] || null,
       token: params.token,
     });
 
     this._participants.set(gameId, participant);
-    this._teamSizes[this._spectatorTeam].add(gameId);
+    this._teamSizes[this._joinTeam].add(gameId);
 
     return gameId;
   }

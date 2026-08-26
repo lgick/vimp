@@ -29,8 +29,10 @@ const makeRm = (overrides = {}) =>
     snapshotManager: overrides.snapshotManager || {},
     playerDataSync: overrides.playerDataSync,
     teams: overrides.teams || { red: 1, blue: 2, spec: 3 },
-    spectatorTeam: 'spec',
-    spectatorId: 3,
+    spectatorTeam: 'spectatorTeam' in overrides ? overrides.spectatorTeam : 'spec',
+    spectatorId: 'spectatorId' in overrides ? overrides.spectatorId : 3,
+    noSpectators: overrides.noSpectators,
+    endlessRound: overrides.endlessRound,
     maps: overrides.maps || {},
     mapList: overrides.mapList || [],
     mapsInVote: overrides.mapsInVote ?? 3,
@@ -38,6 +40,167 @@ const makeRm = (overrides = {}) =>
     mapSetId: 'c1',
     currentMap: overrides.currentMap || 'm1',
   });
+
+// noSpectators: вход ведёт прямо в играющую команду, минуя голосование и
+// changeTeam со всеми его правилами
+describe('RoundManager.admitPlayer', () => {
+  const makeCtx = (teamSize = 1) => {
+    const users = {
+      u: {
+        gameId: 'u',
+        team: 'players',
+        teamId: 1,
+        name: 'U',
+        model: 's1',
+        socketId: 'su',
+        isNetworked: true,
+      },
+    };
+
+    const participants = {
+      ...fakeParticipants(users),
+      getTeamSize: vi.fn(() => teamSize),
+      addActive: vi.fn(),
+    };
+
+    const rm = makeRm({
+      participants,
+      teams: { players: 1 },
+      spectatorTeam: null,
+      spectatorId: null,
+      noSpectators: true,
+      game: { createPlayer: vi.fn() },
+      stat: { updateUser: vi.fn() },
+      socketManager: { sendPlayerDefaultShot: vi.fn() },
+    });
+
+    rm._scaledMapData = { respawns: { players: [[10, 20, 0]] } };
+
+    return rm;
+  };
+
+  it('выдаёт актора участнику играющей команды', () => {
+    const rm = makeCtx();
+
+    expect(rm.admitPlayer('u')).toBe(true);
+    expect(rm._game.createPlayer).toHaveBeenCalledWith(
+      'u',
+      's1',
+      'U',
+      1,
+      [10, 20, 0],
+    );
+    expect(rm._participants.addActive).toHaveBeenCalledWith('u');
+    expect(rm._participants.get('u').status).toBe('active');
+    expect(rm._socketManager.sendPlayerDefaultShot).toHaveBeenCalledWith(
+      'su',
+      'u',
+    );
+  });
+
+  it('отказывает, когда свободной точки спавна нет', () => {
+    const rm = makeCtx(5);
+
+    expect(rm.admitPlayer('u')).toBe(false);
+    expect(rm._game.createPlayer).not.toHaveBeenCalled();
+  });
+
+  it('игнорирует неизвестного участника', () => {
+    const rm = makeCtx();
+
+    expect(rm.admitPlayer('ghost')).toBe(false);
+  });
+});
+
+// endlessRound: раунд не заканчивается и не перезапускается сам — правило
+// «активных людей меньше двух» обнуляло бы stat на каждом входе и выходе
+describe('RoundManager: endlessRound', () => {
+  const makeCtx = (endlessRound) => {
+    const users = {
+      u: {
+        gameId: 'u',
+        team: 'spec',
+        teamId: 3,
+        name: 'U',
+        model: 'm1',
+        socketId: 'su',
+        isNetworked: true,
+      },
+    };
+
+    const participants = {
+      ...fakeParticipants(users),
+      getTeamSize: vi.fn(() => 1),
+      addToTeam: vi.fn(),
+      removeFromTeam: vi.fn(),
+      addActive: vi.fn(),
+    };
+
+    const rm = makeRm({
+      participants,
+      endlessRound,
+      game: { createPlayer: vi.fn() },
+      stat: { moveUser: vi.fn(), updateUser: vi.fn(), reset: vi.fn(), updateHead: vi.fn() },
+      chat: { pushSystemByUser: vi.fn() },
+      socketManager: { sendPlayerDefaultShot: vi.fn() },
+      timerManager: {
+        canChangeTeamInCurrentRound: () => true,
+        stopRoundTimer: vi.fn(),
+        startRoundTimer: vi.fn(),
+        startRoundRestartDelay: vi.fn(),
+      },
+    });
+
+    rm._scaledMapData = { respawns: { red: [[0, 0, 0], [1, 1, 0]] } };
+    rm.initiateNewRound = vi.fn();
+
+    return rm;
+  };
+
+  it('без флага одинокий игрок обнуляет stat и рестартует раунд', () => {
+    const rm = makeCtx(false);
+
+    rm.changeTeam('u', 'red');
+
+    expect(rm._stat.reset).toHaveBeenCalled();
+    expect(rm.initiateNewRound).toHaveBeenCalled();
+  });
+
+  it('под флагом смена команды не трогает stat и раунд', () => {
+    const rm = makeCtx(true);
+
+    rm.changeTeam('u', 'red');
+
+    expect(rm._stat.reset).not.toHaveBeenCalled();
+    expect(rm.initiateNewRound).not.toHaveBeenCalled();
+    expect(rm._game.createPlayer).toHaveBeenCalled();
+  });
+
+  it('под флагом вычищенная команда не завершает раунд', () => {
+    const rm = makeCtx(true);
+
+    rm._checkTeamWipe(1, 2);
+
+    expect(rm._stat.updateHead).not.toHaveBeenCalled();
+    expect(rm._timerManager.startRoundRestartDelay).not.toHaveBeenCalled();
+  });
+
+  it('под флагом истечение времени раунда ничего не запускает', () => {
+    const rm = makeCtx(true);
+
+    rm.onRoundTimeEnd();
+
+    expect(rm.initiateNewRound).not.toHaveBeenCalled();
+  });
+
+  it('без флага истечение времени раунда запускает новый', () => {
+    const rm = makeCtx(false);
+
+    rm.onRoundTimeEnd();
+
+    expect(rm.initiateNewRound).toHaveBeenCalled();
+  });
+});
 
 describe('RoundManager.reportKill', () => {
   const makeCtx = () => {

@@ -32,6 +32,21 @@ describe('ParticipantManager: создание людей', () => {
     expect(pm.getTeamSize('spectators')).toBe(1);
   });
 
+  // noSpectators (opt-in движка): наблюдателей нет, spectatorTeam === null —
+  // человек обязан попасть сразу в единственную играющую команду
+  it('без наблюдателей кладёт человека в играющую команду', () => {
+    const pm = new ParticipantManager({ players: 1 }, null, 8, SCRIPTED);
+    const gameId = pm.createHuman({ name: 'Alice', model: 'm1' }, 's1');
+    const p = pm.get(gameId);
+
+    expect(p.team).toBe('players');
+    expect(p.teamId).toBe(1);
+    expect(pm.getTeamSize('players')).toBe(1);
+    expect(pm.joinTeam).toBe('players');
+    expect(pm.joinTeamId).toBe(1);
+    expect(pm.getPlayableTeams()).toEqual(['players']);
+  });
+
   it('createHuman пробрасывает identity-токен на участника (Этап B4)', () => {
     const pm = make();
     const gameId = pm.createHuman({ name: 'Alice', model: 'm1', token: 'jwt-1' }, 's1');

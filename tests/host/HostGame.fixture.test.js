@@ -207,3 +207,52 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     expect(puts.filter(url => url.includes('state'))).toHaveLength(1);
   });
 });
+
+// noSpectators + endlessRound (opt-in флаги gameConfig): игра из одной
+// команды, где наблюдателей нет как концепции, а раунд не кончается.
+// Проверяется тот самый путь входа, который заменяет голосование.
+describe('HostGame: noSpectators', () => {
+  const NO_SPECTATORS = {
+    teams: { team1: 1 },
+    spectatorTeam: undefined,
+    noSpectators: true,
+    endlessRound: true,
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it('вход кладёт человека сразу в играющую команду, с актором', async () => {
+    const { host, core } = await createFixtureHost({ game: NO_SPECTATORS });
+    const gameId = await connectPlayer(host, { socketId: 's1' });
+    const user = host._participants.get(gameId);
+
+    expect(user.team).toBe('team1');
+    expect(user.teamId).toBe(1);
+    expect(user.status).toBe('active');
+
+    tick(host, 1);
+
+    expect(core.is_alive(gameId)).toBe(true);
+  });
+
+  it('строка stat заводится в играющей команде, а не у наблюдателей', async () => {
+    const { host } = await createFixtureHost({ game: NO_SPECTATORS });
+    const gameId = await connectPlayer(host, { socketId: 's1' });
+    // getFull() отдаёт плоский провод — команда участника видна только в
+    // разбивке по teamId, которую держит сам модуль
+    expect(Object.keys(host._stat._body[1])).toContain(gameId);
+    expect(host._stat._body[2]).toBeUndefined();
+  });
+
+  it('одинокий игрок не обнуляет stat (endlessRound)', async () => {
+    const { host } = await createFixtureHost({ game: NO_SPECTATORS });
+    const reset = vi.spyOn(host._stat, 'reset');
+
+    await connectPlayer(host, { socketId: 's1' });
+
+    expect(reset).not.toHaveBeenCalled();
+  });
+});
