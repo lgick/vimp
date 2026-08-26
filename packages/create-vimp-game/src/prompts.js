@@ -29,7 +29,7 @@ export async function ask(question, fallback = '') {
 }
 
 // переспрос на месте: без него невалидный id всплывал бы TokenError-ом уже
-// после всех пяти вопросов, и вводить пришлось бы заново
+// после всех шести вопросов, и вводить пришлось бы заново
 export async function askValid(question, fallback, isValid, hint) {
   for (;;) {
     const answer = await ask(question, fallback);

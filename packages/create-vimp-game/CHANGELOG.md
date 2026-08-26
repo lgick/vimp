@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `--repository` normalises every form a repository address is typed in, not
+  just the `user/repo` shorthand. A URL copied from GitHub's *Code → HTTPS*
+  button (`…/vg.git`) used to be written as `git+…/vg.git.git` with a
+  `homepage` of `…/vg.git#readme`; a trailing slash, an `#readme` anchor, the
+  `git+`/`ssh://`/`git://` prefixes and the scp form `git@host:a/b` were
+  mishandled the same way, and the broken metadata reached the published
+  `package.json` of the generated game.
+
 ## [0.3.0] — 2026-08-26
 
 ### Added

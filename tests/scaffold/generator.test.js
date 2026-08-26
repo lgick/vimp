@@ -211,6 +211,28 @@ describe('generate', () => {
     expect(manifest.repository.url).toBe('git+https://gitlab.com/a/b.git');
   });
 
+  // вводят руками, поэтому приходит всё, что копируется из адресной строки и
+  // из кнопки "Code": без нормализации хвосты удваивались бы (`.git.git`) и
+  // уезжали в опубликованный package.json игры
+  it.each([
+    ['https://github.com/lgick/vg.git', 'кнопка Code → HTTPS'],
+    ['https://github.com/lgick/vg/', 'завершающий слэш'],
+    ['https://github.com/lgick/vg#readme', 'адрес из homepage'],
+    ['git+https://github.com/lgick/vg.git', 'значение поля repository'],
+    ['git@github.com:lgick/vg.git', 'scp-форма'],
+    ['ssh://git@github.com/lgick/vg.git', 'ssh-форма'],
+    ['  lgick/vg  ', 'шорткат с пробелами'],
+  ])('нормализует %s (%s)', async repository => {
+    await generate({ templateDir, targetDir, tokens, repository });
+
+    const manifest = JSON.parse(
+      await readFile(path.join(targetDir, 'package.json'), 'utf8'),
+    );
+
+    expect(manifest.repository.url).toBe('git+https://github.com/lgick/vg.git');
+    expect(manifest.homepage).toBe('https://github.com/lgick/vg#readme');
+  });
+
   it('без --repository полей нет вовсе — пустых значений не появляется', async () => {
     await generate({ templateDir, targetDir, tokens });
 

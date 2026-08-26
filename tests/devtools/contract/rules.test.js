@@ -117,6 +117,14 @@ describe('A. package and build', () => {
     expect(check('A7', ctx).status).toBe(PASS);
   });
 
+  // формулировка правила («neither resolves») читается буквально: пустое
+  // repository не отменяет объявленный homepage
+  it('A7 accepts a homepage when repository is declared empty', () => {
+    const ctx = { pkg: { repository: '', homepage: 'https://github.com/a/b' } };
+
+    expect(check('A7', ctx).status).toBe(PASS);
+  });
+
   it('A2 catches missing scripts', () => {
     expect(violations('A2', badCtx)).toMatch(/script "core:build:node"/);
   });

@@ -144,19 +144,43 @@ async function applyEnginePath(targetDir, enginePath) {
   await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
+// Приводит введённое человеком к голому https-адресу проекта, из которого
+// собираются оба поля. Разбираются все формы, которые реально вводят руками:
+// шорткат `user/repo`, строка из кнопки "Code → HTTPS" (хвост `.git`),
+// scp-форма `git@host:a/b`, `git+`/`ssh://`/`git://`, `#readme` и слэш.
+//
+// Движковый resolveProjectUrl сюда не импортируется: у пакета нулевые
+// рантайм-зависимости (см. prompts.js), а vimp-engine ему даже не
+// зависимость. Формы держать согласованными с packages/engine/src/lib/
+// packageLink.js — их читает та же ссылка в футере.
+function normalizeRepositoryUrl(raw) {
+  let url = raw.trim().replace(/^git\+/, '');
+
+  if (/^[\w.-]+\/[\w.-]+$/.test(url)) {
+    return `https://github.com/${url}`;
+  }
+
+  // scp-форма git@host:user/repo — двоеточие здесь разделитель, не порт
+  const scp = /^git@([^:/]+):(.+)$/.exec(url);
+
+  if (scp) {
+    url = `https://${scp[1]}/${scp[2]}`;
+  }
+
+  return url
+    .replace(/^ssh:\/\/(git@)?/, 'https://')
+    .replace(/^git:\/\//, 'https://')
+    .replace(/#readme$/, '')
+    .replace(/\.git(?=$|[#?])/, '')
+    .replace(/\/+$/, '');
+}
+
 // Адрес проекта в package.json: движок берёт из него ссылку в футере формы
 // входа (docs/en/client.md), а правило контракта A7 предупреждает, когда поля
 // нет. Пишется только по явно заданному значению — угаданный URL уехал бы
 // битой ссылкой к игрокам.
-//
-// Раскрывается лишь шорткат `user/repo`: у пакета нулевые рантайм-зависимости,
-// поэтому движковый resolveProjectUrl сюда не импортируется — все остальные
-// формы (`git+ssh://`, хвост `.git`) он разбирает уже при чтении.
 async function applyRepository(targetDir, repository) {
-  const value = repository.trim();
-  const url = /^[\w.-]+\/[\w.-]+$/.test(value)
-    ? `https://github.com/${value}`
-    : value;
+  const url = normalizeRepositoryUrl(repository);
 
   const file = path.join(targetDir, 'package.json');
   const manifest = JSON.parse(await readFile(file, 'utf8'));
@@ -210,7 +234,7 @@ export async function generate({
   }
 
   if (
-    repository.trim() !== '' &&
+    (repository ?? '').trim() !== '' &&
     (await exists(path.join(targetDir, 'package.json')))
   ) {
     await applyRepository(targetDir, repository);

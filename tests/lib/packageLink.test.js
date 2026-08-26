@@ -30,6 +30,20 @@ describe('resolveProjectUrl: выбор поля', () => {
     expect(resolveProjectUrl({ name: '@vimp-games/snakes' })).toBe(null);
     expect(resolveProjectUrl(null)).toBe(null);
   });
+
+  // «иначе homepage» — про результат, а не про факт наличия поля: repository
+  // бывает объявлен пустым или ведёт на хост, которого в вебе нет
+  it('repository, который ни во что не разрешается, отдаёт ход homepage', () => {
+    const homepage = 'https://github.com/a/b';
+
+    expect(resolveProjectUrl({ repository: '', homepage })).toBe(homepage);
+    expect(resolveProjectUrl({ repository: { url: '  ' }, homepage })).toBe(
+      homepage,
+    );
+    expect(
+      resolveProjectUrl({ repository: { url: 'file:///srv/git/x.git' }, homepage }),
+    ).toBe(homepage);
+  });
 });
 
 describe('resolveProjectUrl: нормализация адреса', () => {
@@ -63,10 +77,23 @@ describe('resolveProjectUrl: нормализация адреса', () => {
     );
   });
 
-  it('голое user/repo — форма, которую принимает флаг --repository скаффолдера', () => {
+  it('голое user/repo — шорткат repository, как его читает npm', () => {
     expect(resolveProjectUrl({ repository: 'lgick/vimp-snakes' })).toBe(
       'https://github.com/lgick/vimp-snakes',
     );
+  });
+
+  // в homepage та же строка — относительный путь, и раскрытие в github.com
+  // отправило бы игроков по заведомо битому адресу
+  it('в homepage user/repo шорткатом не считается', () => {
+    expect(resolveProjectUrl({ homepage: 'docs/index.html' })).toBe(null);
+    expect(resolveProjectUrl({ homepage: './readme' })).toBe(null);
+  });
+
+  it('срезает логин из ssh-формы: в href ему не место', () => {
+    expect(
+      resolveProjectUrl({ repository: 'ssh://someone@git.company.com/team/repo.git' }),
+    ).toBe('https://git.company.com/team/repo');
   });
 
   it('снимает завершающий слэш', () => {
@@ -96,9 +123,23 @@ describe('projectLink: подпись ячейки', () => {
     });
   });
 
+  it('порт в подпись не попадает', () => {
+    expect(projectLink('https://git.company.com:8443/team/repo').label).toBe(
+      'git.company.com',
+    );
+  });
+
   it('без адреса ссылки нет — npm-фолбэка больше не существует', () => {
     expect(link({ name: '@vimp-games/snakes' })).toBe(null);
     expect(projectLink(null)).toBe(null);
     expect(projectLink('   ')).toBe(null);
+  });
+
+  // публичный экспорт: результат уходит прямо в href якоря, поэтому адрес
+  // перепроверяется здесь, а не только на стороне resolveProjectUrl
+  it('не-http(s) вход отвергается, а не уезжает в href', () => {
+    expect(projectLink('javascript:alert(1)')).toBe(null);
+    expect(projectLink('file:///tmp/repo')).toBe(null);
+    expect(projectLink('github.com/a/b')).toBe(null);
   });
 });

@@ -26,8 +26,8 @@ npm create vimp-game <directory> [-- <options>]
 
 Everything after `--` reaches the scaffolder. Without `--yes` and with a
 live terminal it asks six questions (directory, game id, title, package
-name, author); with `--yes`, under a pipe or in CI it takes the defaults
-silently.
+name, author, repository); with `--yes`, under a pipe or in CI it takes the
+defaults silently.
 
 | Option | Meaning |
 | --- | --- |

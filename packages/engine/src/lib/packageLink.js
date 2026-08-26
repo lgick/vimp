@@ -30,9 +30,12 @@ export function resolveProjectUrl(pkg) {
 
   // repository бывает и строкой ("github:user/repo"), и объектом {type, url}
   const declared =
-    (typeof repository === 'string' ? repository : repository?.url) ?? homepage;
+    typeof repository === 'string' ? repository : repository?.url;
 
-  return normalize(declared);
+  // объявленный, но не приводящийся к http(s) repository (пустая строка,
+  // внутренний git-хост) не повод терять валидный homepage: поле проверяется
+  // по результату, а не по факту наличия
+  return normalizeRepository(declared) ?? normalize(homepage);
 }
 
 /**
@@ -41,11 +44,26 @@ export function resolveProjectUrl(pkg) {
  * @returns {{url: string, label: string}|null} null, если адреса нет
  */
 export function projectLink(url) {
-  if (typeof url !== 'string' || !url.trim()) {
+  // адрес перепроверяется, хотя свои вызовы приходят уже из
+  // resolveProjectUrl: функция — публичный экспорт ("./lib/*"), а результат
+  // уходит прямо в href якоря (client/lib/footerLink.js)
+  const value = typeof url === 'string' ? url.trim() : '';
+
+  if (!/^https?:\/\//.test(value)) {
     return null;
   }
 
-  return { url, label: labelFor(url) };
+  return { url: value, label: labelFor(value) };
+}
+
+// шорткат "user/repo" — семантика поля repository (так его читает npm), в
+// homepage такая строка означала бы относительный путь, а не адрес на GitHub
+function normalizeRepository(raw) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+
+  return /^[\w.-]+\/[\w.-]+$/.test(value)
+    ? `https://github.com/${value}`
+    : normalize(raw);
 }
 
 // приводит объявленный адрес к https-виду; всё, что после нормализации не
@@ -61,14 +79,7 @@ function normalize(raw) {
     return null;
   }
 
-  // npm-шорткаты: "github:user/repo", "gitlab:...", "bitbucket:...", а также
-  // голое "user/repo" — его принимает флаг --repository скаффолдера
-  const bare = /^([\w.-]+\/[\w.-]+)$/.exec(url);
-
-  if (bare) {
-    return `https://github.com/${bare[1]}`;
-  }
-
+  // npm-шорткаты: "github:user/repo", "gitlab:...", "bitbucket:..."
   const shorthand = /^(github|gitlab|bitbucket):([\w.-]+\/[\w.-]+)$/.exec(url);
 
   if (shorthand) {
@@ -101,6 +112,9 @@ function normalize(raw) {
 
   return (
     url
+      // логин (и тем более пароль) из ssh-формы адреса — не часть проекта, а
+      // в href он уехал бы в DOM и историю браузера
+      .replace(/^(https?:\/\/)[^/@]*@/, '$1')
       .replace(/\.git(?=$|[#?])/, '')
       // npm сам дописывает "#readme" в homepage при генерации package.json
       .replace(/#readme$/, '')
@@ -111,11 +125,13 @@ function normalize(raw) {
 // подпись ячейки: у наших пакетов это всегда GitHub, у чужого хостинга —
 // его хост, чтобы подпись не врала об источнике
 function labelFor(url) {
-  if (/^https?:\/\/(www\.)?github\.com\//.test(url)) {
-    return 'GitHub';
+  let host;
+
+  try {
+    host = new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'Website';
   }
 
-  const host = /^https?:\/\/(?:www\.)?([^/:]+)/.exec(url);
-
-  return host ? host[1] : 'Website';
+  return host === 'github.com' ? 'GitHub' : host;
 }

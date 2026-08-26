@@ -397,18 +397,19 @@ panel is split into two columns (lobby page plan — `#lobby-setup-panel` /
 800px): setup/create on the left, a tabbed browser (Active Servers /
 Leaderboard) on the right. Both sit in a `.lobby-column` wrapper, with
 `#lobby-footer` under them — the same three-cell strip as the entry form's
-footer, and styled by the same rules: a link to the engine's project page,
+footer, and styled by the same rules: a link to the engine's repository,
 its version, and the copyright. `LobbyView` writes both once from
 `client/lib/engineVersion.js`, which imports the engine package's own
-`package.json` (`version` plus `name`/`homepage`) and is baked into the bundle
-at build time — the master has no version endpoint. Both footers build their
-link with the one pair `resolveProjectUrl`/`projectLink`
+`package.json` (`version` plus `repository`/`homepage`) and is baked into the
+bundle at build time — the master has no version endpoint. Both footers build
+their link with the one pair `resolveProjectUrl`/`projectLink`
 (`src/lib/packageLink.js`, rendered by `client/lib/footerLink.js`): the
-package's `repository` (else `homepage`), normalised to https, labelled
-`GitHub` or by its host. There is no fallback — a package declaring neither
-gets no link and the cell stays empty, which is what makes the missing
-metadata visible; contract rule `A7` warns about it, and
-`npm create vimp-game --repository <url>` writes the field from the start. The crate
+package's `repository` (else `homepage` — also when the declared `repository`
+resolves to nothing), normalised to https, labelled `GitHub` or by its host.
+There is no fallback — a package declaring neither gets no link and the cell
+stays empty, which is what makes the missing metadata visible; contract rule
+`A7` warns about it, and `npm create vimp-game --repository <url>` writes the
+field from the start. The crate
 `vimp-engine-core` is deliberately absent there: it is `rlib`-only, its WASM
 is built in the game's repository, and every game pins its own version of it,
 so a crate version on the lobby screen would be a claim the page cannot back.
@@ -577,8 +578,9 @@ What each component does:
   `#auth-package-link` (the active game's repository) and `#auth-version`
   (its npm version) come from the package metadata the master adds to the
   manifest — `packageVersion` and `packageUrl`, read off the game package's
-  own `package.json` by `GameCatalog` (see [master.md](master.md)). Note this is the npm semver, not `manifest.version`,
-  which is a bundle hash. A manifest without those fields (a standalone SDK
+  own `package.json` by `GameCatalog` (see [master.md](master.md)). Note this
+  is the npm semver, not `manifest.version`, which is a bundle hash. A
+  manifest without those fields (a standalone SDK
   manifest, for instance) leaves both cells empty and the footer keeps its
   layout: the three cells are equal flex columns, so the version stays
   centred even when the cells beside it are blank.

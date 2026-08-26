@@ -9,6 +9,23 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- `resolveProjectUrl` now falls back to `homepage` whenever the declared
+  `repository` resolves to nothing (an empty string, a `file:`/internal git
+  host), not only when the field is absent — a package carrying both kept
+  losing its footer link, and rule `A7` warned about a `homepage` it had
+  never looked at.
+- The `user/repo` shorthand is expanded only for `repository`, the field npm
+  reads it in. In `homepage` such a string is a relative path, and expanding
+  it sent players to an invented `github.com` address.
+- `projectLink` re-validates that it was handed an `http(s)` URL. It is a
+  public export whose result goes straight into an anchor's `href`, and since
+  the normalising step moved to `resolveProjectUrl` nothing checked it.
+- A footer link's label is read off the URL's host (`new URL`), so a
+  credential in an `ssh://user@host/…` repository no longer becomes the
+  label; the userinfo is stripped from the URL itself as well.
+
 ## [0.18.0] — 2026-08-26
 
 ### ⚠️ Breaking
