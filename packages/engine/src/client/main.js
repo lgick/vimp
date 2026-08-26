@@ -28,7 +28,7 @@ import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
 import { buildForm, mergeRoomDefaults, bindLiveErrors } from './lib/formBuilder.js';
 import { normalizeAuthParams } from './lib/authParams.js';
-import { renderPackageLink } from './lib/footerLink.js';
+import { renderProjectLink } from './lib/footerLink.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
 import { getBootConfig, resolveBootConfig } from './boot.js';
@@ -434,10 +434,10 @@ socketMethods[PS_AUTH_DATA] = data => {
     authVersion.textContent = activeGameManifest?.packageVersion ?? '';
   }
 
-  renderPackageLink(document.getElementById('auth-package-link'), {
-    name: activeGameManifest?.packageName,
-    homepage: activeGameManifest?.packageHomepage,
-  });
+  renderProjectLink(
+    document.getElementById('auth-package-link'),
+    activeGameManifest?.packageUrl,
+  );
 
   // память клиента (localStorage) + принудительное значение поля с
   // единственным вариантом. Здесь, а не в AuthView: solo-путь ниже отвечает

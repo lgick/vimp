@@ -58,6 +58,7 @@ describe('contract check on the miniGame fixture', () => {
       'A4',
       'A5',
       'A6',
+      'A7',
       'B5',
       'E1',
       'E2',

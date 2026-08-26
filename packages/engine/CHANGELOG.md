@@ -9,6 +9,43 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- `vimp-engine/lib/packageLink.js` changed its surface: `homepageOf` and
+  `resolvePackageLink` are replaced by `resolveProjectUrl(pkg)` (the package's
+  project URL, normalised to https) and `projectLink(url)` (`{ url, label }`).
+  The npm fallback is gone with them: a package that declares neither
+  `repository` nor `homepage` now gets **no** footer link instead of a link to
+  its npm page, and the footer cell stays empty.
+
+### Migration
+
+- Importing those two names: `homepageOf(pkg)` → `resolveProjectUrl(pkg)`
+  (it now also normalises, so the separate `resolvePackageLink` step is gone);
+  `resolvePackageLink({ name, homepage })` → `projectLink(url)`.
+- A game package that declares no `repository` will show no link in its entry
+  form. Add one to its `package.json` — `npm run check:contract` now says so
+  (rule `A7`), and new games get the field from
+  `npm create vimp-game --repository <url>`.
+
+### Added
+
+- Contract rule `A7` (`packageRepository`, warning): the game's `package.json`
+  declares a `repository`/`homepage`. Without it the entry form's footer shows
+  no project link, and nothing else would have pointed that out.
+
+### Changed
+
+- `repository` now wins over `homepage` when resolving a package's project
+  link — the footer should lead to the source repository, not to a landing
+  page that `homepage` may hold.
+- The package metadata the master adds to each served manifest is now
+  `packageVersion` + `packageUrl` (an already-normalised https URL) instead of
+  `packageName`/`packageVersion`/`packageHomepage`. `packageName` existed only
+  to build the npm fallback and is no longer read by anything.
+- A footer link is labelled `GitHub` for `github.com` and by its host
+  otherwise (`gitlab.com`), so the label never misstates where it leads.
+
 ## [0.17.0] — 2026-08-26
 
 ### Added

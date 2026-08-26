@@ -72,6 +72,9 @@ export async function askAnswers(defaults, { interactive = true, derive } = {}) 
         'expected an npm package name, e.g. @vimp-games/space-arena',
       ),
       author: await ask('Author', defaults.author),
+      // пустой ответ допустим: поля repository тогда не будет вовсе, о чём
+      // скажет правило контракта A7
+      repository: await ask('Repository (URL or user/repo)', defaults.repository),
     };
   } finally {
     closePrompts();

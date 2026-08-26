@@ -124,17 +124,19 @@ by `npm run build` in the game repository), one entry per game plugin. A game wh
 static mount builds paths from the id); a map file with broken JSON is
 skipped with a warning instead of crashing the master.
 
-Each served manifest is additionally given three fields the build does not
-write: `packageName`, `packageVersion` and `packageHomepage`, read off the
-resolved package's own `package.json` (`homepage`, else `repository`). The
-client shows them in the entry form's footer (see
-[client.md](client.md)). They are supplied here rather than by the game's
-build because a new manifest field only reaches players once every game repo
-patches its `build-game-manifest.js`, rebuilds and republishes, whereas
-`package.json` sits next to the already-installed package and is true by
-definition. A package with no readable `package.json` keeps all three `null`
-and stays in the catalog — only the footer goes blank. The dedicated server
-reuses the same `GameCatalog`, so its `#auth` footer is filled the same way.
+Each served manifest is additionally given two fields the build does not
+write: `packageVersion` and `packageUrl`, read off the resolved package's own
+`package.json` (`repository`, else `homepage`) and normalised to https by
+`resolveProjectUrl` (`src/lib/packageLink.js`). The client shows them in the
+entry form's footer (see [client.md](client.md)). They are supplied here
+rather than by the game's build because a new manifest field only reaches
+players once every game repo patches its `build-game-manifest.js`, rebuilds
+and republishes, whereas `package.json` sits next to the already-installed
+package and is true by definition. A package with no readable `package.json`
+— or one declaring no repository — keeps them `null` and stays in the catalog;
+only the footer goes blank, and contract rule `A7` warns about the missing
+field. The dedicated server reuses the same `GameCatalog`, so its `#auth`
+footer is filled the same way.
 
 - `GET /games/manifest.json` → a JSON array of every known game's manifest.
 - `GET /games/:id/manifest.json` → one game's manifest; unknown id →

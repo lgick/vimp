@@ -30,6 +30,7 @@ It must pin down:
 | Decision | Feeds |
 | --- | --- |
 | Package name, `id`, title | `package.json`, `manifest`, both plugins |
+| Repository URL | `package.json` `repository`/`homepage` — the engine links to it from the entry form's footer; without it that cell is empty and rule `A7` warns |
 | Teams and spectator team | `gameConfig.teams`, stat schema, maps |
 | Entity types and their fields | snapshot schema, Rust rows, parts |
 | Actions and keys | `playerKeys`, `keySetList`, core input handling |
@@ -46,8 +47,14 @@ It must pin down:
 Do not hand-write the tree — scaffold it:
 
 ```bash
-npm create vimp-game <directory> -- --id <game-id> --title "<Title>"
+npm create vimp-game <directory> -- --id <game-id> --title "<Title>" \
+  --repository <user/repo>
 ```
+
+Pass `--repository` (a full URL or the `user/repo` shorthand) at this step
+rather than editing `package.json` later: it is the only source the engine has
+for the project link in the entry form's footer, and adding it after
+publication costs a republish.
 
 The result is the layout of `02-packaging.md` already filled in: the whole
 build infrastructure (`package.json`, `vite.config.js`, `vitest.config.js`,

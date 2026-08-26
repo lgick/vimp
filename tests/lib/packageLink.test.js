@@ -1,103 +1,104 @@
 import { describe, it, expect } from 'vitest';
 import {
-  homepageOf,
-  resolvePackageLink,
+  projectLink,
+  resolveProjectUrl,
 } from '../../packages/engine/src/lib/packageLink.js';
 
-// Ссылка футеров лобби и формы входа: адрес проекта из package.json пакета,
-// приведённый к https, с фолбэком на страницу пакета в npm (её достаточно
-// одного имени, поэтому рабочая ссылка есть всегда).
+// Ссылка футеров лобби и формы входа: адрес репозитория из package.json
+// пакета, приведённый к https. Фолбэка нет — пакет без метаданных ссылки не
+// получает, и об этом предупреждает правило контракта A7.
 
-const link = pkg => resolvePackageLink({ name: pkg.name, homepage: homepageOf(pkg) });
+const link = pkg => projectLink(resolveProjectUrl(pkg));
 
-describe('homepageOf', () => {
-  it('предпочитает homepage репозиторию', () => {
+describe('resolveProjectUrl: выбор поля', () => {
+  it('repository важнее homepage — ссылка ведёт в репозиторий, не на лендинг', () => {
     expect(
-      homepageOf({
-        homepage: 'https://example.com',
+      resolveProjectUrl({
         repository: { url: 'git+ssh://git@github.com/a/b.git' },
+        homepage: 'https://example.com/landing',
       }),
-    ).toBe('https://example.com');
+    ).toBe('https://github.com/a/b');
   });
 
-  it('берёт repository объектом и строкой', () => {
-    expect(homepageOf({ repository: { url: 'git://github.com/a/b' } })).toBe(
-      'git://github.com/a/b',
+  it('homepage подхватывается, когда repository не объявлен', () => {
+    expect(resolveProjectUrl({ homepage: 'https://github.com/x/y' })).toBe(
+      'https://github.com/x/y',
     );
-    expect(homepageOf({ repository: 'github:a/b' })).toBe('github:a/b');
   });
 
   it('без обоих полей — null', () => {
-    expect(homepageOf({ name: 'x' })).toBe(null);
-    expect(homepageOf(null)).toBe(null);
-  });
-
-  it('пустой homepage не считается объявленным', () => {
-    expect(homepageOf({ homepage: '   ', repository: 'github:a/b' })).toBe(
-      'github:a/b',
-    );
+    expect(resolveProjectUrl({ name: '@vimp-games/snakes' })).toBe(null);
+    expect(resolveProjectUrl(null)).toBe(null);
   });
 });
 
-describe('resolvePackageLink: нормализация адреса', () => {
+describe('resolveProjectUrl: нормализация адреса', () => {
   it('git+ssh с хвостом .git — реальный вид repository у пакетов vimp', () => {
     expect(
-      link({
-        name: 'vimp-engine',
+      resolveProjectUrl({
         repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp.git' },
       }),
-    ).toEqual({ url: 'https://github.com/lgick/vimp', label: 'GitHub' });
+    ).toBe('https://github.com/lgick/vimp');
   });
 
   it('срезает якорь #readme, который npm дописывает в homepage', () => {
-    expect(link({ name: 'x', homepage: 'https://github.com/lgick/vimp-tanks#readme' })).toEqual(
-      { url: 'https://github.com/lgick/vimp-tanks', label: 'GitHub' },
-    );
+    expect(
+      resolveProjectUrl({ homepage: 'https://github.com/lgick/vimp-tanks#readme' }),
+    ).toBe('https://github.com/lgick/vimp-tanks');
   });
 
   it('git+https, git:// и scp-форма git@host:a/b', () => {
     const url = 'https://github.com/a/b';
 
-    expect(link({ name: 'x', repository: 'git+https://github.com/a/b.git' }).url).toBe(url);
-    expect(link({ name: 'x', repository: 'git://github.com/a/b' }).url).toBe(url);
-    expect(link({ name: 'x', repository: { url: 'git@github.com:a/b.git' } }).url).toBe(url);
+    expect(resolveProjectUrl({ repository: 'git+https://github.com/a/b.git' })).toBe(url);
+    expect(resolveProjectUrl({ repository: 'git://github.com/a/b' })).toBe(url);
+    expect(resolveProjectUrl({ repository: { url: 'git@github.com:a/b.git' } })).toBe(url);
   });
 
   it('шорткаты github:/gitlab:/bitbucket:', () => {
-    expect(link({ name: 'x', repository: 'github:a/b' }).url).toBe('https://github.com/a/b');
-    expect(link({ name: 'x', repository: 'gitlab:a/b' }).url).toBe('https://gitlab.com/a/b');
-    expect(link({ name: 'x', repository: 'bitbucket:a/b' }).url).toBe(
+    expect(resolveProjectUrl({ repository: 'github:a/b' })).toBe('https://github.com/a/b');
+    expect(resolveProjectUrl({ repository: 'gitlab:a/b' })).toBe('https://gitlab.com/a/b');
+    expect(resolveProjectUrl({ repository: 'bitbucket:a/b' })).toBe(
       'https://bitbucket.org/a/b',
     );
   });
 
+  it('голое user/repo — форма, которую принимает флаг --repository скаффолдера', () => {
+    expect(resolveProjectUrl({ repository: 'lgick/vimp-snakes' })).toBe(
+      'https://github.com/lgick/vimp-snakes',
+    );
+  });
+
   it('снимает завершающий слэш', () => {
-    expect(link({ name: 'x', homepage: 'https://example.com/game/' }).url).toBe(
+    expect(resolveProjectUrl({ homepage: 'https://example.com/game/' })).toBe(
       'https://example.com/game',
     );
   });
+
+  it('то, что не приводится к http(s), адресом не считается', () => {
+    expect(resolveProjectUrl({ homepage: 'not a url' })).toBe(null);
+    expect(resolveProjectUrl({ homepage: 'file:///tmp/repo' })).toBe(null);
+  });
 });
 
-describe('resolvePackageLink: фолбэк и подпись', () => {
-  it('пакет без метаданных ведёт на свою страницу в npm', () => {
-    expect(link({ name: '@vimp-games/snakes' })).toEqual({
-      url: 'https://www.npmjs.com/package/@vimp-games/snakes',
-      label: 'npm',
+describe('projectLink: подпись ячейки', () => {
+  it('github.com подписывается GitHub', () => {
+    expect(link({ repository: 'github:lgick/vimp' })).toEqual({
+      url: 'https://github.com/lgick/vimp',
+      label: 'GitHub',
     });
   });
 
-  it('адрес, который не приводится к http(s), уходит в тот же фолбэк', () => {
-    expect(link({ name: 'x', homepage: 'not a url' }).label).toBe('npm');
-    expect(link({ name: 'x', homepage: 'file:///tmp/repo' }).label).toBe('npm');
+  it('чужой хостинг подписывается своим хостом, а не отбрасывается', () => {
+    expect(link({ repository: 'git@gitlab.com:a/b.git' })).toEqual({
+      url: 'https://gitlab.com/a/b',
+      label: 'gitlab.com',
+    });
   });
 
-  it('не-github хост подписывается нейтрально', () => {
-    expect(link({ name: 'x', homepage: 'https://gitlab.com/a/b' }).label).toBe('Website');
-  });
-
-  it('без имени и без адреса ссылки нет вовсе', () => {
-    expect(resolvePackageLink({})).toBe(null);
-    expect(resolvePackageLink(null)).toBe(null);
-    expect(resolvePackageLink({ name: '  ' })).toBe(null);
+  it('без адреса ссылки нет — npm-фолбэка больше не существует', () => {
+    expect(link({ name: '@vimp-games/snakes' })).toBe(null);
+    expect(projectLink(null)).toBe(null);
+    expect(projectLink('   ')).toBe(null);
   });
 });

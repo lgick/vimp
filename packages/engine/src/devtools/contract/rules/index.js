@@ -4,6 +4,7 @@ import a3 from './a3-entry-paths.js';
 import a4 from './a4-vite-config.js';
 import a5 from './a5-cargo-core.js';
 import a6 from './a6-manifest.js';
+import a7 from './a7-package-repository.js';
 import b1 from './b1-host-shape.js';
 import b2 from './b2-engine-api.js';
 import b3 from './b3-game-config-shape.js';
@@ -34,7 +35,7 @@ import e3 from './e3-sound-registry.js';
 // Порядок групп — порядок отчёта: A пакет и сборка, B host, C client,
 // D снапшот, E ассеты (plan/create-vimp-game/stage_1.md).
 export const rules = [
-  a1, a2, a3, a4, a5, a6,
+  a1, a2, a3, a4, a5, a6, a7,
   b1, b2, b3, b4, b5, b6, b7, b8, b9, b10,
   c1, c2, c3, c4, c5, c6, c7, c8, c9, c10,
   d1, d2, d3,

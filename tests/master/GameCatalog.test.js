@@ -55,11 +55,7 @@ const writePackageJson = (pkg, data) => {
 // метаданные пакета, которые каталог подмешивает в манифест: их движок
 // показывает в футере формы входа. Пакета без package.json в fixture нет,
 // поэтому по умолчанию поля пустые
-const noPackageMeta = {
-  packageName: null,
-  packageVersion: null,
-  packageHomepage: null,
-};
+const noPackageMeta = { packageVersion: null, packageUrl: null };
 
 const tanksGames = [{ id: 'tanks', package: 'tanks' }];
 
@@ -88,7 +84,7 @@ describe('GameCatalog', () => {
     ]);
   });
 
-  it('подмешивает в манифест имя, версию и адрес пакета игры', () => {
+  it('подмешивает в манифест версию и нормализованный адрес пакета игры', () => {
     writeManifest('tanks', fixtureManifest);
     writePackageJson('tanks', {
       name: '@vimp-games/tanks',
@@ -100,11 +96,21 @@ describe('GameCatalog', () => {
       'tanks',
     );
 
-    expect(manifest.packageName).toBe('@vimp-games/tanks');
     expect(manifest.packageVersion).toBe('0.14.0');
-    expect(manifest.packageHomepage).toBe(
-      'git+ssh://git@github.com/lgick/vimp-tanks.git',
+    // клиенту достаётся готовый https-адрес: ему остаётся только подпись
+    expect(manifest.packageUrl).toBe('https://github.com/lgick/vimp-tanks');
+  });
+
+  it('пакет без repository/homepage остаётся без адреса, но с версией', () => {
+    writeManifest('tanks', fixtureManifest);
+    writePackageJson('tanks', { name: '@vimp-games/tanks', version: '0.14.0' });
+
+    const manifest = new GameCatalog(tanksGames, nodeModulesDir).getManifest(
+      'tanks',
     );
+
+    expect(manifest.packageVersion).toBe('0.14.0');
+    expect(manifest.packageUrl).toBe(null);
   });
 
   it('пакет без package.json остаётся в каталоге с пустыми метаданными', () => {

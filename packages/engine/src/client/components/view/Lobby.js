@@ -1,6 +1,6 @@
 import Publisher from '../../../lib/Publisher.js';
-import { ENGINE_PACKAGE, ENGINE_VERSION } from '../../lib/engineVersion.js';
-import { renderPackageLink } from '../../lib/footerLink.js';
+import { ENGINE_PROJECT_URL, ENGINE_VERSION } from '../../lib/engineVersion.js';
+import { renderProjectLink } from '../../lib/footerLink.js';
 
 // Singleton LobbyView
 
@@ -44,7 +44,7 @@ export default class LobbyView {
       version.textContent = ENGINE_VERSION;
     }
 
-    renderPackageLink(document.getElementById(elems.linkId), ENGINE_PACKAGE);
+    renderProjectLink(document.getElementById(elems.linkId), ENGINE_PROJECT_URL);
 
     // заголовок игры для "<TITLE> TOP-N" (SVG-ориентир) — задаётся controller'ом
     // при выборе игры (сама модель не хранит title манифеста)

@@ -99,6 +99,7 @@ describe('buildDefaults', () => {
       title: 'My Game',
       packageName: '@vimp-games/my-game',
       author: '',
+      repository: '',
     });
   });
 
@@ -117,7 +118,14 @@ describe('buildDefaults', () => {
       title: 'Arena',
       packageName: 'arena',
       author: 'lgick',
+      repository: '',
     });
+  });
+
+  it('--repository попадает в дефолты как есть — нормализует его генератор', () => {
+    expect(buildDefaults({ directory: 'x', repository: 'lgick/x' }).repository).toBe(
+      'lgick/x',
+    );
   });
 });
 

@@ -26,6 +26,8 @@ export const USAGE = `Usage: create-vimp-game <directory> [options]
   --title <title>    human-readable title
   --package <name>   npm package name (default: @vimp-games/<id>)
   --author <name>
+  --repository <url> project repository (URL or user/repo) — the engine links
+                     to it from the game's entry form
   --yes, -y          accept all defaults, no prompts
   --force            allow a non-empty target directory
   --no-git           skip \`git init\`
@@ -39,6 +41,7 @@ const VALUE_OPTIONS = new Map([
   ['--title', 'title'],
   ['--package', 'packageName'],
   ['--author', 'author'],
+  ['--repository', 'repository'],
   ['--engine-path', 'enginePath'],
   ['--core-path', 'corePath'],
 ]);
@@ -114,6 +117,9 @@ export function buildDefaults(args) {
     title: args.title ?? defaultTitle(id),
     packageName: args.packageName ?? defaultPackageName(id),
     author: args.author ?? '',
+    // репозиторий не выводится из author: тот — имя человека, а не логин на
+    // хостинге, и угаданный URL уехал бы битой ссылкой в футер к игрокам
+    repository: args.repository ?? '',
   };
 }
 
@@ -200,6 +206,7 @@ export async function main(argv) {
     force: args.force === true,
     enginePath: args.enginePath,
     corePath: args.corePath,
+    repository: answers.repository,
   });
 
   if (args.git) {

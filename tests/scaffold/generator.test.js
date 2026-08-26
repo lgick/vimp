@@ -180,6 +180,48 @@ describe('generate', () => {
     );
   });
 
+  // движок берёт ссылку в футере формы входа только из этих полей, фолбэка
+  // нет (lib/packageLink.js), поэтому проставить их должен скаффолдер
+  it('--repository пишет repository и homepage, раскрывая шорткат user/repo', async () => {
+    await generate({ templateDir, targetDir, tokens, repository: 'lgick/space-arena' });
+
+    const manifest = JSON.parse(
+      await readFile(path.join(targetDir, 'package.json'), 'utf8'),
+    );
+
+    expect(manifest.repository).toEqual({
+      type: 'git',
+      url: 'git+https://github.com/lgick/space-arena.git',
+    });
+    expect(manifest.homepage).toBe('https://github.com/lgick/space-arena#readme');
+  });
+
+  it('полный URL берётся как есть', async () => {
+    await generate({
+      templateDir,
+      targetDir,
+      tokens,
+      repository: 'https://gitlab.com/a/b',
+    });
+
+    const manifest = JSON.parse(
+      await readFile(path.join(targetDir, 'package.json'), 'utf8'),
+    );
+
+    expect(manifest.repository.url).toBe('git+https://gitlab.com/a/b.git');
+  });
+
+  it('без --repository полей нет вовсе — пустых значений не появляется', async () => {
+    await generate({ templateDir, targetDir, tokens });
+
+    const manifest = JSON.parse(
+      await readFile(path.join(targetDir, 'package.json'), 'utf8'),
+    );
+
+    expect(manifest.repository).toBeUndefined();
+    expect(manifest.homepage).toBeUndefined();
+  });
+
   it('--core-path дописывает patch.crates-io в корневой Cargo.toml', async () => {
     await writeFile(path.join(templateDir, 'Cargo.toml.tpl'), '[workspace]\n');
 

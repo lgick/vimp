@@ -144,6 +144,29 @@ async function applyEnginePath(targetDir, enginePath) {
   await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
+// Адрес проекта в package.json: движок берёт из него ссылку в футере формы
+// входа (docs/en/client.md), а правило контракта A7 предупреждает, когда поля
+// нет. Пишется только по явно заданному значению — угаданный URL уехал бы
+// битой ссылкой к игрокам.
+//
+// Раскрывается лишь шорткат `user/repo`: у пакета нулевые рантайм-зависимости,
+// поэтому движковый resolveProjectUrl сюда не импортируется — все остальные
+// формы (`git+ssh://`, хвост `.git`) он разбирает уже при чтении.
+async function applyRepository(targetDir, repository) {
+  const value = repository.trim();
+  const url = /^[\w.-]+\/[\w.-]+$/.test(value)
+    ? `https://github.com/${value}`
+    : value;
+
+  const file = path.join(targetDir, 'package.json');
+  const manifest = JSON.parse(await readFile(file, 'utf8'));
+
+  manifest.repository = { type: 'git', url: `git+${url}.git` };
+  manifest.homepage = `${url}#readme`;
+
+  await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
 async function applyCorePath(targetDir, corePath) {
   const file = path.join(targetDir, 'Cargo.toml');
   const patch =
@@ -171,6 +194,7 @@ export async function generate({
   force = false,
   enginePath,
   corePath,
+  repository = '',
 }) {
   await ensureTargetDir(targetDir, { force });
 
@@ -183,6 +207,13 @@ export async function generate({
     (await exists(path.join(targetDir, 'package.json')))
   ) {
     await applyEnginePath(targetDir, enginePath);
+  }
+
+  if (
+    repository.trim() !== '' &&
+    (await exists(path.join(targetDir, 'package.json')))
+  ) {
+    await applyRepository(targetDir, repository);
   }
 
   if (

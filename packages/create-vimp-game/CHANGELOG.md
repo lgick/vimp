@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--repository <url>` (full URL or the `user/repo` shorthand) and a sixth
+  interview question: the generated `package.json` gets `repository` and
+  `homepage`. The engine links to them from the game's entry form and has no
+  other source for it (see `vimp-engine`'s own changelog); a run without the
+  option writes neither field rather than guessing a URL from `author`, and
+  `check:contract` warns about the absence (rule `A7`).
+
 ## [0.2.1] — 2026-08-26
 
 ### Removed

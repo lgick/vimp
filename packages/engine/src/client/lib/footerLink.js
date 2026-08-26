@@ -1,21 +1,21 @@
-import { resolvePackageLink } from '../../lib/packageLink.js';
+import { projectLink } from '../../lib/packageLink.js';
 
 // Ссылка в футере лобби и формы входа. Один рендер на оба экрана: лобби
-// подставляет пакет движка, форма входа — пакет игры из манифеста.
+// подставляет адрес проекта движка, форма входа — адрес игры из манифеста.
 //
-// Данных нет (standalone-манифест без метаданных пакета) — якорь гасится, а не
+// Адреса нет (пакет не объявил repository/homepage) — якорь гасится, а не
 // прячется: ячейка футера остаётся пустой, и раскладка space-between не едет.
 
 /**
  * @param {HTMLAnchorElement|null} anchor - якорь футера
- * @param {{name?: string, homepage?: string}|null} pkg - метаданные пакета
+ * @param {string|null} url - адрес проекта (resolveProjectUrl)
  */
-export function renderPackageLink(anchor, pkg) {
+export function renderProjectLink(anchor, url) {
   if (!anchor) {
     return;
   }
 
-  const link = resolvePackageLink(pkg);
+  const link = projectLink(url);
 
   if (!link) {
     anchor.textContent = '';

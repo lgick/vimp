@@ -1,67 +1,55 @@
-// Ссылка на пакет для футеров лобби и формы входа: движок показывает рядом
-// npm-версию, и клик по соседней ячейке должен вести на страницу этого пакета.
+// Ссылка на проект для футеров лобби и формы входа: движок показывает рядом
+// npm-версию, и клик по соседней ячейке ведёт в репозиторий этого пакета.
 //
-// Источник — `homepage`/`repository` его package.json, но объявлены они не у
-// всех (у @vimp-games/snakes нет ни того, ни другого), а footer без ссылки
-// выглядит поломкой. Поэтому фолбэк — страница пакета на npm: она выводится из
-// одного лишь имени, то есть существует всегда, и сама ведёт на репозиторий,
-// если он объявлен.
+// Источник — `repository` его package.json (иначе `homepage`). Фолбэка нет:
+// пакет, не объявивший ни того, ни другого, ссылки не получает, и ячейка
+// футера остаётся пустой. Это сознательно — прежний фолбэк на страницу пакета
+// в npm давал разнобой («GitHub» у одной игры, «npm» у другой) и молча
+// маскировал недостающие метаданные вместо того, чтобы показать их отсутствие.
+// О пропущенном поле предупреждает правило контракта A7.
 //
-// Модуль изоморфный: мастер зовёт homepageOf для пакета игры (GameCatalog),
-// клиент — для собственного package.json движка (client/lib/engineVersion.js).
-
-const NPM_PACKAGE_BASE = 'https://www.npmjs.com/package/';
+// Хостинг не ограничен github.com: подпись выводится из хоста, поэтому чужой
+// плагин на GitLab получает честную ссылку, а не пустую ячейку.
+//
+// Модуль изоморфный: мастер зовёт resolveProjectUrl для пакета игры
+// (GameCatalog), клиент — для собственного package.json движка
+// (client/lib/engineVersion.js).
 
 /**
- * Сырой адрес проекта из package.json: homepage, иначе repository.
+ * Адрес проекта из package.json, приведённый к https: repository, иначе
+ * homepage.
  * @param {Object} pkg - разобранный package.json
- * @returns {string|null} адрес как объявлен (нормализует resolvePackageLink)
+ * @returns {string|null} https-URL либо null, если поля нет или это не адрес
  */
-export function homepageOf(pkg) {
+export function resolveProjectUrl(pkg) {
   if (!pkg || typeof pkg !== 'object') {
     return null;
   }
 
   const { homepage, repository } = pkg;
 
-  if (typeof homepage === 'string' && homepage.trim()) {
-    return homepage;
-  }
-
   // repository бывает и строкой ("github:user/repo"), и объектом {type, url}
-  if (typeof repository === 'string') {
-    return repository;
-  }
+  const declared =
+    (typeof repository === 'string' ? repository : repository?.url) ?? homepage;
 
-  if (repository && typeof repository.url === 'string') {
-    return repository.url;
-  }
-
-  return null;
+  return normalize(declared);
 }
 
 /**
- * Ссылка футера по метаданным пакета.
- * @param {{name?: string, homepage?: string}} [pkg] - имя пакета и сырой homepage
- * @returns {{url: string, label: string}|null} null, если нет даже имени
+ * Ссылка футера по готовому адресу проекта.
+ * @param {string|null} [url] - результат resolveProjectUrl
+ * @returns {{url: string, label: string}|null} null, если адреса нет
  */
-export function resolvePackageLink(pkg) {
-  const { name, homepage } = pkg ?? {};
-  const declared = normalize(homepage);
-
-  if (declared) {
-    return { url: declared, label: labelFor(declared) };
+export function projectLink(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return null;
   }
 
-  if (typeof name === 'string' && name.trim()) {
-    return { url: `${NPM_PACKAGE_BASE}${name.trim()}`, label: 'npm' };
-  }
-
-  return null;
+  return { url, label: labelFor(url) };
 }
 
 // приводит объявленный адрес к https-виду; всё, что после нормализации не
-// http(s) (git@ без известной формы, file:, мусор), — не ссылка, а фолбэк
+// http(s) (git@ без известной формы, file:, мусор), адресом не считается
 function normalize(raw) {
   if (typeof raw !== 'string') {
     return null;
@@ -73,7 +61,14 @@ function normalize(raw) {
     return null;
   }
 
-  // npm-шорткаты: "github:user/repo", "gitlab:...", "bitbucket:..."
+  // npm-шорткаты: "github:user/repo", "gitlab:...", "bitbucket:...", а также
+  // голое "user/repo" — его принимает флаг --repository скаффолдера
+  const bare = /^([\w.-]+\/[\w.-]+)$/.exec(url);
+
+  if (bare) {
+    return `https://github.com/${bare[1]}`;
+  }
+
   const shorthand = /^(github|gitlab|bitbucket):([\w.-]+\/[\w.-]+)$/.exec(url);
 
   if (shorthand) {
@@ -113,14 +108,14 @@ function normalize(raw) {
   );
 }
 
+// подпись ячейки: у наших пакетов это всегда GitHub, у чужого хостинга —
+// его хост, чтобы подпись не врала об источнике
 function labelFor(url) {
   if (/^https?:\/\/(www\.)?github\.com\//.test(url)) {
     return 'GitHub';
   }
 
-  if (url.startsWith(NPM_PACKAGE_BASE)) {
-    return 'npm';
-  }
+  const host = /^https?:\/\/(?:www\.)?([^/:]+)/.exec(url);
 
-  return 'Website';
+  return host ? host[1] : 'Website';
 }

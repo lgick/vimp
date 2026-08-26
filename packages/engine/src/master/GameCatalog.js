@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ENGINE_API_VERSION } from '../config/opcodes.js';
-import { homepageOf } from '../lib/packageLink.js';
+import { resolveProjectUrl } from '../lib/packageLink.js';
 import MapCatalog from './MapCatalog.js';
 
 // Каталог игр-плагинов мастера (Этап A2 плана разделения): по конфигу
@@ -85,10 +85,10 @@ export default class GameCatalog {
     );
   }
 
-  // package.json пакета игры: имя, версия и сырой адрес проекта. Пакета без
-  // манифеста здесь уже быть не может, но битый/отсутствующий package.json —
-  // не повод выкидывать игру из каталога: без этих полей пустеет только
-  // футер
+  // package.json пакета игры: версия и адрес проекта (уже нормализованный —
+  // клиенту остаётся только подпись). Пакета без манифеста здесь уже быть не
+  // может, но битый/отсутствующий package.json — не повод выкидывать игру из
+  // каталога: без этих полей пустеет только футер
   _readPackageMeta(gameDir) {
     let meta;
 
@@ -97,17 +97,12 @@ export default class GameCatalog {
         fs.readFileSync(path.join(gameDir, 'package.json'), 'utf8'),
       );
     } catch (err) {
-      return {
-        packageName: null,
-        packageVersion: null,
-        packageHomepage: null,
-      };
+      return { packageVersion: null, packageUrl: null };
     }
 
     return {
-      packageName: meta.name ?? null,
       packageVersion: meta.version ?? null,
-      packageHomepage: homepageOf(meta),
+      packageUrl: resolveProjectUrl(meta),
     };
   }
 

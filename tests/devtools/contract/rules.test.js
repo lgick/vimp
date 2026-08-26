@@ -89,7 +89,7 @@ afterAll(async () => {
 
 describe('A. package and build', () => {
   it('passes on a well-formed package', () => {
-    for (const id of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) {
+    for (const id of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7']) {
       expect(`${id}: ${violations(id, goodCtx)}`).toBe(`${id}: `);
     }
   });
@@ -102,6 +102,19 @@ describe('A. package and build', () => {
     expect(found).toMatch(/pixi\.js is in dependencies/);
     expect(found).toMatch(/vimp-engine is in dependencies/);
     expect(found).toMatch(/publishConfig\.access/);
+  });
+
+  // A7 — warn: игра без репозитория собирается и играется, но футер формы
+  // входа остаётся у игроков без ссылки, и заметить это больше негде
+  it('A7 catches a package with no repository/homepage', () => {
+    expect(violations('A7', badCtx)).toMatch(/no project link/);
+    expect(rule('A7').level).toBe(WARN);
+  });
+
+  it('A7 accepts a homepage when repository is absent', () => {
+    const ctx = { pkg: { homepage: 'https://github.com/a/b#readme' } };
+
+    expect(check('A7', ctx).status).toBe(PASS);
   });
 
   it('A2 catches missing scripts', () => {
@@ -812,6 +825,7 @@ async function writeGood(dir) {
     JSON.stringify({
       name: '@vimp-games/demo',
       type: 'module',
+      repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/demo.git' },
       files: ['dist'],
       publishConfig: { access: 'public' },
       scripts: Object.fromEntries(SCRIPTS.map(name => [name, 'true'])),

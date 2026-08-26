@@ -25,7 +25,7 @@ npm create vimp-game <directory> [-- <options>]
 ```
 
 Everything after `--` reaches the scaffolder. Without `--yes` and with a
-live terminal it asks five questions (directory, game id, title, package
+live terminal it asks six questions (directory, game id, title, package
 name, author); with `--yes`, under a pipe or in CI it takes the defaults
 silently.
 
@@ -34,6 +34,7 @@ silently.
 | `--id <id>` | game id, kebab-case — the URL segment `/games/<id>/`, the catalog key and `HostPlugin.id` (default: the directory name, normalised) |
 | `--title <title>` | human-readable title (default: the id, title-cased) |
 | `--package <name>` | npm package name (default: `@vimp-games/<id>`) |
+| `--repository <url>` | project repository, full URL or `user/repo` — written to `repository`/`homepage`; the engine links to it from the game's entry form, and rule `A7` warns when it is absent (default: not written at all) |
 | `--author <name>` | `author` in `package.json` and the `LICENSE` |
 | `--yes`, `-y` | accept all defaults, ask nothing |
 | `--force` | allow a non-empty target directory |
@@ -101,7 +102,7 @@ imports the wasm from `core/pkg-web/`, so until the core has been built once
 `npm run dev` dies on startup while resolving that import.
 
 `check:contract` is the step that pays for itself. It is `vimp-contract`
-from the engine package — 32 rules over `package.json`, `vite.config.js`,
+from the engine package — 33 rules over `package.json`, `vite.config.js`,
 `core/Cargo.toml`, `dist/manifest.json` and both plugin halves imported as
 modules; a rule with no input reports `skip`, so it is usable from the first
 commit. It catches exactly the class of mistake that otherwise reaches the

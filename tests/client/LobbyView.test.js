@@ -124,12 +124,11 @@ describe('LobbyView: футер движка', () => {
     );
   });
 
-  it('ставит ссылку на страницу пакета движка', () => {
+  it('ставит ссылку на репозиторий движка', () => {
     new LobbyView(makeModel(), elems, observerFactory);
 
     const link = document.getElementById('lobby-link');
 
-    // repository движка объявлен, поэтому это GitHub, а не npm-фолбэк
     expect(link.textContent).toBe('GitHub');
     expect(link.getAttribute('href')).toBe('https://github.com/lgick/vimp');
   });

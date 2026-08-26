@@ -73,7 +73,7 @@ will actually see, not a parse of the source.
 
 | Group | Catches |
 | --- | --- |
-| A1–A6 | packaging: `type`/`files`, `pixi.js` and `vimp-engine` in the wrong dependency section, the standard scripts, entry paths, the required Vite options, `crate-type`/`enhanced-determinism`/a stale `vimp-engine-core` pin, and the built manifest |
+| A1–A7 | packaging: `type`/`files`, `pixi.js` and `vimp-engine` in the wrong dependency section, the standard scripts, entry paths, the required Vite options, `crate-type`/`enhanced-determinism`/a stale `vimp-engine-core` pin, the built manifest, and a declared `repository` (warning — without it the entry form shows no project link) |
 | B1–B10 | host: plugin shape, the `engineApi` triple, the nine `gameConfig` paths, teams and spectators, `roomForm` fields the host silently drops and a `regExp` that does not compile, the reserved panel key `t`, chat commands shadowing engine ones, system-message codes overwriting engine texts, reserved vote names, respawn capacity vs `maxPlayers` |
 | C1–C10 | client: plugin shape and the three hooks, parts registered in `entitiesOnCanvas`, `gameSets` covering every snapshot key and map `setId`, services the engine or the plugin's `hooks.services()` provides (a warning when the hook exists — the checker cannot call it), the `t`/`time` panel field, stat columns past the engine layout being styled by the plugin (warning), spectator and player keysets, bakers, message texts, the auth schema (`fieldsId`, no nickname, the `model` field) |
 | D1–D3 | snapshot schema: unique ids, `hot`/`event` classes vs block kinds, `interp` only on hot `f32` |
