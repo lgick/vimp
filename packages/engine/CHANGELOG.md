@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-08-26
+
 ### ⚠️ Breaking
 
 - `vimp-engine/lib/packageLink.js` changed its surface: `homepageOf` and
@@ -1059,6 +1061,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.18.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.18.0
 [0.17.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.17.0
 [0.16.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.16.0
 [0.15.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.15.0
