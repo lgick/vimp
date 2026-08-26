@@ -1,54 +1,60 @@
 //- скрыт по умолчанию: открывается из main.js только после успешного логина
 //- в #lobby-auth (Этап B2, LobbyAuthCtrl 'authenticated')
 div#lobby(style='display:none')
-  div.lobby-grid
-    //- левая панель: профиль + форма создания комнаты (lobby-page-plan)
-    div#lobby-setup-panel.card
-      h2= 'VIMP'
-      //- бейдж входа (Этап B2): управляется LobbyAuthView, показывается
-      //- вместе с #lobby после успешной авторизации
-      div#lobby-user
-        div
-          span= 'Signed in as '
-          b#lobby-user-nick
-        input#lobby-user-logout(type='button', value='Sign out')
-      hr.lobby-divider
-      h3.lobby-section-title= 'HOST A GAME'
-      div#lobby-create
-        //- селектор игры (lobby-page-plan): рабочий с первой же игрой в
-        //- каталоге мастера, а не только когда их несколько
-        div.form-row
-          label.form-label(for='lobby-game')= 'Select Game'
-          select#lobby-game.field-select
-        div.form-row
-          label.form-label(for='lobby-name')= 'Server name'
-          input#lobby-name.field-text(type='text', maxlength='30')
-        //- поля настроек комнаты генерируются по явной схеме roomForm
-        //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
-        div#lobby-fields
-        //- ошибки формы (formBuilder.renderFormErrors) и отказ загрузки
-        //- плагина выбранной игры — строкой в форме, а не в #tech-informer:
-        //- тот кроет вкладку непрозрачным слоем и рассчитан на терминальные
-        //- причины, а эти восстановимы (поправить поле, другая игра,
-        //- повторный клик). Над кнопкой — рядом с полями, к которым относятся
-        div#lobby-error.form-error
-        input#lobby-host(type='button', value='Create server')
-    //- правая панель: вкладки Active Servers / Leaderboard (lobby-page-plan)
-    div#lobby-browser-panel.card
-      //- абсолютный слой: высоту .card задаёт форма слева (stretch), а
-      //- список внутри скроллится, не раздувая карточку (lobby-page-plan)
-      div.lobby-browser-inner
-        div.lobby-tabs-header
-          input#btn-show-servers.lobby-tab-btn.active(type='button', value='Active Servers')
-          input#btn-show-leaderboard.lobby-tab-btn(type='button', value='Leaderboard')
-        div#lobby-servers-content
-          input#lobby-search.field-text(type='text', placeholder='Search servers…')
-          ul#lobby-list
-          p#lobby-empty= 'No servers available'
-          input#lobby-more(type='button', value='Load more')
-        div#lobby-leaderboard-content(style='display:none')
-          div.lobby-leaderboard-header
-            span#leaderboard-title
-            span#leaderboard-total
-          ol#lobby-leaderboard-list
-          p#lobby-my-placement
+  //- колоночная обёртка: сам #lobby — флекс-строка, центрирующая содержимое,
+  //- и футер под панелями иначе встал бы третьей колонкой рядом с ними
+  div.lobby-column
+    div.lobby-grid
+      //- левая панель: профиль + форма создания комнаты (lobby-page-plan)
+      div#lobby-setup-panel.card
+        h2= 'VIMP'
+        //- бейдж входа (Этап B2): управляется LobbyAuthView, показывается
+        //- вместе с #lobby после успешной авторизации
+        div#lobby-user
+          div
+            span= 'Signed in as '
+            b#lobby-user-nick
+          input#lobby-user-logout(type='button', value='Sign out')
+        hr.lobby-divider
+        h3.lobby-section-title= 'HOST A GAME'
+        div#lobby-create
+          //- селектор игры (lobby-page-plan): рабочий с первой же игрой в
+          //- каталоге мастера, а не только когда их несколько
+          div.form-row
+            label.form-label(for='lobby-game')= 'Select Game'
+            select#lobby-game.field-select
+          div.form-row
+            label.form-label(for='lobby-name')= 'Server name'
+            input#lobby-name.field-text(type='text', maxlength='30')
+          //- поля настроек комнаты генерируются по явной схеме roomForm
+          //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
+          div#lobby-fields
+          //- ошибки формы (formBuilder.renderFormErrors) и отказ загрузки
+          //- плагина выбранной игры — строкой в форме, а не в #tech-informer:
+          //- тот кроет вкладку непрозрачным слоем и рассчитан на терминальные
+          //- причины, а эти восстановимы (поправить поле, другая игра,
+          //- повторный клик). Над кнопкой — рядом с полями, к которым относятся
+          div#lobby-error.form-error
+          input#lobby-host(type='button', value='Create server')
+      //- правая панель: вкладки Active Servers / Leaderboard (lobby-page-plan)
+      div#lobby-browser-panel.card
+        //- абсолютный слой: высоту .card задаёт форма слева (stretch), а
+        //- список внутри скроллится, не раздувая карточку (lobby-page-plan)
+        div.lobby-browser-inner
+          div.lobby-tabs-header
+            input#btn-show-servers.lobby-tab-btn.active(type='button', value='Active Servers')
+            input#btn-show-leaderboard.lobby-tab-btn(type='button', value='Leaderboard')
+          div#lobby-servers-content
+            input#lobby-search.field-text(type='text', placeholder='Search servers…')
+            ul#lobby-list
+            p#lobby-empty= 'No servers available'
+            input#lobby-more(type='button', value='Load more')
+          div#lobby-leaderboard-content(style='display:none')
+            div.lobby-leaderboard-header
+              span#leaderboard-title
+              span#leaderboard-total
+            ol#lobby-leaderboard-list
+            p#lobby-my-placement
+    //- футер: версию пакета движка проставляет LobbyView (engineVersion.js)
+    div#lobby-footer
+      p#lobby-version

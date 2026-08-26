@@ -18,6 +18,7 @@ const elems = {
   leaderboardTitleId: 'leaderboard-title',
   leaderboardTotalId: 'leaderboard-total',
   myPlacementId: 'lobby-my-placement',
+  versionId: 'lobby-version',
 };
 
 const seedDom = () => {
@@ -37,6 +38,7 @@ const seedDom = () => {
         <ol id="lobby-leaderboard-list"></ol>
         <p id="lobby-my-placement"></p>
       </div>
+      <div id="lobby-footer"><p id="lobby-version"></p></div>
     </div>
   `;
 };
@@ -101,6 +103,26 @@ describe('LobbyView: показ/скрытие', () => {
 
     view.hide();
     expect(document.getElementById('lobby').style.display).toBe('none');
+  });
+});
+
+describe('LobbyView: футер с версией движка', () => {
+  it('пишет версию пакета движка в #lobby-version', async () => {
+    const { ENGINE_VERSION } = await import(
+      '../../packages/engine/src/client/lib/engineVersion.js'
+    );
+
+    new LobbyView(makeModel(), elems, observerFactory);
+
+    expect(document.getElementById('lobby-version').textContent).toBe(
+      `vimp-engine ${ENGINE_VERSION}`,
+    );
+  });
+
+  it('без элемента футера конструктор не падает', () => {
+    document.getElementById('lobby-footer').remove();
+
+    expect(() => new LobbyView(makeModel(), elems, observerFactory)).not.toThrow();
   });
 });
 

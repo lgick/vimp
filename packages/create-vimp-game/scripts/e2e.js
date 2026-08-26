@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +51,24 @@ function capture(command, args, cwd) {
   }
 
   return result.stdout.trim();
+}
+
+// manifest.packageVersion — semver самого пакета игры (в отличие от
+// manifest.version, хеша бандла): движок показывает его в футере #auth, и
+// проверить это можно только на собранном манифесте
+async function assertManifestPackageVersion(gameDir) {
+  const read = async file =>
+    JSON.parse(await readFile(path.join(gameDir, file), 'utf8'));
+
+  const { version } = await read('package.json');
+  const { packageVersion } = await read(path.join('dist', 'manifest.json'));
+
+  if (packageVersion !== version) {
+    throw new Error(
+      `dist/manifest.json: packageVersion "${packageVersion}" differs from ` +
+        `package.json version "${version}"`,
+    );
+  }
 }
 
 function parseArgs(argv) {
@@ -139,6 +157,7 @@ async function main(argv) {
     run('npm', ['run', 'core:build'], gameDir);
     run('npm', ['run', 'check:contract'], gameDir);
     run('npm', ['run', 'build'], gameDir);
+    await assertManifestPackageVersion(gameDir);
     run('npm', ['test'], gameDir);
     run('npm', ['run', 'sim'], gameDir);
     run('npx', ['eslint', '.'], gameDir);

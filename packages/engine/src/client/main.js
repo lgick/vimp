@@ -422,6 +422,18 @@ socketMethods[PS_AUTH_DATA] = data => {
 
   document.getElementById('logo').textContent = texts?.title || 'VIMP';
 
+  // версия пакета игры в футере формы входа. Здесь, а не в AuthView: его
+  // elems приходят из authSchema.elems игрового плагина, и футер каркаса —
+  // не его забота. Игра, собранная до появления packageVersion, оставляет
+  // строку пустой (#auth-link держит раскладку через space-between)
+  const authVersion = document.getElementById('auth-version');
+
+  if (authVersion) {
+    const packageVersion = activeGameManifest?.packageVersion;
+
+    authVersion.textContent = packageVersion ? `v${packageVersion}` : '';
+  }
+
   // память клиента (localStorage) + принудительное значение поля с
   // единственным вариантом. Здесь, а не в AuthView: solo-путь ниже отвечает
   // хосту вообще без формы и обязан прийти к тем же значениям

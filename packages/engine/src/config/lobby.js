@@ -96,6 +96,10 @@ export default {
     leaderboardTitleId: 'leaderboard-title',
     leaderboardTotalId: 'leaderboard-total',
     myPlacementId: 'lobby-my-placement',
+
+    // футер: версия npm-пакета движка, запечённая в бандл при сборке
+    // (client/lib/engineVersion.js)
+    versionId: 'lobby-version',
   },
 
   // создание комнаты (хост в этой же вкладке); лимит игроков/время

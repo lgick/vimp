@@ -395,7 +395,14 @@ top-level navigation and unaffected by CSP either way).
 panel is split into two columns (lobby page plan — `#lobby-setup-panel` /
 `#lobby-browser-panel`, `.lobby-grid` in `style.css`, single column below
 800px): setup/create on the left, a tabbed browser (Active Servers /
-Leaderboard) on the right.
+Leaderboard) on the right. Both sit in a `.lobby-column` wrapper, with
+`#lobby-footer` under them: `LobbyView` writes `vimp-engine <version>` into
+`#lobby-version` once, from `client/lib/engineVersion.js` — the engine
+package's own `version`, imported from its `package.json` and baked into the
+bundle at build time (the master has no version endpoint). The crate
+`vimp-engine-core` is deliberately absent there: it is `rlib`-only, its WASM
+is built in the game's repository, and every game pins its own version of it,
+so a crate version on the lobby screen would be a claim the page cannot back.
 
 - **model** — the server registry (responses from the master's
   `GET /servers`), pagination, search, smart pinging, and the selected
@@ -556,7 +563,12 @@ What each component does:
   shows the game's title from `authSchema.texts.title` (same value as
   `#auth-title`, applied when `PS_AUTH_DATA` arrives, falling back to
   `'VIMP'` before that / if absent); `#panel`/`#logo` CSS is flex-based so
-  the panel table reflows around titles of any length.
+  the panel table reflows around titles of any length. The same handler fills
+  `#auth-version` in the entry form's footer (`#auth-link`) with
+  `v<manifest.packageVersion>` of the active game — the npm semver, not
+  `manifest.version`, which is a bundle hash. A game built without the field
+  leaves the line empty; the footer keeps its layout either way
+  (`space-between`).
 - **Stat** — sortable scoreboard tables (`sortList`), shown on Tab.
   `StatView` **generates the header and tables from the game's schema**
   (`modules.stat.params`: `columns` — column labels, `bodies` — an

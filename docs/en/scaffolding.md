@@ -109,6 +109,12 @@ browser as a black canvas: a wrong auth parameter name, a snapshot key with
 no `gameSets` entry, a part missing from `entitiesOnCanvas`. Details:
 [debugging.md](debugging.md).
 
+`scripts/build-game-manifest.js` also copies your `package.json` `version`
+into the manifest as `packageVersion` — the engine shows it in the `#auth`
+footer, since the manifest's own `version` is a bundle hash and means nothing
+to a player. Nothing else reads the field, and a manifest without it is still
+valid (see [plugin-api.md](plugin-api.md)).
+
 ## Developing against a local engine checkout
 
 While the engine and the game move together, the published versions are

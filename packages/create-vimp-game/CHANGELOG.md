@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The template's `build-game-manifest.js` writes `packageVersion` into
+  `dist/manifest.json` — the `version` of the game's own `package.json`. The
+  engine shows it in the `#auth` footer, since the manifest's `version` is a
+  bundle hash and means nothing to a player (see `vimp-engine`'s own
+  changelog).
+
 ## [0.1.14] — 2026-08-25
 
 ### Changed

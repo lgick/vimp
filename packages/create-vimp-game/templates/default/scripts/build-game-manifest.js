@@ -12,6 +12,7 @@ import { rangeToPattern } from './lib/rangeToPattern.js';
 // asset steps: it hashes what they produced.
 // Run: node scripts/build-game-manifest.js (build:manifest)
 
+const packageJsonPath = fileURLToPath(new URL('../package.json', import.meta.url));
 const distPath = fileURLToPath(new URL('../dist/', import.meta.url));
 const assetsPath = path.join(distPath, 'assets');
 const mapsPath = path.join(distPath, 'maps');
@@ -53,6 +54,13 @@ const version = createHash('sha256')
   .update(hashFile(path.join(assetsPath, wasmFile)))
   .digest('hex')
   .slice(0, 16);
+
+// The npm version of this package. `version` above is a bundle hash — useful
+// to the engine, meaningless to a player; this is what the engine shows in
+// the #auth footer.
+const { version: packageVersion } = JSON.parse(
+  fs.readFileSync(packageJsonPath, 'utf8'),
+);
 
 const mapNames = fs
   .readdirSync(mapsPath)
@@ -155,6 +163,7 @@ const manifest = {
   id: '{{GAME_ID}}',
   engineApi: ENGINE_API_VERSION,
   version,
+  packageVersion,
   title: '{{GAME_TITLE}}',
   entries: {
     client: `/games/{{GAME_ID}}/${clientFile}`,

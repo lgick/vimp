@@ -9,6 +9,21 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The lobby screen has a footer showing `vimp-engine <version>`, read from the
+  package's own `package.json` through the new `src/client/lib/engineVersion.js`
+  and baked into the bundle at build time. The crate `vimp-engine-core` is not
+  shown: it is `rlib`-only, its WASM is built in the game's repository, and
+  every game pins its own version of it.
+- The entry form (`#auth`) shows the active game's `manifest.packageVersion` in
+  its footer. `packageVersion` is a new **optional** `GameManifest` field — the
+  semver of the game's npm package, as opposed to `manifest.version`, which is
+  a bundle content hash. `ENGINE_API_VERSION` is unchanged and a manifest
+  without the field stays valid: the footer line is simply left empty. Games
+  need `create-vimp-game` ≥ 0.1.15 (or the same one-line change in their own
+  `scripts/build-game-manifest.js`) plus a rebuild for the version to appear.
+
 ## [0.15.0] — 2026-08-25
 
 ### Added

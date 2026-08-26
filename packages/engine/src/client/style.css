@@ -491,11 +491,18 @@ body.hide-cursor {
   color: #ff0;
 }
 
-#auth-link p:nth-child(1) {
+/* три колонки: GitHub — версия игры — копирайт. Позициями заведует
+   space-between, а не nth-child: средний элемент бывает пустым (игра
+   собрана без packageVersion), и порядковые правила тогда съезжали бы */
+#auth-link p:first-child {
   text-align: left;
 }
 
-#auth-link p:nth-child(2) {
+#auth-version {
+  text-align: center;
+}
+
+#auth-link p:last-child {
   text-align: right;
 }
 
@@ -712,6 +719,14 @@ body.hide-cursor {
   color: #aaa;
 }
 
+/* колоночная обёртка панелей и футера: #lobby центрирует содержимое как
+   флекс-строка, поэтому футер обязан лежать в одном столбце с .lobby-grid,
+   а не быть её соседом */
+.lobby-column {
+  display: flex;
+  flex-direction: column;
+}
+
 /* два столбца лобби (lobby-page-plan): настройки/создание слева, вкладки
    Active Servers / Leaderboard справа; собственная ширина панелей
    переопределяет фиксированный .card { width:256px } (id сильнее класса);
@@ -768,11 +783,31 @@ body.hide-cursor {
   flex-shrink: 0;
 }
 
+/* версия пакета движка под панелями — тем же мелким кеглем, что и футер
+   формы входа (#auth-link) */
+#lobby-footer {
+  font-size: 9px;
+  padding: 0 5px;
+  margin: 6px 0 10px;
+  text-align: center;
+  text-shadow: none;
+}
+
+#lobby-footer p {
+  margin: 0;
+}
+
 @media (max-width: 800px) {
   .lobby-grid {
     flex-direction: column;
     align-items: stretch;
     gap: unset;
+  }
+
+  /* в столбик обёртка тянется на всю ширину: иначе она сжалась бы по
+     содержимому и увела бы панели из центра */
+  .lobby-column {
+    width: 100%;
   }
 
   /* в столбик высоту строкой никто не задаёт — возвращаем слой в поток,

@@ -65,6 +65,9 @@ const SHELL = [
                   },
                 ],
               },
+              // версия пакета игры (manifest.packageVersion) — текст пишет
+              // main.js по AUTH_DATA
+              { tag: 'p', id: 'auth-version' },
               { tag: 'p', text: `© ${new Date().getFullYear()} VIMP` },
             ],
           },

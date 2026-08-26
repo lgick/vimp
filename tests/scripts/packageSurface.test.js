@@ -53,7 +53,11 @@ describe('публикуемая поверхность vimp-engine', () => {
   it('публикуемый клиентский код не выходит за пределы files', async () => {
     const roots = pkg.files
       .filter(entry => !entry.startsWith('!'))
-      .map(entry => path.join(PKG_DIR, entry));
+      .map(entry => path.join(PKG_DIR, entry))
+      // манифест пакета npm кладёт в тарболл всегда, в files он не значится
+      // и значиться не должен; клиент читает из него версию движка
+      // (src/client/lib/engineVersion.js)
+      .concat(path.join(PKG_DIR, 'package.json'));
     const outside = [];
 
     for (const dir of PUBLIC_SOURCE_DIRS) {

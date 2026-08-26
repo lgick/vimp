@@ -1,4 +1,5 @@
 import Publisher from '../../../lib/Publisher.js';
+import { ENGINE_VERSION } from '../../lib/engineVersion.js';
 
 // Singleton LobbyView
 
@@ -33,6 +34,14 @@ export default class LobbyView {
     this._leaderboardTitle = document.getElementById(elems.leaderboardTitleId);
     this._leaderboardTotal = document.getElementById(elems.leaderboardTotalId);
     this._myPlacement = document.getElementById(elems.myPlacementId);
+
+    // футер лобби: строка статична на всё время жизни вкладки, поэтому
+    // пишется здесь, а не через модель и publisher
+    const version = document.getElementById(elems.versionId);
+
+    if (version) {
+      version.textContent = `vimp-engine ${ENGINE_VERSION}`;
+    }
 
     // заголовок игры для "<TITLE> TOP-N" (SVG-ориентир) — задаётся controller'ом
     // при выборе игры (сама модель не хранит title манифеста)
