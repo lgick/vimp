@@ -21,11 +21,11 @@ div#lobby(style='display:none')
           //- селектор игры (lobby-page-plan): рабочий с первой же игрой в
           //- каталоге мастера, а не только когда их несколько
           div.form-row
-            label.form-label(for='lobby-game')= 'Select Game'
+            label.form-label(for='lobby-game')= 'Select game'
             select#lobby-game.field-select
           div.form-row
             label.form-label(for='lobby-name')= 'Server name'
-            input#lobby-name.field-text(type='text', maxlength='30')
+            input#lobby-name.field-text(type='text', maxlength='30', autocomplete='off')
           //- поля настроек комнаты генерируются по явной схеме roomForm
           //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
           div#lobby-fields
@@ -45,7 +45,7 @@ div#lobby(style='display:none')
             input#btn-show-servers.lobby-tab-btn.active(type='button', value='Active Servers')
             input#btn-show-leaderboard.lobby-tab-btn(type='button', value='Leaderboard')
           div#lobby-servers-content
-            input#lobby-search.field-text(type='text', placeholder='Search servers…')
+            input#lobby-search.field-text(type='text', placeholder='Search servers…', autocomplete='off')
             ul#lobby-list
             p#lobby-empty= 'No servers available'
             input#lobby-more(type='button', value='Load more')

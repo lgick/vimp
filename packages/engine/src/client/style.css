@@ -385,10 +385,11 @@ body.hide-cursor {
   background-color: #333;
   border: 1px solid #eee;
   padding: 10px;
-  margin: 10px auto;
+  margin: 10px auto 5px;
   text-shadow: 1px 1px 1px #000;
   font-size: 12px;
   line-height: 15px;
+  border-radius: 4px;
 }
 
 .card h2 {
@@ -396,17 +397,19 @@ body.hide-cursor {
   line-height: 30px;
   margin: 0 0 10px 0;
   text-align: center;
+  border-bottom: 1px solid #444;
+  padding: 5px 0 10px;
 }
 
-/* кнопки: провайдеры логина, Create server, Start, Load more, Sign out —
-   нативный вид input[type=button], без декоративных стилей, только размер */
+/* кнопки: провайдеры логина, Choose nick, Start, Load more — нативный вид
+   input[type=button], без декоративных стилей, только размер. Create server и
+   Sign out сюда не входят: они лежат во флекс-контейнерах с gap и
+   центрируются через align-self (секция lobby-auth ниже) */
 .lobby-auth-provider,
 #lobby-auth-nick-submit,
-#lobby-host,
-#lobby-user-logout,
 #lobby-more,
 #auth-enter {
-  margin: 4px;
+  margin: 15px auto;
 }
 
 /* один вертикальный ритм для всех строк формы (room-форма и auth-форма) */
@@ -415,12 +418,16 @@ body.hide-cursor {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin: 8px 0;
+  margin: 0;
 }
 
 .form-row input[type='text'] {
   width: 50px;
   text-align: center;
+}
+
+#lobby-fields .form-row {
+  margin: 6px 0;
 }
 
 .form-label {
@@ -470,7 +477,6 @@ body.hide-cursor {
 
 #auth-enter {
   display: block;
-  margin: 4px auto;
 }
 
 /* футеры лобби и формы входа: одна и та же полоса из трёх ячеек —
@@ -479,18 +485,35 @@ body.hide-cursor {
    разметкой) */
 #auth-link,
 #lobby-footer {
-  font-size: 9px;
   height: 15px;
-  margin: 0;
-  padding: 0 5px;
   text-shadow: none;
   display: flex;
-  justify-content: space-between;
 }
 
+#auth-link {
+  font-size: 9px;
+  margin: 0;
+  padding: 0 10px;
+}
+
+/* ширина — контентная область правой панели лобби (её ширина минус
+   собственные поля .lobby-browser-inner), под которой футер и стоит;
+   max-width, а не width: в одну колонку он обязан ужиматься по экрану */
+#lobby-footer {
+  width: 100%;
+  max-width: calc(var(--lobby-browser-width) - 2 * var(--lobby-panel-pad));
+  font-size: 10px;
+  padding: 0;
+  margin: 0 var(--lobby-panel-pad) 0 0;
+}
+
+/* три равные ячейки: середину держит не space-between, а сама равность —
+   любая из крайних бывает пустой (у пакета игры может не быть метаданных),
+   и при space-between версия съезжала бы с центра */
 #auth-link p,
 #lobby-footer p {
   margin: 0;
+  flex: 1;
 }
 
 #auth-link p a,
@@ -498,9 +521,7 @@ body.hide-cursor {
   color: #ff0;
 }
 
-/* позициями заведует space-between, а не nth-child: любая из ячеек бывает
-   пустой (у пакета игры может не быть метаданных), и порядковые правила
-   тогда съезжали бы */
+/* позиция текста внутри ячейки; сами ячейки уже разложены flex: 1 выше */
 #auth-link p:first-child,
 #lobby-footer p:first-child {
   text-align: left;
@@ -516,12 +537,22 @@ body.hide-cursor {
   text-align: right;
 }
 
-.auth-inform {
+/* коробка контента: блок помощи формы входа и группа полей комнаты.
+   .lobby-card сюда не входит — ей нужен фон темнее, иначе он совпадёт с
+   её собственным hover'ом и наведение перестанет быть видно */
+.auth-inform,
+#lobby-fields {
   background-color: #444;
   padding: 7px 13px;
   margin: 10px 0;
   border-radius: 4px;
   border: 1px solid #999;
+}
+
+/* вертикаль внутри #lobby-create держит его gap — собственный margin
+   коробки удвоил бы отступ до соседей */
+#lobby-fields {
+  margin: 0;
 }
 
 .auth-inform h4 {
@@ -592,6 +623,13 @@ body.hide-cursor {
 /*lobby*/
 
 #lobby {
+  /* ширины панелей и их внутренние поля: по ним же считается ширина футера
+     (секция auth выше), поэтому числа живут в одном месте — иначе смена
+     ширины любой панели молча разъезжает вёрстку */
+  --lobby-setup-width: 410px;
+  --lobby-browser-width: 430px;
+  --lobby-panel-pad: 10px;
+
   background-color: #222;
   position: absolute;
   width: 100%;
@@ -602,16 +640,20 @@ body.hide-cursor {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 10px 0 0;
+  padding: 0;
   box-sizing: border-box;
+}
+
+#lobby-user,
+.lobby-section-title,
+#lobby-create {
+  padding: 8px;
 }
 
 #lobby-create {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 8px;
+  gap: 10px;
 }
 
 /* поле имени сервера — строка формы, а не узкий числовой инпут
@@ -638,13 +680,10 @@ body.hide-cursor {
   margin: 0;
 }
 
-#lobby-host {
-  margin: 16px auto 0;
-}
-
 #lobby-search {
   display: block;
   width: 100%;
+  margin-bottom: 10px;
 }
 
 #lobby-list {
@@ -662,9 +701,10 @@ body.hide-cursor {
   column-gap: 8px;
   row-gap: 2px;
   padding: 10px 12px;
-  margin-bottom: 6px;
+  margin: 0 0 6px;
   background-color: #363636;
-  border: 1px solid #444;
+  border: 1px solid #999;
+  border-radius: 4px;
   cursor: pointer;
   align-items: center;
 }
@@ -735,6 +775,7 @@ body.hide-cursor {
 .lobby-column {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
 }
 
 /* два столбца лобби (lobby-page-plan): настройки/создание слева, вкладки
@@ -744,12 +785,12 @@ body.hide-cursor {
    высоты более высокой панели */
 .lobby-grid {
   display: flex;
-  gap: 20px;
+  gap: 10px;
   justify-content: center;
 }
 
 #lobby-setup-panel {
-  width: 410px;
+  width: var(--lobby-setup-width);
 }
 
 /* высоту правой .card задаёт форма слева: обе панели тянутся до высоты
@@ -758,7 +799,7 @@ body.hide-cursor {
    вынесен в абсолютный слой .lobby-browser-inner (его высота не участвует в
    расчёте высоты строки) */
 #lobby-browser-panel {
-  width: 430px;
+  width: var(--lobby-browser-width);
   position: relative;
   padding: 0;
 }
@@ -768,7 +809,7 @@ body.hide-cursor {
   inset: 0;
   display: flex;
   flex-direction: column;
-  padding: 10px;
+  padding: var(--lobby-panel-pad);
   box-sizing: border-box;
 }
 
@@ -793,23 +834,23 @@ body.hide-cursor {
   flex-shrink: 0;
 }
 
-/* полосу футера рисуют общие с #auth-link правила в секции auth; здесь —
-   только отступ от панелей */
-#lobby-footer {
-  margin: 6px 0 10px;
-}
-
 @media (max-width: 800px) {
   .lobby-grid {
-    flex-direction: column;
-    align-items: stretch;
-    gap: unset;
+    display: block;
   }
 
   /* в столбик обёртка тянется на всю ширину: иначе она сжалась бы по
      содержимому и увела бы панели из центра */
   .lobby-column {
     width: 100%;
+    align-items: center;
+  }
+
+  /* правое поле, прижимавшее футер к контенту правой панели, в одну
+     колонку не нужно: с ним align-items: center увёл бы его влево на
+     половину поля */
+  #lobby-footer {
+    margin: 0 auto;
   }
 
   /* в столбик высоту строкой никто не задаёт — возвращаем слой в поток,

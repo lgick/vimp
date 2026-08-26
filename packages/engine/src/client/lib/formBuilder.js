@@ -97,7 +97,9 @@ function buildSelect(descriptor, ctx) {
       el.value = value;
     },
     onChange(cb) {
-      el.addEventListener('change', () => cb({ name: descriptor.name, value: el.value }));
+      el.addEventListener('change', () =>
+        cb({ name: descriptor.name, value: el.value }),
+      );
     },
   };
 }
@@ -110,6 +112,11 @@ function buildText(descriptor) {
   const numeric = isNumeric(descriptor);
 
   el.type = 'text';
+  // выпадашка прошлых значений/автозаполнения кроет форму, а подставить в
+  // игровое поле ей нечего. Только у текстового поля: у select такого списка
+  // нет, там autocomplete управлял бы лишь восстановлением значения при
+  // перезагрузке — а <option> создаёт JS, восстанавливать нечего
+  el.autocomplete = 'off';
   el.name = descriptor.name;
 
   // pattern/required — семантика контрола (a11y, автозаполнение), НЕ
@@ -157,7 +164,9 @@ function buildText(descriptor) {
       el.value = numeric ? toDisplay(descriptor, value) : (value ?? '');
     },
     onChange(cb) {
-      el.addEventListener('change', () => cb({ name: descriptor.name, value: getValue() }));
+      el.addEventListener('change', () =>
+        cb({ name: descriptor.name, value: getValue() }),
+      );
     },
   };
 }
@@ -182,7 +191,9 @@ function buildCheckbox(descriptor) {
       el.checked = Boolean(value);
     },
     onChange(cb) {
-      el.addEventListener('change', () => cb({ name: descriptor.name, value: el.checked }));
+      el.addEventListener('change', () =>
+        cb({ name: descriptor.name, value: el.checked }),
+      );
     },
   };
 }
@@ -239,7 +250,9 @@ function buildRadio(descriptor, ctx) {
     },
     onChange(cb) {
       inputs.forEach(input => {
-        input.addEventListener('change', () => cb({ name: descriptor.name, value: getValue() }));
+        input.addEventListener('change', () =>
+          cb({ name: descriptor.name, value: getValue() }),
+        );
       });
     },
   };
@@ -458,7 +471,9 @@ export function renderFormErrors(container, errors) {
     // для них, как и раньше, остаётся имя поля
     const title = String(label || name).toUpperCase();
 
-    line.textContent = error ? `${title}: ${error}` : `${title} is not correctly!`;
+    line.textContent = error
+      ? `${title}: ${error}`
+      : `${title} is not correctly!`;
 
     container.appendChild(line);
   });
@@ -556,7 +571,9 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
     } catch (e) {
       // одно поле с кривой/неизвестной схемой не должно ронять всю форму
       // (room-форма и особенно auth-форма — единственный путь к кнопке Start)
-      console.error(`formBuilder: skipping field "${descriptor.name}" — ${e.message}`);
+      console.error(
+        `formBuilder: skipping field "${descriptor.name}" — ${e.message}`,
+      );
       return;
     }
 
@@ -602,7 +619,8 @@ export function buildForm(descriptors, container, ctx = {}, onChange) {
     const label = document.createElement(field.labelFor ? 'label' : 'span');
 
     label.className = 'form-label';
-    label.textContent = (descriptor.label || descriptor.name) + buildLabelSuffix(descriptor);
+    label.textContent =
+      (descriptor.label || descriptor.name) + buildLabelSuffix(descriptor);
 
     if (field.labelFor) {
       label.htmlFor = field.labelFor;

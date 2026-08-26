@@ -580,7 +580,8 @@ What each component does:
   own `package.json` by `GameCatalog` (see [master.md](master.md)). Note this is the npm semver, not `manifest.version`,
   which is a bundle hash. A manifest without those fields (a standalone SDK
   manifest, for instance) leaves both cells empty and the footer keeps its
-  layout (`space-between`).
+  layout: the three cells are equal flex columns, so the version stays
+  centred even when the cells beside it are blank.
 - **Stat** — sortable scoreboard tables (`sortList`), shown on Tab.
   `StatView` **generates the header and tables from the game's schema**
   (`modules.stat.params`: `columns` — column labels, `bodies` — an

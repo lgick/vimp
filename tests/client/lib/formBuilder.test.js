@@ -64,6 +64,7 @@ describe('formBuilder.buildField: text (нечисловой)', () => {
 
     expect(field.el.tagName).toBe('INPUT');
     expect(field.el.type).toBe('text');
+    expect(field.el.autocomplete).toBe('off');
     expect(field.el.pattern).toBe('^#[0-9a-f]{6}$');
     expect(field.getValue()).toBe('#ffffff');
   });
