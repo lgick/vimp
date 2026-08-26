@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-08-26
+
 ### Added
 
 - Both the lobby and the entry form (`#auth`) now carry the same footer strip:
@@ -1020,6 +1022,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.17.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.17.0
 [0.16.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.16.0
 [0.15.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.15.0
 [0.14.4]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.14.4
