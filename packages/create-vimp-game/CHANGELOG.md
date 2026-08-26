@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- The template's `build-game-manifest.js` no longer writes `packageVersion`
+  into `dist/manifest.json`: the engine now reads the game package's
+  `package.json` on the master instead, which also works for games published
+  before the field existed (see `vimp-engine`'s own changelog).
+
 ## [0.2.0] — 2026-08-26
 
 ### Added

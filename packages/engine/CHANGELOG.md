@@ -9,6 +9,41 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- Both the lobby and the entry form (`#auth`) now carry the same footer strip:
+  a link to the package's project page, its version, and the copyright. The
+  link is built by the new `vimp-engine/lib/packageLink.js`
+  (`homepageOf`/`resolvePackageLink`): it normalises a package's
+  `homepage`/`repository` to https and falls back to that package's npm page,
+  which needs nothing but the name — so a package declaring neither still gets
+  a working link. On `#auth` the link points at the game, in the lobby at the
+  engine.
+- The master's `GameCatalog` adds `packageName`, `packageVersion` and
+  `packageHomepage` to every manifest it serves, read off the resolved game
+  package's own `package.json`. The dedicated server reuses the same catalog,
+  so both contours that show `#auth` are covered.
+
+### Changed
+
+- The game version in the `#auth` footer now comes from the metadata above
+  instead of an optional `GameManifest` field. The manifest route required
+  every game repository to patch its `build-game-manifest.js`, rebuild and
+  republish before a player saw anything — which is why the line was blank for
+  `@vimp-games/tanks` and `@vimp-games/snakes` after 0.16.0. Reading the
+  installed package's `package.json` works for already-published games with no
+  rebuild.
+- Both footers render the version as a bare number (`0.16.0`) rather than
+  `vimp-engine <version>` / `v<version>`.
+
+### Removed
+
+- The optional `packageVersion` `GameManifest` field introduced in 0.16.0. No
+  published game ever shipped it, and with the master deriving the version it
+  would have been a second source of one fact. `ENGINE_API_VERSION` is
+  unchanged and a manifest that still carries the field is loaded exactly as
+  before — the value is simply ignored.
+
 ## [0.16.0] — 2026-08-26
 
 ### Added

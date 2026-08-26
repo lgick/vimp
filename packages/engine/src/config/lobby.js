@@ -98,8 +98,9 @@ export default {
     myPlacementId: 'lobby-my-placement',
 
     // футер: версия npm-пакета движка, запечённая в бандл при сборке
-    // (client/lib/engineVersion.js)
+    // (client/lib/engineVersion.js), и ссылка на его страницу
     versionId: 'lobby-version',
+    linkId: 'lobby-link',
   },
 
   // создание комнаты (хост в этой же вкладке); лимит игроков/время

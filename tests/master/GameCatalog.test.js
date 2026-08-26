@@ -44,6 +44,23 @@ const fixtureManifest = {
   roomDefaults: { maxPlayers: 8, roundTime: 120000, mapTime: 600000, friendlyFire: false, map: 'arena' },
 };
 
+const writePackageJson = (pkg, data) => {
+  fs.mkdirSync(path.join(nodeModulesDir, pkg), { recursive: true });
+  fs.writeFileSync(
+    path.join(nodeModulesDir, pkg, 'package.json'),
+    JSON.stringify(data),
+  );
+};
+
+// метаданные пакета, которые каталог подмешивает в манифест: их движок
+// показывает в футере формы входа. Пакета без package.json в fixture нет,
+// поэтому по умолчанию поля пустые
+const noPackageMeta = {
+  packageName: null,
+  packageVersion: null,
+  packageHomepage: null,
+};
+
 const tanksGames = [{ id: 'tanks', package: 'tanks' }];
 
 beforeEach(() => {
@@ -62,8 +79,43 @@ describe('GameCatalog', () => {
     const catalog = new GameCatalog(tanksGames, nodeModulesDir);
 
     expect(catalog.ids).toEqual(['tanks']);
-    expect(catalog.getManifest('tanks')).toEqual(fixtureManifest);
-    expect(JSON.parse(catalog.manifestList)).toEqual([fixtureManifest]);
+    expect(catalog.getManifest('tanks')).toEqual({
+      ...fixtureManifest,
+      ...noPackageMeta,
+    });
+    expect(JSON.parse(catalog.manifestList)).toEqual([
+      { ...fixtureManifest, ...noPackageMeta },
+    ]);
+  });
+
+  it('подмешивает в манифест имя, версию и адрес пакета игры', () => {
+    writeManifest('tanks', fixtureManifest);
+    writePackageJson('tanks', {
+      name: '@vimp-games/tanks',
+      version: '0.14.0',
+      repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp-tanks.git' },
+    });
+
+    const manifest = new GameCatalog(tanksGames, nodeModulesDir).getManifest(
+      'tanks',
+    );
+
+    expect(manifest.packageName).toBe('@vimp-games/tanks');
+    expect(manifest.packageVersion).toBe('0.14.0');
+    expect(manifest.packageHomepage).toBe(
+      'git+ssh://git@github.com/lgick/vimp-tanks.git',
+    );
+  });
+
+  it('пакет без package.json остаётся в каталоге с пустыми метаданными', () => {
+    writeManifest('tanks', fixtureManifest);
+
+    const manifest = new GameCatalog(tanksGames, nodeModulesDir).getManifest(
+      'tanks',
+    );
+
+    expect(manifest.id).toBe('tanks');
+    expect(manifest).toMatchObject(noPackageMeta);
   });
 
   it('per-game MapCatalog отдаёт карты игры', () => {

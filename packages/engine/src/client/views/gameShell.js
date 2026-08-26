@@ -55,18 +55,9 @@ const SHELL = [
             tag: 'div',
             id: 'auth-link',
             children: [
-              {
-                tag: 'p',
-                children: [
-                  {
-                    tag: 'a',
-                    attrs: { href: 'https://github.com/lgick/vimp' },
-                    text: 'GitHub',
-                  },
-                ],
-              },
-              // версия пакета игры (manifest.packageVersion) — текст пишет
-              // main.js по AUTH_DATA
+              // ссылка и версия пакета ИГРЫ — заполняет main.js по AUTH_DATA
+              // из метаданных пакета в манифесте
+              { tag: 'p', children: [{ tag: 'a', id: 'auth-package-link' }] },
               { tag: 'p', id: 'auth-version' },
               { tag: 'p', text: `© ${new Date().getFullYear()} VIMP` },
             ],

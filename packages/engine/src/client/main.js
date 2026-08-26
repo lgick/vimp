@@ -28,6 +28,7 @@ import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
 import { buildForm, mergeRoomDefaults, bindLiveErrors } from './lib/formBuilder.js';
 import { normalizeAuthParams } from './lib/authParams.js';
+import { renderPackageLink } from './lib/footerLink.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
 import { getBootConfig, resolveBootConfig } from './boot.js';
@@ -422,17 +423,21 @@ socketMethods[PS_AUTH_DATA] = data => {
 
   document.getElementById('logo').textContent = texts?.title || 'VIMP';
 
-  // версия пакета игры в футере формы входа. Здесь, а не в AuthView: его
-  // elems приходят из authSchema.elems игрового плагина, и футер каркаса —
-  // не его забота. Игра, собранная до появления packageVersion, оставляет
-  // строку пустой (#auth-link держит раскладку через space-between)
+  // футер формы входа: версия и ссылка пакета ИГРЫ. Здесь, а не в AuthView:
+  // его elems приходят из authSchema.elems игрового плагина, и футер каркаса
+  // — не его забота. Метаданные кладёт в манифест мастер (GameCatalog читает
+  // package.json пакета); в standalone-манифесте их может не быть — тогда
+  // ячейки пустые, раскладку space-between это не ломает
   const authVersion = document.getElementById('auth-version');
 
   if (authVersion) {
-    const packageVersion = activeGameManifest?.packageVersion;
-
-    authVersion.textContent = packageVersion ? `v${packageVersion}` : '';
+    authVersion.textContent = activeGameManifest?.packageVersion ?? '';
   }
+
+  renderPackageLink(document.getElementById('auth-package-link'), {
+    name: activeGameManifest?.packageName,
+    homepage: activeGameManifest?.packageHomepage,
+  });
 
   // память клиента (localStorage) + принудительное значение поля с
   // единственным вариантом. Здесь, а не в AuthView: solo-путь ниже отвечает

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ENGINE_API_VERSION } from '../config/opcodes.js';
+import { homepageOf } from '../lib/packageLink.js';
 import MapCatalog from './MapCatalog.js';
 
 // Каталог игр-плагинов мастера (Этап A2 плана разделения): по конфигу
@@ -64,8 +65,16 @@ export default class GameCatalog {
         continue;
       }
 
+      // метаданные npm-пакета игры (версия и адрес проекта) — их движок
+      // показывает в футере формы входа. Источник здесь, а не в манифесте:
+      // манифест пишет сборка в репозитории игры, и любое новое поле в нём
+      // доезжает до игроков только через правку скрипта сборки каждой игры и
+      // её перепубликацию, тогда как package.json лежит рядом с уже
+      // установленным пакетом и верен по определению
+      const withPackage = { ...manifest, ...this._readPackageMeta(gameDir) };
+
       this._games.set(manifest.id, {
-        manifest: dev ? this._toDevManifest(manifest, gameDir) : manifest,
+        manifest: dev ? this._toDevManifest(withPackage, gameDir) : withPackage,
         mapCatalog: new MapCatalog(this._readMaps(path.join(distDir, 'maps'))),
       });
       this._distDirs.set(manifest.id, distDir);
@@ -74,6 +83,32 @@ export default class GameCatalog {
     this._manifestList = JSON.stringify(
       [...this._games.values()].map(game => game.manifest),
     );
+  }
+
+  // package.json пакета игры: имя, версия и сырой адрес проекта. Пакета без
+  // манифеста здесь уже быть не может, но битый/отсутствующий package.json —
+  // не повод выкидывать игру из каталога: без этих полей пустеет только
+  // футер
+  _readPackageMeta(gameDir) {
+    let meta;
+
+    try {
+      meta = JSON.parse(
+        fs.readFileSync(path.join(gameDir, 'package.json'), 'utf8'),
+      );
+    } catch (err) {
+      return {
+        packageName: null,
+        packageVersion: null,
+        packageHomepage: null,
+      };
+    }
+
+    return {
+      packageName: meta.name ?? null,
+      packageVersion: meta.version ?? null,
+      packageHomepage: homepageOf(meta),
+    };
   }
 
   _readMaps(mapsDir) {

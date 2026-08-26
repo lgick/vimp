@@ -19,6 +19,7 @@ const elems = {
   leaderboardTotalId: 'leaderboard-total',
   myPlacementId: 'lobby-my-placement',
   versionId: 'lobby-version',
+  linkId: 'lobby-link',
 };
 
 const seedDom = () => {
@@ -38,7 +39,11 @@ const seedDom = () => {
         <ol id="lobby-leaderboard-list"></ol>
         <p id="lobby-my-placement"></p>
       </div>
-      <div id="lobby-footer"><p id="lobby-version"></p></div>
+      <div id="lobby-footer">
+        <p><a id="lobby-link"></a></p>
+        <p id="lobby-version"></p>
+        <p>&copy; 2026 VIMP</p>
+      </div>
     </div>
   `;
 };
@@ -106,8 +111,8 @@ describe('LobbyView: показ/скрытие', () => {
   });
 });
 
-describe('LobbyView: футер с версией движка', () => {
-  it('пишет версию пакета движка в #lobby-version', async () => {
+describe('LobbyView: футер движка', () => {
+  it('пишет голую версию пакета движка в #lobby-version', async () => {
     const { ENGINE_VERSION } = await import(
       '../../packages/engine/src/client/lib/engineVersion.js'
     );
@@ -115,11 +120,21 @@ describe('LobbyView: футер с версией движка', () => {
     new LobbyView(makeModel(), elems, observerFactory);
 
     expect(document.getElementById('lobby-version').textContent).toBe(
-      `vimp-engine ${ENGINE_VERSION}`,
+      ENGINE_VERSION,
     );
   });
 
-  it('без элемента футера конструктор не падает', () => {
+  it('ставит ссылку на страницу пакета движка', () => {
+    new LobbyView(makeModel(), elems, observerFactory);
+
+    const link = document.getElementById('lobby-link');
+
+    // repository движка объявлен, поэтому это GitHub, а не npm-фолбэк
+    expect(link.textContent).toBe('GitHub');
+    expect(link.getAttribute('href')).toBe('https://github.com/lgick/vimp');
+  });
+
+  it('без элементов футера конструктор не падает', () => {
     document.getElementById('lobby-footer').remove();
 
     expect(() => new LobbyView(makeModel(), elems, observerFactory)).not.toThrow();

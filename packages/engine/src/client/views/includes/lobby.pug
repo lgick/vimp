@@ -55,6 +55,10 @@ div#lobby(style='display:none')
               span#leaderboard-total
             ol#lobby-leaderboard-list
             p#lobby-my-placement
-    //- футер: версию пакета движка проставляет LobbyView (engineVersion.js)
+    //- футер: ссылку и версию пакета движка проставляет LobbyView
+    //- (engineVersion.js + lib/packageLink.js)
     div#lobby-footer
+      p
+        a#lobby-link
       p#lobby-version
+      p &copy; #{new Date().getFullYear()} VIMP

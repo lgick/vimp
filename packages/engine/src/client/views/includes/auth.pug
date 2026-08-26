@@ -15,9 +15,10 @@ div#auth
     div#auth-informs
 
     div#auth-link
+      //- ссылка и версия пакета ИГРЫ (мастер кладёт их в манифест, читая
+      //- package.json пакета) — проставляет main.js по AUTH_DATA; без данных
+      //- ячейки остаются пустыми
       p
-        a(href='https://github.com/lgick/vimp') GitHub
-      //- версия пакета игры (manifest.packageVersion): проставляет main.js,
-      //- у игры, собранной до появления поля, строка остаётся пустой
+        a#auth-package-link
       p#auth-version
       p &copy; #{new Date().getFullYear()} VIMP

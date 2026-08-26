@@ -473,7 +473,12 @@ body.hide-cursor {
   margin: 4px auto;
 }
 
-#auth-link {
+/* футеры лобби и формы входа: одна и та же полоса из трёх ячеек —
+   ссылка на пакет, его версия, копирайт. Оба заполняет JS, поэтому вид
+   держится в одном месте (#lobby-footer лежит в секции lobby ниже только
+   разметкой) */
+#auth-link,
+#lobby-footer {
   font-size: 9px;
   height: 15px;
   margin: 0;
@@ -483,26 +488,31 @@ body.hide-cursor {
   justify-content: space-between;
 }
 
-#auth-link p {
+#auth-link p,
+#lobby-footer p {
   margin: 0;
 }
 
-#auth-link p a {
+#auth-link p a,
+#lobby-footer p a {
   color: #ff0;
 }
 
-/* три колонки: GitHub — версия игры — копирайт. Позициями заведует
-   space-between, а не nth-child: средний элемент бывает пустым (игра
-   собрана без packageVersion), и порядковые правила тогда съезжали бы */
-#auth-link p:first-child {
+/* позициями заведует space-between, а не nth-child: любая из ячеек бывает
+   пустой (у пакета игры может не быть метаданных), и порядковые правила
+   тогда съезжали бы */
+#auth-link p:first-child,
+#lobby-footer p:first-child {
   text-align: left;
 }
 
-#auth-version {
+#auth-version,
+#lobby-version {
   text-align: center;
 }
 
-#auth-link p:last-child {
+#auth-link p:last-child,
+#lobby-footer p:last-child {
   text-align: right;
 }
 
@@ -783,18 +793,10 @@ body.hide-cursor {
   flex-shrink: 0;
 }
 
-/* версия пакета движка под панелями — тем же мелким кеглем, что и футер
-   формы входа (#auth-link) */
+/* полосу футера рисуют общие с #auth-link правила в секции auth; здесь —
+   только отступ от панелей */
 #lobby-footer {
-  font-size: 9px;
-  padding: 0 5px;
   margin: 6px 0 10px;
-  text-align: center;
-  text-shadow: none;
-}
-
-#lobby-footer p {
-  margin: 0;
 }
 
 @media (max-width: 800px) {

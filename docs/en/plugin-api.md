@@ -50,7 +50,6 @@ map JSON (a `maps:export` product of the game build).
   "id": "tanks",
   "engineApi": 3,
   "version": "<hash>",                     // gameVersion (client+host+wasm content)
-  "packageVersion": "0.13.1",              // OPTIONAL: npm version of the game package
   "title": "VIMP Tanks",                   // for the lobby
   "entries": {
     "client": "/games/tanks/client-<hash>.js",  // ESM, default export = ClientPlugin
@@ -84,14 +83,6 @@ server" form is rendered from (see [Form schema](#form-schema) below);
 room keys sent to the host. A manifest without `roomForm` renders an empty
 room-creation form (with a console warning) instead of guessing controls
 from `roomDefaults` value types.
-
-`packageVersion` is **optional** and purely informational: the semver of the
-game's own npm package, which `build-game-manifest.js` copies out of its
-`package.json`. `version` above is a content hash — it tells the engine
-whether a bundle is stale and means nothing to a player, so the entry form
-(`#auth`) shows `packageVersion` in its footer instead. A game built before
-the field existed simply omits it and the footer line stays empty; nothing
-else in the engine reads it.
 
 `entries.wasmNode` is **optional** and never used by the browser: it is a
 path (relative to the manifest) to a **Node** build of the same WASM core,

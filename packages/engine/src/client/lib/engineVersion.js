@@ -7,5 +7,13 @@
 // бандлу (в npm-тарболле vimp-engine package.json есть всегда, поэтому
 // standalone SDK собирается у игры тем же импортом).
 import pkg from '../../../package.json' with { type: 'json' };
+import { homepageOf } from '../../lib/packageLink.js';
 
 export const ENGINE_VERSION = pkg.version;
+
+// метаданные для ссылки в футере лобби — та же форма, что мастер отдаёт про
+// пакет игры (GameCatalog), чтобы оба футера строил один resolvePackageLink
+export const ENGINE_PACKAGE = {
+  name: pkg.name,
+  homepage: homepageOf(pkg),
+};

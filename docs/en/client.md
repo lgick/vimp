@@ -396,10 +396,16 @@ panel is split into two columns (lobby page plan — `#lobby-setup-panel` /
 `#lobby-browser-panel`, `.lobby-grid` in `style.css`, single column below
 800px): setup/create on the left, a tabbed browser (Active Servers /
 Leaderboard) on the right. Both sit in a `.lobby-column` wrapper, with
-`#lobby-footer` under them: `LobbyView` writes `vimp-engine <version>` into
-`#lobby-version` once, from `client/lib/engineVersion.js` — the engine
-package's own `version`, imported from its `package.json` and baked into the
-bundle at build time (the master has no version endpoint). The crate
+`#lobby-footer` under them — the same three-cell strip as the entry form's
+footer, and styled by the same rules: a link to the engine's project page,
+its version, and the copyright. `LobbyView` writes both once from
+`client/lib/engineVersion.js`, which imports the engine package's own
+`package.json` (`version` plus `name`/`homepage`) and is baked into the bundle
+at build time — the master has no version endpoint. Both footers build their
+link with the one `resolvePackageLink` (`src/lib/packageLink.js`, rendered by
+`client/lib/footerLink.js`): it normalises `homepage`/`repository` to https
+and falls back to the package's npm page, which needs nothing but the name, so
+a package that declares neither still gets a working link. The crate
 `vimp-engine-core` is deliberately absent there: it is `rlib`-only, its WASM
 is built in the game's repository, and every game pins its own version of it,
 so a crate version on the lobby screen would be a claim the page cannot back.
@@ -564,11 +570,15 @@ What each component does:
   `#auth-title`, applied when `PS_AUTH_DATA` arrives, falling back to
   `'VIMP'` before that / if absent); `#panel`/`#logo` CSS is flex-based so
   the panel table reflows around titles of any length. The same handler fills
-  `#auth-version` in the entry form's footer (`#auth-link`) with
-  `v<manifest.packageVersion>` of the active game — the npm semver, not
-  `manifest.version`, which is a bundle hash. A game built without the field
-  leaves the line empty; the footer keeps its layout either way
-  (`space-between`).
+  the entry form's footer (`#auth-link`), a three-cell strip like the lobby's:
+  `#auth-package-link` (the active game's project page) and `#auth-version`
+  (its npm version) come from the package metadata the master adds to the
+  manifest — `packageName`, `packageVersion`, `packageHomepage`, read off the
+  game package's own `package.json` by `GameCatalog` (see
+  [master.md](master.md)). Note this is the npm semver, not `manifest.version`,
+  which is a bundle hash. A manifest without those fields (a standalone SDK
+  manifest, for instance) leaves both cells empty and the footer keeps its
+  layout (`space-between`).
 - **Stat** — sortable scoreboard tables (`sortList`), shown on Tab.
   `StatView` **generates the header and tables from the game's schema**
   (`modules.stat.params`: `columns` — column labels, `bodies` — an
