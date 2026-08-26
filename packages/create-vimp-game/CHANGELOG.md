@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-08-26
+
 ### Removed
 
 - The template's `build-game-manifest.js` no longer writes `packageVersion`
@@ -92,6 +94,7 @@ nothing in the CLI, the generator or the template changed.
   build of a scaffolded game is green without ffmpeg; `assets/audio-raw/*.wav`
   keeps the full `npm run audio:process` pipeline demonstrable.
 
+[0.2.1]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.2.1
 [0.2.0]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.2.0
 [0.1.14]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.14
 [0.1.13]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.1.13
