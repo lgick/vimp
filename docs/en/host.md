@@ -277,7 +277,7 @@ to still being the join-time default:
   swapped-in Worker inherits them immediately.
 
 `HostGame` exposes `getPlayerRank(gameId)`/`isPlayerRankLoaded(gameId)`/
-`addPlayerRank(gameId, delta)`/
+`addPlayerRank(gameId, delta)`/`flushPlayerData()`/
 `overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` for game-plugin modules
 (and a future `/rank` chat command, Stage B5) to read/write rank and the
@@ -285,7 +285,14 @@ opaque state blob. `getPlayerRank` answers `0` both for an unknown `gameId`
 and while `PlayerDataSync.load()` is still in flight, so a game that writes
 the rank into a stat column of its own (`bodyMethod: '='`) needs
 `isPlayerRankLoaded`: it tells "rank 0" from "no rank yet" and keeps the
-starting zero from overwriting the real value. The Rust/WASM game core is not involved at all —
+starting zero from overwriting the real value. `flushPlayerData()` syncs every
+current participant's profile to the master right now: both scheduled
+`flushAll()` calls live in `RoundManager` (map change, round end), so a game
+with `endlessRound` that rebuilds its geometry through `overrideMapData`
+instead of changing the map passes through neither — without it, a match's
+accumulated rank only reaches auth when a participant leaves, and a closed
+host tab loses it entirely. It is best-effort like the rest of
+`PlayerDataSync`: the promise does not reject. The Rust/WASM game core is not involved at all —
 rank/state is a purely engine/JS-side concept.
 
 ## HostGame (`packages/engine/src/host/HostGame.js`)

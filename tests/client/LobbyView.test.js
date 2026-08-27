@@ -18,6 +18,11 @@ const elems = {
   leaderboardTitleId: 'leaderboard-title',
   leaderboardTotalId: 'leaderboard-total',
   myPlacementId: 'lobby-my-placement',
+  periodBtnIds: {
+    day: 'btn-period-day',
+    month: 'btn-period-month',
+    all: 'btn-period-all',
+  },
   versionId: 'lobby-version',
   linkId: 'lobby-link',
 };
@@ -34,6 +39,9 @@ const seedDom = () => {
         <button id="lobby-more"></button>
       </div>
       <div id="lobby-leaderboard-content">
+        <input id="btn-period-day" type="button" />
+        <input id="btn-period-month" type="button" />
+        <input id="btn-period-all" type="button" class="active" />
         <span id="leaderboard-title"></span>
         <span id="leaderboard-total"></span>
         <ol id="lobby-leaderboard-list"></ol>
@@ -507,5 +515,41 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
     });
 
     expect(document.querySelector('#lobby-leaderboard-list li').textContent).toBe('Loading…');
+  });
+});
+
+// rank-periods: срез рейтинга — ряд кнопок над списком
+describe('LobbyView: срезы рейтинга', () => {
+  it('клик по срезу эмитит show-period', () => {
+    const view = new LobbyView(makeModel(), elems, observerFactory);
+    const seen = [];
+
+    view.publisher.on('show-period', period => seen.push(period));
+    document.getElementById('btn-period-day').onclick();
+    document.getElementById('btn-period-month').onclick();
+
+    expect(seen).toEqual(['day', 'month']);
+  });
+
+  it('setPeriod подсвечивает одну кнопку и снимает подсветку с прочих', () => {
+    const view = new LobbyView(makeModel(), elems, observerFactory);
+
+    view.setPeriod('day', 'TODAY');
+
+    expect(document.getElementById('btn-period-day').classList.contains('active')).toBe(true);
+    expect(document.getElementById('btn-period-all').classList.contains('active')).toBe(false);
+  });
+
+  it('заголовок списка называет открытый срез', () => {
+    const view = new LobbyView(makeModel(), elems, observerFactory);
+
+    view.setGameTitle('VIMP Tanks');
+    view.setLeaderboardLimit(10);
+    view.setPeriod('day', 'TODAY');
+    view.renderLeaderboard({ leaderboard: [], total: 0, myPlacement: null });
+
+    expect(document.getElementById('leaderboard-title').textContent).toBe(
+      'VIMP TANKS TOP-10 — TODAY',
+    );
   });
 });

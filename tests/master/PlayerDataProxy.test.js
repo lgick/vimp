@@ -100,6 +100,24 @@ describe('PlayerDataProxy', () => {
     });
   });
 
+  // rank-periods: срез уезжает в auth query-параметром; без него запрос
+  // должен выглядеть ровно так, как выглядел до периодов
+  it('getLeaderboard добавляет period в URL, когда он задан', async () => {
+    const fetchImpl = makeFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ leaderboard: [], total: 0 }),
+    }));
+    const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
+
+    await proxy.getLeaderboard('tanks', 10, 'day');
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://auth.local/leaderboard?game=tanks&limit=10&period=day',
+      { method: 'GET', headers: {}, body: undefined },
+    );
+  });
+
   // lobby-page-plan: getPlacement несёт Bearer-токен вызывающего игрока
   it('getPlacement запрашивает с Bearer-токеном', async () => {
     const fetchImpl = makeFetch(async () => ({

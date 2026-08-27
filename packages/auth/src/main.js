@@ -6,7 +6,11 @@ import oauthState from './lib/oauthState.js';
 import { getProvider } from './oauth/index.js';
 import createDevLoginHandler from './devLogin.js';
 import dbPool from './db/pool.js';
-import UserRepository, { NickTakenError, NickAlreadySetError } from './UserRepository.js';
+import UserRepository, {
+  NickTakenError,
+  NickAlreadySetError,
+  RANK_PERIODS,
+} from './UserRepository.js';
 import {
   isValidNick,
   isValidRankDelta,
@@ -283,6 +287,19 @@ app.get('/jwks', (req, res) => {
   res.json(jwtLib.getJwks());
 });
 
+// rank-periods: срез лидерборда, ?period=day|month|all. Отсутствие — 'all',
+// то есть ровно то поведение, что было до периодов: старый клиент (и любой
+// сторонний) продолжает получать рейтинг за всё время. Мусорное значение —
+// 400, а не молчаливый откат на 'all': запрос за «неделю» лучше отклонить,
+// чем ответить не тем срезом и дать нарисовать его под чужим заголовком.
+function readPeriod(raw) {
+  if (raw === undefined) {
+    return 'all';
+  }
+
+  return RANK_PERIODS.includes(raw) ? raw : null;
+}
+
 // GET /leaderboard — публичный (без requireAuth) топ-N рейтинга игры
 // (lobby-page-plan): показывается всем в лобби до логина, как /host-rating/:id
 app.get('/leaderboard', async (req, res) => {
@@ -296,8 +313,14 @@ app.get('/leaderboard', async (req, res) => {
   }
 
   const limit = clampLimit(req.query.limit, 10, 100);
+  const period = readPeriod(req.query.period);
 
-  res.json(await userRepo.getLeaderboard(gameId, limit));
+  if (!period) {
+    res.status(400).json({ error: 'badPeriod' });
+    return;
+  }
+
+  res.json(await userRepo.getLeaderboard(gameId, limit, period));
 });
 
 // GET /placement — позиция вызывающего в рейтинге игры (lobby-page-plan)
@@ -309,7 +332,14 @@ app.get('/placement', requireAuth, async (req, res) => {
     return;
   }
 
-  res.json(await userRepo.getPlacement(req.user.id, gameId));
+  const period = readPeriod(req.query.period);
+
+  if (!period) {
+    res.status(400).json({ error: 'badPeriod' });
+    return;
+  }
+
+  res.json(await userRepo.getPlacement(req.user.id, gameId, period));
 });
 
 app.get('/rank', requireAuth, async (req, res) => {

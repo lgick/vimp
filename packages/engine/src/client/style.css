@@ -908,6 +908,32 @@ body.hide-cursor {
   border-bottom: 2px solid #fff;
 }
 
+/* срезы рейтинга (rank-periods): день/месяц/всё время. Ряд под вкладками
+   правой панели — это выбор ДАННЫХ, а не вкладка, поэтому кнопки выглядят
+   как переключатель, а не как заголовок раздела */
+.lobby-period-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.lobby-period-btn {
+  flex: 1 1 0;
+  background: rgb(255 255 255 / 6%);
+  border: none;
+  color: #888;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 5px 4px;
+  margin: 0;
+  text-shadow: none;
+}
+
+.lobby-period-btn.active {
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+}
+
 .lobby-leaderboard-header {
   display: flex;
   justify-content: space-between;

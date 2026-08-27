@@ -13,7 +13,8 @@ describe('LeaderboardCache', () => {
     const result = await cache.get('tanks', 10);
 
     expect(result).toBe(okResult);
-    expect(proxy.getLeaderboard).toHaveBeenCalledWith('tanks', 10);
+    // период входит в вызов: по умолчанию срез за всё время
+    expect(proxy.getLeaderboard).toHaveBeenCalledWith('tanks', 10, 'all');
   });
 
   it('в пределах TTL повторно proxy не зовёт', async () => {
@@ -59,5 +60,20 @@ describe('LeaderboardCache', () => {
     await cache.get('other', 10);
 
     expect(proxy.getLeaderboard).toHaveBeenCalledTimes(3);
+  });
+
+  // rank-periods: три среза одной игры — три разных ответа, и путать их
+  // кэшу нельзя
+  it('разделяет записи по периоду', async () => {
+    const proxy = makeProxy(async () => okResult);
+    const cache = new LeaderboardCache(proxy, { ttlMs: 15000, now: () => 0 });
+
+    await cache.get('tanks', 10, 'day');
+    await cache.get('tanks', 10, 'month');
+    await cache.get('tanks', 10, 'day');
+
+    expect(proxy.getLeaderboard).toHaveBeenCalledTimes(2);
+    expect(proxy.getLeaderboard).toHaveBeenCalledWith('tanks', 10, 'day');
+    expect(proxy.getLeaderboard).toHaveBeenCalledWith('tanks', 10, 'month');
   });
 });

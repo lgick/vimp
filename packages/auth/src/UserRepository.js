@@ -20,6 +20,28 @@ export class NickAlreadySetError extends Error {
   }
 }
 
+// rank-periods: срезы лидерборда. 'all' — денормализованный кэш ratings,
+// остальные — окно по created_at в леджере rank_events. Границы
+// КАЛЕНДАРНЫЕ и в UTC (date_trunc), а не скользящие: «топ за сегодня»
+// должен означать одно и то же для всех, кто на него смотрит.
+export const RANK_PERIODS = ['day', 'month', 'all'];
+
+// Кусок SQL с началом окна, или null для 'all' (окна нет). Возвращается
+// литералом, а не параметром запроса: значение приходит только из списка
+// выше — то есть из кода, — и подставлять его через $n значило бы
+// притворяться, что оно пользовательское.
+function periodStart(period) {
+  if (period === 'day') {
+    return "date_trunc('day', now() AT TIME ZONE 'utc')";
+  }
+
+  if (period === 'month') {
+    return "date_trunc('month', now() AT TIME ZONE 'utc')";
+  }
+
+  return null;
+}
+
 export default class UserRepository {
   constructor(db) {
     this._db = db;
@@ -128,17 +150,41 @@ export default class UserRepository {
   // и getPlacement ниже: игроки с одинаковым rank делят место, следующее
   // отличное значение перескакивает на число разделивших) — согласовано с
   // тем, что показывает плашка позиции вызывающего (code review M3)
-  async getLeaderboard(gameId, limit) {
-    const result = await this._db.query(
-      `SELECT u.nick, r.rank,
-              COUNT(*) OVER() AS total,
-              RANK() OVER (ORDER BY r.rank DESC) AS place
-       FROM ratings r JOIN users u ON u.id = r.user_id
-       WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL
-       ORDER BY r.rank DESC, u.nick ASC
-       LIMIT $2`,
-      [gameId, limit],
-    );
+  //
+  // rank-periods: `period` выбирает срез времени. 'all' читается из кэша
+  // ratings — тот же запрос, что и был. 'day'/'month' считаются на лету из
+  // леджера rank_events по календарному окну UTC: агрегатных таблиц нет,
+  // индекс rank_events_game_created_idx (миграция 006) держит это дешёвым.
+  async getLeaderboard(gameId, limit, period = 'all') {
+    const since = periodStart(period);
+
+    const result = since
+      ? await this._db.query(
+          `WITH scores AS (
+             SELECT e.user_id, SUM(e.delta)::int AS rank
+             FROM rank_events e
+             WHERE e.game_id = $1 AND e.voided = false AND e.created_at >= ${since}
+             GROUP BY e.user_id
+             HAVING SUM(e.delta) > 0)
+           SELECT u.nick, s.rank,
+                  COUNT(*) OVER() AS total,
+                  RANK() OVER (ORDER BY s.rank DESC) AS place
+           FROM scores s JOIN users u ON u.id = s.user_id
+           WHERE u.nick IS NOT NULL
+           ORDER BY s.rank DESC, u.nick ASC
+           LIMIT $2`,
+          [gameId, limit],
+        )
+      : await this._db.query(
+          `SELECT u.nick, r.rank,
+                  COUNT(*) OVER() AS total,
+                  RANK() OVER (ORDER BY r.rank DESC) AS place
+           FROM ratings r JOIN users u ON u.id = r.user_id
+           WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL
+           ORDER BY r.rank DESC, u.nick ASC
+           LIMIT $2`,
+          [gameId, limit],
+        );
 
     return {
       leaderboard: result.rows.map(row => ({
@@ -152,23 +198,48 @@ export default class UserRepository {
 
   // позиция игрока в рейтинге игры (lobby-page-plan): placement === null,
   // если игрок ещё не ранжирован (rank === 0, т.е. записи в ratings нет или
-  // rank оказался 0 после клампа/аннулирования)
-  async getPlacement(userId, gameId) {
-    const result = await this._db.query(
-      `WITH me AS (
-         SELECT COALESCE(
-           (SELECT rank FROM ratings WHERE user_id = $1 AND game_id = $2), 0) AS rank)
-       SELECT
-         (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
-            WHERE r.game_id = $2 AND r.rank > 0 AND u.nick IS NOT NULL) AS total,
-         me.rank AS rank,
-         CASE WHEN me.rank > 0 THEN
-           (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
-              WHERE r.game_id = $2 AND u.nick IS NOT NULL AND r.rank > me.rank) + 1
-         END AS placement
-       FROM me`,
-      [userId, gameId],
-    );
+  // rank оказался 0 после клампа/аннулирования). rank-periods: `period` —
+  // тот же срез, что и у getLeaderboard, и считается он тем же способом,
+  // иначе плашка позиции противоречила бы списку рядом с ней
+  async getPlacement(userId, gameId, period = 'all') {
+    const since = periodStart(period);
+
+    const result = since
+      ? await this._db.query(
+          `WITH scores AS (
+             SELECT e.user_id, SUM(e.delta)::int AS rank
+             FROM rank_events e
+             WHERE e.game_id = $2 AND e.voided = false AND e.created_at >= ${since}
+             GROUP BY e.user_id
+             HAVING SUM(e.delta) > 0),
+           me AS (
+             SELECT COALESCE((SELECT rank FROM scores WHERE user_id = $1), 0) AS rank)
+           SELECT
+             (SELECT COUNT(*) FROM scores s JOIN users u ON u.id = s.user_id
+                WHERE u.nick IS NOT NULL) AS total,
+             me.rank AS rank,
+             CASE WHEN me.rank > 0 THEN
+               (SELECT COUNT(*) FROM scores s JOIN users u ON u.id = s.user_id
+                  WHERE u.nick IS NOT NULL AND s.rank > me.rank) + 1
+             END AS placement
+           FROM me`,
+          [userId, gameId],
+        )
+      : await this._db.query(
+          `WITH me AS (
+             SELECT COALESCE(
+               (SELECT rank FROM ratings WHERE user_id = $1 AND game_id = $2), 0) AS rank)
+           SELECT
+             (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
+                WHERE r.game_id = $2 AND r.rank > 0 AND u.nick IS NOT NULL) AS total,
+             me.rank AS rank,
+             CASE WHEN me.rank > 0 THEN
+               (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
+                  WHERE r.game_id = $2 AND u.nick IS NOT NULL AND r.rank > me.rank) + 1
+             END AS placement
+           FROM me`,
+          [userId, gameId],
+        );
 
     const row = result.rows[0];
 

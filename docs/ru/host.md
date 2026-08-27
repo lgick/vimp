@@ -268,7 +268,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   подменённый Worker наследует их сразу.
 
 `HostGame` даёт `getPlayerRank(gameId)`/`isPlayerRankLoaded(gameId)`/
-`addPlayerRank(gameId, delta)`/
+`addPlayerRank(gameId, delta)`/`flushPlayerData()`/
 `overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` для игровых плагинов (и
 будущей чат-команды `/rank`, Этап B5), чтобы читать/писать rank и
@@ -276,7 +276,14 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
 `gameId`, и пока `PlayerDataSync.load()` не вернулся с мастера, поэтому игре,
 которая сама пишет ранг в колонку stat с `bodyMethod: '='`, нужен
 `isPlayerRankLoaded`: он отличает «ранг 0» от «ранга ещё нет» и не даёт
-затереть настоящее значение стартовым нулём. Rust/WASM-ядро игры вообще не участвует —
+затереть настоящее значение стартовым нулём. `flushPlayerData()` синхронизирует
+профили всех текущих участников на мастер прямо сейчас: обе штатные границы
+`flushAll()` живут в `RoundManager` (смена карты, конец раунда), и игра с
+`endlessRound`, пересобирающая геометрию через `overrideMapData` вместо смены
+карты, не проходит ни через одну — без него накопленный за матч ранг уезжает
+в auth только на выходе участника, а закрытая вкладка хоста теряет его вовсе.
+Метод best-effort, как и весь `PlayerDataSync`: промис не отвергается.
+Rust/WASM-ядро игры вообще не участвует —
 rank/state это чисто engine/JS-концепция.
 
 ## HostGame (`packages/engine/src/host/HostGame.js`)

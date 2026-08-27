@@ -8,11 +8,13 @@ export default class LeaderboardCache {
     this._proxy = proxy; // PlayerDataProxy
     this._ttlMs = ttlMs;
     this._now = now;
-    this._cache = new Map(); // `${game}:${limit}` -> { at, result }
+    // rank-periods: срез времени входит в ключ — day/month/all это три
+    // разных ответа на один и тот же (game, limit)
+    this._cache = new Map(); // `${game}:${limit}:${period}` -> { at, result }
   }
 
-  async get(game, limit) {
-    const key = `${game}:${limit}`;
+  async get(game, limit, period = 'all') {
+    const key = `${game}:${limit}:${period}`;
     const now = this._now();
     const hit = this._cache.get(key);
 
@@ -20,7 +22,7 @@ export default class LeaderboardCache {
       return hit.result;
     }
 
-    const result = await this._proxy.getLeaderboard(game, limit);
+    const result = await this._proxy.getLeaderboard(game, limit, period);
 
     // только успешный ответ — иначе 5xx/сбой auth «залипнет» на весь TTL
     if (result.status === 200) {

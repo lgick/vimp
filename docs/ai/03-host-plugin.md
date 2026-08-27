@@ -391,6 +391,7 @@ vimp.isPlayerRankLoaded(gameId)     // has it arrived from the master yet?
 vimp.addPlayerRank(gameId, delta)   // add to it, no round logic involved
 vimp.getPlayerState(gameId)         // your blob
 vimp.setPlayerState(gameId, state)  // replace it
+vimp.flushPlayerData()              // sync every profile to the master NOW
 ```
 
 `getPlayerRank` answers `0` for an id it does not know AND for one whose
@@ -402,6 +403,14 @@ of the rank the master returned, and `'='` keeps it there.
 `addPlayerRank` is the escape hatch for a game that never emits
 `CoreEvent::Death` and therefore never reaches `reportKill`: it writes the
 rank directly, so the ±1 rule above is yours to apply.
+
+`flushPlayerData` is the other half of that escape hatch. The engine syncs
+profiles at a map change and at the end of a round — a game with
+`endlessRound` that rebuilds its geometry through `overrideMapData` reaches
+neither, so its rank sits in the host's memory until a participant leaves and
+dies with the tab. Call it on a boundary of your own (a period of play, an
+arena rebuild); it is best-effort and never rejects, so there is nothing to
+await and nothing to catch.
 
 ```js
 vimp.overrideMapData(scaledMapData)  // what _startRound places people on

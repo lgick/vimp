@@ -44,7 +44,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/GameCatalog.js` | game-plugin catalog: resolves the `master:games` config list (`{id, package}[]`) to packages under `node_modules/` and reads `<package>/dist/manifest.json` (built by `npm run build` in the game repository) plus a per-game `MapCatalog` from `<package>/dist/maps/*.json`; in dev, `entries.client/host/wasm` are swapped for Vite `/@fs/` source URLs (HMR) — see [plugin-api.md](plugin-api.md#gamemanifest) |
 | `packages/engine/src/master/JwksProxy.js` | proxies `GET /jwks` of the central auth service under the master's own origin, cached (TTL) — see [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | proxies per-user `GET`/`PUT /rank` and `/state` of the central auth service, **not cached** (Stage B4) — see [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); also the public `GET /leaderboard` and the per-user `GET /placement` (lobby page plan) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
-| `packages/engine/src/master/LeaderboardCache.js` | keyed TTL cache (`game:limit`) in front of `PlayerDataProxy.getLeaderboard` (code review L2) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
+| `packages/engine/src/master/LeaderboardCache.js` | keyed TTL cache (`game:limit:period`) in front of `PlayerDataProxy.getLeaderboard` (code review L2) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/HostRatingProxy.js` | proxies the central auth service's host-rating endpoints: `getRating` (own rating, Bearer) for the `register_host` block check, `vote` (Bearer) for `like_host`/`unlike_host`, `getPublic` (no token — `GET /host-rating/:hosterUserId` is unauthenticated, the value is public lobby data) for `refreshRatings`'s periodic poll |
 | `packages/engine/src/lib/rateLimiter.js` | a shared fixed-window rate limiter (event limit per key per interval) |
 
@@ -247,7 +247,7 @@ Proxies the central auth service's `GET /leaderboard` and `GET /placement`
 (lobby page plan, see [auth.md](auth.md#rest-api)) under the master's own
 origin:
 
-- `GET /auth/leaderboard?game=&limit=` — public (no Bearer token), goes
+- `GET /auth/leaderboard?game=&limit=&period=` — public (no Bearer token), goes
   through `LeaderboardCache` (`packages/engine/src/master/LeaderboardCache.js`,
   code review L2) in front of `PlayerDataProxy.getLeaderboard(game, limit)`.
   `400 gameRequired` if `game` is missing, `404 unknownGame` if it isn't in
@@ -255,12 +255,17 @@ origin:
   `10`, `maxLimit` from config, default `100`) before it reaches the cache,
   `502 authServiceUnavailable` on upstream failure. The response carries
   `Cache-Control: public, max-age=15` (browser-side reinforcement of the
-  server-side TTL).
-- `GET /auth/placement` — goes through the same `forwardPlayerData` helper as
+  server-side TTL). `period` (`day`/`month`/`all`, default `all` —
+  rank-periods) is validated here rather than forwarded blindly: an unknown
+  slice is `400 badPeriod` without a trip to the auth service. It is part of
+  the cache key, so the three slices of one game never answer for each
+  other.
+- `GET /auth/placement?game=&period=` — goes through the same `forwardPlayerData` helper as
   `/auth/rank`/`/auth/state` (Bearer token + `?game=` required, same
   `400`/`404`/`502` cases), forwarding to `PlayerDataProxy.getPlacement(token, game)`.
   Per-user data, never cached — `forwardPlayerData` sends
-  `Cache-Control: no-store` on every response.
+  `Cache-Control: no-store` on every response. `period` is read and
+  validated before the forward, exactly as for the leaderboard.
 
 `PlayerDataProxy._request` omits the `Authorization` header when called with
 a `null` token (as `HostRatingProxy.getPublic` already does for
@@ -269,7 +274,7 @@ unauthenticated while `getRank`/`getState`/`getPlacement` keep passing the
 caller's Bearer token through unchanged.
 
 `LeaderboardCache` wraps `PlayerDataProxy.getLeaderboard` with an in-memory,
-keyed TTL cache (`` `${game}:${limit}` `` → `{ at, result }`, same pattern as
+keyed TTL cache (`` `${game}:${limit}:${period}` `` → `{ at, result }`, same pattern as
 `JwksProxy`'s single-entry TTL cache): `/auth/leaderboard` is the lobby's
 most frequent anonymous request (every open + game/tab switch), and the
 underlying ranking changes slowly. Only `status === 200` responses are

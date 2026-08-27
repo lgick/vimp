@@ -11,6 +11,7 @@ const makeFacade = () => {
     addRank: vi.fn(),
     getRank: vi.fn(() => 7),
     isRankLoaded: vi.fn(() => true),
+    flushAll: vi.fn(() => Promise.resolve([])),
   };
   host._roundManager = {
     reportKill: vi.fn(),
@@ -88,6 +89,27 @@ describe('HostGame.overrideMapData', () => {
     const host = makeFacade();
 
     host.overrideMapData({});
+
+    expect(host._roundManager.initiateNewRound).not.toHaveBeenCalled();
+    expect(host._roundManager.forceChangeMap).not.toHaveBeenCalled();
+  });
+});
+
+// Игре без конца раунда и без смены карты синхронизировать профили нечем:
+// обе штатные границы flushAll живут в RoundManager. Фасад — её единственный
+// способ довезти накопленный ранг до auth, не дожидаясь выхода участника.
+describe('HostGame.flushPlayerData', () => {
+  it('зовёт playerDataSync.flushAll и отдаёт его промис', async () => {
+    const host = makeFacade();
+
+    await expect(host.flushPlayerData()).resolves.toEqual([]);
+    expect(host._playerDataSync.flushAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('не трогает раунд и карту', () => {
+    const host = makeFacade();
+
+    host.flushPlayerData();
 
     expect(host._roundManager.initiateNewRound).not.toHaveBeenCalled();
     expect(host._roundManager.forceChangeMap).not.toHaveBeenCalled();

@@ -31,7 +31,7 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/GameCatalog.js` | каталог игр-плагинов: резолвит список игр из конфига `master:games` (`{id, package}[]`) в пакеты `node_modules/` и читает `<package>/dist/manifest.json` (продукт `npm run build` в репозитории игры) + строит per-game `MapCatalog` из `<package>/dist/maps/*.json`; в dev `entries.client/host/wasm` подменяются на исходники Vite `/@fs/` (HMR) — см. [plugin-api.md](plugin-api.md#gamemanifest) |
 | `packages/engine/src/master/JwksProxy.js` | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | проксирует per-user `GET`/`PUT /rank` и `/state` центрального auth-сервиса, **без кэша** (Этап B4) — см. [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); также публичный `GET /leaderboard` и per-user `GET /placement` (lobby-page-plan) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
-| `packages/engine/src/master/LeaderboardCache.js` | keyed-TTL кэш (`game:limit`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
+| `packages/engine/src/master/LeaderboardCache.js` | keyed-TTL кэш (`game:limit:period`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/HostRatingProxy.js` | проксирует эндпоинты рейтинга хостера центрального auth-сервиса: `getRating` (собственный рейтинг, Bearer) для проверки блокировки в `register_host`, `vote` (Bearer) для `like_host`/`unlike_host`, `getPublic` (без токена — `GET /host-rating/:hosterUserId` не требует авторизации, значение публично) для периодического опроса в `refreshRatings` |
 | `packages/engine/src/lib/rateLimiter.js` | общий rate limiter с фиксированным окном (лимит событий на ключ за интервал) |
 
@@ -232,7 +232,7 @@ hostSecret)` в `main.js` ищет комнату в `HostRegistry` и возв�
 Проксирует `GET /leaderboard` и `GET /placement` центрального auth-сервиса
 (lobby-page-plan, см. [auth.md](auth.md#rest-api)) под origin мастера:
 
-- `GET /auth/leaderboard?game=&limit=` — публичный (без Bearer-токена), идёт
+- `GET /auth/leaderboard?game=&limit=&period=` — публичный (без Bearer-токена), идёт
   через `LeaderboardCache` (`packages/engine/src/master/LeaderboardCache.js`,
   кодревью L2) перед `PlayerDataProxy.getLeaderboard(game, limit)`.
   `400 gameRequired`, если `game` не передан, `404 unknownGame`, если его нет
@@ -240,11 +240,16 @@ hostSecret)` в `main.js` ищет комнату в `HostRegistry` и возв�
   `10`, `maxLimit` из конфига, по умолчанию `100`) ещё до кэша,
   `502 authServiceUnavailable` при сбое апстрима. Ответ несёт
   `Cache-Control: public, max-age=15` (браузерное усиление серверного TTL).
-- `GET /auth/placement` — идёт через тот же хелпер `forwardPlayerData`, что
+  `period` (`day`/`month`/`all`, по умолчанию `all` — rank-periods)
+  проверяется здесь, а не пробрасывается вслепую: незнакомый срез — это
+  `400 badPeriod` без похода в auth-сервис. Он же входит в ключ кэша, так
+  что три среза одной игры не отвечают друг за друга.
+- `GET /auth/placement?game=&period=` — идёт через тот же хелпер `forwardPlayerData`, что
   и `/auth/rank`/`/auth/state` (нужны Bearer-токен и `?game=`, те же случаи
   `400`/`404`/`502`), пробрасывается в `PlayerDataProxy.getPlacement(token, game)`.
   Per-user данные, никогда не кэшируются — `forwardPlayerData` шлёт
-  `Cache-Control: no-store` на каждый ответ.
+  `Cache-Control: no-store` на каждый ответ. `period` читается и
+  проверяется перед проксированием ровно так же, как у лидерборда.
 
 `PlayerDataProxy._request` опускает заголовок `Authorization`, если вызван с
 `token === null` (так же, как `HostRatingProxy.getPublic` уже делает для

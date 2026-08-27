@@ -350,6 +350,12 @@ host: the lobby happens before connecting to a host.
   [master.md](master.md#get-authleaderboard-get-authplacement)) and the
   top-N size requested for the Leaderboard tab; same origin as the master,
   so no CSP changes are needed;
+- `leaderboardPeriods: [{ id, title }]` and
+  `defaultLeaderboardPeriod: 'all'` (rank-periods) — the time slices offered
+  above the Leaderboard list and the one open on arrival. The order is the
+  order of the buttons, `id` travels to auth as `?period=` (so it must be one
+  of `day`/`month`/`all` — anything else is a `400`), `title` goes into the
+  list heading. `elems.periodBtnIds` maps each id to its button;
 - `reconnect` — the host's signaling WS reconnect: exponential backoff
   from `baseDelay: 1000` to `maxDelay: 30000` (ms);
 - `pageSize: 10` — the page size for "Load more" (`offset`/`limit`);

@@ -1790,10 +1790,13 @@ async function fetchServers({ offset, limit, search }) {
 
 // топ-N рейтинга игры (lobby-page-plan) — публичный эндпоинт, доступен и до
 // логина, поэтому без Authorization
-async function fetchLeaderboard(gameId) {
+async function fetchLeaderboard(gameId, period) {
   const params = new URLSearchParams({
     game: gameId,
     limit: lobbyConfig.leaderboardLimit,
+    // rank-periods: срез времени. Мастер отвечает 400 на незнакомый —
+    // значение всегда из lobbyConfig.leaderboardPeriods
+    period,
   });
 
   try {
@@ -1807,7 +1810,7 @@ async function fetchLeaderboard(gameId) {
 
 // позиция вызывающего в рейтинге игры (lobby-page-plan) — требует identity-
 // токена, как и остальные /auth/* запросы игрока (rank/state)
-async function fetchPlacement(gameId) {
+async function fetchPlacement(gameId, period) {
   const token = lobbyAuthModel.getToken();
 
   if (!token) {
@@ -1816,7 +1819,9 @@ async function fetchPlacement(gameId) {
 
   try {
     const res = await fetch(
-      `${lobbyConfig.placementUrl}?${new URLSearchParams({ game: gameId })}`,
+      // тот же срез, что и у списка рядом: плашка позиции, посчитанная за
+      // всё время под заголовком «сегодня», противоречила бы списку
+      `${lobbyConfig.placementUrl}?${new URLSearchParams({ game: gameId, period })}`,
       { headers: { authorization: `Bearer ${token}` } },
     );
 
@@ -1954,6 +1959,13 @@ function initLobby() {
 
   lobby = new LobbyCtrl(lobbyModel, lobbyView);
 
+  // срезы рейтинга (rank-periods) — сразу после создания контроллера и до
+  // первого gameChanged: тот уже несёт открытый срез в запросе
+  lobby.setPeriods(
+    lobbyConfig.leaderboardPeriods,
+    lobbyConfig.defaultLeaderboardPeriod,
+  );
+
   // список серверов — REST-запросом к мастеру
   lobbyModel.publisher.on('fetch', async query => {
     const list = await fetchServers(query);
@@ -1989,17 +2001,17 @@ function initLobby() {
   // под заголовком новой, пока не пришёл ответ (и остаются навсегда при
   // сетевом сбое); reqId отбрасывает ответ устаревшего запроса, если игру
   // переключили быстрее, чем пришёл ответ (latest-wins)
-  lobby.publisher.on('leaderboard-needed', async gameId => {
+  lobby.publisher.on('leaderboard-needed', async ({ gameId, period }) => {
     lobbyModel.clearLeaderboard();
 
     const reqId = ++leaderboardReqId;
     const [leaderboard, placement] = await Promise.all([
-      fetchLeaderboard(gameId),
-      fetchPlacement(gameId),
+      fetchLeaderboard(gameId, period),
+      fetchPlacement(gameId, period),
     ]);
 
     if (reqId !== leaderboardReqId) {
-      return; // игру уже переключили ещё раз — этот ответ устарел
+      return; // игру или срез уже переключили ещё раз — ответ устарел
     }
 
     if (leaderboard) {

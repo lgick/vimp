@@ -32,14 +32,23 @@ export default class PlayerDataProxy {
     return this._request('/rank', token, { game });
   }
 
-  // lobby-page-plan: публичный топ-N рейтинга игры — без Bearer-токена
-  getLeaderboard(game, limit) {
-    return this._request('/leaderboard', null, { game, params: { limit } });
+  // lobby-page-plan: публичный топ-N рейтинга игры — без Bearer-токена.
+  // rank-periods: `period` (day|month|all) едет дальше как есть; auth
+  // отвечает 400 badPeriod на всё остальное, а отсутствие означает 'all'
+  getLeaderboard(game, limit, period) {
+    return this._request('/leaderboard', null, {
+      game,
+      params: period ? { limit, period } : { limit },
+    });
   }
 
-  // lobby-page-plan: позиция вызывающего в рейтинге игры
-  getPlacement(token, game) {
-    return this._request('/placement', token, { game });
+  // lobby-page-plan: позиция вызывающего в рейтинге игры (в том же срезе,
+  // что и список рядом с ней)
+  getPlacement(token, game, period) {
+    return this._request('/placement', token, {
+      game,
+      params: period ? { period } : {},
+    });
   }
 
   // server-rating этап 1: /rank принимает дельту матча, не абсолют.

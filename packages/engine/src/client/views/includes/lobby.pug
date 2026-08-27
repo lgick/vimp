@@ -50,6 +50,12 @@ div#lobby(style='display:none')
             p#lobby-empty= 'No servers available'
             input#lobby-more(type='button', value='Load more')
           div#lobby-leaderboard-content(style='display:none')
+            //- срез рейтинга (rank-periods): день/месяц считаются из леджера
+            //- дельт, all-time — из кэша ratings
+            div.lobby-period-tabs
+              input#btn-period-day.lobby-period-btn(type='button', value='Daily')
+              input#btn-period-month.lobby-period-btn(type='button', value='Monthly')
+              input#btn-period-all.lobby-period-btn.active(type='button', value='All-Time')
             div.lobby-leaderboard-header
               span#leaderboard-title
               span#leaderboard-total

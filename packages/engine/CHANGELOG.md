@@ -9,6 +9,25 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- Daily / Monthly / All-Time slices of the game leaderboard (rank-periods):
+  `GET /auth/leaderboard` and `GET /auth/placement` take `?period=day|month|all`
+  (default `all` — the previous behaviour, so an older client is unaffected),
+  `LeaderboardCache` keys by the period, and the lobby's Leaderboard tab gets
+  a row of slice buttons (`lobbyConfig.leaderboardPeriods`). `day`/`month` are
+  aggregated from the auth service's `rank_events` ledger over calendar UTC
+  windows; `all` still reads the `ratings` cache. Requires the auth service's
+  migration `006_rank_periods_idx.sql`.
+
+- `vimp.flushPlayerData()` on the `HostGame` facade — syncs every current
+  participant's rank/state to the master on demand (`PlayerDataSync.flushAll`).
+  Both scheduled flushes live in `RoundManager` (map change, round end), which
+  a game with `endlessRound` + `overrideMapData` never reaches: its rank
+  otherwise only left the host when a participant left, and a closed host tab
+  lost it. Best-effort like the rest of `PlayerDataSync` — the promise does
+  not reject. Nothing changes for existing games.
+
 ## [0.19.0] — 2026-08-27
 
 ### Added

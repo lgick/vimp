@@ -444,11 +444,14 @@ so a crate version on the lobby screen would be a claim the page cannot back.
   survives a refresh/pagination.
 - **view** — renders cards, search, "Load more", the Active
   Servers/Leaderboard tab switch (`showTab`, toggles `.lobby-tab-btn.active`
-  and the two content containers, UI-only — it does not trigger a fetch) and
+  and the two content containers, UI-only — it does not trigger a fetch), the
+  Daily/Monthly/All-Time slice buttons (`setPeriod` toggles
+  `.lobby-period-btn.active` and keeps the slice's caption for the header;
+  a click emits `show-period`) and
   the Leaderboard list itself (`renderLeaderboard`: numbered rows using the
   server's competition-ranking `place` — not the row index, so ties don't
   drift out of sync with the caller's own placement (code review M3, see
-  `GET /leaderboard` below) — `"<GAME TITLE> TOP-N"` header, total player
+  `GET /leaderboard` below) — `"<GAME TITLE> TOP-N — <SLICE>"` header, total player
   count, an "No ranked players yet" placeholder when the list is empty and
   the model's `loaded` flag is `true`, or "Loading…" while it's still `false`
   (`clearLeaderboard` sets it to `false`, `setLeaderboard` back to `true` —
@@ -481,8 +484,14 @@ so a crate version on the lobby screen would be a claim the page cannot back.
   recently, interval `pingInterval`). It does no fetching itself (lobby page
   plan): `gameChanged(gameId, title)` (invoked by `main.js` on
   `#lobby-game`'s `change`, and once at lobby open for the default game) is
-  the **only** trigger — it's the sole source of the controller's own
-  `leaderboard-needed` event, carrying the target `gameId`. Switching tabs
+  one of the two triggers — the other is `show-period`, the time slice of the
+  rating (rank-periods). Both emit the controller's own `leaderboard-needed`,
+  carrying `{ gameId, period }`: a slice is a different answer from the
+  server, not a different sort of the same rows, so switching it refetches.
+  `setPeriods(periods, default)` (called once by `main.js` from
+  `lobbyConfig.leaderboardPeriods`) seeds the open slice; a click on the slice
+  already open is ignored, and a slice picked before any game was chosen
+  refetches nothing. Switching tabs
   (`showTab`) is UI-only and never triggers a fetch on its own (code review
   L4/L5 — an earlier "fetch lazily on first tab open" branch could fire
   before `gameChanged` ever ran, sending a `gameId: null` request); Leaderboard

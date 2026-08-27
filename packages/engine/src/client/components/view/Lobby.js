@@ -36,6 +36,15 @@ export default class LobbyView {
     this._leaderboardTotal = document.getElementById(elems.leaderboardTotalId);
     this._myPlacement = document.getElementById(elems.myPlacementId);
 
+    // кнопки срезов рейтинга (rank-periods): id периода -> элемент. Кнопки
+    // объявлены конфигом, а не захардкожены здесь, чтобы срез можно было
+    // убрать или добавить в одном месте
+    this._periodBtns = new Map(
+      Object.entries(elems.periodBtnIds || {})
+        .map(([period, id]) => [period, document.getElementById(id)])
+        .filter(([, el]) => el),
+    );
+
     // футер лобби: содержимое статично на всё время жизни вкладки, поэтому
     // пишется здесь, а не через модель и publisher
     const version = document.getElementById(elems.versionId);
@@ -55,6 +64,10 @@ export default class LobbyView {
     // ответа и показывал бы TOP-2 вместо TOP-10, когда ранжировано меньше
     // игроков, чем лимит)
     this._leaderboardLimit = 0;
+
+    // заголовок открытого среза ("<TITLE> TOP-N — TODAY"): подпись, а не
+    // источник правды, срез хранит модель
+    this._periodTitle = '';
 
     // ник вызывающего (lobby-page-plan, code review M4-остаток) — задаётся
     // main.js один раз при открытии лобби; используется, чтобы решить,
@@ -85,6 +98,10 @@ export default class LobbyView {
 
     this._tabServersBtn.onclick = () => this.publisher.emit('show-tab', 'servers');
     this._tabLeaderboardBtn.onclick = () => this.publisher.emit('show-tab', 'leaderboard');
+
+    for (const [period, btn] of this._periodBtns) {
+      btn.onclick = () => this.publisher.emit('show-period', period);
+    }
 
     this._mPublic = model.publisher;
     this._mPublic.on('list', 'renderList', this);
@@ -118,6 +135,17 @@ export default class LobbyView {
     this._selfNick = nick || '';
   }
 
+  // подсвечивает открытый срез рейтинга и запоминает его подпись
+  // (rank-periods). Рисовать список здесь нечем: данные среза приезжают
+  // отдельным запросом, и до ответа список чистится моделью
+  setPeriod(period, title) {
+    this._periodTitle = title || '';
+
+    for (const [id, btn] of this._periodBtns) {
+      btn.classList.toggle('active', id === period);
+    }
+  }
+
   // переключает вкладки Active Servers / Leaderboard (lobby-page-plan)
   showTab(tab) {
     const showLeaderboard = tab === 'leaderboard';
@@ -130,7 +158,10 @@ export default class LobbyView {
 
   // рендер топ-N + позиции вызывающего (lobby-page-plan)
   renderLeaderboard({ leaderboard, total, myPlacement, loaded = true }) {
-    this._leaderboardTitle.textContent = `${this._gameTitle.toUpperCase()} TOP-${this._leaderboardLimit}`;
+    const period = this._periodTitle ? ` — ${this._periodTitle}` : '';
+
+    this._leaderboardTitle.textContent =
+      `${this._gameTitle.toUpperCase()} TOP-${this._leaderboardLimit}${period}`;
     this._leaderboardTotal.textContent = `Total: ${total} players`;
 
     this._leaderboardList.textContent = '';

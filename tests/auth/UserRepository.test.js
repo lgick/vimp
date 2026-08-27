@@ -543,6 +543,68 @@ describe('UserRepository', () => {
     expect(result).toEqual({ leaderboard: [], total: 0 });
   });
 
+  // rank-periods: 'day'/'month' считаются из леджера по календарному окну
+  // UTC, а не из кэша ratings — иначе «топ за сегодня» повторял бы all-time
+  it('getLeaderboard: period day считает окно по rank_events, не по ratings', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/FROM rank_events/);
+      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)/);
+      expect(text).toMatch(/e\.voided = false/);
+      expect(text).not.toMatch(/FROM ratings/);
+      expect(values).toEqual(['tanks', 10]);
+
+      return { rows: [{ nick: 'a', rank: 40, total: '1', place: '1' }] };
+    });
+
+    const repo = new UserRepository(db);
+
+    await expect(repo.getLeaderboard('tanks', 10, 'day')).resolves.toEqual({
+      leaderboard: [{ nick: 'a', rank: 40, place: 1 }],
+      total: 1,
+    });
+  });
+
+  it('getLeaderboard: period month берёт месячное окно', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)/);
+
+      return { rows: [] };
+    });
+
+    await new UserRepository(db).getLeaderboard('tanks', 10, 'month');
+  });
+
+  // совместимость: до периодов вызов был двухаргументным, и он обязан
+  // остаться срезом за всё время
+  it('getLeaderboard: без period читает кэш ratings, как и раньше', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/FROM ratings/);
+      expect(text).not.toMatch(/rank_events/);
+
+      return { rows: [] };
+    });
+
+    await new UserRepository(db).getLeaderboard('tanks', 10);
+  });
+
+  it('getPlacement: period day считает позицию по тому же окну леджера', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/FROM rank_events/);
+      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)/);
+      expect(values).toEqual([1, 'tanks']);
+
+      return { rows: [{ total: '2', rank: 40, placement: 1 }] };
+    });
+
+    const repo = new UserRepository(db);
+
+    await expect(repo.getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+      placement: 1,
+      total: 2,
+      rank: 40,
+    });
+  });
+
   it('getPlacement возвращает placement/total/rank по CTE (проверка SQL/параметров)', async () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/WITH me AS/);

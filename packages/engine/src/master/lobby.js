@@ -229,6 +229,19 @@ app.get('/auth/jwks', (req, res) => {
 // игрока, каким проверяется вход. game проверяется против каталога
 // (кодревью №4) — иначе любой валидный identity-токен мог бы писать
 // rank/state в произвольный, в т.ч. некаталожный, game_id-namespace
+// rank-periods: срез рейтинга, ?period=day|month|all. Отсутствие — 'all',
+// то есть в точности прежнее поведение для старых клиентов; мусор
+// отклоняется здесь же, чтобы не ходить за 400 в auth-сервис.
+const RANK_PERIODS = ['day', 'month', 'all'];
+
+function readPeriod(raw) {
+  if (raw === undefined) {
+    return 'all';
+  }
+
+  return RANK_PERIODS.includes(raw) ? raw : null;
+}
+
 function forwardPlayerData(req, res, call) {
   const header = req.get('authorization') || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -291,9 +304,18 @@ app.put('/auth/state', (req, res) =>
   ),
 );
 
-app.get('/auth/placement', (req, res) =>
-  forwardPlayerData(req, res, (token, game) => playerDataProxy.getPlacement(token, game)),
-);
+app.get('/auth/placement', (req, res) => {
+  const period = readPeriod(req.query.period);
+
+  if (!period) {
+    res.status(400).json({ error: 'badPeriod' });
+    return;
+  }
+
+  forwardPlayerData(req, res, (token, game) =>
+    playerDataProxy.getPlacement(token, game, period),
+  );
+});
 
 // REST API: публичный (без Bearer-токена) топ-N рейтинга игры, проксированный
 // под origin мастера — лобби показывает leaderboard до логина, как GET /servers
@@ -311,9 +333,15 @@ app.get('/auth/leaderboard', (req, res) => {
   }
 
   const limit = clampLimit(req.query.limit, 10, config.get('master:leaderboard:maxLimit'));
+  const period = readPeriod(req.query.period);
+
+  if (!period) {
+    res.status(400).json({ error: 'badPeriod' });
+    return;
+  }
 
   leaderboardCache
-    .get(game, limit)
+    .get(game, limit, period)
     .then(({ status, json }) => {
       // браузерный кэш для повторных открытий той же вкладкой (защита в
       // глубину поверх серверного TTL-кэша) — только на успешный ответ,

@@ -50,6 +50,17 @@ export default {
   placementUrl: '/auth/placement',
   leaderboardLimit: 10,
 
+  // rank-periods: срезы рейтинга и тот, что открыт по умолчанию. Порядок
+  // здесь — порядок кнопок; `id` едет в auth как ?period=, `title` идёт в
+  // заголовок списка. Значения должны совпадать с RANK_PERIODS auth-сервиса:
+  // на всё прочее он отвечает 400
+  leaderboardPeriods: [
+    { id: 'day', title: 'TODAY' },
+    { id: 'month', title: 'THIS MONTH' },
+    { id: 'all', title: 'ALL-TIME' },
+  ],
+  defaultLeaderboardPeriod: 'all',
+
   // переподключение сигнального WS хоста (комната без него выпадает из
   // выдачи мастера): экспоненциальный бэкофф от baseDelay до maxDelay (мс)
   reconnect: {
@@ -93,6 +104,12 @@ export default {
     serversContentId: 'lobby-servers-content',
     leaderboardContentId: 'lobby-leaderboard-content',
     leaderboardListId: 'lobby-leaderboard-list',
+    // кнопки срезов (rank-periods): id периода -> id элемента
+    periodBtnIds: {
+      day: 'btn-period-day',
+      month: 'btn-period-month',
+      all: 'btn-period-all',
+    },
     leaderboardTitleId: 'leaderboard-title',
     leaderboardTotalId: 'leaderboard-total',
     myPlacementId: 'lobby-my-placement',

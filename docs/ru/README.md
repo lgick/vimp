@@ -28,8 +28,9 @@
 
 Документация игровых правил и расширения контента (gameplay, extending,
 игровые части configuration/core) живёт в репозитории активной
-игры-плагина, например
-[vimp-tanks/docs/ru/](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/README.md).
+игры-плагина —
+[vimp-tanks/docs/ru/](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/README.md)
+и [vimp-snakes/docs/ru/](https://github.com/lgick/vimp-snakes/blob/main/docs/ru/README.md).
 
 Пишете игру-плагин с помощью нейросети? [docs/ai/](../ai/README.md) —
 отдельный самодостаточный свод контрактов плагина (плюс процесс генерации и

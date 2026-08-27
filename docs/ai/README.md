@@ -62,6 +62,50 @@ through [`10-pitfalls.md`](10-pitfalls.md) before declaring the plugin done. Tha
 contract in the engine — things that fail at runtime with no error, or with
 an error far from the cause.
 
+**Step 6 — document the game you just wrote.** A finished plugin ships its own
+bilingual documentation; see "Documentation the plugin must ship" below.
+
+## Documentation the plugin must ship
+
+This directory documents the **contract**. A generated plugin must document
+**itself** — the rules, numbers and decisions that are its own — because
+nothing here can: the engine's docs describe every game and therefore none.
+
+Write it as the shipped plugins do (`vimp-tanks`, `vimp-snakes`): two mirrored
+trees, `docs/en/` (canonical) and `docs/ru/` (identical structure), each with a
+`README.md` table of contents and these five pages:
+
+| Page | Contents |
+| --- | --- |
+| `getting-started.md` | Requirements, install, the Rust toolchain, the build scripts, the fastest local match, linking against a local engine checkout, tests, the static contract check, the headless scenarios |
+| `architecture.md` | Repository layout, how the plugin plugs into the engine (host/client/master), where the core's boundary runs, the client-side smoothing this game uses, the decisions the code depends on, the key invariants |
+| `gameplay.md` | The rules a player experiences: the player journey, controls, scoring, chat commands, bots, kicks — and, explicitly, the engine features this game does **not** use |
+| `core.md` | The Rust crate: layout, build, the ABI it fills in (commands, events, frames, state queries), the simulation model, determinism, tests |
+| `configuration.md` | Every file under `src/config/` and `src/data/`, parameter by parameter, with the traps each one hides |
+| `extending.md` | Recipes for adding content — one numbered procedure per artifact, each ending in the checks to run |
+
+Rules for that documentation:
+
+- **Do not duplicate the engine.** Transport, the master, Worker
+  infrastructure, generic core traits and the plugin contract itself belong to
+  the engine's own `docs/en|ru` tree — link out to
+  `https://github.com/lgick/vimp-engine/blob/main/docs/en/...` instead of
+  restating them. This directory (`docs/ai/`) is for authoring and is not
+  linked from a plugin's docs at all.
+- **Document the decisions, not just the fields.** The value of these pages is
+  in the "why": why a config key exists, what breaks silently without it, what
+  the alternative was and why it was rejected. A table of defaults that the
+  code already states is worth little.
+- **State what is deliberately absent.** Rounds, teams, votes, weapons,
+  spectators — an engine feature a game does not use is a decision, and a
+  reader who cannot tell it from an oversight will "fix" it.
+- **Record the rule in the plugin's `CLAUDE.md`**: any functional change
+  updates the matching `docs/en/` and `docs/ru/` pages in the same change,
+  with an area → page table so there is no doubt which page that is.
+- **Link the docs from the plugin's `README.md`** (a short list plus a pointer
+  to the other language). The README stays a landing page; the depth lives in
+  `docs/`.
+
 ## File map
 
 | File | Contents |
@@ -94,5 +138,7 @@ an error far from the cause.
   room setting, or a part that is never constructed. `10-pitfalls.md` exists
   because of this.
 - **This directory is engine-only.** It documents what a plugin must satisfy.
-  It is not a tutorial for the tanks game, and it deliberately contains no
-  links into the engine's own bilingual `docs/en|ru` tree.
+  It is not a tutorial for the tanks game, and it carries no links into the
+  engine's own bilingual `docs/en|ru` tree — the single exception is the
+  documentation step above, which tells a plugin's own docs to link there
+  instead of restating the engine.

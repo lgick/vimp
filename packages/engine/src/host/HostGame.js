@@ -1063,6 +1063,19 @@ export default class HostGame {
     this._playerDataSync.addRank(gameId, delta);
   }
 
+  // синхронизация профилей (rank/state) всех участников на мастер прямо
+  // сейчас — для игр, у которых нет ни конца раунда, ни смены карты
+  // (`endlessRound` + карта, пересобираемая через overrideMapData): обе
+  // штатные границы flushAll живут в RoundManager, и такая игра не проходит
+  // ни через одну из них. Без этого накопленный за матч ранг уезжает в auth
+  // только на выходе участника, а закрытая вкладка хоста теряет его вовсе.
+  //
+  // Best-effort, как и весь PlayerDataSync: промис не отвергается, сбой
+  // логируется в `[playerData]` и повторится следующим flush'ем.
+  flushPlayerData() {
+    return this._playerDataSync.flushAll();
+  }
+
   // hostId + per-room секрет комнаты, подтверждённые мастером при
   // register_host (кодревью №1) — не известны при создании HostGame (Worker
   // стартует раньше ответа мастера); нужны PlayerDataSync для атрибуции

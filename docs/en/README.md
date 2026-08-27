@@ -27,8 +27,9 @@ and signaling.
 | [plugin-api.md](plugin-api.md) | Engine ↔ game plugin contracts: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, snapshot schema, versioning |
 
 Game rules and content-authoring docs (gameplay, extending, game-specific
-configuration/core) live in the active game plugin's own repository, e.g.
-[vimp-tanks/docs/en/](https://github.com/lgick/vimp-tanks/blob/main/docs/en/README.md).
+configuration/core) live in the active game plugin's own repository —
+[vimp-tanks/docs/en/](https://github.com/lgick/vimp-tanks/blob/main/docs/en/README.md)
+and [vimp-snakes/docs/en/](https://github.com/lgick/vimp-snakes/blob/main/docs/en/README.md).
 
 Writing a game plugin with an LLM? [docs/ai/](../ai/README.md) is a separate,
 self-contained specification of the whole plugin contract (plus an authoring
