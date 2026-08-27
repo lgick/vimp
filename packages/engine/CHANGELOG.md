@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-08-27
+
 ### Added
 
 - Daily / Monthly / All-Time slices of the game leaderboard (rank-periods):
@@ -1181,6 +1183,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.20.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.20.0
 [0.19.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.19.0
 [0.18.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.18.1
 [0.18.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.18.0
