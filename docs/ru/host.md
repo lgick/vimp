@@ -268,7 +268,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   подменённый Worker наследует их сразу.
 
 `HostGame` даёт `getPlayerRank(gameId)`/`addPlayerRank(gameId, delta)`/
-`getPlayerState(gameId)`/
+`overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` для игровых плагинов (и
 будущей чат-команды `/rank`, Этап B5), чтобы читать/писать rank и
 непрозрачный блок state. Rust/WASM-ядро игры вообще не участвует —

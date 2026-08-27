@@ -32,8 +32,28 @@ bumps the minor version).
 - A game may now omit `modules.vote` from its client config entirely: the vote
   time is merged into whatever `params` there are, and an absent menu or
   template set renders as an empty menu instead of throwing.
+- `vimp.overrideMapData(scaledMapData)` on the `HostGame` facade — tells the
+  engine which map `RoundManager._startRound` should place participants on,
+  without changing the room's map or restarting the round. For games that
+  rebuild their geometry on the fly (a map change would clear the world, the
+  panel and the stat table); without it the next round start distributes the
+  respawn points of the catalog map, i.e. of geometry the core no longer has.
 
 ### Fixed
+
+- Respawn points are no longer handed out by team SIZE. `RoundManager` now
+  gives a joining or team-switching participant the first slot no active
+  participant holds (`Participant.respawnIndex`), and frees the slot when the
+  actor goes away. The old `getTeamSize(team) - 1` was only correct while
+  participants were added and served strictly one at a time and never left:
+  two players joining at once got the same point, a leave-then-join reused an
+  occupied one, and after a map change every player got the same index, since
+  `createMap` puts everyone in the team before anyone reaches their first
+  frame. `admitPlayer` now also frees a slot with
+  `scripted.removeOneForHuman(team)` before giving up — a human outranks a
+  bot, as it already did in `changeTeam` — and tells a player it still had to
+  refuse (`TEAMS_TEAM_FULL`) instead of leaving them without an actor
+  silently.
 
 - The game canvas is centred in its container. `CanvasManagerModel.resize`
   sized the letterbox correctly, but `ensureCanvas` mounted a bare `<canvas>`

@@ -14,6 +14,9 @@ const makeFacade = () => {
   host._roundManager = {
     reportKill: vi.fn(),
     checkTeamWipe: vi.fn(),
+    overrideMapData: vi.fn(),
+    initiateNewRound: vi.fn(),
+    forceChangeMap: vi.fn(),
   };
 
   return host;
@@ -44,5 +47,27 @@ describe('HostGame.addPlayerRank', () => {
 
     expect(host._roundManager.reportKill).not.toHaveBeenCalled();
     expect(host._roundManager.checkTeamWipe).not.toHaveBeenCalled();
+  });
+});
+
+// Тот же класс прокладок: игра пересобрала карту сама и говорит об этом
+// движку, не начиная раунд и не меняя карту комнаты
+describe('HostGame.overrideMapData', () => {
+  it('прокидывает карту в RoundManager.overrideMapData', () => {
+    const host = makeFacade();
+    const mapData = { respawns: { players: [[1, 2, 3]] } };
+
+    host.overrideMapData(mapData);
+
+    expect(host._roundManager.overrideMapData).toHaveBeenCalledWith(mapData);
+  });
+
+  it('не начинает раунд и не меняет карту комнаты', () => {
+    const host = makeFacade();
+
+    host.overrideMapData({});
+
+    expect(host._roundManager.initiateNewRound).not.toHaveBeenCalled();
+    expect(host._roundManager.forceChangeMap).not.toHaveBeenCalled();
   });
 });

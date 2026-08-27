@@ -109,8 +109,9 @@ export default class PlayerDataSync {
     return this._entries.get(participantId)?.state ?? this._defaultState;
   }
 
-  // прибавляет к рангу игрока (вызывается из RoundManager.reportKill —
-  // тот же чокпоинт, что и Stat score)
+  // прибавляет к рангу игрока. Два вызывающих: RoundManager.reportKill (тот
+  // же чокпоинт, что и Stat score) и HostGame.addPlayerRank — прямой путь для
+  // игр, которые не эмитят CoreEvent::Death и до reportKill не доходят
   addRank(participantId, delta) {
     const entry = this._entries.get(participantId);
 

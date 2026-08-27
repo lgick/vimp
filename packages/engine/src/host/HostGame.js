@@ -1042,6 +1042,13 @@ export default class HostGame {
     this._playerDataSync.setState(gameId, state);
   }
 
+  // карта, по которой движок расставляет участников на старте раунда — для
+  // игр, которые пересобирают геометрию на лету, минуя смену карты (прокси к
+  // RoundManager; карта комнаты и текущий раунд не трогаются)
+  overrideMapData(mapData) {
+    this._roundManager.overrideMapData(mapData);
+  }
+
   // прибавка к рангу для игр, которые не эмитят CoreEvent::Death и потому
   // никогда не проходят через RoundManager.reportKill: прямая прокладка к
   // PlayerDataSync, без раунд-логики и без проверки team-wipe

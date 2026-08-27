@@ -44,23 +44,26 @@ const makeRm = (overrides = {}) =>
 // noSpectators: вход ведёт прямо в играющую команду, минуя голосование и
 // changeTeam со всеми его правилами
 describe('RoundManager.admitPlayer', () => {
-  const makeCtx = (teamSize = 1) => {
-    const users = {
-      u: {
-        gameId: 'u',
-        team: 'players',
-        teamId: 1,
-        name: 'U',
-        model: 's1',
-        socketId: 'su',
-        isNetworked: true,
-      },
-    };
+  const user = gameId => ({
+    gameId,
+    team: 'players',
+    teamId: 1,
+    name: gameId.toUpperCase(),
+    model: 's1',
+    socketId: `s${gameId}`,
+    isNetworked: true,
+    respawnIndex: null,
+  });
+
+  // точки респауна — реальный список, занятость — реальные participant'ы:
+  // мок getTeamSize зафиксировал бы ровно ту формулу, которая и ломалась
+  const makeCtx = (ids = ['u'], respawns = [[10, 20, 0]]) => {
+    const users = Object.fromEntries(ids.map(id => [id, user(id)]));
 
     const participants = {
       ...fakeParticipants(users),
-      getTeamSize: vi.fn(() => teamSize),
       addActive: vi.fn(),
+      removeActive: vi.fn(),
     };
 
     const rm = makeRm({
@@ -69,12 +72,17 @@ describe('RoundManager.admitPlayer', () => {
       spectatorTeam: null,
       spectatorId: null,
       noSpectators: true,
-      game: { createPlayer: vi.fn() },
+      scripted: { removeOneForHuman: vi.fn(() => false) },
+      game: { createPlayer: vi.fn(), removePlayer: vi.fn() },
       stat: { updateUser: vi.fn() },
-      socketManager: { sendPlayerDefaultShot: vi.fn() },
+      chat: { pushSystemByUser: vi.fn() },
+      socketManager: {
+        sendPlayerDefaultShot: vi.fn(),
+        sendSpectatorDefaultShot: vi.fn(),
+      },
     });
 
-    rm._scaledMapData = { respawns: { players: [[10, 20, 0]] } };
+    rm._scaledMapData = { respawns: { players: respawns } };
 
     return rm;
   };
@@ -92,23 +100,146 @@ describe('RoundManager.admitPlayer', () => {
     );
     expect(rm._participants.addActive).toHaveBeenCalledWith('u');
     expect(rm._participants.get('u').status).toBe('active');
+    expect(rm._participants.get('u').respawnIndex).toBe(0);
     expect(rm._socketManager.sendPlayerDefaultShot).toHaveBeenCalledWith(
       'su',
       'u',
     );
   });
 
-  it('отказывает, когда свободной точки спавна нет', () => {
-    const rm = makeCtx(5);
+  it('двое подряд получают РАЗНЫЕ точки', () => {
+    const rm = makeCtx(
+      ['a', 'b'],
+      [
+        [10, 20, 0],
+        [30, 40, 90],
+      ],
+    );
 
-    expect(rm.admitPlayer('u')).toBe(false);
+    expect(rm.admitPlayer('a')).toBe(true);
+    expect(rm.admitPlayer('b')).toBe(true);
+
+    expect(rm._participants.get('a').respawnIndex).toBe(0);
+    expect(rm._participants.get('b').respawnIndex).toBe(1);
+    expect(rm._game.createPlayer).toHaveBeenNthCalledWith(
+      2,
+      'b',
+      's1',
+      'B',
+      1,
+      [30, 40, 90],
+    );
+  });
+
+  it('освободившийся слот переиспользуется, а не пропускается', () => {
+    const rm = makeCtx(
+      ['a', 'b', 'c'],
+      [
+        [10, 20, 0],
+        [30, 40, 90],
+        [50, 60, 180],
+      ],
+    );
+
+    rm.admitPlayer('a');
+    rm.admitPlayer('b');
+
+    // 'a' ушёл в наблюдатели: слот 0 снова свободен, и его получает 'c',
+    // а не третья точка «по размеру команды»
+    rm._setSpectatorFromActivePlayer(rm._participants.get('a'));
+
+    expect(rm.admitPlayer('c')).toBe(true);
+    expect(rm._participants.get('c').respawnIndex).toBe(0);
+  });
+
+  it('отказывает и говорит об этом, когда свободной точки нет', () => {
+    const rm = makeCtx(['a', 'b'], [[10, 20, 0]]);
+
+    rm.admitPlayer('a');
+    rm._game.createPlayer.mockClear();
+
+    expect(rm.admitPlayer('b')).toBe(false);
     expect(rm._game.createPlayer).not.toHaveBeenCalled();
+    expect(rm._chat.pushSystemByUser).toHaveBeenCalledWith(
+      'b',
+      'TEAMS_TEAM_FULL',
+      ['players', 'players'],
+    );
+  });
+
+  it('освобождает место за счёт бота, прежде чем отказать', () => {
+    const rm = makeCtx(['a', 'b'], [[10, 20, 0]]);
+
+    rm.admitPlayer('a');
+
+    // бот ушёл, но точка всё та же одна и занята живым 'a' — освобождение
+    // места не должно превращаться в выдачу занятого слота
+    rm._scripted.removeOneForHuman.mockReturnValue(true);
+
+    expect(rm.admitPlayer('b')).toBe(false);
+    expect(rm._scripted.removeOneForHuman).toHaveBeenCalledWith('players');
+
+    // а вот когда бот действительно держал слот, человек его получает
+    const other = makeCtx(
+      ['a', 'b'],
+      [
+        [10, 20, 0],
+        [30, 40, 90],
+      ],
+    );
+    const bot = { gameId: 'bot', team: 'players', respawnIndex: 1 };
+
+    other._participants.getAll = () => [
+      ...['a', 'b'].map(id => other._participants.get(id)),
+      bot,
+    ];
+    other._scripted.removeOneForHuman = vi.fn(() => {
+      bot.respawnIndex = null;
+
+      return true;
+    });
+
+    other.admitPlayer('a');
+
+    expect(other.admitPlayer('b')).toBe(true);
+    expect(other._participants.get('b').respawnIndex).toBe(1);
   });
 
   it('игнорирует неизвестного участника', () => {
     const rm = makeCtx();
 
     expect(rm.admitPlayer('ghost')).toBe(false);
+  });
+});
+
+// overrideMapData: игра пересобрала геометрию сама, минуя смену карты
+describe('RoundManager.overrideMapData', () => {
+  const makeCtx = () => {
+    const rm = makeRm({ teams: { players: 1 }, spectatorTeam: null });
+
+    rm._scaledMapData = { respawns: { players: [[1, 1, 0]] } };
+
+    return rm;
+  };
+
+  it('подменяет карту старта раунда, не начиная раунд', () => {
+    const rm = makeCtx();
+    const scaled = { respawns: { players: [[9, 9, 0]] } };
+
+    rm.overrideMapData(scaled);
+
+    expect(rm._scaledMapData).toBe(scaled);
+    expect(rm.currentMap).toBe('m1');
+  });
+
+  it('пустое значение игнорируется — карту нечем заменить', () => {
+    const rm = makeCtx();
+    const before = rm._scaledMapData;
+
+    rm.overrideMapData(null);
+    rm.overrideMapData(undefined);
+
+    expect(rm._scaledMapData).toBe(before);
   });
 });
 

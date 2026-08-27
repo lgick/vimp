@@ -176,6 +176,8 @@ class RoundManager {
       // обнулить параметры
       user.status = 'spectator';
       user.isWatching = true;
+      // акторов на новой карте ещё нет, значит и занятых слотов нет
+      user.respawnIndex = null;
       user.watchedGameId = this._participants.getActiveList()[0] || null;
       user.forceCameraReset = true;
 
@@ -203,6 +205,20 @@ class RoundManager {
     user.currentMap = this._currentMap;
     this._socketManager.sendTechInform(socketId, 'loading');
     this._socketManager.sendMap(socketId, this._currentMapData);
+  }
+
+  // Подменяет карту, которую движок раздаёт при старте раунда, НЕ меняя
+  // карту комнаты и не начиная раунд.
+  //
+  // Для игр, которые пересобирают геометрию на лету и не могут пройти через
+  // `forceChangeMap` (он чистит мир, панель и таблицу): без этого
+  // `_startRound` раздавал бы точки респауна карты каталога, то есть исходного
+  // размера, и расставлял всех по геометрии, которой в ядре уже нет
+  // (`@vimp-games/snakes`, `src/host/ArenaScaler.js`).
+  overrideMapData(mapData) {
+    if (mapData) {
+      this._scaledMapData = mapData;
+    }
   }
 
   // немедленная смена карты (когда голосование не требуется)
@@ -249,16 +265,24 @@ class RoundManager {
       .filter(key => key !== this._spectatorTeam)
       .reduce((acc, key) => ({ ...acc, [key]: 0 }), {});
 
-    function getRespawnData(team) {
+    // индекс точки, а не сама точка: занятый слот запоминается на участнике
+    // (`Participant.respawnIndex`), и `admitPlayer` потом раздаёт свободные,
+    // а не «размер команды минус один»
+    function getRespawnIndex(team) {
       const number = respId[team];
 
       respId[team] += 1;
 
-      return respawns[team][number];
+      return number;
     }
 
-    // очищение списка играющих
+    // очищение списка играющих: акторов сняли со всех, поэтому и слоты
+    // респауна свободны — раздача ниже начинается с чистого листа
     this._participants.clearActive();
+
+    for (const participant of this._participants.getAll()) {
+      participant.respawnIndex = null;
+    }
 
     this._panel.reset();
 
@@ -279,9 +303,12 @@ class RoundManager {
       if (team === this._spectatorTeam) {
         user.isWatching = true;
         user.forceCameraReset = true;
+        user.respawnIndex = null;
         this._socketManager.sendSpectatorDefaultShot(socketId);
       } else {
-        this._setActivePlayer(user, getRespawnData(team));
+        const index = getRespawnIndex(team);
+
+        this._setActivePlayer(user, respawns[team][index], index);
       }
 
       this._socketManager.sendSoundCue(socketId, 'roundStart');
@@ -290,14 +317,52 @@ class RoundManager {
 
     // размещение scripted-участников на карте
     for (const participant of this._participants.getScripted()) {
-      this._setActivePlayer(participant, getRespawnData(participant.team));
+      const team = participant.team;
+      const index = getRespawnIndex(team);
+
+      this._setActivePlayer(participant, respawns[team][index], index);
     }
+  }
+
+  // Первый не занятый слот респауна команды, или -1, если свободных нет.
+  //
+  // Занятость считается по участникам, у которых актор УЖЕ есть
+  // (`Participant.respawnIndex`), а не по размеру команды: между попаданием
+  // в команду (`createUser`) и выдачей актора (`firstShotReady`) проходит вся
+  // загрузка карты клиентом, а команда за это время успевает вырасти. Двое
+  // зашедших одновременно получали от «размера минус один» ОДИН индекс, и
+  // после смены карты его получали разом вообще все — `createMap` добавляет
+  // в команду всех до того, как хоть кто-то дойдёт до первого кадра.
+  _freeRespawnIndex(team) {
+    const respawns = this._scaledMapData?.respawns?.[team] ?? [];
+    const taken = new Set();
+
+    for (const participant of this._participants.getAll()) {
+      if (participant.team === team && participant.respawnIndex !== null) {
+        taken.add(participant.respawnIndex);
+      }
+    }
+
+    for (let i = 0; i < respawns.length; i += 1) {
+      if (!taken.has(i)) {
+        return i;
+      }
+    }
+
+    return -1;
   }
 
   // Впускает участника прямо в играющую команду — путь входа игр с
   // noSpectators: ни голосования, ни смены команды, ни правила «<2 игроков».
   // Команду участник получил ещё в ParticipantManager.createHuman, здесь
-  // выдаётся только актор. Возвращает false, если свободной точки нет.
+  // выдаётся только актор.
+  //
+  // Если свободной точки нет, освобождается одна за счёт scripted-участника —
+  // то же правило, что и в changeTeam: человек важнее бота. Если и это не
+  // помогло, возвращается false и игрок узнаёт об этом из чата: под
+  // noSpectators попросить место больше негде — голосования нет, а changeTeam
+  // в единственную команду отвечает «это ваша текущая команда». Место
+  // освободит чужой выход, а актора выдаст следующий _startRound.
   admitPlayer(gameId) {
     const user = this._participants.get(gameId);
 
@@ -306,14 +371,24 @@ class RoundManager {
     }
 
     const respawns = this._scaledMapData?.respawns?.[user.team];
-    const index = this._participants.getTeamSize(user.team) - 1;
+    let index = this._freeRespawnIndex(user.team);
+
+    if (!respawns?.[index] && this._scripted.removeOneForHuman?.(user.team)) {
+      index = this._freeRespawnIndex(user.team);
+    }
+
     const respawnData = respawns?.[index];
 
     if (!respawnData) {
+      this._chat.pushSystemByUser(gameId, 'TEAMS_TEAM_FULL', [
+        user.team,
+        user.team,
+      ]);
+
       return false;
     }
 
-    this._setActivePlayer(user, respawnData);
+    this._setActivePlayer(user, respawnData, index);
 
     return true;
   }
@@ -415,12 +490,28 @@ class RoundManager {
       }
       // игра активным игроком возможна в текущем раунде
     } else {
-      const respawnIndex = this._participants.getTeamSize(newTeam) - 1;
+      // тот же аллокатор, что и у admitPlayer: слот берётся свободный, а не
+      // «размер команды минус один» — серия входов и выходов сдвигает размер
+      // на уже занятые точки
+      user.respawnIndex = null;
+
+      const respawnIndex = this._freeRespawnIndex(newTeam);
       const respawnData = respawns[newTeam][respawnIndex];
+
+      if (!respawnData) {
+        this._chat.pushSystemByUser(gameId, 'TEAMS_TEAM_FULL', [
+          newTeam,
+          currentTeam,
+        ]);
+
+        return;
+      }
+
+      user.respawnIndex = respawnIndex;
 
       // переход из наблюдателя в игрока
       if (oldTeamId === this._spectatorId) {
-        this._setActivePlayer(user, respawnData);
+        this._setActivePlayer(user, respawnData, respawnIndex);
         // смена игровой команды
       } else {
         this._game.changePlayerData(gameId, {
@@ -441,6 +532,8 @@ class RoundManager {
     user.isWatching = true;
     user.watchedGameId = this._participants.getActiveList()[0] || null;
     user.forceCameraReset = true;
+    // слот освобождается вместе с актором, иначе он держится за наблюдателем
+    user.respawnIndex = null;
 
     this._participants.removeActive(gameId);
     this._removedPlayersList.push({ gameId, model });
@@ -448,8 +541,9 @@ class RoundManager {
     this._socketManager.sendSpectatorDefaultShot(user.socketId);
   }
 
-  // перевод игрока в активные игроки
-  _setActivePlayer(user, respawnData) {
+  // перевод игрока в активные игроки. `respawnIndex` — слот, который участник
+  // с этого момента занимает (см. `_freeRespawnIndex`)
+  _setActivePlayer(user, respawnData, respawnIndex = null) {
     const gameId = user.gameId;
     const teamId = user.teamId;
     const name = user.name;
@@ -459,6 +553,7 @@ class RoundManager {
     user.isWatching = false;
     user.watchedGameId = null;
     user.forceCameraReset = true;
+    user.respawnIndex = respawnIndex;
 
     // если это реальный игрок (есть сокет)
     if (user.isNetworked) {

@@ -352,6 +352,11 @@ modules: {
 - `timeOff: true` hides the countdown (used for the initial team choice).
 - `menu` is the player-initiated vote list.
 - `params.time` is injected by the engine from `timers.voteTime`.
+- The whole `modules.vote` block is **optional**. A game with nothing to vote
+  on (`gameConfig.noSpectators`, one eternal map) may omit it: the engine's
+  defaults still give the module its `elems`, `params.time` is merged into
+  whatever `params` there are, and an absent `menu`/`templates` renders as an
+  empty menu on `m` instead of throwing.
 
 ## Keyboard
 

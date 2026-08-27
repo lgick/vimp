@@ -277,7 +277,7 @@ to still being the join-time default:
   swapped-in Worker inherits them immediately.
 
 `HostGame` exposes `getPlayerRank(gameId)`/`addPlayerRank(gameId, delta)`/
-`getPlayerState(gameId)`/
+`overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` for game-plugin modules
 (and a future `/rank` chat command, Stage B5) to read/write rank and the
 opaque state blob. The Rust/WASM game core is not involved at all —

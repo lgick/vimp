@@ -168,7 +168,11 @@ Rules:
     (`{0}` — команда), старт раунда, конец игры. *В tanks — `{0} WINS!`,
     `ROUND START!`, `GAME OVER!`.*
 39. Нужно ли голосование сразу после входа в матч (`initialVote`)?
-    *В tanks — выбор команды.*
+    *В tanks — выбор команды.* Если игра одно-командная и наблюдателей в ней
+    нет как явления — ответ «нет»: вместо `initialVote`/`spectatorTeam`
+    объявляется `gameConfig.noSpectators: true` (ровно одна команда, вход
+    прямо в неё), а `modules.vote` можно не объявлять вовсе. Если раунд в
+    игре бесконечный — к нему же `gameConfig.endlessRound: true`.
 
 ## Блок 9. Боты (scripted-участники)
 
@@ -272,7 +276,7 @@ Rules:
 | 1 | `package.json`, `scripts/build-game-manifest.js`, `id`/`title` in both plugins |
 | 2 | `gameConfig.roomDefaults`, `gameConfig.roomForm`, `parts.friendlyFire`, `timers.roundTime`/`mapTime` |
 | 3 | `src/config/auth.js` (`elems`, `texts`, `params`, `validators`) |
-| 4 | `gameConfig.teams`/`spectatorTeam`, `initialVote`, `chatMaxLength`, `idleKickTimeout`/`rtt`, `src/host/systemMessages.js`, chat commands, client `modules.chat.params.messages`, `modules.vote.params` |
+| 4 | `gameConfig.teams`/`spectatorTeam` (или `noSpectators`, и тогда без `initialVote`, `spectatorTeam` и `modules.vote`), `endlessRound`, `chatMaxLength`, `idleKickTimeout`/`rtt`, `src/host/systemMessages.js`, chat commands, client `modules.chat.params.messages`, `modules.vote.params` |
 | 5 | `gameConfig.playerKeys`, client `modules.controls.keySetList`, `spectatorKeys`, core `apply_input`, `predictor.rs`, `PLAYER_STATE_LEN` layout |
 | 6 | `src/data/weapons.js`, `src/data/models.js`, core weapon modules, `onCoreEvent` for custom events |
 | 7 | `src/config/snapshot.js`, Rust `build_snapshot_blocks` rows, client `parts.gameSets` |

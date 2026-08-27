@@ -166,6 +166,12 @@ must carry `['teamChange', '<team>']` and are always sent **before**
 `startupCommands`. Both are sent on the first render tick after the first
 frame arrives.
 
+None of this applies to a game with `gameConfig.noSpectators`: there are no
+spectators to leave, the player enters the playing team directly and gets an
+actor on their first frame. Leave `startupVotes` empty for such a game — there
+is nothing to answer, and `['teamChange', '<the same team>']` only prints
+"your current team" into the chat.
+
 The engine has no notion of a "bot": scripted participants are spawned by a
 *game* chat command declared in `hostPlugin.chatCommands` — hence
 `startupCommands: ['/bot 4']` rather than a `bots: 4` option. Keep their
@@ -202,6 +208,7 @@ fully disabled.
   something at the container's first level with a rule weaker than
   `.vimp-shell > *` (see above) and the engine keeps it hidden.
 - **`/bot` answers "players only"** — `startupVotes` are missing, so the
-  player is still a spectator.
+  player is still a spectator (this cannot happen in a `noSpectators` game,
+  where `startupVotes` are not needed at all).
 - **`game "<id>" requires engine API vN`** — the plugin and the installed
   `vimp-engine` are from different API generations; align the versions.

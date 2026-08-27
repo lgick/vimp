@@ -167,7 +167,7 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 | `snapshot` | schema object | the binary protocol layout — see `06-snapshot-protocol.md` |
 | `teams` | `{ teamName: teamId }` | includes the spectator team; **required** |
 | `spectatorTeam` | `string` | which key of `teams` is spectators; **required** unless `noSpectators` |
-| `noSpectators` | `boolean` | opt-in: no spectator concept at all. `teams` holds exactly one team, `spectatorTeam` is omitted (`spectatorTeam`/`spectatorId` are `null` in the host), a joining human is created in the playing team with their stat row there, and gets an actor from `RoundManager.admitPlayer` on `firstShotReady` — no vote, no team change |
+| `noSpectators` | `boolean` | opt-in: no spectator concept at all. `teams` holds exactly one team, `spectatorTeam` is omitted (`spectatorTeam`/`spectatorId` are `null` in the host), a joining human is created in the playing team with their stat row there, and gets an actor from `RoundManager.admitPlayer` on `firstShotReady` — no vote, no team change. `admitPlayer` takes the first respawn slot no participant holds; if the map has none left it frees one with `scripted.removeOneForHuman(team)` (a human outranks a bot, the same rule `changeTeam` follows), and only then refuses, telling the player `TEAMS_TEAM_FULL` — under `noSpectators` there is no vote to ask for a place with, so the next round start (`/nr`, a bot command) is what hands them an actor |
 | `endlessRound` | `boolean` | opt-in: the engine never restarts the round by itself — no stat wipe when fewer than two humans are active, no round end on a team wipe, no restart when the round timer expires. `/nr` and map changes still work. Independent of `noSpectators` |
 | `scripted` | `{ namePrefix, defaultModel }` | bot naming/model defaults |
 | `maps` | `{ mapName: mapObject }` | bundled maps (replaced by the master catalog at runtime) |
@@ -395,6 +395,17 @@ vimp.setPlayerState(gameId, state)  // replace it
 `addPlayerRank` is the escape hatch for a game that never emits
 `CoreEvent::Death` and therefore never reaches `reportKill`: it writes the
 rank directly, so the ±1 rule above is yours to apply.
+
+```js
+vimp.overrideMapData(scaledMapData)  // what _startRound places people on
+```
+
+`overrideMapData` is for a game that rebuilds its geometry on the fly instead
+of going through a map change (a map change clears the world, the panel and
+the stat table). Hand the engine the same map you handed the core: without it
+the next round start — `/nr`, or a chat command that restarts the round —
+distributes the respawn points of the CATALOG map, i.e. of geometry the core
+no longer has. It replaces neither the room's current map nor the round.
 
 State is flushed to the master on map change, round end and participant
 departure — not on every mutation.
