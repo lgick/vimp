@@ -29,6 +29,10 @@ export default {
   // пакетами @vimp-games/* из node_modules (master/localGames.js), чтобы
   // прилинкованная игра попадала в лобби без правки этого массива: он
   // публикуется вместе с пакетом vimp-engine
+  // maxGameScore (snakes-v3 этап 3.3, необязательное поле рядом с
+  // id/package) — потолок результата ОДНОЙ игры для этой игры; мастер
+  // клампит им `best`/`points` PUT /auth/rank. Не задан — дефолт
+  // master:playerData:maxGameScore
   games: [{ id: 'tanks', package: '@vimp-games/tanks' }],
 
   // список серверов (GET /servers)
@@ -58,6 +62,26 @@ export default {
   leaderboard: {
     cacheTtl: 15000,
     maxLimit: 100,
+  },
+
+  // GET /auth/placement + агрегирующий GET /auth/placements (snakes-v3
+  // этап 3.3): место меняется медленно, а запрос за ним тяжелее топа
+  // (оконная функция по леджеру), и каждый вход участника стоит трёх срезов
+  placement: {
+    cacheTtl: 30000,
+  },
+
+  // пределы записи профилей в БД (snakes-v3 этап 3, решение пользователя 9):
+  // «игр сотни, серверов сотни» — минимальный интервал держит движок на
+  // стороне хоста, а мастер держит потолок для сломанного или злонамеренного
+  // сервера, который этот интервал обошёл
+  playerData: {
+    // PUT /auth/rank + /auth/state на комнату (проверенный hostId) в минуту:
+    // с запасом над честной комнатой на 32 игрока при минутном интервале
+    writesPerMinute: 240,
+    // потолок результата ОДНОЙ игры, если игра не объявила свой
+    // (master:games[].maxGameScore): обоснование — plan/snakes-v3/stage_2.md
+    maxGameScore: 10000,
   },
 
   // рейтинг хостера комнаты (server-rating этап 2, plan/server-rating/

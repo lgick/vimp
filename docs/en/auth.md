@@ -71,7 +71,8 @@ In dev, `VIMP_AUTH_ALLOWED_ORIGINS` defaults to the dev master's origin
 users:           id, provider, provider_uid, nick(UNIQUE), created_at
 ratings:         user_id, game_id, rank, updated_at            ← denormalized cache
 rank_events:     id, user_id, game_id, hoster_user_id, session_id,
-                 delta, voided, created_at                     ← append-only ledger
+                 delta, best, voided, created_at               ← append-only ledger
+                                                                 of GAME RESULTS
 state_snapshots: user_id, game_id, session_id, hoster_user_id,
                  state_before, created_at                      ← rollback MVP
 states:          user_id, game_id, state(JSONB opaque), updated_at  ← "skills"
@@ -87,14 +88,55 @@ case-insensitively (`002_nick_case_insensitive.sql`, a `UNIQUE INDEX` on
 can't coexist. `packages/auth/src/UserRepository.js` is the only module
 touching these tables.
 
-**Rank ledger** (server-rating stage 1, `003_rank_ledger.sql`): `ratings.rank`
-is a cache, not the source of truth. Every match result appends a signed
-`delta` row to `rank_events`, attributed to the hosting server
-(`hoster_user_id`, the room creator's `userId`) and its session
-(`session_id`); `ratings.rank` is recomputed as
-`SUM(delta) WHERE voided = false`, clamped to `config.rank.min/max`. This
-attribution is what lets server-rating stage 4 void a banned server's contribution
-without touching the rest of a player's history. `state_snapshots` captures
+**The ledger of game results** (server-rating stage 1, `003_rank_ledger.sql`;
+snakes-v3, `007_game_results.sql`): `ratings.rank` is a cache, not the source
+of truth. Every write appends one row to `rank_events`, attributed to the
+hosting server (`hoster_user_id`, the room creator's `userId`) and its session
+(`session_id`). That attribution is what lets server-rating stage 4 void a
+banned server's contribution without touching the rest of a player's history.
+
+Since snakes-v3 a row is a **game result**, and it carries two numbers:
+
+| Column | Meaning |
+| --- | --- |
+| `delta` | the SUM of the points of the games in this row — the monthly and all-time ratings |
+| `best` | the best SINGLE game among them — the daily rating |
+
+Two columns rather than a row per game, because the engine is free to coalesce
+several finished games of one player into one request: on a merge the sum adds
+up and the maximum stays a maximum, so both aggregations stay exact. Rows
+written before the migration are read as they are, and it backfills them with
+`best = GREATEST(delta, 0)` — the closest honest reading of "the rank gained
+in a match".
+
+**Three ratings out of one ledger.** `period` picks not only the window but
+the aggregation:
+
+| `period` | Aggregation | Window |
+| --- | --- | --- |
+| `day` | `MAX(best)` | the calendar UTC day, live |
+| `month` | `SUM(delta)` | the calendar UTC month, live |
+| `all` | the `ratings` cache | a snapshot, recomputed once a day |
+
+`all` is deliberately not recomputed on write: `PUT /rank` is one `INSERT` and
+nothing else, or every result would drag a `SUM` over the player's whole
+history behind it. `packages/auth/src/db/ratingsJob.js` is the daily job that
+moves the cache instead — it runs at **00:05 UTC** (five minutes after the
+daily slice resets, so the two events are apart in the log), sums only the
+events that arrived since `ratings.updated_at` and moves that cursor to
+`now()`. `npm -w @vimp/auth run db:ratings` runs it by hand. The consequence
+is worth stating out loud: the all-time list and the caller's own all-time row
+both show the snapshot taken at 00:00 UTC, and today's games are not in it.
+
+**Write limits.** `config.rank` no longer holds a per-match `maxDelta` but two
+absolute ceilings on a result: `maxGameScore` (10 000, one game) and
+`maxPoints` (200 000 = ×20, the sum of games coalesced into one request);
+`best <= points` is validated too, since `best` is a maximum over the games
+whose sum is `points`. Both are the LAST line of defence and deliberately
+generous — auth serves hundreds of games and one exact limit for all of them
+is wrong by construction. The working per-game limit lives on the master
+(`master:games[].maxGameScore`), together with the per-room write rate
+(`master:playerData:writesPerMinute`). `state_snapshots` captures
 `state` once per `(user, game, session)` — the value right before that
 server's first write — as an MVP rollback point; a player who plays a clean
 server between two sessions on a banned one will have that clean progress
@@ -144,14 +186,14 @@ also reverted by the snapshot restore.
 | `GET /dev/login?nick=&returnUrl=` **(dev only)** | skips OAuth entirely: finds/creates the user as `('dev', nick)`, sets the nick on first login (`setNick`'s `nick IS NULL` guard makes repeats a no-op) and redirects to `returnUrl` with `?token=` — exactly the shape `/oauth/:provider/callback` produces, so the client path is unchanged. The nick goes through the same `isValidNick`, the return URL through the same allow-list check as OAuth (no open redirect with a valid token). Registered **only** when `NODE_ENV !== 'production'`; in production the route does not exist (`404`). Handler — `src/devLogin.js`, see [getting-started.md](getting-started.md#central-auth-service-needed-to-reach-the-lobby) |
 | `POST /nick` (Bearer pending token, `{ nick }`) | CORS-enabled for `VIMP_AUTH_ALLOWED_ORIGINS` origins (preflight `OPTIONS` too — the only endpoint called directly from the browser lobby, not proxied by a master), rate-limited per IP; rejects an identity token (`403 nickAlreadySet` — a pending token is required, so `/nick` can't rename an existing user); validates the nick against `NAME_REGEXP` (case-insensitively unique — see Schema) and sets it, returns `{ token }` (full identity JWT). `409 { error: 'nickTaken' }` on a race |
 | `GET /jwks` | RS256 public key as a JWK — a host verifies `token`'s signature against this before trusting its `nick` |
-| `GET /rank?game=` (Bearer identity token) | `{ rank }` — the cached, clamped sum of the caller's non-voided `rank_events` for that game |
-| `PUT /rank?game=` (Bearer, `{ delta, hosterUserId?, sessionId? }`) | appends a match-delta ledger event (must be an integer within `±config.rank.maxDelta`, code-review fix — otherwise a single call could ram the cache clamp in one match) attributed to the reporting server/session, recomputes and returns `{ rank }`; mirrors `PUT /state` (Stage B4, delta semantics since server-rating stage 1). `hosterUserId`/`sessionId` are meant to be stamped by the caller's *master*, not the browser host itself — see [master.md](master.md#getput-authrank-getput-authstate) |
+| `GET /rank?game=` (Bearer identity token) | `{ rank }` — the `ratings` cache for that game: the clamped all-time sum of the caller's non-voided `rank_events` **as of the last daily job**, not as of now |
+| `PUT /rank?game=` (Bearer, `{ points, best, hosterUserId?, sessionId? }`) | appends one GAME-RESULT ledger row attributed to the reporting server/session and answers `{ ok: true }` — nothing is recomputed on the hot path, so returning a rank here would be a lie (`all` is a daily snapshot). Both numbers must be non-negative integers with `best <= config.rank.maxGameScore`, `points <= config.rank.maxPoints` and `best <= points`, else `400 invalidRank`. `delta` is still accepted as an alias of `points` for one version (an older host has no `best`, and its `points` is read as a single game). `hosterUserId`/`sessionId` are meant to be stamped by the caller's *master*, not the browser host itself — see [master.md](master.md#getput-authrank-getput-authstate) |
 | `GET /state?game=` (Bearer) | `{ state }` (opaque JSON, the "skills" blob) |
 | `PUT /state?game=` (Bearer, `{ state, hosterUserId?, sessionId? }`) | if `sessionId` is given and no snapshot exists yet for `(user, game, session)`, first stores the current `state` into `state_snapshots`, then upserts the new `state`; rejects a state above `config.state.maxBytes` (`400 stateTooLarge`) |
 | `GET /host-rating` (Bearer identity token) | `{ score, blocked }` — the caller's **own** rating, as a hoster; the master calls this with the hoster's token on `register_host` to decide whether to reject the room (`blocked: true`), and to seed the room's cached lobby `rating` (server-rating stage 3) |
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | a guest's vote for/against `hosterUserId` (the caller is the voter, taken from their Bearer token — `403 selfVote` if it equals `hosterUserId`); `value` must be `1` or `-1` (`400 invalidVote`); an empty/missing `reason` isn't counted (returns the current rating with `counted: false`, no write); otherwise upserts the vote and returns `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (no auth — server-rating stage 3) | `{ score, blocked }` for an arbitrary `hosterUserId`; unauthenticated because the value is already public lobby data (`GET /servers`' `rating` field) — the master's `HostRatingProxy.getPublic` polls this on a timer (`SignalingServer.refreshRatings()`) to refresh its per-room rating cache without holding a Bearer token for every active hoster between requests. `400 badRequest` for a non-integer `:hosterUserId` |
-| `GET /leaderboard?game=&limit=&period=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank, place}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`. `place` is a competition ranking (`RANK() OVER (ORDER BY rank DESC)`) — tied `rank` values share a `place`, the next distinct value skips ahead by the tie's size — matching `GET /placement`'s definition below, not the row's plain 1-based index (code review M3: the two must agree, since the client shows the caller's own placement next to this same list). `total` and `place` both come from window functions computed over the whole `WHERE`-matched set before `LIMIT`, in the same query as the page (code review L1 — one round trip instead of a separate `COUNT(*)`). Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing. **`period`** (rank-periods) selects the time slice: `all` (the default, and what an older client that sends no `period` gets), `day` or `month`. `all` reads the `ratings` cache exactly as before; `day`/`month` are aggregated on the fly from the `rank_events` ledger (`SUM(delta) WHERE voided = false AND created_at >= date_trunc('day'|'month', now() AT TIME ZONE 'utc')`, `HAVING SUM(delta) > 0`) — calendar windows in UTC, not rolling ones, so "today's top" means the same thing to everybody looking at it. `400 badPeriod` on any other value: answering with the wrong slice under the right heading is worse than refusing |
+| `GET /leaderboard?game=&limit=&period=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank, place}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`. `place` is a competition ranking (`RANK() OVER (ORDER BY rank DESC)`) — tied `rank` values share a `place`, the next distinct value skips ahead by the tie's size — matching `GET /placement`'s definition below, not the row's plain 1-based index (code review M3: the two must agree, since the client shows the caller's own placement next to this same list). `total` and `place` both come from window functions computed over the whole `WHERE`-matched set before `LIMIT`, in the same query as the page (code review L1 — one round trip instead of a separate `COUNT(*)`). Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing. **`period`** (rank-periods, snakes-v3) selects the time slice **and the aggregation**: `all` (the default, and what an older client that sends no `period` gets) reads the `ratings` cache — the daily job's snapshot; `month` is `SUM(delta)` and `day` is `MAX(best)`, both aggregated on the fly from the `rank_events` ledger over a calendar UTC window (`created_at >= date_trunc('day'|'month', now() AT TIME ZONE 'utc')`, `voided = false`, `HAVING … > 0`) — calendar windows, not rolling ones, so "today's top" means the same thing to everybody looking at it. `400 badPeriod` on any other value: answering with the wrong slice under the right heading is worse than refusing. The route also answers `304 Not Modified` to a matching `If-None-Match`: the list changes slowly and the lobby re-requests it on every tab open |
 | `GET /placement?game=&period=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is the same competition-ranking position as `/leaderboard`'s `place` (`(COUNT(*) WHERE rank > mine) + 1`) or `null` if `rank` is `0` (not yet ranked). `period` is the same slice, computed the same way — the caller's own row must not contradict the list it is shown next to |
 
 Rate limiting is one middleware (`src/lib/rateLimit.js` — `main.js` starts the
@@ -298,33 +340,43 @@ short:
 
 1. **Load on join**: `HostGame.createUser()` fires
    `PlayerDataSync.load(participantId, token)` (fire-and-forget — it never
-   blocks the join flow), which calls the master's `GET /auth/rank` and
-   `GET /auth/state` (proxied to the central auth service — see
+   blocks the join flow), which calls the master's `GET /auth/placements` —
+   one round trip for all three slices, `{ day, month, all }`, served from
+   `PlacementCache` (`master:placement:cacheTtl`) — and `GET /auth/state`
+   (both proxied to the central auth service — see
    [master.md](master.md#getput-authrank-getput-authstate))
    with the participant's own identity token. If the auth service is
-   unreachable, the participant simply keeps the defaults (rank `0`, the
+   unreachable, the participant simply keeps the defaults (no rating, the
    game plugin's `playerState.defaultState`, e.g. `vimp-tanks`'s
    `src/config/game.js`) — a join is never blocked by auth-service downtime.
-2. **Accumulate**: rank changes by ±1 per kill, accumulated at the same
-   choke point as the ephemeral `Stat` score —
-   `RoundManager.reportKill()` (win/team-kill branching included).
+2. **Accumulate the points of the CURRENT game**: `+1` per kill through
+   `RoundManager.reportKill()` by default, or whatever the game reports with
+   `vimp.addPlayerPoints()`. They become a rating only when the game ends —
+   `vimp.finishPlayerGame()`, which `RoundManager` calls at a map change and a
+   round end, and a roundless game calls at a boundary of its own.
 3. **Sync back**: `PlayerDataSync.flush()`/`flushAll()` `PUT`s the
-   participant's current rank+state to the master's `PUT /auth/rank`/
+   participant's result and state to the master's `PUT /auth/rank`/
    `PUT /auth/state` (best-effort, `Promise.allSettled` — a failed flush is
    silently retried on the next natural flush point, with whatever was
-   accumulated meanwhile). Flush points: map change and round end (both in
-   `RoundManager`), plus a final flush when a participant leaves
-   (`HostGame.removeUser()`).
+   accumulated meanwhile). Since snakes-v3 the ENGINE owns the write budget
+   (`lobbyConfig.playerData`): nothing is sent when nothing changed, at most
+   one sync per participant per `minFlushInterval` (60 s, jittered ±20 % per
+   room), one request in flight per participant, a room-wide queue capped at
+   `maxRequestsPerSecond` and an exponential backoff on `5xx`/`429`. The
+   urgent boundaries — a participant leaving, `destroy()` — bypass the
+   interval, and so does a game that asks for it
+   (`flushPlayerData({ urgent: true })`).
 
-Rank here is a simple kill-delta accumulator (+1/-1), not an ELO or
-matchmaking rating. The Rust/WASM game core has no notion of rank/state at
-all — it's a purely engine/JS-side concept, exposed to game-plugin code via
-`HostGame.getPlayerRank()`/`getPlayerState()`/`setPlayerState()`, and to
-players via the engine-level `/rank` chat command (Stage B5,
-[CommandProcessor](../../packages/engine/src/host/meta/core/CommandProcessor.js),
-see the active game plugin's own gameplay docs, e.g. [vimp-tanks/docs/en/gameplay.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/gameplay.md#chat-c-key-and-commands)) — it reads the
-locally cached rank via `PlayerDataSync.getRank()`, no extra network round
-trip.
+The Rust/WASM game core has no notion of rating/state at all — it is a purely
+engine/JS-side concept, exposed to game-plugin code via
+`HostGame.addPlayerPoints()`/`finishPlayerGame()`/`getPlayerRating()`/
+`refreshPlayerPlacement()`/`getPlayerState()`/`setPlayerState()`, and to
+players by whatever chat command the game registers (`/rank` in the scaffold's
+`metaCommands.js`; the engine parses none of its own — see the active game
+plugin's gameplay docs, e.g. [vimp-tanks/docs/en/gameplay.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/gameplay.md#chat-c-key-and-commands)).
+A place is the one thing that cannot be answered locally — it moves with other
+people's games — so `refreshPlacement()` re-asks the master for it; a value is
+read from the slices loaded on join, no round trip.
 
 ## Tests
 

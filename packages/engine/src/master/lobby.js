@@ -11,7 +11,7 @@ import { applyMasterEnv } from '../config/env.js';
 import config from '../lib/config.js';
 import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
-import { clampLimit } from '../lib/validators.js';
+import { clampGameResult, clampLimit } from '../lib/validators.js';
 import DebugReportStore from './DebugReportStore.js';
 import GameCatalog from './GameCatalog.js';
 import { applyLocalGames } from './localGames.js';
@@ -20,7 +20,9 @@ import HostRatingProxy from './HostRatingProxy.js';
 import HostRegistry from './HostRegistry.js';
 import JwksProxy from './JwksProxy.js';
 import LeaderboardCache from './LeaderboardCache.js';
+import PlacementCache from './PlacementCache.js';
 import PlayerDataProxy from './PlayerDataProxy.js';
+import { etagFor, isNotModified } from './etag.js';
 import WorkerCatalog from './WorkerCatalog.js';
 import SignalingServer from './SignalingServer.js';
 
@@ -75,6 +77,22 @@ const playerDataProxy = new PlayerDataProxy(
 // (per-user) через этот кэш не идёт, см. LeaderboardCache.js
 const leaderboardCache = new LeaderboardCache(playerDataProxy, {
   ttlMs: config.get('master:leaderboard:cacheTtl'),
+});
+
+// TTL-кэш места игрока (snakes-v3 этап 3.3): вход участника стоит трёх
+// срезов (агрегирующий GET /auth/placements), а место меняется медленно —
+// запрос за ним тяжелее топа, это оконная функция по всему леджеру
+const placementCache = new PlacementCache(playerDataProxy, {
+  ttlMs: config.get('master:placement:cacheTtl'),
+});
+
+// потолок записи профилей на комнату (snakes-v3 этап 3.3, решение
+// пользователя 9): минимальный интервал синхронизации держит движок на
+// стороне хоста, но хост недоверенный — мастер держит собственный потолок
+// на проверенный hostId. Превышение — 429, движок уходит в бэкофф
+const playerDataLimiter = new RateLimiter({
+  limit: config.get('master:playerData:writesPerMinute'),
+  windowMs: 60000,
 });
 
 // проксирует GET/PUT /host-rating central auth-сервиса (server-rating этап 2,
@@ -278,31 +296,73 @@ app.get('/auth/rank', (req, res) =>
 // hostId+hostSecret из тела проверяются реестром (verifiedAttribution): секрет
 // доказывает владение комнатой, поэтому подставить чужой публичный hostId
 // нельзя (иначе можно было бы обойти void или подставить хостера-жертву)
-app.put('/auth/rank', (req, res) =>
-  forwardPlayerData(req, res, (token, game) =>
-    playerDataProxy.putRank(
-      token,
-      game,
-      req.body?.delta,
-      registry.verifiedAttribution(req.body?.hostId, req.body?.hostSecret),
-    ),
-  ),
-);
+// потолок записи профилей на комнату (snakes-v3 этап 3.3): ключ — проверенная
+// комната (sessionId), а не hostId из тела; неатрибутированной записи ключом
+// служит IP, иначе потолок обходился бы пустым hostId
+function writeAllowed(req, attribution) {
+  const key = attribution.sessionId ?? `ip:${req.ip}`;
+
+  return playerDataLimiter.consume(key);
+}
+
+// потолок результата ОДНОЙ игры: объявляет сама игра
+// (master:games[].maxGameScore), дефолт — master:playerData:maxGameScore
+function maxGameScoreOf(game) {
+  const declared = config.get('master:games').find(({ id }) => id === game)?.maxGameScore;
+
+  return Number.isInteger(declared) && declared > 0
+    ? declared
+    : config.get('master:playerData:maxGameScore');
+}
+
+app.put('/auth/rank', (req, res) => {
+  const attribution = registry.verifiedAttribution(req.body?.hostId, req.body?.hostSecret);
+
+  if (!writeAllowed(req, attribution)) {
+    res.status(429).json({ error: 'tooManyWrites' });
+    return;
+  }
+
+  forwardPlayerData(req, res, (token, game) => {
+    // snakes-v3 (stage_2.md 2.5, stage_3.md 3.3): тело — результат игры
+    // { points, best }. `delta` старого хоста означает и сумму, и одну игру
+    const raw = req.body ?? {};
+    const { points, best, clamped } = clampGameResult(
+      raw.points ?? raw.delta,
+      raw.best ?? raw.points ?? raw.delta,
+      maxGameScoreOf(game),
+    );
+
+    if (clamped) {
+      // игра, присылающая больше своего потолка, либо взломана, либо
+      // неверно настроена — режется молча для игрока, но не для логов
+      console.warn(
+        `[auth] game result clamped for ${game}`,
+        `(points=${raw.points ?? raw.delta}, best=${raw.best}) ->`,
+        `{ points: ${points}, best: ${best} }`,
+      );
+    }
+
+    return playerDataProxy.putRank(token, game, { points, best }, attribution);
+  });
+});
 
 app.get('/auth/state', (req, res) =>
   forwardPlayerData(req, res, (token, game) => playerDataProxy.getState(token, game)),
 );
 
-app.put('/auth/state', (req, res) =>
+app.put('/auth/state', (req, res) => {
+  const attribution = registry.verifiedAttribution(req.body?.hostId, req.body?.hostSecret);
+
+  if (!writeAllowed(req, attribution)) {
+    res.status(429).json({ error: 'tooManyWrites' });
+    return;
+  }
+
   forwardPlayerData(req, res, (token, game) =>
-    playerDataProxy.putState(
-      token,
-      game,
-      req.body?.state,
-      registry.verifiedAttribution(req.body?.hostId, req.body?.hostSecret),
-    ),
-  ),
-);
+    playerDataProxy.putState(token, game, req.body?.state, attribution),
+  );
+});
 
 app.get('/auth/placement', (req, res) => {
   const period = readPeriod(req.query.period);
@@ -312,9 +372,32 @@ app.get('/auth/placement', (req, res) => {
     return;
   }
 
-  forwardPlayerData(req, res, (token, game) =>
-    playerDataProxy.getPlacement(token, game, period),
-  );
+  forwardPlayerData(req, res, (token, game) => placementCache.get(token, game, period));
+});
+
+// REST API: все три среза одним походом хоста (snakes-v3 этап 3.3) —
+// PlayerDataSync.load() запрашивает их на каждый вход участника, и три
+// отдельных запроса на join это втрое больше работы мастера и auth.
+// Неуспех отдельного среза не рушит ответ: приезжает то, что приехало
+app.get('/auth/placements', (req, res) => {
+  forwardPlayerData(req, res, async (token, game) => {
+    const results = await Promise.all(
+      RANK_PERIODS.map(period => placementCache.get(token, game, period)),
+    );
+    // 200 — если приехал хоть один срез; иначе статус первого отказа,
+    // чтобы хост увидел настоящую причину (401/404/502), а не пустоту
+    const failure = results.find(({ status }) => status !== 200);
+    const json = Object.fromEntries(
+      RANK_PERIODS.map((period, i) => [
+        period,
+        results[i].status === 200 ? results[i].json : null,
+      ]),
+    );
+
+    return failure && results.every(({ status }) => status !== 200)
+      ? failure
+      : { status: 200, json };
+  });
 });
 
 // REST API: публичный (без Bearer-токена) топ-N рейтинга игры, проксированный
@@ -348,6 +431,18 @@ app.get('/auth/leaderboard', (req, res) => {
       // иначе браузер 15с держал бы протухшую ошибку auth-сервиса (code review)
       if (status === 200) {
         res.set('Cache-Control', 'public, max-age=15');
+
+        // «не изменилось — не отправляем» (решение пользователя 9): топ
+        // меняется медленно, а лобби перезапрашивает его на каждое
+        // открытие вкладки — совпал валидатор, ушёл 304 без тела
+        const etag = etagFor(json);
+
+        res.set('ETag', etag);
+
+        if (isNotModified(req.headers['if-none-match'], etag)) {
+          res.status(304).end();
+          return;
+        }
       }
       res.status(status).json(json);
     })
@@ -463,6 +558,14 @@ setInterval(
   () => signaling.sweepStaleHosts(),
   config.get('master:host:sweepInterval'),
 );
+
+// уборка памяти кэша мест и окон потолка записи (snakes-v3 этап 3.3):
+// обе Map растут по числу увиденных участников/комнат, а комната живёт
+// часами
+setInterval(() => {
+  placementCache.sweep();
+  playerDataLimiter.sweep();
+}, config.get('master:placement:cacheTtl'));
 
 // периодический опрос auth за рейтингом активных хостеров (server-rating
 // этап 3) — держит кэш GET /servers свежим между голосами/регистрациями.

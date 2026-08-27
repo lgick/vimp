@@ -17,6 +17,8 @@ export default class StatView {
     const { elems, params } = config;
 
     this._stat = document.getElementById(elems.stat);
+    // контейнер списка глобального топа — только в режиме 'leaderboard'
+    this._leaderboard = null;
 
     // DOM scoreboard генерируется по схеме игры: произвольное число
     // команд (bodies) и колонок (columns)
@@ -31,11 +33,23 @@ export default class StatView {
     this._mPublic.on('tHead', 'updateTableHead', this);
     this._mPublic.on('tBody', 'updateTableBody', this);
     this._mPublic.on('clearBodies', 'clearBodies', this);
+    this._mPublic.on('leaderboard', 'updateLeaderboard', this);
   }
 
   // генерирует шапку и таблицы по схеме (замена хардкода stat.pug)
   _buildStat(params) {
     const { columns, bodies } = params;
+
+    // snakes-v3 этап 4: режим 'leaderboard' — один список глобального топа
+    // вместо шапки и таблиц команд. Строки рисует updateLeaderboard, здесь
+    // заводится только контейнер
+    if (params.mode === 'leaderboard') {
+      this._leaderboard = document.createElement('div');
+      this._leaderboard.className = 'stat-leaderboard';
+      this._stat.appendChild(this._leaderboard);
+
+      return;
+    }
 
     const head = document.createElement('div');
 
@@ -75,6 +89,35 @@ export default class StatView {
 
     this._stat.appendChild(head);
     this._stat.appendChild(tables);
+  }
+
+  // перерисовывает список глобального топа (режим 'leaderboard'):
+  // место · ник · очки, своя строка помечена is-self. Список короткий и
+  // приходит целиком — точечное обновление строк тут не окупается
+  updateLeaderboard(rows) {
+    if (!this._leaderboard) {
+      return;
+    }
+
+    this._leaderboard.textContent = '';
+
+    for (const row of rows) {
+      const line = document.createElement('div');
+
+      line.className = row.isSelf ? 'stat-row is-self' : 'stat-row';
+
+      // неранжированный за период игрок места не имеет — прочерк вместо
+      // числа честнее, чем выдуманная позиция
+      for (const value of [row.place ?? '—', row.nick, row.score]) {
+        const cell = document.createElement('span');
+
+        // String(): ноль очков — это «0», а не пустая ячейка
+        cell.textContent = String(value);
+        line.appendChild(cell);
+      }
+
+      this._leaderboard.appendChild(line);
+    }
   }
 
   // открывает статистику

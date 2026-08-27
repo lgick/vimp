@@ -114,3 +114,162 @@ describe('StatModel.open/close', () => {
     });
   });
 });
+
+// snakes-v3 этап 4: режим 'leaderboard' — по Tab показывается глобальный
+// топ игры, который клиент тянет сам; данные хоста не рисуются
+const TOP = {
+  leaderboard: [
+    { nick: 'a', rank: 100, place: 1 },
+    { nick: 'b', rank: 90, place: 2 },
+    { nick: 'c', rank: 80, place: 3 },
+  ],
+  total: 3,
+};
+
+const makeBoardModel = (deps = {}) => {
+  const fetchLeaderboard = vi.fn(async () => TOP);
+  const fetchPlacement = vi.fn(async () => ({
+    placement: 42,
+    total: 100,
+    rank: 7,
+  }));
+
+  const model = new StatModel(
+    {
+      mode: 'leaderboard',
+      period: 'day',
+      limit: 3,
+      refreshMs: 15000,
+      columns: ['#', 'snake', 'score'],
+    },
+    {
+      gameId: 'snakes',
+      fetchLeaderboard,
+      fetchPlacement,
+      getNick: () => 'me',
+      now: () => 0,
+      ...deps,
+    },
+  );
+
+  return { model, fetchLeaderboard, fetchPlacement };
+};
+
+describe("StatModel: режим 'leaderboard'", () => {
+  it('update от хоста ничего не рисует', async () => {
+    const { model } = makeBoardModel();
+    const events = collect(model);
+
+    model.update([[['g1', 1, ['Alice', 10], 0]], null, true]);
+
+    expect(events.filter(e => e.type !== 'leaderboard')).toEqual([]);
+  });
+
+  it('open тянет топ и свою позицию', async () => {
+    const { model, fetchLeaderboard, fetchPlacement } = makeBoardModel();
+    const rows = [];
+
+    model.publisher.on('leaderboard', data => rows.push(data));
+
+    model.open();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchLeaderboard).toHaveBeenCalledWith('snakes', 'day');
+    expect(fetchPlacement).toHaveBeenCalledWith('snakes', 'day');
+    expect(rows[0].map(r => r.nick)).toEqual(['a', 'b', 'me']);
+  });
+
+  it('повторный open внутри refreshMs не делает запросов', async () => {
+    const { model, fetchLeaderboard } = makeBoardModel();
+
+    await model.refreshLeaderboard();
+    await model.refreshLeaderboard();
+
+    expect(fetchLeaderboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('304 (null от fetch) оставляет прошлый список', async () => {
+    let first = true;
+    const fetchLeaderboard = vi.fn(async () => {
+      if (first) {
+        first = false;
+
+        return TOP;
+      }
+
+      return null;
+    });
+    let clock = 0;
+    const { model } = makeBoardModel({
+      fetchLeaderboard,
+      fetchPlacement: async () => null,
+      now: () => clock,
+    });
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    await model.refreshLeaderboard();
+    clock = 100000;
+    await model.refreshLeaderboard();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].map(r => r.nick)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('игрок вне топа заменяет последнюю строку', async () => {
+    const { model } = makeBoardModel();
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    await model.refreshLeaderboard();
+
+    const rows = emitted[0];
+
+    expect(rows).toHaveLength(3);
+    expect(rows[2]).toEqual({ place: 42, nick: 'me', score: 7, isSelf: true });
+  });
+
+  it('игрок из топа подсвечивается на своём месте', async () => {
+    const { model } = makeBoardModel({ getNick: () => 'B' });
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    await model.refreshLeaderboard();
+
+    expect(emitted[0].map(r => r.isSelf)).toEqual([false, true, false]);
+    expect(emitted[0]).toHaveLength(3);
+  });
+
+  it('неранжированный за период получает прочерк вместо места', async () => {
+    const { model } = makeBoardModel({
+      fetchPlacement: async () => ({ placement: null, total: 100, rank: 0 }),
+    });
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    await model.refreshLeaderboard();
+
+    expect(emitted[0][2]).toEqual({
+      place: null,
+      nick: 'me',
+      score: 0,
+      isSelf: true,
+    });
+  });
+
+  it('без токена (нет ника) список остаётся как есть', async () => {
+    const { model } = makeBoardModel({ getNick: () => null });
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    await model.refreshLeaderboard();
+
+    expect(emitted[0].map(r => r.nick)).toEqual(['a', 'b', 'c']);
+  });
+});

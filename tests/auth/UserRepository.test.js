@@ -1,4 +1,6 @@
 import UserRepository, { NickTakenError, NickAlreadySetError } from '../../packages/auth/src/UserRepository.js';
+import config from '../../packages/auth/src/config/auth.js';
+import { refreshRatings, msUntilNextRun } from '../../packages/auth/src/db/ratingsJob.js';
 
 function createDbStub(handlers) {
   return { query: vi.fn((text, values) => handlers(text, values)) };
@@ -118,20 +120,48 @@ describe('UserRepository', () => {
     expect(db.query).toHaveBeenCalledTimes(1);
   });
 
-  it('appendRankEvent пишет событие леджера с атрибуцией к серверу/сессии', async () => {
+  it('recordGameResult пишет points и best одной строкой с атрибуцией', async () => {
     const db = createDbStub(text => {
       expect(text).toMatch(/INSERT INTO rank_events/);
+      expect(text).toMatch(/delta, best/);
       return { rows: [] };
     });
 
     const repo = new UserRepository(db);
 
-    await repo.appendRankEvent(1, 'tanks', 5, { hosterUserId: 2, sessionId: 's1' });
+    await repo.recordGameResult(1, 'tanks', { points: 120, best: 90 }, {
+      hosterUserId: 2,
+      sessionId: 's1',
+    });
 
     expect(db.query).toHaveBeenCalledWith(
       expect.any(String),
-      [1, 'tanks', 2, 's1', 5],
+      [1, 'tanks', 2, 's1', 120, 90],
     );
+  });
+
+  // snakes-v3: главный выигрыш по нагрузке — на записи ровно один INSERT,
+  // без SUM по всей истории игрока (all-time считает суточная задача)
+  it('recordGameResult не пересчитывает ratings на горячем пути', async () => {
+    const calls = [];
+    const db = createDbStub(text => {
+      calls.push(text);
+      return { rows: [] };
+    });
+
+    await new UserRepository(db).recordGameResult(1, 'tanks', { points: 10, best: 10 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toMatch(/SUM\(delta\)/);
+    expect(calls[0]).not.toMatch(/INSERT INTO ratings/);
+  });
+
+  it('recordGameResult не пишет ничего при нулевом результате', async () => {
+    const db = createDbStub(() => ({ rows: [] }));
+
+    await new UserRepository(db).recordGameResult(1, 'tanks', { points: 0, best: 0 });
+
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it('recomputeRank суммирует непогашенные дельты и клампит в config.rank', async () => {
@@ -163,25 +193,6 @@ describe('UserRepository', () => {
     const rank = await repo.recomputeRank(1, 'tanks');
 
     expect(rank).toBe(0);
-  });
-
-  it('upsertRank пишет событие и возвращает пересчитанный rank', async () => {
-    const calls = [];
-    const db = createDbStub(text => {
-      calls.push(text);
-
-      if (text.includes('SUM(delta)')) {
-        return { rows: [{ total: '10' }] };
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-    const rank = await repo.upsertRank(1, 'tanks', 10, { hosterUserId: 2, sessionId: 's1' });
-
-    expect(rank).toBe(10);
-    expect(calls[0]).toMatch(/INSERT INTO rank_events/);
   });
 
   it('upsertState с sessionId сначала снимает снапшот текущего state', async () => {
@@ -543,15 +554,17 @@ describe('UserRepository', () => {
     expect(result).toEqual({ leaderboard: [], total: 0 });
   });
 
-  // rank-periods: 'day'/'month' считаются из леджера по календарному окну
-  // UTC, а не из кэша ratings — иначе «топ за сегодня» повторял бы all-time
-  it('getLeaderboard: period day считает окно по rank_events, не по ratings', async () => {
+  // rank-periods / snakes-v3: 'day' — MAX(best) (лучшая одиночная игра за
+  // сутки UTC), 'month' — SUM(delta) (сумма игр за месяц), 'all' — кэш
+  // ratings. Три среза = три разные агрегации, а не одна по трём окнам
+  it('getLeaderboard: period day берёт MAX(best) по суточному окну леджера', async () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/FROM rank_events/);
+      expect(text).toMatch(/MAX\(e\.best\)/);
       expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)/);
       expect(text).toMatch(/e\.voided = false/);
       expect(text).not.toMatch(/FROM ratings/);
-      expect(values).toEqual(['tanks', 10]);
+      expect(values).toEqual(['tanks', 10, 'day']);
 
       return { rows: [{ nick: 'a', rank: 40, total: '1', place: '1' }] };
     });
@@ -564,9 +577,11 @@ describe('UserRepository', () => {
     });
   });
 
-  it('getLeaderboard: period month берёт месячное окно', async () => {
-    const db = createDbStub(text => {
+  it('getLeaderboard: period month берёт SUM(delta) по месячному окну', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/SUM\(e\.delta\)/);
       expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)/);
+      expect(values).toEqual(['tanks', 10, 'month']);
 
       return { rows: [] };
     });
@@ -575,7 +590,7 @@ describe('UserRepository', () => {
   });
 
   // совместимость: до периодов вызов был двухаргументным, и он обязан
-  // остаться срезом за всё время
+  // остаться срезом за всё время — теперь это суточный снимок ratings
   it('getLeaderboard: без period читает кэш ratings, как и раньше', async () => {
     const db = createDbStub(text => {
       expect(text).toMatch(/FROM ratings/);
@@ -587,11 +602,13 @@ describe('UserRepository', () => {
     await new UserRepository(db).getLeaderboard('tanks', 10);
   });
 
-  it('getPlacement: period day считает позицию по тому же окну леджера', async () => {
+  // плашка позиции обязана считаться тем же способом, что и список рядом
+  it('getPlacement: period day считает позицию тем же MAX(best)', async () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/FROM rank_events/);
+      expect(text).toMatch(/MAX\(e\.best\)/);
       expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)/);
-      expect(values).toEqual([1, 'tanks']);
+      expect(values).toEqual([1, 'tanks', 'day']);
 
       return { rows: [{ total: '2', rank: 40, placement: 1 }] };
     });
@@ -603,6 +620,33 @@ describe('UserRepository', () => {
       total: 2,
       rank: 40,
     });
+  });
+
+  it('getPlacement: period month считает позицию тем же SUM(delta)', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/SUM\(e\.delta\)/);
+      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)/);
+      expect(values).toEqual([1, 'tanks', 'month']);
+
+      return { rows: [{ total: '5', rank: 300, placement: 2 }] };
+    });
+
+    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'month')).resolves.toEqual({
+      placement: 2,
+      total: 5,
+      rank: 300,
+    });
+  });
+
+  it('getPlacement: без period читает тот же кэш ratings, что и список', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/FROM ratings/);
+      expect(text).not.toMatch(/rank_events/);
+
+      return { rows: [{ total: '1', rank: 10, placement: 1 }] };
+    });
+
+    await new UserRepository(db).getPlacement(1, 'tanks');
   });
 
   it('getPlacement возвращает placement/total/rank по CTE (проверка SQL/параметров)', async () => {
@@ -627,5 +671,51 @@ describe('UserRepository', () => {
     const result = await repo.getPlacement(1, 'tanks');
 
     expect(result).toEqual({ placement: null, total: 3400, rank: 0 });
+  });
+});
+
+// snakes-v3 (stage_2.md, 2.4): all-time — суточный снимок, а не пересчёт на
+// каждой записи
+describe('ratingsJob', () => {
+  it('refreshRatings суммирует только события после ratings.updated_at', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/INSERT INTO ratings/);
+      expect(text).toMatch(/SUM\(e\.delta\)/);
+      expect(text).toMatch(/e\.created_at >= COALESCE\(r\.updated_at, '-infinity'::timestamptz\)/);
+      expect(text).toMatch(/e\.voided = false/);
+
+      return { rowCount: 3, rows: [] };
+    });
+
+    await expect(refreshRatings(db)).resolves.toBe(3);
+  });
+
+  it('refreshRatings клампит результат в config.rank.min/max прямо в запросе', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/LEAST\(\$2, GREATEST\(\$1, COALESCE\(r\.rank, 0\) \+ SUM\(e\.delta\)\)\)/);
+      expect(values).toEqual([config.rank.min, config.rank.max]);
+
+      return { rowCount: 0, rows: [] };
+    });
+
+    await refreshRatings(db);
+  });
+
+  it('refreshRatings переставляет курсор updated_at на now()', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/DO UPDATE SET rank = EXCLUDED\.rank, updated_at = now\(\)/);
+
+      return { rowCount: 1, rows: [] };
+    });
+
+    await refreshRatings(db);
+  });
+
+  it('msUntilNextRun указывает на ближайшие 00:05 UTC', () => {
+    const beforeRun = Date.UTC(2026, 0, 10, 0, 0, 0);
+    const afterRun = Date.UTC(2026, 0, 10, 12, 0, 0);
+
+    expect(msUntilNextRun(beforeRun)).toBe(5 * 60 * 1000);
+    expect(afterRun + msUntilNextRun(afterRun)).toBe(Date.UTC(2026, 0, 11, 0, 5, 0));
   });
 });

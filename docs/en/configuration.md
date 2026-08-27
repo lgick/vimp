@@ -279,7 +279,12 @@ The master server's config (see [master.md](master.md)); read by
   resolved as an ordinary `node_modules/` dependency (the game plugin's own
   repository, e.g. `vimp-tanks`, publishes it), so the plugin version comes
   from the root `package.json` entry, not from this list.
-  Overridable in production via the `GAMES_MATRIX` env var (JSON);
+  Overridable in production via the `GAMES_MATRIX` env var (JSON).
+  An entry may also carry **`maxGameScore`** (snakes-v3) — the ceiling on the
+  result of ONE game of that game, which the master clamps `best`/`points` of
+  `PUT /auth/rank` by. Omitted, `master:playerData:maxGameScore` applies: a
+  per-game number is the working limit, because one exact limit for hundreds
+  of games is wrong by construction;
 - `servers` — `GET /servers` parameters: `regionThreshold: 15` (at or
   below this many rooms, the regional filter and pagination are disabled),
   `defaultLimit: 10`, `maxLimit: 50`;
@@ -289,6 +294,19 @@ The master server's config (see [master.md](master.md)); read by
   most frequent anonymous lobby request, and the underlying ranking changes
   slowly), `maxLimit: 100` (upper bound clamp for `?limit=`, replacing what
   used to be a hardcoded `100`);
+- `placement` — `GET /auth/placement` and the aggregating
+  `GET /auth/placements` (snakes-v3): `cacheTtl: 30000` — `PlacementCache`'s
+  in-memory TTL, ms. A place moves slowly and costs more than the top does (a
+  window function over the ledger), and every participant's join asks for
+  three slices at once, so this cache is what keeps a busy lobby off the auth
+  service;
+- `playerData` — the ceiling on profile writes (snakes-v3, "hundreds of games,
+  hundreds of servers"): `writesPerMinute: 240` — `PUT /auth/rank` +
+  `PUT /auth/state` per **verified room** per minute, over it a `429`; and
+  `maxGameScore: 10000` — the default ceiling on the result of one game for a
+  game that declares no `maxGameScore` of its own. The minimum interval
+  between writes is held on the host side (`lobbyConfig.playerData`); this
+  block is what stops a broken or malicious server that ignored it;
 - `host` — room constraints: `maxNameLength: 30`, `maxPlayersLimit: 8`,
   `heartbeatTimeout: 30000` (a room without a heartbeat for longer is
   removed), `sweepInterval: 10000`;
@@ -344,6 +362,20 @@ host: the lobby happens before connecting to a host.
   `rankUrl: '/auth/rank'` / `stateUrl: '/auth/state'` (the host requests
   them with the player's identity-token on join and syncs back on
   round/map boundaries, see [host.md](host.md));
+- `playerData` — everything `PlayerDataSync` needs, and the engine's own
+  answer to "how often may a room write to the database" (snakes-v3). The
+  endpoints: `rankUrl: '/auth/rank'` (a `PUT` of the game result
+  `{ points, best }`), `stateUrl: '/auth/state'`,
+  `placementsUrl: '/auth/placements'` (the aggregating route — all three
+  slices in one round trip on join) and `placementUrl: '/auth/placement'`
+  (one slice re-asked by `refreshPlacement`). The budget:
+  `minFlushInterval: 60000` ms per participant, `flushJitter: 0.2` (±20 % per
+  room, so hundreds of servers do not write on the same second),
+  `maxRequestsPerSecond: 5` (the room's request queue),
+  `backoff: { baseMs: 2000, maxMs: 120000 }` (the room's exponential backoff
+  on `5xx`/`429`/network failures) and `placementTtl: 30000` (the throttle on
+  `refreshPlacement`). Nothing is sent when nothing changed, so a quiet room
+  writes nothing at all; a game only ever *requests* a flush;
 - `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`,
   `leaderboardLimit: 10` (lobby page plan) — the master's proxied game
   leaderboard/placement endpoints (see

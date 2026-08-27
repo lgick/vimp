@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  clampGameResult,
   isValidName,
   validateAuth,
   resolveValidator,
@@ -310,5 +311,41 @@ describe('clampLimit', () => {
     expect(clampLimit(undefined, 10, 100)).toBe(10);
     expect(clampLimit('junk', 10, 100)).toBe(10);
     expect(clampLimit(1.5, 10, 100)).toBe(10);
+  });
+});
+
+// snakes-v3 этап 3.3: игра, приславшая результат больше своего потолка,
+// либо взломана, либо неверно настроена — мастер режет её перед
+// проксированием, а не отклоняет запрос целиком
+describe('clampGameResult', () => {
+  it('нормальный результат проходит как есть', () => {
+    expect(clampGameResult(640, 400, 10000)).toEqual({
+      points: 640,
+      best: 400,
+      clamped: false,
+    });
+  });
+
+  it('режет одну игру по потолку игры, а сумму — по двадцатикратному', () => {
+    expect(clampGameResult(999999999, 999999, 10000)).toEqual({
+      points: 200000,
+      best: 10000,
+      clamped: true,
+    });
+  });
+
+  it('best > points — битый клиент: режется максимум, а не растёт сумма', () => {
+    expect(clampGameResult(5, 100, 10000)).toMatchObject({ points: 5, best: 5 });
+  });
+
+  it('отрицательное, дробное и мусор — ноль', () => {
+    expect(clampGameResult(-10, -1, 10000)).toMatchObject({ points: 0, best: 0 });
+    expect(clampGameResult('junk', undefined, 10000)).toMatchObject({ points: 0, best: 0 });
+    expect(clampGameResult(7.9, 3.2, 10000)).toMatchObject({ points: 7, best: 3 });
+  });
+
+  it('потолок объявляет игра: 100 у одной, 10000 у другой', () => {
+    expect(clampGameResult(500, 500, 100)).toMatchObject({ points: 500, best: 100 });
+    expect(clampGameResult(500, 500, 10000)).toMatchObject({ points: 500, best: 500 });
   });
 });

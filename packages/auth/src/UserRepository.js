@@ -101,19 +101,32 @@ export default class UserRepository {
     return result.rows[0]?.rank ?? 0;
   }
 
-  // server-rating этап 1 (stage_1.md, 1.3): леджер дельт вместо абсолюта —
-  // каждое событие атрибутировано к серверу/сессии, чтобы этап 4 мог
-  // аннулировать вклад забаненного сервера, не трогая остальную историю
-  async appendRankEvent(userId, gameId, delta, { hosterUserId = null, sessionId = null } = {}) {
+  // snakes-v3 (stage_2.md, 2.2): леджер хранит РЕЗУЛЬТАТ ИГРЫ, а не дельту
+  // ранга. points — сумма очков игр, попавших в запись (движок вправе
+  // склеить несколько завершённых игр одного игрока в один запрос), best —
+  // лучшая одиночная игра среди них. Пересчёта ratings здесь НЕТ: all-time
+  // считает суточная задача (src/db/ratingsJob.js), а горячий путь остаётся
+  // одним INSERT — иначе каждая запись тянула бы SUM по всей истории игрока.
+  // Атрибуция к серверу/сессии (server-rating этап 1) сохраняется: этап 4
+  // гасит вклад забаненного сервера, не трогая остальную историю
+  async recordGameResult(userId, gameId, { points, best }, attribution = {}) {
+    const { hosterUserId = null, sessionId = null } = attribution;
+
+    if (points <= 0 && best <= 0) {
+      return; // защита в глубину: пустую запись не пишем (движок и так не шлёт)
+    }
+
     await this._db.query(
-      `INSERT INTO rank_events (user_id, game_id, hoster_user_id, session_id, delta)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [userId, gameId, hosterUserId, sessionId, delta],
+      `INSERT INTO rank_events (user_id, game_id, hoster_user_id, session_id, delta, best)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [userId, gameId, hosterUserId, sessionId, points, best],
     );
   }
 
   // пересчитывает денормализованный кэш ratings.rank из непогашенных
-  // (voided = false) событий леджера; клампит в rank.min/max (config/auth.js)
+  // (voided = false) событий леджера; клампит в rank.min/max (config/auth.js).
+  // snakes-v3: с горячего пути ушёл — остались voidHosterContributions
+  // (полный пересчёт задетых пар) и ручной прогон суточной задачи
   async recomputeRank(userId, gameId) {
     const sum = await this._db.query(
       `SELECT COALESCE(SUM(delta), 0) AS total FROM rank_events
@@ -134,13 +147,6 @@ export default class UserRepository {
     return rank;
   }
 
-  // записывает дельту матча и возвращает пересчитанный кэшированный rank
-  async upsertRank(userId, gameId, delta, attribution = {}) {
-    await this.appendRankEvent(userId, gameId, delta, attribution);
-
-    return this.recomputeRank(userId, gameId);
-  }
-
   // топ-N игроков игры (lobby-page-plan): только ранжированные (rank > 0) и
   // с установленным ником — незалогиненные/нулевые не засоряют выдачу.
   // Один запрос вместо отдельного COUNT(*) (code review L1): оконные функции
@@ -151,21 +157,27 @@ export default class UserRepository {
   // отличное значение перескакивает на число разделивших) — согласовано с
   // тем, что показывает плашка позиции вызывающего (code review M3)
   //
-  // rank-periods: `period` выбирает срез времени. 'all' читается из кэша
-  // ratings — тот же запрос, что и был. 'day'/'month' считаются на лету из
-  // леджера rank_events по календарному окну UTC: агрегатных таблиц нет,
-  // индекс rank_events_game_created_idx (миграция 006) держит это дешёвым.
+  // rank-periods / snakes-v3 (stage_2.md, 2.3): `period` выбирает не только
+  // окно, но и АГРЕГАЦИЮ — три среза считаются тремя разными способами:
+  //   day   — MAX(best): лучшая одиночная игра за сутки UTC;
+  //   month — SUM(delta): сумма очков всех игр за календарный месяц UTC;
+  //   all   — кэш ratings, снимок суточной задачи (src/db/ratingsJob.js).
+  // Срез передаётся параметром $3 (а не литералом, как окно): в отличие от
+  // границы окна это не кусок SQL, а значение сравнения, и параметру здесь
+  // ничто не мешает. Индекс rank_events_game_created_idx (миграция 006)
+  // обслуживает оба оконных среза — отдельный под MAX(best) не нужен
   async getLeaderboard(gameId, limit, period = 'all') {
     const since = periodStart(period);
 
     const result = since
       ? await this._db.query(
           `WITH scores AS (
-             SELECT e.user_id, SUM(e.delta)::int AS rank
+             SELECT e.user_id,
+                    CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END::int AS rank
              FROM rank_events e
              WHERE e.game_id = $1 AND e.voided = false AND e.created_at >= ${since}
              GROUP BY e.user_id
-             HAVING SUM(e.delta) > 0)
+             HAVING (CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END) > 0)
            SELECT u.nick, s.rank,
                   COUNT(*) OVER() AS total,
                   RANK() OVER (ORDER BY s.rank DESC) AS place
@@ -173,7 +185,7 @@ export default class UserRepository {
            WHERE u.nick IS NOT NULL
            ORDER BY s.rank DESC, u.nick ASC
            LIMIT $2`,
-          [gameId, limit],
+          [gameId, limit, period],
         )
       : await this._db.query(
           `SELECT u.nick, r.rank,
@@ -199,19 +211,21 @@ export default class UserRepository {
   // позиция игрока в рейтинге игры (lobby-page-plan): placement === null,
   // если игрок ещё не ранжирован (rank === 0, т.е. записи в ratings нет или
   // rank оказался 0 после клампа/аннулирования). rank-periods: `period` —
-  // тот же срез, что и у getLeaderboard, и считается он тем же способом,
-  // иначе плашка позиции противоречила бы списку рядом с ней
+  // тот же срез, что и у getLeaderboard, и считается он тем же способом
+  // (та же CASE-агрегация), иначе плашка позиции противоречила бы списку
+  // рядом с ней
   async getPlacement(userId, gameId, period = 'all') {
     const since = periodStart(period);
 
     const result = since
       ? await this._db.query(
           `WITH scores AS (
-             SELECT e.user_id, SUM(e.delta)::int AS rank
+             SELECT e.user_id,
+                    CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END::int AS rank
              FROM rank_events e
              WHERE e.game_id = $2 AND e.voided = false AND e.created_at >= ${since}
              GROUP BY e.user_id
-             HAVING SUM(e.delta) > 0),
+             HAVING (CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END) > 0),
            me AS (
              SELECT COALESCE((SELECT rank FROM scores WHERE user_id = $1), 0) AS rank)
            SELECT
@@ -223,7 +237,7 @@ export default class UserRepository {
                   WHERE u.nick IS NOT NULL AND s.rank > me.rank) + 1
              END AS placement
            FROM me`,
-          [userId, gameId],
+          [userId, gameId, period],
         )
       : await this._db.query(
           `WITH me AS (

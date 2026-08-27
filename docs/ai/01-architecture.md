@@ -59,14 +59,14 @@ the Worker, and the master only reads `dist/manifest.json`.
 
 | Constant | Value | Meaning | Checked where |
 | --- | --- | --- | --- |
-| `ENGINE_API_VERSION` | `3` | The plugin contract as a whole (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema) | master `GameCatalog` (skips the game with a `console.warn`), client `loadClientPlugin` (throws), Worker after import |
+| `ENGINE_API_VERSION` | `4` | The plugin contract as a whole (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema) | master `GameCatalog` (skips the game with a `console.warn`), client `loadClientPlugin` (throws), Worker after import |
 | `SNAPSHOT_FORMAT_VERSION` | `3` | Byte layout of the state frame | inside the WASM core, both ends |
 | `HANDOFF_VERSION` | `3` | Shape of the state blob passed when host duty migrates | `HostGame` (rejects a mismatched blob) |
 
 A plugin publishes `engineApi` in **three** places and all three must agree
 with the engine build: `manifest.engineApi`, `hostPlugin.engineApi`,
 `clientPlugin.engineApi`. Import `ENGINE_API_VERSION` from
-`vimp-engine/config/opcodes.js` rather than hardcoding `3`.
+`vimp-engine/config/opcodes.js` rather than hardcoding `4`.
 
 Additionally, `manifest.id` must equal both the id configured in the master's
 game list and the URL prefix the master mounts (`/games/<id>/`). A mismatch is

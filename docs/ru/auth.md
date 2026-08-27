@@ -71,7 +71,8 @@ openssl rsa -in .keys/jwt.pem -pubout -out .keys/jwt.pub.pem
 users:           id, provider, provider_uid, nick(UNIQUE), created_at
 ratings:         user_id, game_id, rank, updated_at            ← денормализованный кэш
 rank_events:     id, user_id, game_id, hoster_user_id, session_id,
-                 delta, voided, created_at                     ← append-only леджер
+                 delta, best, voided, created_at               ← append-only леджер
+                                                                 РЕЗУЛЬТАТОВ ИГР
 state_snapshots: user_id, game_id, session_id, hoster_user_id,
                  state_before, created_at                      ← MVP отката
 states:          user_id, game_id, state(JSONB opaque), updated_at  ← «скиллы»
@@ -86,14 +87,56 @@ host_votes:      hoster_user_id, voter_user_id, value, reason,
 обычного `UNIQUE(nick)`), так что `"Admin"` и `"admin"` не могут сосуществовать.
 Единственный модуль, трогающий эти таблицы, — `packages/auth/src/UserRepository.js`.
 
-**Леджер rank** (server-rating этап 1, `003_rank_ledger.sql`): `ratings.rank`
-теперь кэш, а не источник истины. Каждый результат матча дописывает строку
-`delta` в `rank_events`, атрибутированную к серверу-хосту
-(`hoster_user_id` — `userId` создателя комнаты) и его сессии
-(`session_id`); `ratings.rank` пересчитывается как
-`SUM(delta) WHERE voided = false`, клампится в `config.rank.min/max`. Именно
-эта атрибуция позволяет server-rating этапу 4 аннулировать вклад забаненного
-сервера, не трогая остальную историю игрока. `state_snapshots` фиксирует `state` один раз
+**Леджер результатов игр** (server-rating этап 1, `003_rank_ledger.sql`;
+snakes-v3, `007_game_results.sql`): `ratings.rank` — кэш, а не источник
+истины. Каждая запись дописывает в `rank_events` одну строку,
+атрибутированную к серверу-хосту (`hoster_user_id` — `userId` создателя
+комнаты) и его сессии (`session_id`). Именно эта атрибуция позволяет
+server-rating этапу 4 аннулировать вклад забаненного сервера, не трогая
+остальную историю игрока.
+
+С snakes-v3 строка — это **результат игры**, и в ней два числа:
+
+| Колонка | Смысл |
+| --- | --- |
+| `delta` | СУММА очков игр, попавших в эту строку — месячный и общий рейтинги |
+| `best` | лучшая ОДИНОЧНАЯ игра среди них — дневной рейтинг |
+
+Две колонки, а не строка на игру: движок вправе склеить несколько
+завершённых игр одного игрока в один запрос, и при склейке сумма
+складывается, а максимум берётся максимумом — обе агрегации остаются
+точными. Строки, написанные до миграции, читаются как есть, а сама миграция
+проставляет им `best = GREATEST(delta, 0)` — ближайшее честное прочтение
+«прироста ранга за матч».
+
+**Три рейтинга из одного леджера.** `period` выбирает не только окно, но и
+агрегацию:
+
+| `period` | Агрегация | Окно |
+| --- | --- | --- |
+| `day` | `MAX(best)` | календарные сутки UTC, в реальном времени |
+| `month` | `SUM(delta)` | календарный месяц UTC, в реальном времени |
+| `all` | кэш `ratings` | снимок, пересчёт раз в сутки |
+
+`all` намеренно не пересчитывается на записи: `PUT /rank` — это один `INSERT`
+и ничего больше, иначе каждый результат тянул бы за собой `SUM` по всей
+истории игрока. Кэш двигает суточная задача
+`packages/auth/src/db/ratingsJob.js` — прогон в **00:05 UTC** (через пять
+минут после обнуления дневного среза, чтобы два события разошлись в логах),
+суммируются только события, пришедшие после `ratings.updated_at`, и курсор
+переставляется на `now()`. Ручной прогон —
+`npm -w @vimp/auth run db:ratings`. Следствие стоит проговорить: и список за
+всё время, и своя строка в нём показывают снимок на 00:00 UTC, сегодняшних
+игр в нём нет.
+
+**Пределы записи.** В `config.rank` больше нет per-match `maxDelta` — вместо
+него два абсолютных потолка результата: `maxGameScore` (10 000, одна игра) и
+`maxPoints` (200 000 = ×20, сумма склеенных в один запрос игр); проверяется
+и `best <= points`, потому что `best` — максимум среди игр, чья сумма равна
+`points`. Оба — ПОСЛЕДНЯЯ линия обороны и намеренно щедрые: auth обслуживает
+сотни игр, и один точный предел для всех неверен по построению. Рабочий
+пер-игровой предел живёт на мастере (`master:games[].maxGameScore`) вместе с
+частотой записи на комнату (`master:playerData:writesPerMinute`). `state_snapshots` фиксирует `state` один раз
 на `(user, game, session)` — значение прямо перед первой записью этого
 сервера — как MVP-точку отката; если игрок между двумя сессиями на
 забаненном сервере поиграл на честном, восстановление снапшота затрёт этот
@@ -145,14 +188,14 @@ voter)`**: мнение гостя о хостере может меняться
 | `GET /dev/login?nick=&returnUrl=` **(только dev)** | вход мимо OAuth: находит/создаёт пользователя как `('dev', nick)`, при первом входе задаёт ник (`setNick` с guard'ом `nick IS NULL` делает повтор no-op) и редиректит на `returnUrl` с `?token=` — ровно в той форме, что выдаёт `/oauth/:provider/callback`, поэтому клиентский путь не меняется. Ник проходит через тот же `isValidNick`, return URL — через ту же проверку allowlist, что и OAuth (открытого редиректа с валидным токеном не появляется). Регистрируется **только** при `NODE_ENV !== 'production'`; в проде маршрута не существует (`404`). Хендлер — `src/devLogin.js`, см. [getting-started.md](getting-started.md#центральный-auth-сервис-нужен-для-входа-в-лобби) |
 | `POST /nick` (Bearer pending-токен, `{ nick }`) | CORS для origin'ов из `VIMP_AUTH_ALLOWED_ORIGINS` (включая preflight `OPTIONS` — единственный эндпоинт, вызываемый напрямую браузером лобби, не проксируется мастером), rate-limit по IP; отклоняет identity-токен (`403 nickAlreadySet` — нужен именно pending-токен, иначе `/nick` мог бы переименовывать существующего пользователя); проверяет ник по `NAME_REGEXP` (уникальность регистронезависимая — см. «Схема БД») и сохраняет, возвращает `{ token }` (полный identity JWT). `409 { error: 'nickTaken' }` при гонке |
 | `GET /jwks` | публичный RS256-ключ в формате JWK — хост проверяет подпись `token` перед тем, как довериться его `nick` |
-| `GET /rank?game=` (Bearer identity-токен) | `{ rank }` — закэшированная, клампленная сумма непогашенных `rank_events` вызывающего для игры |
-| `PUT /rank?game=` (Bearer, `{ delta, hosterUserId?, sessionId? }`) | дописывает событие леджера с дельтой матча (целое в пределах `±config.rank.maxDelta`, фикс кодревью — иначе один вызов мог бы разогнать кэш до клампа за один матч), атрибутированное к серверу/сессии-репортёру, пересчитывает и возвращает `{ rank }`; зеркало `PUT /state` (Этап B4, семантика дельты — с server-rating этапа 1). `hosterUserId`/`sessionId` должен проставлять *мастер* вызывающего, не сам браузерный хост — см. [master.md](master.md#getput-authrank-getput-authstate) |
+| `GET /rank?game=` (Bearer identity-токен) | `{ rank }` — кэш `ratings` по игре: клампленная сумма непогашенных `rank_events` вызывающего **на момент последнего прогона суточной задачи**, а не на сейчас |
+| `PUT /rank?game=` (Bearer, `{ points, best, hosterUserId?, sessionId? }`) | дописывает одну строку леджера с РЕЗУЛЬТАТОМ ИГРЫ, атрибутированную к серверу/сессии-репортёру, и отвечает `{ ok: true }` — на горячем пути ничего не пересчитывается, и вернуть отсюда ранг было бы ложью (`all` — суточный снимок). Оба числа — неотрицательные целые, требуется `best <= config.rank.maxGameScore`, `points <= config.rank.maxPoints` и `best <= points`, иначе `400 invalidRank`. `delta` ещё принимается как алиас `points` ровно на одну версию (у старого хоста нет `best`, и его `points` читается как одна игра). `hosterUserId`/`sessionId` должен проставлять *мастер* вызывающего, не сам браузерный хост — см. [master.md](master.md#getput-authrank-getput-authstate) |
 | `GET /state?game=` (Bearer) | `{ state }` (непрозрачный JSON, блок «скиллов») |
 | `PUT /state?game=` (Bearer, `{ state, hosterUserId?, sessionId? }`) | если передан `sessionId` и снапшота для `(user, game, session)` ещё нет — сначала сохраняет текущий `state` в `state_snapshots`, затем upsert'ит новый `state`; отклоняет state больше `config.state.maxBytes` (`400 stateTooLarge`) |
 | `GET /host-rating` (Bearer identity-токен) | `{ score, blocked }` — **собственный** рейтинг вызывающего как хостера; мастер вызывает это с токеном хостера при `register_host`, чтобы решить, отклонить ли комнату (`blocked: true`), и заодно сеет закэшированный `rating` комнаты в лобби (server-rating этап 3) |
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | голос гостя за/против `hosterUserId` (голосующий — вызывающий, из его Bearer-токена — `403 selfVote`, если совпадает с `hosterUserId`); `value` должно быть `1` или `-1` (`400 invalidVote`); пустая/отсутствующая `reason` не учитывается (возвращает текущий рейтинг с `counted: false`, без записи); иначе upsert голоса и `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (без авторизации — server-rating этап 3) | `{ score, blocked }` для произвольного `hosterUserId`; без авторизации, т.к. значение и так публично отображается в лобби (поле `rating` в `GET /servers`) — `HostRatingProxy.getPublic` мастера опрашивает этот эндпоинт по таймеру (`SignalingServer.refreshRatings()`), чтобы обновлять кэш рейтинга по комнатам, не храня Bearer-токен каждого активного хостера между запросами. `400 badRequest` для нецелого `:hosterUserId` |
-| `GET /leaderboard?game=&limit=&period=` (без авторизации — lobby-page-plan) | `{ leaderboard: [{nick, rank, place}], total }` — топ-`limit` (клампится в `1..100`, дефолт `10`) по `ratings` для `game`, только `rank > 0 AND nick IS NOT NULL`, сортировка `rank DESC, nick ASC`. `place` — competition ranking (`RANK() OVER (ORDER BY rank DESC)`): игроки с одинаковым `rank` делят `place`, следующее отличное значение перескакивает на размер группы — согласовано с определением `GET /placement` ниже, а не плоский порядковый номер строки (code review M3: список и плашка позиции вызывающего должны совпадать). `total` и `place` считаются оконными функциями над всем набором, прошедшим `WHERE`, ещё до `LIMIT`, в том же запросе, что и страница (code review L1 — один round-trip вместо отдельного `COUNT(*)`). Без авторизации: показывается в лобби до логина, тот же уровень доверия, что и `GET /host-rating/:hosterUserId`. `400 gameRequired`, если `game` не передан. **`period`** (rank-periods) выбирает срез времени: `all` (по умолчанию — и это то, что получает старый клиент, не передающий `period`), `day` или `month`. `all` читает кэш `ratings` ровно как раньше; `day`/`month` считаются на лету из леджера `rank_events` (`SUM(delta) WHERE voided = false AND created_at >= date_trunc('day'|'month', now() AT TIME ZONE 'utc')`, `HAVING SUM(delta) > 0`) — окна КАЛЕНДАРНЫЕ и в UTC, а не скользящие: «топ за сегодня» должен значить одно и то же для всех, кто на него смотрит. На прочих значениях — `400 badPeriod`: ответить не тем срезом под верным заголовком хуже, чем отказать |
+| `GET /leaderboard?game=&limit=&period=` (без авторизации — lobby-page-plan) | `{ leaderboard: [{nick, rank, place}], total }` — топ-`limit` (клампится в `1..100`, дефолт `10`) по `ratings` для `game`, только `rank > 0 AND nick IS NOT NULL`, сортировка `rank DESC, nick ASC`. `place` — competition ranking (`RANK() OVER (ORDER BY rank DESC)`): игроки с одинаковым `rank` делят `place`, следующее отличное значение перескакивает на размер группы — согласовано с определением `GET /placement` ниже, а не плоский порядковый номер строки (code review M3: список и плашка позиции вызывающего должны совпадать). `total` и `place` считаются оконными функциями над всем набором, прошедшим `WHERE`, ещё до `LIMIT`, в том же запросе, что и страница (code review L1 — один round-trip вместо отдельного `COUNT(*)`). Без авторизации: показывается в лобби до логина, тот же уровень доверия, что и `GET /host-rating/:hosterUserId`. `400 gameRequired`, если `game` не передан. **`period`** (rank-periods, snakes-v3) выбирает срез времени **и агрегацию**: `all` (по умолчанию — и это то, что получает старый клиент, не передающий `period`) читает кэш `ratings`, снимок суточной задачи; `month` — это `SUM(delta)`, `day` — `MAX(best)`, оба считаются на лету из леджера `rank_events` по календарному окну UTC (`created_at >= date_trunc('day'|'month', now() AT TIME ZONE 'utc')`, `voided = false`, `HAVING … > 0`) — окна КАЛЕНДАРНЫЕ, а не скользящие: «топ за сегодня» должен значить одно и то же для всех, кто на него смотрит. На прочих значениях — `400 badPeriod`: ответить не тем срезом под верным заголовком хуже, чем отказать. Роут также отвечает `304 Not Modified` на совпавший `If-None-Match`: выборка меняется медленно, а лобби перезапрашивает её на каждое открытие вкладки |
 | `GET /placement?game=&period=` (Bearer identity-токен — lobby-page-plan) | `{ placement, total, rank }` для вызывающего: `rank` — его закэшированные очки (`0`, если не ранжирован), `total` — тот же счётчик ранжированных игроков, что и в `/leaderboard`, `placement` — та же competition-ranking позиция, что и `place` в `/leaderboard` (`(COUNT(*) WHERE rank > мой) + 1`), либо `null`, если `rank` равен `0` (ещё не ранжирован). `period` — тот же срез и считается тем же способом: плашка позиции не должна противоречить списку, рядом с которым её показывают |
 
 Rate limiting — одна middleware (`src/lib/rateLimit.js`: `main.js` при импорте
@@ -299,32 +342,42 @@ auth-сервисом всё время сессии — механику на �
 
 1. **Загрузка на join**: `HostGame.createUser()` запускает
    `PlayerDataSync.load(participantId, token)` (fire-and-forget — не
-   блокирует вход), которая дёргает мастеровские `GET /auth/rank` и
-   `GET /auth/state` (проксируются в центральный auth-сервис — см.
+   блокирует вход), которая дёргает мастеровский `GET /auth/placements` —
+   один поход за все три среза, `{ day, month, all }`, из `PlacementCache`
+   (`master:placement:cacheTtl`) — и `GET /auth/state` (оба проксируются в
+   центральный auth-сервис — см.
    [master.md](master.md#getput-authrank-getput-authstate))
    собственным identity-токеном участника. Если auth-сервис недоступен,
-   участник остаётся на дефолтах (rank `0`, `playerState.defaultState`
+   участник остаётся на дефолтах (рейтингов нет, `playerState.defaultState`
    игры-плагина, например `src/config/game.js` в `vimp-tanks`) —
    недоступность auth-сервиса никогда не блокирует вход.
-2. **Накопление**: rank меняется на ±1 за убийство — тот же чокпоинт, что и
-   эфемерный score в `Stat`, — `RoundManager.reportKill()` (с той же
-   веткой победа/тимкилл).
+2. **Накопление очков ТЕКУЩЕЙ игры**: по умолчанию `+1` за убийство через
+   `RoundManager.reportKill()` — или столько, сколько сообщит игра через
+   `vimp.addPlayerPoints()`. Рейтингом они становятся только на конце игры —
+   `vimp.finishPlayerGame()`, который `RoundManager` зовёт на смене карты и
+   конце раунда, а игра без раундов — на своей собственной границе.
 3. **Синхронизация обратно**: `PlayerDataSync.flush()`/`flushAll()`
-   отправляют текущие rank+state участника на мастеровские `PUT /auth/rank`/
+   отправляют результат и state участника на мастеровские `PUT /auth/rank`/
    `PUT /auth/state` (best-effort, `Promise.allSettled` — неудачный flush
    молча повторится на следующей естественной точке flush с уже
-   накопленными за это время данными). Точки flush: смена карты и конец
-   раунда (обе — в `RoundManager`), плюс финальный flush при выходе
-   участника (`HostGame.removeUser()`).
+   накопленными за это время данными). С snakes-v3 бюджетом записи владеет
+   ДВИЖОК (`lobbyConfig.playerData`): не изменилось — не отправляем; не чаще
+   одной синхронизации на участника за `minFlushInterval` (60 с, с джиттером
+   ±20 % на комнату); один запрос в полёте на участника; очередь комнаты с
+   потолком `maxRequestsPerSecond` и экспоненциальный откат на `5xx`/`429`.
+   Срочные границы — уход участника, `destroy()` — интервал обходят, как и
+   игра, которая об этом попросила (`flushPlayerData({ urgent: true })`).
 
-Rank здесь — простой аккумулятор дельты по убийствам (+1/-1), а не
-ELO или матчмейкинг-рейтинг. Rust/WASM-ядро игры вообще не знает о
-rank/state — это чисто engine/JS-концепция, доступная игровым плагинам через
-`HostGame.getPlayerRank()`/`getPlayerState()`/`setPlayerState()`, а игрокам —
-через движковую чат-команду `/rank` (этап B5,
-[CommandProcessor](../../packages/engine/src/host/meta/core/CommandProcessor.js),
-см. доки игрового процесса активной игры-плагина, например [vimp-tanks/docs/ru/gameplay.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/gameplay.md#чат-клавиша-c-и-команды)) — она читает локально
-закэшированный rank через `PlayerDataSync.getRank()`, без сетевого запроса.
+Rust/WASM-ядро игры вообще не знает о рейтингах и state — это чисто
+engine/JS-концепция, доступная игровым плагинам через
+`HostGame.addPlayerPoints()`/`finishPlayerGame()`/`getPlayerRating()`/
+`refreshPlayerPlacement()`/`getPlayerState()`/`setPlayerState()`, а игрокам —
+через ту чат-команду, которую зарегистрирует игра (`/rank` в
+`metaCommands.js` скаффолда; своих команд движок не разбирает — см. доки
+игрового процесса активной игры-плагина, например [vimp-tanks/docs/ru/gameplay.md](https://github.com/lgick/vimp-tanks/blob/main/docs/ru/gameplay.md#чат-клавиша-c-и-команды)).
+Место — единственное, на что нельзя ответить локально: его двигают чужие
+игры, поэтому за ним ходит `refreshPlacement()`; значение читается из срезов,
+загруженных на входе, без сетевого запроса.
 
 ## Тесты
 

@@ -184,3 +184,70 @@ describe('StatView: события модели', () => {
     expect(document.getElementById('stat_p9')).not.toBeNull();
   });
 });
+
+// snakes-v3 этап 4: режим 'leaderboard' — без шапки и таблиц команд, один
+// список глобального топа
+const boardConfig = {
+  elems: { stat: 'stat' },
+  params: {
+    mode: 'leaderboard',
+    period: 'day',
+    limit: 3,
+    columns: ['#', 'snake', 'score'],
+  },
+};
+
+describe("StatView: режим 'leaderboard'", () => {
+  it('не строит .stat-head и таблицы, строит .stat-leaderboard', () => {
+    new StatView(makeModel(), boardConfig);
+
+    expect(document.querySelector('#stat .stat-head')).toBeNull();
+    expect(document.querySelector('#stat table')).toBeNull();
+    expect(document.querySelector('#stat .stat-leaderboard')).not.toBeNull();
+  });
+
+  it('рисует строки место · ник · очки и метит свою', () => {
+    const model = makeModel();
+
+    new StatView(model, boardConfig);
+
+    model.publisher.emit('leaderboard', [
+      { place: 1, nick: 'a', score: 100, isSelf: false },
+      { place: null, nick: 'me', score: 0, isSelf: true },
+    ]);
+
+    const rows = document.querySelectorAll('#stat .stat-row');
+
+    expect(rows).toHaveLength(2);
+    expect([...rows[0].children].map(c => c.textContent)).toEqual([
+      '1',
+      'a',
+      '100',
+    ]);
+    // неранжированный — прочерк вместо места
+    expect([...rows[1].children].map(c => c.textContent)).toEqual([
+      '—',
+      'me',
+      '0',
+    ]);
+    expect(rows[1].classList.contains('is-self')).toBe(true);
+  });
+
+  it('перерисовка заменяет список целиком', () => {
+    const model = makeModel();
+
+    new StatView(model, boardConfig);
+
+    model.publisher.emit('leaderboard', [
+      { place: 1, nick: 'a', score: 100, isSelf: false },
+    ]);
+    model.publisher.emit('leaderboard', [
+      { place: 1, nick: 'b', score: 110, isSelf: false },
+    ]);
+
+    const rows = document.querySelectorAll('#stat .stat-row');
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].children[1].textContent).toBe('b');
+  });
+});

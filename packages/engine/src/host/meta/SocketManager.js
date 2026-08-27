@@ -39,6 +39,7 @@ export default class SocketManager {
     this._PORT_CHAT_DATA = ports.CHAT_DATA;
     this._PORT_VOTE_DATA = ports.VOTE_DATA;
     this._PORT_KEYSET_DATA = ports.KEYSET_DATA;
+    this._PORT_ACCOLADES_DATA = ports.ACCOLADES_DATA;
 
     this._soundCues = soundCues;
     this._initialVote = initialVote;
@@ -335,6 +336,16 @@ export default class SocketManager {
    */
   sendStat(socketId, data) {
     this._send(socketId, this._PORT_STAT_DATA, data);
+  }
+
+  /**
+   * Отправка мест участников в глобальном топе (snakes-v3 этап 4). Движок
+   * раздаёт числа, знак за место рисует part игры.
+   * @param {string} socketId
+   * @param {Object} data - { [gameId]: { daily, monthly } }
+   */
+  sendAccolades(socketId, data) {
+    this._send(socketId, this._PORT_ACCOLADES_DATA, data);
   }
 
   /**

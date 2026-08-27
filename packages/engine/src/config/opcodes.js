@@ -9,7 +9,9 @@
 // в plugin-api.md), движок больше не выводит контролы из типа значения
 // v3: набор control сокращён до нативных элементов — 'select'|'text'|
 // 'checkbox'|'radio' (были ещё 'range'/'number'/'toggle'/'segmented')
-export const ENGINE_API_VERSION = 3;
+// v4: порт ACCOLADES_DATA (места участников в глобальном топе) и пятый
+// сервис пула зависимостей клиента (`accolades`) — snakes-v3 этап 4
+export const ENGINE_API_VERSION = 4;
 
 // версия формата кадра: первый байт после порта;
 // увеличивать при любом изменении байтовой раскладки в ядре

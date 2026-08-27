@@ -121,8 +121,9 @@ name the violation. Do not verify those by eye — run the tool
       The engine marks the stage `sortableChildren` and calls
       `sortChildren()` after every `addChild`; PixiJS v8 sorts by `zIndex`
       there. A `layer` property on the instance does nothing.
-- [ ] ⚙ `C4` The engine provides exactly four dependency services:
-      `renderer`, `soundManager`, `assetsBase`, `localPlayer`. Your game adds
+- [ ] ⚙ `C4` The engine provides exactly five dependency services:
+      `renderer`, `soundManager`, `assetsBase`, `localPlayer`, `accolades`.
+      Your game adds
       its own by returning them from `ClientPlugin.hooks.services(core)` —
       the engine merges that map into the pool. A name that neither side
       provides resolves to `undefined` in the part, silently. `C4` reports it

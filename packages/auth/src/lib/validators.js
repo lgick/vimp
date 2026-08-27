@@ -8,12 +8,13 @@ const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w #]{0,13})[\\w]{1}$');
 
 export const isValidNick = nick => typeof nick === 'string' && NAME_REGEXP.test(nick);
 
-// server-rating этап 1 (stage_1.md, 1.1): PUT /rank принимает дельту матча,
-// не абсолют — сам rank клампится в диапазон при пересчёте леджера.
-// maxDelta (кодревью №5) — per-match санити-граница модуля дельты, отдельная
-// от клампа кэша: без неё сырое значение в rank_events могло быть любым
-export const isValidRankDelta = (delta, maxDelta) =>
-  Number.isInteger(delta) && Math.abs(delta) <= maxDelta;
+// snakes-v3 (stage_2.md, 2.5): результат игры. best — одна игра, points —
+// сумма склеенных. `best <= points` — не формальность: best это максимум
+// среди игр, чья сумма равна points, и нарушение означает битого клиента
+export const isValidGameResult = (points, best, { maxGameScore, maxPoints }) =>
+  Number.isInteger(points) && Number.isInteger(best) &&
+  points >= 0 && best >= 0 &&
+  best <= maxGameScore && points <= maxPoints && best <= points;
 
 // state — непрозрачный JSON игры, auth проверяет только общий объём
 export const isValidStateSize = (state, maxBytes) =>

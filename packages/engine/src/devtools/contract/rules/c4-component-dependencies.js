@@ -1,13 +1,20 @@
 import { ERROR, WARN, skip, verdict } from '../result.js';
 
-// Движковых сервисов ровно четыре (client/main.js), но пул ими не
+// Движковых сервисов ровно пять (client/main.js), но пул ими не
 // исчерпывается: игра доливает туда свои через ClientPlugin.hooks.services(core)
 // — например геометрию предсказанной динамики карты
 // (docs/en/plugin-api.md «hooks.services»). Незнакомое имя не ошибка для
 // движка: part получает undefined и рисует пустоту — карта без assetsBase
 // выглядит как чистый холст без единой строки в консоли, ради этого правило
 // и существует.
-const SERVICES = ['renderer', 'soundManager', 'assetsBase', 'localPlayer'];
+const SERVICES = [
+  'renderer',
+  'soundManager',
+  'assetsBase',
+  'localPlayer',
+  // места в глобальном топе (snakes-v3 этап 4)
+  'accolades',
+];
 
 export default {
   id: 'C4',

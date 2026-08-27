@@ -1,6 +1,6 @@
 import {
   isValidNick,
-  isValidRankDelta,
+  isValidGameResult,
   isValidStateSize,
   isValidVoteValue,
   isValidVoteReason,
@@ -30,29 +30,6 @@ describe('validators (auth)', () => {
     expect(isValidNick(undefined)).toBe(false);
     expect(isValidNick(null)).toBe(false);
     expect(isValidNick(123)).toBe(false);
-  });
-});
-
-describe('isValidRankDelta', () => {
-  it('принимает целые числа, положительные и отрицательные, в пределах maxDelta', () => {
-    expect(isValidRankDelta(5, 1000)).toBe(true);
-    expect(isValidRankDelta(-5, 1000)).toBe(true);
-    expect(isValidRankDelta(0, 1000)).toBe(true);
-  });
-
-  it('отклоняет нецелые и не-числа', () => {
-    expect(isValidRankDelta(1.5, 1000)).toBe(false);
-    expect(isValidRankDelta(NaN, 1000)).toBe(false);
-    expect(isValidRankDelta(Infinity, 1000)).toBe(false);
-  });
-
-  // кодревью №5 (plan/server-rating/review.md): без потолка на модуль дельты
-  // один PUT мог разогнать rank до клампа за один матч
-  it('отклоняет дельту за пределами maxDelta', () => {
-    expect(isValidRankDelta(1001, 1000)).toBe(false);
-    expect(isValidRankDelta(-1001, 1000)).toBe(false);
-    expect(isValidRankDelta(1000, 1000)).toBe(true);
-    expect(isValidRankDelta(-1000, 1000)).toBe(true);
   });
 });
 
@@ -106,5 +83,36 @@ describe('clampLimit', () => {
     expect(clampLimit(undefined, 10, 100)).toBe(10);
     expect(clampLimit('junk', 10, 100)).toBe(10);
     expect(clampLimit(1.5, 10, 100)).toBe(10);
+  });
+});
+
+// snakes-v3 (stage_2.md, 2.5): PUT /rank принимает результат игры
+describe('isValidGameResult', () => {
+  const limits = { maxGameScore: 10000, maxPoints: 200000 };
+
+  it('принимает целую пару в пределах, где best не больше points', () => {
+    expect(isValidGameResult(1200, 800, limits)).toBe(true);
+    expect(isValidGameResult(0, 0, limits)).toBe(true);
+    expect(isValidGameResult(10000, 10000, limits)).toBe(true);
+  });
+
+  it('отклоняет отрицательные и дробные', () => {
+    expect(isValidGameResult(-1, 0, limits)).toBe(false);
+    expect(isValidGameResult(10, -1, limits)).toBe(false);
+    expect(isValidGameResult(1.5, 1, limits)).toBe(false);
+    expect(isValidGameResult(10, 1.5, limits)).toBe(false);
+    expect(isValidGameResult(NaN, 0, limits)).toBe(false);
+  });
+
+  // best — максимум среди игр, чья сумма равна points; нарушение означает
+  // битого клиента, а не безобидное округление
+  it('отклоняет best больше points', () => {
+    expect(isValidGameResult(100, 101, limits)).toBe(false);
+  });
+
+  it('отклоняет выход за пределы одной игры и за предел запроса', () => {
+    expect(isValidGameResult(20000, 10001, limits)).toBe(false);
+    expect(isValidGameResult(200001, 100, limits)).toBe(false);
+    expect(isValidGameResult(200000, 10000, limits)).toBe(true);
   });
 });

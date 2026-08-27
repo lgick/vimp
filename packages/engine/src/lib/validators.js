@@ -168,3 +168,32 @@ export const clampLimit = (value, fallback, max) => {
 
   return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
 };
+
+// клампит результат игры (snakes-v3 этап 3.3): `best` — очки ОДНОЙ игры,
+// `points` — сумма склеенных игр с прошлой синхронизации. Потолок одной
+// игры объявляет сама игра (master:games[].maxGameScore), потолок суммы —
+// это же значение на минутное окно синхронизации; всё, что больше, значит
+// либо взломанного клиента, либо неверно настроенную игру, и мастер режет
+// его перед проксированием, а не отклоняет запрос целиком: честная часть
+// результата не должна пропадать из-за одной аномальной строки.
+// Инвариант `best <= points` держится и после клампа — auth его требует
+export const clampGameResult = (points, best, maxGameScore) => {
+  const maxPoints = maxGameScore * 20;
+  const toInt = value => {
+    const num = Math.trunc(Number(value));
+
+    return Number.isFinite(num) ? Math.max(num, 0) : 0;
+  };
+  const cappedBest = Math.min(toInt(best), maxGameScore);
+  const cappedPoints = Math.min(toInt(points), maxPoints);
+
+  return {
+    points: cappedPoints,
+    // best > points — битый клиент: сумма не может быть меньше своего
+    // максимума. Поднимать сумму до максимума значило бы дорисовать
+    // месячному рейтингу очки, которых не было, поэтому режется best
+    best: Math.min(cappedBest, cappedPoints),
+    // превышение логируется вызывающим: это сигнал о сломанной игре
+    clamped: cappedBest !== toInt(best) || cappedPoints !== toInt(points),
+  };
+};

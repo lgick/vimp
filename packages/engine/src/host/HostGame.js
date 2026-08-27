@@ -1,4 +1,5 @@
 import Panel from './meta/modules/Panel.js';
+import Accolades from './meta/modules/Accolades.js';
 import PlayerDataSync from './meta/modules/PlayerDataSync.js';
 import Stat from './meta/modules/Stat.js';
 import Chat from './meta/modules/chat/index.js';
@@ -117,6 +118,10 @@ export default class HostGame {
     // endlessRound — раунд не перезапускается сам. Флаги независимы
     this._noSpectators = data.noSpectators === true;
     this._endlessRound = data.endlessRound === true;
+    // statMode — чем игра занимает экран по Tab. 'leaderboard' значит, что
+    // клиент рисует глобальный топ, который тянет сам: движковый stat в
+    // этом режиме никто не рисует, и платить за его рассылку незачем
+    this._statLeaderboard = data.statMode === 'leaderboard';
     this._spectatorTeam = this._noSpectators ? null : data.spectatorTeam;
     this._spectatorId = this._noSpectators
       ? null
@@ -144,6 +149,15 @@ export default class HostGame {
       defaultState: data.playerState?.defaultState ?? {},
       // headless-прогону некуда ходить за профилем (относительный URL и нет
       // мастера) — подменяется только там, в проде остаётся глобальный fetch
+      ...(playerDataFetch ? { fetchImpl: playerDataFetch } : {}),
+    });
+    // места участников в глобальном топе (snakes-v3 этап 4): косметика для
+    // parts игры, движок не знает, какой знак игра нарисует за место
+    this._accolades = new Accolades({
+      participants: this._participants,
+      gameId: this._gameId,
+      // headless-прогону некуда ходить за топом — тот же подмен, что и у
+      // PlayerDataSync
       ...(playerDataFetch ? { fetchImpl: playerDataFetch } : {}),
     });
     this._chat = new Chat();
@@ -344,9 +358,15 @@ export default class HostGame {
       removedPlayersList.pop();
     }
 
+    // фоновый опрос глобального топа: сам решает, пора ли (refreshInterval)
+    this._accolades.tick();
+
     const userList = this._participants.getNetworkedReady();
     const panelUpdates = this._panel.processUpdates();
-    const stat = this._stat.getLast();
+    // в режиме leaderboard движковый stat не рисуется вовсе — не собираем
+    // и не шлём
+    const stat = this._statLeaderboard ? null : this._stat.getLast();
+    const accolades = this._accolades.shift();
     const chat = this._chat.shift();
     const vote = this._vote.shift();
 
@@ -419,6 +439,10 @@ export default class HostGame {
 
       if (stat) {
         this._socketManager.sendStat(socketId, stat);
+      }
+
+      if (accolades) {
+        this._socketManager.sendAccolades(socketId, accolades);
       }
 
       const chatUser = chat || this._chat.shiftByUser(gameId);
@@ -643,7 +667,11 @@ export default class HostGame {
     // иначе removeUser стартует второй flush с той же накопленной дельтой
     // (двойной зачёт рейтинга), а destroy разрешился бы раньше, чем эти
     // запросы уйдут
-    await this._playerDataSync.flushAll();
+    // незакрытые игры участников закрываются здесь: их очки иначе не
+    // попали бы ни в сумму, ни в максимум и пропали бы вместе с комнатой
+    // (правило 7 snakes-v3 этап 3 — запись гарантирована в destroy())
+    this._playerDataSync.finishAllGames();
+    await this._playerDataSync.flushAll({ urgent: true });
 
     // getAll() отдаёт копию — снятие внутри цикла реестр не ломает
     for (const user of this._participants.getAll()) {
@@ -863,6 +891,10 @@ export default class HostGame {
     // вход; сбой auth-сервиса оставляет участника с дефолтами
     this._playerDataSync.load(gameId, params.token);
 
+    // место новичка в глобальном топе: знак должен появиться сразу, а не
+    // на следующем периодическом опросе
+    this._accolades.refresh({ force: true });
+
     queueMicrotask(() => {
       cb(gameId);
     });
@@ -886,9 +918,12 @@ export default class HostGame {
     this._vote.removeUser(gameId);
     this._panel.removeUser(gameId);
 
-    // финальная синхронизация rank/state перед уходом участника (Этап B4)
+    // финальная синхронизация профиля перед уходом участника (Этап B4):
+    // незавершённая игра закрывается — второго шанса записать её очки не
+    // будет, — и интервал синхронизации эта граница обходит (urgent)
+    this._playerDataSync.finishGame(gameId);
     this._playerDataSync
-      .flush(gameId)
+      .flush(gameId, { urgent: true })
       .catch(err =>
         console.warn('[playerData] final flush failed:', err.message),
       )
@@ -1058,9 +1093,40 @@ export default class HostGame {
 
   // прибавка к рангу для игр, которые не эмитят CoreEvent::Death и потому
   // никогда не проходят через RoundManager.reportKill: прямая прокладка к
-  // PlayerDataSync, без раунд-логики и без проверки team-wipe
+  // PlayerDataSync, без раунд-логики и без проверки team-wipe.
+  // @deprecated snakes-v3: алиас addPlayerPoints
   addPlayerRank(gameId, delta) {
     this._playerDataSync.addRank(gameId, delta);
+  }
+
+  // ***** результат игры (snakes-v3 этап 3) ***** //
+
+  // очки ТЕКУЩЕЙ игры участника: жизнь, раунд, матч — что игра называет
+  // игрой. В рейтинги они попадают только на finishPlayerGame
+  addPlayerPoints(gameId, delta) {
+    this._playerDataSync.addPoints(gameId, delta);
+  }
+
+  // игра участника закончилась: накопленные очки уходят в сумму (месячный
+  // рейтинг) и в максимум (дневной). Игра без раундов зовёт это сама — у
+  // игры с раундами обе границы закрывает RoundManager
+  finishPlayerGame(gameId) {
+    this._playerDataSync.finishGame(gameId);
+  }
+
+  // значения среза для показа: { value, placement, total } или null
+  getPlayerRating(gameId, period) {
+    return this._playerDataSync.getRating(gameId, period);
+  }
+
+  isPlayerRatingLoaded(gameId) {
+    return this._playerDataSync.isRatingLoaded(gameId);
+  }
+
+  // точечный перезапрос места в срезе (чат-команда /rank): место меняют
+  // чужие игры, локально его не пересчитать. Троттлинг — в PlayerDataSync
+  refreshPlayerPlacement(gameId, period) {
+    return this._playerDataSync.refreshPlacement(gameId, period);
   }
 
   // синхронизация профилей (rank/state) всех участников на мастер прямо
@@ -1072,8 +1138,13 @@ export default class HostGame {
   //
   // Best-effort, как и весь PlayerDataSync: промис не отвергается, сбой
   // логируется в `[playerData]` и повторится следующим flush'ем.
-  flushPlayerData() {
-    return this._playerDataSync.flushAll();
+  //
+  // snakes-v3 этап 3: это просьба, а не команда — участник, у которого с
+  // прошлой синхронизации прошло меньше lobbyConfig.playerData.
+  // minFlushInterval, пропускается. Срочные границы (уход участника,
+  // destroy комнаты) интервал обходят, игре они недоступны
+  flushPlayerData({ urgent = false } = {}) {
+    return this._playerDataSync.flushAll({ urgent });
   }
 
   // hostId + per-room секрет комнаты, подтверждённые мастером при

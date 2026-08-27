@@ -35,6 +35,7 @@ import { getBootConfig, resolveBootConfig } from './boot.js';
 import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
 import { createContextTracker } from './lib/contextTracker.js';
 import { createLocalPlayer } from './lib/localPlayer.js';
+import { createAccolades } from './lib/accolades.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import {
@@ -181,6 +182,7 @@ const PS_STAT_DATA = wsports.server.STAT_DATA;
 const PS_CHAT_DATA = wsports.server.CHAT_DATA;
 const PS_VOTE_DATA = wsports.server.VOTE_DATA;
 const PS_KEYSET_DATA = wsports.server.KEYSET_DATA;
+const PS_ACCOLADES_DATA = wsports.server.ACCOLADES_DATA;
 
 // PC (client ports): порты получения данных от клиента
 const PC_CONFIG_READY = wsports.client.CONFIG_READY;
@@ -279,6 +281,9 @@ let wasm = null;
 // сервис пула зависимостей: «эта сущность моя или чужая?». Ядро читается
 // геттером — оно создаётся позже пула сервисов (см. lib/localPlayer.js)
 const localPlayer = createLocalPlayer(() => clientCore);
+// сервис пула зависимостей: «какое место у этой сущности в глобальном
+// топе?». Места считает хост, part рисует за них знак (см. lib/accolades.js)
+const accolades = createAccolades();
 let inputSeq = 0; // номер отправленного ввода (KEYS_DATA)
 
 // обратный индекс снапшот-схемы игры (CONFIG_DATA.snapshot):
@@ -376,6 +381,9 @@ socketMethods[PS_CONFIG_DATA] = async data => {
       // аргумент конструктора) со своим gameId. Игра без этого сервиса звучит
       // одинаково за всех — чужие подборы и чужие смерти вперемешку со своими
       localPlayer,
+      // места в глобальном топе: знак за место рисует part игры, движок
+      // раздаёт только числа (см. lib/accolades.js)
+      accolades,
       // база ассетов игры — тем же каналом, что и путь к звукам (см. выше):
       // картинки карт живут в пакете игры (dist/img/), движок их не раздаёт.
       // part, объявивший сервис в componentDependencies, строит URL сам —
@@ -637,6 +645,12 @@ socketMethods[PS_PANEL_DATA] = data => {
 // stat data
 socketMethods[PS_STAT_DATA] = data => {
   modules.stat.update(data);
+};
+
+// accolades data (места участников в глобальном топе): рассылка приходит
+// только когда места изменились
+socketMethods[PS_ACCOLADES_DATA] = data => {
+  accolades.apply(data);
 };
 
 // chat data
@@ -917,7 +931,15 @@ function runModules(data) {
   // Stat Module
   //==========================================//
 
-  const statModel = new StatModel(statData.params);
+  // режим 'leaderboard' (snakes-v3 этап 4) тянет глобальный топ сам — теми
+  // же запросами, что и лобби (переиспользование, а не третья копия)
+  const statModel = new StatModel(statData.params, {
+    gameId: activeGameManifest.id,
+    fetchLeaderboard: (gameId, period) =>
+      fetchLeaderboard(gameId, period, leaderboardEtags),
+    fetchPlacement,
+    getNick: () => lobbyAuthModel?.getNick() ?? null,
+  });
 
   // StatView генерирует шапку и таблицы по схеме игры ({ elems, params })
   const statView = new StatView(statModel, statData);
@@ -1788,9 +1810,18 @@ async function fetchServers({ offset, limit, search }) {
   }
 }
 
+// валидаторы ответов топа (snakes-v3 этап 4): `${gameId}:${period}` -> ETag.
+// Заполняются только теми вызовами, что передали etagStore, — см. ниже
+const leaderboardEtags = new Map();
+
 // топ-N рейтинга игры (lobby-page-plan) — публичный эндпоинт, доступен и до
-// логина, поэтому без Authorization
-async function fetchLeaderboard(gameId, period) {
+// логина, поэтому без Authorization.
+//
+// etagStore (snakes-v3 этап 4) — необязательный кэш валидаторов: с ним
+// запрос уходит с If-None-Match, и 304 возвращает null, то есть «оставить
+// прошлое». Лобби его не передаёт намеренно: там список чистится ДО
+// запроса, и «оставить прошлое» означало бы пустой экран
+async function fetchLeaderboard(gameId, period, etagStore = null) {
   const params = new URLSearchParams({
     game: gameId,
     limit: lobbyConfig.leaderboardLimit,
@@ -1798,11 +1829,26 @@ async function fetchLeaderboard(gameId, period) {
     // значение всегда из lobbyConfig.leaderboardPeriods
     period,
   });
+  const key = `${gameId}:${period}`;
+  const etag = etagStore?.get(key);
 
   try {
-    const res = await fetch(`${lobbyConfig.leaderboardUrl}?${params}`);
+    const res = await fetch(
+      `${lobbyConfig.leaderboardUrl}?${params}`,
+      etag ? { headers: { 'if-none-match': etag } } : undefined,
+    );
 
-    return res.ok ? await res.json() : null;
+    if (!res.ok) {
+      return null; // 304 сюда же: тела нет, прошлое состояние остаётся
+    }
+
+    const tag = res.headers?.get?.('etag');
+
+    if (etagStore && tag) {
+      etagStore.set(key, tag);
+    }
+
+    return await res.json();
   } catch {
     return null;
   }
@@ -1811,7 +1857,9 @@ async function fetchLeaderboard(gameId, period) {
 // позиция вызывающего в рейтинге игры (lobby-page-plan) — требует identity-
 // токена, как и остальные /auth/* запросы игрока (rank/state)
 async function fetchPlacement(gameId, period) {
-  const token = lobbyAuthModel.getToken();
+  // `?.`: в режиме 'leaderboard' (snakes-v3 этап 4) это зовётся уже из
+  // матча, в том числе solo/dedicated, где лобби с его моделью не поднято
+  const token = lobbyAuthModel?.getToken();
 
   if (!token) {
     return null;

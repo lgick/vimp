@@ -51,11 +51,17 @@ export default class PlayerDataProxy {
     });
   }
 
-  // server-rating этап 1: /rank принимает дельту матча, не абсолют.
-  // attribution ({ hosterUserId, sessionId }, кодревью №1) — проставлена
-  // мастером из проверенного register_host, не из тела хоста
-  putRank(token, game, delta, attribution = {}) {
-    return this._request('/rank', token, { method: 'PUT', game, body: { delta, ...attribution } });
+  // snakes-v3 этап 3: /rank принимает результат игры — `points` (сумма
+  // завершённых игр с прошлой синхронизации) и `best` (лучшая среди них),
+  // не дельту и не абсолют. attribution ({ hosterUserId, sessionId },
+  // кодревью №1) — проставлена мастером из проверенного register_host, не
+  // из тела хоста
+  putRank(token, game, { points, best }, attribution = {}) {
+    return this._request('/rank', token, {
+      method: 'PUT',
+      game,
+      body: { points, best, ...attribution },
+    });
   }
 
   getState(token, game) {

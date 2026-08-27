@@ -270,8 +270,9 @@ may mean different things in two games. The five the engine used to own —
 `/name` (`ctx.roundManager.changeName`), `/nr` (`initiateNewRound`, guard it
 with `ctx.isDevMode`), `/timeleft` (`ctx.timerManager.getMapTimeLeft()`),
 `/mapname` (`ctx.roundManager.currentMap`) and `/rank`
-(`ctx.playerDataSync.getRank`) — are game code now; the scaffold ships them in
-`src/host/metaCommands.js`. Registering one name twice silently drops a
+(`ctx.playerDataSync.refreshPlacement(gameId, period)`, or `getRating` for the
+value the last refresh left behind) — are game code now; the scaffold ships
+them in `src/host/metaCommands.js`. Registering one name twice silently drops a
 handler. `/like` and `/unlike` are intercepted by the client and go to the
 master — they never reach the host.
 
@@ -377,40 +378,80 @@ stat: {
 
 The engine keeps a per-`(user, game)` profile on the auth service:
 
-- **`rank`** — an integer, the shared cross-game format. The engine writes it
-  itself: `+1` to the killer, `−1` to a team-killer, synchronously with the
-  kill report. **There is no hook to change this rule.**
+- **points and the ratings** — a game reports the RESULT OF A GAME, and the
+  engine splits it into three slices: `day` (the best single game of the UTC
+  day), `month` (the sum of the month's games) and `all` (the sum over all
+  time, recomputed by a daily job). What a "game" is belongs to the game — a
+  life, a round, a match.
 - **`state`** — arbitrary JSON, opaque to the engine ("skills"). Starts from
   `gameConfig.playerState.defaultState`.
 
 From `onCoreEvent` the `vimp` object gives you:
 
 ```js
-vimp.getPlayerRank(gameId)          // number
-vimp.isPlayerRankLoaded(gameId)     // has it arrived from the master yet?
-vimp.addPlayerRank(gameId, delta)   // add to it, no round logic involved
-vimp.getPlayerState(gameId)         // your blob
-vimp.setPlayerState(gameId, state)  // replace it
-vimp.flushPlayerData()              // sync every profile to the master NOW
+vimp.addPlayerPoints(gameId, delta)     // points of the CURRENT game
+vimp.finishPlayerGame(gameId)           // that game is over: sum it, max it
+vimp.getPlayerRating(gameId, period)    // { value, placement, total } | null
+vimp.isPlayerRatingLoaded(gameId)       // have the slices arrived yet?
+vimp.refreshPlayerPlacement(gameId, p)  // re-ask the master for one place
+vimp.getPlayerState(gameId)             // your blob
+vimp.setPlayerState(gameId, state)      // replace it
+vimp.flushPlayerData({ urgent })        // REQUEST a sync to the master
 ```
 
-`getPlayerRank` answers `0` for an id it does not know AND for one whose
-`PlayerDataSync.load()` has not come back yet, so a game that writes the rank
+`period` is `'day' | 'month' | 'all'`.
+
+**Points are not a rating until the game ends.** `addPlayerPoints` collects
+them on the participant's current game; `finishPlayerGame` is what turns the
+collected number into a sum (the monthly rating) and a maximum (the daily
+one). `RoundManager` closes every participant's game at its own boundaries — a
+map change and a round end — so a game with rounds gets a daily best without
+touching anything. A game with neither (`endlessRound` plus geometry rebuilt
+through `overrideMapData`) has to name its own boundary and call
+`finishPlayerGame` there; in `@vimp-games/snakes` that boundary is the crash,
+because one life is one game.
+
+`getPlayerRating` answers `null` for an id it does not know and for one whose
+`PlayerDataSync.load()` has not come back yet, so a game that writes a rating
 into a stat column of its own (`bodyMethod: '='`) must gate that write on
-`isPlayerRankLoaded` — otherwise the starting zero lands in the cell instead
-of the rank the master returned, and `'='` keeps it there.
+`isPlayerRatingLoaded` — otherwise a starting zero lands in the cell instead
+of the value the master returned, and `'='` keeps it there.
 
-`addPlayerRank` is the escape hatch for a game that never emits
-`CoreEvent::Death` and therefore never reaches `reportKill`: it writes the
-rank directly, so the ±1 rule above is yours to apply.
+`refreshPlayerPlacement` re-asks the master for ONE slice's place and returns
+a promise of the same `{ value, placement, total }`. A place moves with other
+people's games and cannot be recomputed locally, which is what a `/rank`-style
+chat command needs; the throttling of the request lives in `PlayerDataSync`.
+Note that `CommandProcessor` neither awaits nor catches a command handler, so
+such a handler must swallow its own failures — an unhandled rejection in the
+host Worker takes the room down.
 
-`flushPlayerData` is the other half of that escape hatch. The engine syncs
-profiles at a map change and at the end of a round — a game with
-`endlessRound` that rebuilds its geometry through `overrideMapData` reaches
-neither, so its rank sits in the host's memory until a participant leaves and
-dies with the tab. Call it on a boundary of your own (a period of play, an
-arena rebuild); it is best-effort and never rejects, so there is nothing to
-await and nothing to catch.
+`getPlayerRank` / `isPlayerRankLoaded` still answer, from the `all` slice, and
+`addPlayerRank` is a deprecated alias of `addPlayerPoints`.
+
+### How often any of it is written
+
+**The engine owns the write budget, not the game** (`lobbyConfig.playerData`).
+`flushPlayerData` is a REQUEST:
+
+- a `PUT /auth/rank` goes out only when something was actually earned, a
+  `PUT /auth/state` only when the state actually changed — a quiet room writes
+  nothing at all;
+- one request in flight per participant, and at most one sync per participant
+  per `minFlushInterval` (60 s, jittered ±20 % per room so that hundreds of
+  servers do not write on the same second);
+- a room-wide queue capped at `maxRequestsPerSecond`, and an exponential room
+  backoff on `5xx` / `429` / network failures;
+- `{ urgent: true }` bypasses the interval. The engine uses it on a
+  participant's departure and on `destroy()`; a game may pass it too, and
+  should reserve it for a boundary a player is about to look at (a new daily
+  best right before the leaderboard opens).
+
+The master holds the ceiling for a host that ignores all of the above:
+`master:playerData:writesPerMinute` per verified room (over it → `429`) and
+`maxGameScore` clamping the result of a single game.
+
+It is best-effort and never rejects, so there is nothing to await and nothing
+to catch.
 
 ```js
 vimp.overrideMapData(scaledMapData)  // what _startRound places people on
@@ -424,7 +465,7 @@ distributes the respawn points of the CATALOG map, i.e. of geometry the core
 no longer has. It replaces neither the room's current map nor the round.
 
 State is flushed to the master on map change, round end and participant
-departure — not on every mutation.
+departure — not on every mutation, and never faster than the budget above.
 
 ## `onCoreEvent`
 

@@ -149,7 +149,7 @@ componentDependencies: {
 }
 ```
 
-The available service pool is fixed, and it has four entries:
+The available service pool is fixed, and it has five entries:
 
 | Service | Value | Used for |
 | --- | --- | --- |
@@ -157,6 +157,7 @@ The available service pool is fixed, and it has four entries:
 | `soundManager` | the engine's `SoundManager` | registering positional voices |
 | `assetsBase` | the active game's asset base, a string | building URLs into **your own** package: `${assetsBase}img/<file>` |
 | `localPlayer` | `{ id, is(id) }` | telling the local player's entity from everyone else's |
+| `accolades` | `{ placeOf(id) }` | the entity's place in the game's global top — `{ daily, monthly }`, each a number or `null` |
 
 ### `localPlayer` — is this entity mine?
 
@@ -176,6 +177,24 @@ export default class Tank {
   the local player's own part is built while `localPlayer.id` is still `null`,
   so a flag computed once in the constructor is wrong exactly for the entity
   it matters for.
+
+### `accolades` — is this player in the global top?
+
+```js
+const { daily, monthly } = accolades.placeOf(id); // numbers or null
+```
+
+- Places come from the same public leaderboard the lobby draws, matched to
+  the room's participants **by nickname**, so a badge follows the player onto
+  any server. The host refreshes them in the background and broadcasts only
+  when they change (port `ACCOLADES_DATA`).
+- Bots and guests have no auth record, so their place is always `null` — a
+  normal case, not a failure. So is an unknown id: `placeOf` always returns
+  an object.
+- Ask at the moment you draw, like `localPlayer`: the first broadcast can
+  arrive long after the part was built.
+- The engine decides nothing about what a place looks like: it hands out
+  numbers, the part draws the badge.
 
 The typical use is sound: a cue that belongs to the player (a pickup, a hit,
 the engine of the machine they drive) is registered only when
@@ -303,6 +322,41 @@ modules: {
   `.line1`–`.line3` row classes): a further column has no width until you
   restate the layout in `styles`. Contract rule `C6` warns about exactly
   that gap.
+
+### Stat mode `leaderboard`
+
+A game whose scoreboard is the **global** top, not the room's, declares it
+instead of the tables:
+
+```js
+modules: {
+  stat: {
+    params: {
+      mode: 'leaderboard',
+      period: 'day',        // the slice: 'day' | 'month' | 'all'
+      limit: 10,
+      refreshMs: 15000,     // matches the master's cache TTL
+      columns: ['#', 'snake', 'score'],
+    },
+  },
+}
+```
+
+- No `.stat-head` and no team tables are built: the view renders one
+  `.stat-leaderboard` list of `.stat-row` (place · nick · score).
+- Host stat updates are ignored in this mode, and the host stops sending them
+  (declare `statMode: 'leaderboard'` in `gameConfig` too, next to
+  `endlessRound`) — nobody draws them.
+- The list is fetched by the client itself from the master's public
+  leaderboard, at most once per `refreshMs`, with `If-None-Match`. A `304`, a
+  network failure or a missing token leaves the last known list — empty on the
+  first open, which is fine.
+- The caller's own row is highlighted (`is-self`); if they are not in the top
+  it **replaces the last row**, and if they are not ranked for the period the
+  place shows as `—`.
+- The engine's CSS gives the list a bare three-column skeleton only —
+  contract rule `C6` checks that your `styles` say something about
+  `.stat-leaderboard` instead of counting columns.
 
 ## Chat
 

@@ -286,6 +286,25 @@ body.hide-cursor {
   text-align: right;
 }
 
+/* snakes-v3 этап 4: режим stat 'leaderboard' — не таблицы комнаты, а один
+   список глобального топа. Движок даёт только каркас (три колонки:
+   место, ник, очки), внешний вид игра доопределяет своим ClientPlugin.styles */
+
+#stat .stat-leaderboard {
+  width: 92%;
+  margin: 3% auto;
+}
+
+#stat .stat-row {
+  display: grid;
+  grid-template-columns: 15% 1fr 20%;
+  padding: 1%;
+}
+
+#stat .stat-row span:nth-child(3) {
+  text-align: right;
+}
+
 /*vote*/
 
 #vote {

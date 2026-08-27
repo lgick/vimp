@@ -19,6 +19,9 @@ export default {
     CHAT_DATA: 15,
     VOTE_DATA: 16,
     KEYSET_DATA: 17,
+    // места участников в глобальном топе (snakes-v3 этап 4): косметика
+    // для parts игры, в снапшот не идёт
+    ACCOLADES_DATA: 18,
   },
   // порты получения данных от клиента
   client: {

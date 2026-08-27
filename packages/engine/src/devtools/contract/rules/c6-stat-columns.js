@@ -67,6 +67,19 @@ function styledColumns(styles, total) {
   return covered;
 }
 
+// Режим 'leaderboard' (snakes-v3 этап 4): движок даёт списку только
+// каркас, внешний вид — дело игры. Достаточно любого правила плагина про
+// `.stat-leaderboard` — раскладка колонок там на контейнере, а не на ячейках
+function styledLeaderboard(styles) {
+  for (const [, selector] of String(styles || '').matchAll(RULE)) {
+    if (selector.includes('.stat-leaderboard')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export default {
   id: 'C6',
   name: 'statColumns',
@@ -74,10 +87,25 @@ export default {
   title: 'stat columns past the engine layout are styled by the plugin',
 
   check(ctx) {
-    const columns = ctx.clientConfig?.modules?.stat?.params?.columns;
+    const params = ctx.clientConfig?.modules?.stat?.params;
+    const columns = params?.columns;
 
     if (!columns) {
       return skip('no client stat columns');
+    }
+
+    // snakes-v3 этап 4: в режиме 'leaderboard' движковых таблиц нет вовсе —
+    // рисуется один список `.stat-leaderboard`, и число колонок движковой
+    // раскладке ничего не говорит. Проверять здесь надо другое: привезла
+    // ли игра свои стили под этот список
+    if (params.mode === 'leaderboard') {
+      return styledLeaderboard(ctx.clientPlugin?.styles)
+        ? verdict([], 'leaderboard list, laid out by the plugin\'s own styles')
+        : verdict([
+            "stat declares mode 'leaderboard', but ClientPlugin.styles says " +
+              'nothing about #stat .stat-leaderboard: the engine CSS gives ' +
+              'the list only a bare three-column skeleton',
+          ]);
     }
 
     // меньше пяти — движковых ширин просто хватает с запасом

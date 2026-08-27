@@ -186,6 +186,7 @@ Host → client (`wsports.server`):
 | 15 | `CHAT_DATA` | `'group:index[:p0,p1]'` or `[text, name?, teamId?]` |
 | 16 | `VOTE_DATA` | vote payload |
 | 17 | `KEYSET_DATA` | `0` (spectator) or `1` (player) |
+| 18 | `ACCOLADES_DATA` | `{ [gameId]: { daily, monthly } }` — places in the global top, sent only when they change |
 
 Client → host (`wsports.client`):
 

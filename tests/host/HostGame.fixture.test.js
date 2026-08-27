@@ -166,13 +166,69 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  // snakes-v3 этап 4: места участников в глобальном топе и режим stat
+  // 'leaderboard' (движковый stat в нём никто не рисует)
+  const boardFetch = rows => async url => {
+    if (url.startsWith('/auth/leaderboard')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ leaderboard: rows, total: rows.length }),
+      };
+    }
+
+    return { ok: true, status: 200, json: async () => ({ rank: 0, state: null }) };
+  };
+
+  it('места из глобального топа рассылаются портом ACCOLADES_DATA', async () => {
+    const { host: board, socket: boardSocket } = await createFixtureHost({
+      opts: { playerDataFetch: boardFetch([{ nick: 'P1', rank: 90, place: 2 }]) },
+    });
+
+    const gameId = await connectPlayer(board, { socketId: 's1' });
+
+    joinTeam(board, gameId, 'team1');
+    // вход участника форсирует опрос топа — дать ответу приехать
+    await vi.advanceTimersByTimeAsync(0);
+    tick(board, 1);
+
+    const frames = boardSocket.framesOf('sendAccolades');
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0].args[0][String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+
+    // места не изменились — второй рассылки нет
+    tick(board, 1);
+    expect(boardSocket.framesOf('sendAccolades')).toHaveLength(1);
+  });
+
+  it("в режиме stat 'leaderboard' хост stat не шлёт вовсе", async () => {
+    const { host: board, socket: boardSocket } = await createFixtureHost({
+      game: { statMode: 'leaderboard' },
+      opts: { playerDataFetch: boardFetch([]) },
+    });
+
+    const gameId = await connectPlayer(board, { socketId: 's1' });
+
+    joinTeam(board, gameId, 'team1');
+
+    // первый кадр везёт полную статистику одним сообщением на вход — режим
+    // отменяет не его, а рассылку каждого игрового кадра
+    const onJoin = boardSocket.framesOf('sendStat').length;
+
+    tick(board, 5);
+
+    expect(boardSocket.framesOf('sendStat')).toHaveLength(onJoin);
+  });
+
   it('destroy синхронизирует профиль ровно один раз и дожидается запросов', async () => {
     const puts = [];
     let pending = 0;
 
     // считающий playerDataFetch: PUT rank и PUT state должны уйти по одному
-    // разу на участника — параллельный второй flush повёз бы ту же дельту
-    // рейтинга (двойной зачёт)
+    // разу на участника — параллельный второй flush повёз бы тот же
+    // результат игры (двойной зачёт)
     const playerDataFetch = async (url, { method } = {}) => {
       if (method === 'PUT') {
         puts.push(url);
@@ -198,9 +254,23 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     joinTeam(counted, gameId, 'team1');
     tick(counted, 1);
 
+    // load() профиля стартует на входе и не ожидается вызывающим — дать ему
+    // приехать, иначе он перетрёт state, выставленный ниже
+    await vi.advanceTimersByTimeAsync(0);
+
+    // snakes-v3 этап 3: «не изменилось — не отправляем». Незакрытую игру и
+    // изменившийся state destroy обязан довезти — с ним у комнаты второго
+    // шанса нет
+    counted.addPlayerPoints(gameId, 5);
+    counted.setPlayerState(gameId, { skill: 1 });
     puts.length = 0;
 
-    await counted.destroy();
+    // очередь комнаты разводит запросы во времени (потолок запросов в
+    // секунду), а таймеры здесь фальшивые — их надо прокрутить
+    const destroyed = counted.destroy();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await destroyed;
 
     expect(pending).toBe(0);
     expect(puts.filter(url => url.includes('rank'))).toHaveLength(1);

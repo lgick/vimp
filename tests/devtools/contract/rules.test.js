@@ -605,6 +605,29 @@ describe('C. client', () => {
     ).toBe(PASS);
   });
 
+  // snakes-v3 этап 4: в режиме 'leaderboard' движковых таблиц нет вовсе —
+  // число колонок ничего не говорит, проверяется наличие стилей списка
+  const leaderboardStat = styles => {
+    const stat = base.clientConfig.modules.stat;
+
+    return {
+      ...base,
+      clientPlugin: { ...base.clientPlugin, styles },
+      clientConfig: withModules(base, {
+        stat: {
+          params: { ...stat.params, mode: 'leaderboard', columns: ['#', 'snake', 'score'] },
+        },
+      }),
+    };
+  };
+
+  it("C6 asks a 'leaderboard' stat for its own list styles", () => {
+    expect(check('C6', leaderboardStat('')).status).toBe(FAIL);
+    expect(
+      check('C6', leaderboardStat('#stat .stat-leaderboard .stat-row { color: red; }')).status,
+    ).toBe(PASS);
+  });
+
   it('C7 catches spectator keys, engine codes and playerKeys drift', () => {
     const found = violations('C7', {
       ...base,

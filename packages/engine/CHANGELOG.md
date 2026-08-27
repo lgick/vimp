@@ -9,6 +9,52 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- A game result is now an engine-wide concept: `vimp.addPlayerPoints(gameId,
+  delta)` collects the points of the participant's CURRENT game (a life, a
+  round, a match — whatever the game calls a game) and `vimp.finishPlayerGame(
+  gameId)` turns them into a sum (monthly rating) and a maximum (daily
+  rating). `RoundManager` closes every participant's game at its own
+  boundaries (map change, round end), so a game with rounds gets a daily best
+  without touching anything. `vimp.addPlayerRank` stays as an alias of
+  `addPlayerPoints`, and `PlayerDataSync.addRank` as an alias of `addPoints`.
+
+- `vimp.getPlayerRating(gameId, period)` / `vimp.isPlayerRatingLoaded(gameId)`
+  / `vimp.refreshPlayerPlacement(gameId, period)` — the participant's
+  `{ value, placement, total }` in the `day` / `month` / `all` slice, filled
+  on join by one request to the master's new aggregating route
+  `GET /auth/placements?game=` (three slices, one round trip, cached by
+  `PlacementCache` for `master:placement:cacheTtl`). `getPlayerRank` /
+  `isPlayerRankLoaded` keep answering from the `all` slice.
+
+- `GET /auth/leaderboard` answers `304 Not Modified` on a matching
+  `If-None-Match`: the leaderboard changes slowly and the lobby re-requests
+  it on every tab open.
+
+### Changed
+
+- **The engine, not the game, owns how often participant profiles reach the
+  database** (`lobbyConfig.playerData`): a `PUT /auth/rank` goes out only
+  when something was actually earned and a `PUT /auth/state` only when the
+  state actually changed; one request in flight per participant; at most one
+  sync per participant per `minFlushInterval` (60 s, jittered ±20 % per room);
+  a room-wide queue capped at `maxRequestsPerSecond`; and an exponential
+  room backoff on `5xx`/`429`/network failures. `vimp.flushPlayerData()` is
+  now a request rather than a command — the urgent boundaries (a participant
+  leaving, `destroy()`) still bypass the interval and take
+  `{ urgent: true }`. A room of 32 where one player scored now makes ONE
+  request instead of 64.
+
+- `PUT /auth/rank` carries a game result — `{ points, best }` — instead of
+  `{ delta }`. The master clamps both by the game's `maxGameScore`
+  (`master:games[].maxGameScore`, default `master:playerData:maxGameScore` =
+  10 000) and rate-limits writes per verified room
+  (`master:playerData:writesPerMinute` = 240, over it → `429`). The auth
+  service still accepts `delta` as an alias of `points` for one version, so
+  an older host keeps working.
+
+
 ## [0.20.0] — 2026-08-27
 
 ### Added

@@ -6,6 +6,7 @@ import oauthState from './lib/oauthState.js';
 import { getProvider } from './oauth/index.js';
 import createDevLoginHandler from './devLogin.js';
 import dbPool from './db/pool.js';
+import { startRatingsJob } from './db/ratingsJob.js';
 import UserRepository, {
   NickTakenError,
   NickAlreadySetError,
@@ -13,7 +14,7 @@ import UserRepository, {
 } from './UserRepository.js';
 import {
   isValidNick,
-  isValidRankDelta,
+  isValidGameResult,
   isValidStateSize,
   isValidVoteValue,
   isValidVoteReason,
@@ -376,17 +377,28 @@ app.put('/rank', requireAuth, async (req, res) => {
     return;
   }
 
-  // stage_1.md: PUT /rank теперь принимает дельту матча, не абсолют
-  const delta = Number(req.body?.delta);
+  // snakes-v3 (stage_2.md, 2.5): тело — результат игры { points, best }.
+  // TODO(удалить после 2026-10-01): `delta` принимается как алиас points
+  // ровно на одну версию, чтобы не ронять хосты старой сборки; best у них
+  // нет, и одиночной игрой считается сам points
+  const points = Number(req.body?.points ?? req.body?.delta);
+  const best = Number(req.body?.best ?? points);
 
-  if (!isValidRankDelta(delta, config.rank.maxDelta)) {
+  if (!isValidGameResult(points, best, config.rank)) {
     res.status(400).json({ error: 'invalidRank' });
     return;
   }
 
-  const rank = await userRepo.upsertRank(req.user.id, gameId, delta, readAttribution(req.body));
+  await userRepo.recordGameResult(
+    req.user.id,
+    gameId,
+    { points, best },
+    readAttribution(req.body),
+  );
 
-  res.json({ rank });
+  // пересчитанный rank больше не считается на записи (all-time — суточный
+  // снимок), и возвращать его здесь было бы ложью
+  res.json({ ok: true });
 });
 
 app.get('/state', requireAuth, async (req, res) => {
@@ -478,6 +490,9 @@ app.put('/host-rating/:hosterUserId', requireAuth, async (req, res) => {
 });
 
 const server = http.createServer(app);
+
+// snakes-v3 (stage_2.md, 2.4): суточный пересчёт all-time-снимка
+startRatingsJob(dbPool.getPool());
 
 server.listen(config.port, () => {
   console.info(`

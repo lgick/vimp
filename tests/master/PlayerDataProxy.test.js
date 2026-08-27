@@ -19,16 +19,16 @@ describe('PlayerDataProxy', () => {
     });
   });
 
-  it('отправляет PUT rank с дельтой в теле JSON', async () => {
+  it('отправляет PUT rank результатом игры { points, best } в теле JSON', async () => {
     const fetchImpl = makeFetch(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
     const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
 
-    await proxy.putRank('tok', 'tanks', 10);
+    await proxy.putRank('tok', 'tanks', { points: 10, best: 6 });
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/rank?game=tanks', {
       method: 'PUT',
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ delta: 10 }),
+      body: JSON.stringify({ points: 10, best: 6 }),
     });
   });
 
@@ -54,12 +54,17 @@ describe('PlayerDataProxy', () => {
     const fetchImpl = makeFetch(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
     const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
 
-    await proxy.putRank('tok', 'tanks', 10, { hosterUserId: 7, sessionId: 'host-1' });
+    await proxy.putRank(
+      'tok',
+      'tanks',
+      { points: 10, best: 6 },
+      { hosterUserId: 7, sessionId: 'host-1' },
+    );
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/rank?game=tanks', {
       method: 'PUT',
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ delta: 10, hosterUserId: 7, sessionId: 'host-1' }),
+      body: JSON.stringify({ points: 10, best: 6, hosterUserId: 7, sessionId: 'host-1' }),
     });
 
     await proxy.putState('tok', 'tanks', { skill: 2 }, { hosterUserId: 7, sessionId: 'host-1' });
