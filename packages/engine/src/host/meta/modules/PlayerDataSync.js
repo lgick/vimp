@@ -105,6 +105,13 @@ export default class PlayerDataSync {
     return this._entries.get(participantId)?.rank ?? 0;
   }
 
+  // приехал ли rank с мастера. getRank отвечает 0 и незнакомому id, и
+  // знакомому, чей load() ещё не вернулся — игре, которая пишет ранг в stat
+  // колонкой '=', нужно отличать «ранг 0» от «ранга ещё нет»
+  isRankLoaded(participantId) {
+    return this._entries.get(participantId)?.rankLoaded === true;
+  }
+
   getState(participantId) {
     return this._entries.get(participantId)?.state ?? this._defaultState;
   }

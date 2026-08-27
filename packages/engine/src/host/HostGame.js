@@ -1034,6 +1034,13 @@ export default class HostGame {
     return this._playerDataSync.getRank(gameId);
   }
 
+  // загружен ли ранг с мастера. getPlayerRank отвечает 0 и для незнакомого
+  // id, и до ответа auth — игре, которая пишет ранг в stat колонкой '=',
+  // нужно отличать «ранг 0» от «ранга ещё нет»
+  isPlayerRankLoaded(gameId) {
+    return this._playerDataSync.isRankLoaded(gameId);
+  }
+
   getPlayerState(gameId) {
     return this._playerDataSync.getState(gameId);
   }

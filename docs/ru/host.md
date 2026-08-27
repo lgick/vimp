@@ -267,11 +267,16 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   Worker'ов (Этап 5.2): `HostController` сохраняет их в `_room`, поэтому
   подменённый Worker наследует их сразу.
 
-`HostGame` даёт `getPlayerRank(gameId)`/`addPlayerRank(gameId, delta)`/
+`HostGame` даёт `getPlayerRank(gameId)`/`isPlayerRankLoaded(gameId)`/
+`addPlayerRank(gameId, delta)`/
 `overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` для игровых плагинов (и
 будущей чат-команды `/rank`, Этап B5), чтобы читать/писать rank и
-непрозрачный блок state. Rust/WASM-ядро игры вообще не участвует —
+непрозрачный блок state. `getPlayerRank` отвечает `0` и для незнакомого
+`gameId`, и пока `PlayerDataSync.load()` не вернулся с мастера, поэтому игре,
+которая сама пишет ранг в колонку stat с `bodyMethod: '='`, нужен
+`isPlayerRankLoaded`: он отличает «ранг 0» от «ранга ещё нет» и не даёт
+затереть настоящее значение стартовым нулём. Rust/WASM-ядро игры вообще не участвует —
 rank/state это чисто engine/JS-концепция.
 
 ## HostGame (`packages/engine/src/host/HostGame.js`)

@@ -333,12 +333,22 @@ class RoundManager {
   // зашедших одновременно получали от «размера минус один» ОДИН индекс, и
   // после смены карты его получали разом вообще все — `createMap` добавляет
   // в команду всех до того, как хоть кто-то дойдёт до первого кадра.
-  _freeRespawnIndex(team) {
+  //
+  // `exceptGameId` — участник, чей собственный слот занятостью не считается
+  // (changeTeam: переходящий ищет место в новой команде, ещё держа старое).
+  // Иначе его пришлось бы обнулять ДО проверки, и неудачный переход оставлял
+  // бы активного игрока с `respawnIndex === null` — его физически занятая
+  // точка выглядела бы свободной для следующего вызова.
+  _freeRespawnIndex(team, exceptGameId = null) {
     const respawns = this._scaledMapData?.respawns?.[team] ?? [];
     const taken = new Set();
 
     for (const participant of this._participants.getAll()) {
-      if (participant.team === team && participant.respawnIndex !== null) {
+      if (
+        participant.team === team &&
+        participant.respawnIndex !== null &&
+        participant.gameId !== exceptGameId
+      ) {
         taken.add(participant.respawnIndex);
       }
     }
@@ -373,7 +383,17 @@ class RoundManager {
     const respawns = this._scaledMapData?.respawns?.[user.team];
     let index = this._freeRespawnIndex(user.team);
 
-    if (!respawns?.[index] && this._scripted.removeOneForHuman?.(user.team)) {
+    // бот вытесняется только там, где вытеснение помогает: `index === -1` —
+    // это «слоты кончились», тогда как пустой (или ещё не загруженный) список
+    // точек даёт то же самое отсутствие respawnData, но освободившееся место
+    // в нём всё равно не появится
+    const hasSlots = Boolean(respawns?.length);
+
+    if (
+      hasSlots &&
+      index === -1 &&
+      this._scripted.removeOneForHuman?.(user.team)
+    ) {
       index = this._freeRespawnIndex(user.team);
     }
 
@@ -492,10 +512,11 @@ class RoundManager {
     } else {
       // тот же аллокатор, что и у admitPlayer: слот берётся свободный, а не
       // «размер команды минус один» — серия входов и выходов сдвигает размер
-      // на уже занятые точки
-      user.respawnIndex = null;
-
-      const respawnIndex = this._freeRespawnIndex(newTeam);
+      // на уже занятые точки. Свой собственный слот при этом не считается
+      // занятым, а старый не обнуляется до успеха: ранний return ниже уходит
+      // уже после смены команды, и участник остался бы активным игроком без
+      // записанного слота
+      const respawnIndex = this._freeRespawnIndex(newTeam, gameId);
       const respawnData = respawns[newTeam][respawnIndex];
 
       if (!respawnData) {

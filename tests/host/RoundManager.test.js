@@ -210,6 +210,17 @@ describe('RoundManager.admitPlayer', () => {
 
     expect(rm.admitPlayer('ghost')).toBe(false);
   });
+
+  it('не вытесняет бота, когда точек нет вовсе', () => {
+    // «слоты кончились» и «списка точек ещё нет» — разные состояния: во
+    // втором вытеснение бота места не создаёт, а бот уже удалён
+    const rm = makeCtx(['a'], []);
+
+    rm._scripted.removeOneForHuman.mockReturnValue(true);
+
+    expect(rm.admitPlayer('a')).toBe(false);
+    expect(rm._scripted.removeOneForHuman).not.toHaveBeenCalled();
+  });
 });
 
 // overrideMapData: игра пересобрала геометрию сама, минуя смену карты
@@ -330,6 +341,95 @@ describe('RoundManager: endlessRound', () => {
     rm.onRoundTimeEnd();
 
     expect(rm.initiateNewRound).toHaveBeenCalled();
+  });
+});
+
+// слот респауна при смене команды: он должен уходить от участника только
+// вместе с актором, а не «на всякий случай» перед проверкой
+describe('RoundManager.changeTeam: слот респауна', () => {
+  const makeCtx = () => {
+    const users = {
+      u: {
+        gameId: 'u',
+        team: 'blue',
+        teamId: 2,
+        name: 'U',
+        model: 'm1',
+        socketId: 'su',
+        isNetworked: true,
+        respawnIndex: 0,
+      },
+      // держит единственную точку красных
+      v: {
+        gameId: 'v',
+        team: 'red',
+        teamId: 1,
+        name: 'V',
+        model: 'm1',
+        socketId: 'sv',
+        isNetworked: true,
+        respawnIndex: 0,
+      },
+    };
+
+    const participants = {
+      ...fakeParticipants(users),
+      // гейт «команда полна» считает по размеру команды, аллокатор — по
+      // записанным слотам: тест разводит их ровно там, где они расходятся
+      getTeamSize: vi.fn(() => 0),
+      addToTeam: vi.fn(),
+      removeFromTeam: vi.fn(),
+      addActive: vi.fn(),
+    };
+
+    const rm = makeRm({
+      participants,
+      endlessRound: true,
+      game: { createPlayer: vi.fn(), changePlayerData: vi.fn() },
+      stat: { moveUser: vi.fn(), updateUser: vi.fn(), reset: vi.fn() },
+      chat: { pushSystemByUser: vi.fn() },
+      socketManager: { sendPlayerDefaultShot: vi.fn() },
+      timerManager: { canChangeTeamInCurrentRound: () => true },
+      scripted: { removeOneForHuman: vi.fn(() => false) },
+    });
+
+    rm._scaledMapData = { respawns: { red: [[0, 0, 0]] } };
+    rm.initiateNewRound = vi.fn();
+
+    return rm;
+  };
+
+  it('неудачный переход оставляет игроку его слот', () => {
+    const rm = makeCtx();
+
+    rm.changeTeam('u', 'red');
+
+    expect(rm._chat.pushSystemByUser).toHaveBeenCalledWith(
+      'u',
+      'TEAMS_TEAM_FULL',
+      ['red', 'blue'],
+    );
+    // иначе его физически занятая точка выглядит свободной для следующего
+    // _freeRespawnIndex — и на неё встанет второй актор
+    expect(rm._participants.get('u').respawnIndex).toBe(0);
+    expect(rm._game.changePlayerData).not.toHaveBeenCalled();
+  });
+
+  it('успешный переход занимает свободный слот новой команды', () => {
+    const rm = makeCtx();
+
+    rm._scaledMapData = { respawns: { red: [[0, 0, 0], [1, 1, 0]] } };
+
+    rm.changeTeam('u', 'red');
+
+    // слот 0 держит 'v', поэтому переходящему достаётся 1 — свой прежний
+    // индекс той же цифры занятостью в НОВОЙ команде не считается
+    expect(rm._participants.get('u').respawnIndex).toBe(1);
+    expect(rm._game.changePlayerData).toHaveBeenCalledWith('u', {
+      respawnData: [1, 1, 0],
+      teamId: 1,
+      gameId: 'u',
+    });
   });
 });
 

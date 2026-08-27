@@ -387,10 +387,17 @@ From `onCoreEvent` the `vimp` object gives you:
 
 ```js
 vimp.getPlayerRank(gameId)          // number
+vimp.isPlayerRankLoaded(gameId)     // has it arrived from the master yet?
 vimp.addPlayerRank(gameId, delta)   // add to it, no round logic involved
 vimp.getPlayerState(gameId)         // your blob
 vimp.setPlayerState(gameId, state)  // replace it
 ```
+
+`getPlayerRank` answers `0` for an id it does not know AND for one whose
+`PlayerDataSync.load()` has not come back yet, so a game that writes the rank
+into a stat column of its own (`bodyMethod: '='`) must gate that write on
+`isPlayerRankLoaded` — otherwise the starting zero lands in the cell instead
+of the rank the master returned, and `'='` keeps it there.
 
 `addPlayerRank` is the escape hatch for a game that never emits
 `CoreEvent::Death` and therefore never reaches `reportKill`: it writes the

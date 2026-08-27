@@ -32,6 +32,12 @@ bumps the minor version).
 - A game may now omit `modules.vote` from its client config entirely: the vote
   time is merged into whatever `params` there are, and an absent menu or
   template set renders as an empty menu instead of throwing.
+- `vimp.isPlayerRankLoaded(gameId)` on the `HostGame` facade (and
+  `PlayerDataSync.isRankLoaded`) — whether the participant's rank has actually
+  come back from the master. `getPlayerRank` answers `0` both for an unknown
+  id and while `load()` is still in flight, so a game that writes the rank
+  into a stat column of its own (`bodyMethod: '='`) had no way to tell "rank
+  0" from "no rank yet" and published the starting zero over the real value.
 - `vimp.overrideMapData(scaledMapData)` on the `HostGame` facade — tells the
   engine which map `RoundManager._startRound` should place participants on,
   without changing the room's map or restarting the round. For games that
@@ -40,6 +46,17 @@ bumps the minor version).
   respawn points of the catalog map, i.e. of geometry the core no longer has.
 
 ### Fixed
+
+- `RoundManager.changeTeam` no longer clears the participant's respawn slot
+  before it knows the new team has one. The early return on a full team left
+  an active player with `respawnIndex === null`, so the point they physically
+  stand on looked free to the next allocation; the slot is now taken (and the
+  old one released) only on the successful path, and `_freeRespawnIndex`
+  accepts the switching participant as an exception instead.
+- `RoundManager.admitPlayer` no longer evicts a bot when the team has no
+  respawn points at all. `respawns?.[index]` was `undefined` both for "the
+  slots ran out" and for "there is no list yet", and in the second case the
+  eviction freed nothing while the human was refused anyway.
 
 - Respawn points are no longer handed out by team SIZE. `RoundManager` now
   gives a joining or team-switching participant the first slot no active

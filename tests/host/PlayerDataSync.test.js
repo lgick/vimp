@@ -60,6 +60,26 @@ describe('PlayerDataSync', () => {
 
     expect(sync.getRank('p1')).toBe(0);
     expect(sync.getState('p1')).toEqual({ skill: 0 });
+    // сбой — это «ранга нет», а не «ранг 0»
+    expect(sync.isRankLoaded('p1')).toBe(false);
+  });
+
+  // getRank отвечает нулём и незнакомому id, и знакомому до ответа мастера:
+  // игре, которая пишет ранг в stat колонкой '=', такой ноль затирает
+  // настоящее значение, поэтому загруженность видна отдельно
+  it('isRankLoaded отличает «ранг 0» от «ранга ещё нет»', async () => {
+    const fetchImpl = makeFetch([
+      { ok: true, json: async () => ({ rank: 0 }) },
+      { ok: true, json: async () => ({ state: {} }) },
+    ]);
+    const sync = new PlayerDataSync('tanks', { fetchImpl });
+
+    expect(sync.isRankLoaded('p1')).toBe(false);
+
+    await sync.load('p1', 'tok');
+
+    expect(sync.getRank('p1')).toBe(0);
+    expect(sync.isRankLoaded('p1')).toBe(true);
   });
 
   it('addRank накапливает дельту ранга', async () => {

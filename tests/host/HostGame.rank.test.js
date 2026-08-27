@@ -10,6 +10,7 @@ const makeFacade = () => {
   host._playerDataSync = {
     addRank: vi.fn(),
     getRank: vi.fn(() => 7),
+    isRankLoaded: vi.fn(() => true),
   };
   host._roundManager = {
     reportKill: vi.fn(),
@@ -47,6 +48,27 @@ describe('HostGame.addPlayerRank', () => {
 
     expect(host._roundManager.reportKill).not.toHaveBeenCalled();
     expect(host._roundManager.checkTeamWipe).not.toHaveBeenCalled();
+  });
+});
+
+describe('HostGame.isPlayerRankLoaded', () => {
+  it('прокидывает gameId в playerDataSync.isRankLoaded', () => {
+    const host = makeFacade();
+
+    expect(host.isPlayerRankLoaded('42')).toBe(true);
+    expect(host._playerDataSync.isRankLoaded).toHaveBeenCalledWith('42');
+  });
+
+  // ради чего метод и заведён: getPlayerRank отвечает нулём и до ответа
+  // мастера, а игра пишет ранг в stat колонкой '=' — ей нужно молчать,
+  // пока ранга нет
+  it('отвечает ложью, пока ранг не приехал', () => {
+    const host = makeFacade();
+
+    host._playerDataSync.isRankLoaded = vi.fn(() => false);
+
+    expect(host.isPlayerRankLoaded('42')).toBe(false);
+    expect(host.getPlayerRank('42')).toBe(7);
   });
 });
 

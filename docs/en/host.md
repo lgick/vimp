@@ -276,11 +276,16 @@ to still being the join-time default:
   `init` (Stage 5.2), since `HostController` persists them onto `_room` so a
   swapped-in Worker inherits them immediately.
 
-`HostGame` exposes `getPlayerRank(gameId)`/`addPlayerRank(gameId, delta)`/
+`HostGame` exposes `getPlayerRank(gameId)`/`isPlayerRankLoaded(gameId)`/
+`addPlayerRank(gameId, delta)`/
 `overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` for game-plugin modules
 (and a future `/rank` chat command, Stage B5) to read/write rank and the
-opaque state blob. The Rust/WASM game core is not involved at all —
+opaque state blob. `getPlayerRank` answers `0` both for an unknown `gameId`
+and while `PlayerDataSync.load()` is still in flight, so a game that writes
+the rank into a stat column of its own (`bodyMethod: '='`) needs
+`isPlayerRankLoaded`: it tells "rank 0" from "no rank yet" and keeps the
+starting zero from overwriting the real value. The Rust/WASM game core is not involved at all —
 rank/state is a purely engine/JS-side concept.
 
 ## HostGame (`packages/engine/src/host/HostGame.js`)
