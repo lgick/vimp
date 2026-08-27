@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-08-27
+
 ### Added
 
 - `vimp.addPlayerRank(gameId, delta)` on the `HostGame` facade — a direct
@@ -1160,6 +1162,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.19.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.19.0
 [0.18.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.18.1
 [0.18.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.18.0
 [0.17.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.17.0
