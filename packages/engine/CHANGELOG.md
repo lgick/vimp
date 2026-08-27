@@ -55,6 +55,15 @@ bumps the minor version).
   refuse (`TEAMS_TEAM_FULL`) instead of leaving them without an actor
   silently.
 
+- The centring rule for the game canvas is scoped to the canvas the engine
+  sizes itself: `ensureCanvas` marks a canvas without `fixSize` with
+  `vimp-letterbox`, and the stylesheet targets
+  `.vimp-shell > canvas.vimp-letterbox`. The previous bare `canvas` selector
+  also matched a game's fixed-size overlay canvas and leaked
+  `bottom`/`left`/`margin` into it — properties such an overlay does not
+  declare itself — which centred it on the screen instead of leaving it where
+  the game put it (the radar of `vimp-tanks`).
+
 - The game canvas is centred in its container. `CanvasManagerModel.resize`
   sized the letterbox correctly, but `ensureCanvas` mounted a bare `<canvas>`
   in normal flow and no rule in the engine's stylesheet ever touched it, so

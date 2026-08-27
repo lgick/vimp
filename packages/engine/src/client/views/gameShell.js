@@ -75,6 +75,14 @@ const SHELL = [
 // правило совпадает с прежним `body > *`; в SDK это чужой div
 export const SHELL_CLASS = 'vimp-shell';
 
+// Класс полотна, которое движок сам кладёт по центру контейнера (леттербокс,
+// см. `.vimp-shell > canvas.vimp-letterbox` в style.css). Он достаётся ТОЛЬКО
+// полотну без `fixSize`: полотно фиксированного размера — это оверлей
+// (радар в vimp-tanks), его раскладку держит игра, и общее правило по типу
+// `canvas` подмешивало бы такому элементу `bottom`/`left`/`margin`, которых
+// в игровом правиле нет, — оверлей уезжал в центр экрана
+export const LETTERBOX_CLASS = 'vimp-letterbox';
+
 /**
  * Достраивает недостающие контейнеры игрового интерфейса.
  *
@@ -97,7 +105,8 @@ export function ensureGameShell(container = document.body) {
  * документе элемент переиспользуется как есть — если игра положила
  * <canvas id="vimp"> в свою разметку, движок его не переносит.
  * @param {string} canvasId
- * @param {Object} size - { width, height } из конфига канвасов.
+ * @param {Object} size - запись канваса из конфига: { width, height } и
+ *   раскладочные ключи (`fixSize`, `aspectRatio`).
  * @param {HTMLElement} [container] - Точка монтирования (по умолчанию body).
  * @returns {HTMLCanvasElement}
  */
@@ -112,6 +121,14 @@ export function ensureCanvas(canvasId, size, container = document.body) {
     // палец на полотне ведёт игру, а не страницу: без этого браузер
     // смартфона забирает жест себе — прокрутка, pull-to-refresh, зум
     canvas.style.touchAction = 'none';
+
+    // центрирует движок, и только то полотно, которое он же и растягивает
+    // (`CanvasManagerModel.resize`): у `fixSize`-полотна размер задан игрой,
+    // и место на экране — тоже её дело
+    if (!size.fixSize) {
+      canvas.classList.add(LETTERBOX_CLASS);
+    }
+
     container.appendChild(canvas);
   }
 

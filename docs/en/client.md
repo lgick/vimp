@@ -101,14 +101,18 @@ The container **must be full-screen and positioned** (`position: relative`):
 `#panel`, `#stat`, `#vote` — and, since the letterbox fix, the canvas itself —
 are `position: absolute`, and their containing block is the nearest positioned
 ancestor. `style.css` centres the canvas with
-`.vimp-shell > canvas { position: absolute; inset: 0; margin: auto }`: the
-element already has the size `CanvasManagerModel.resize` computed for the
+`.vimp-shell > canvas.vimp-letterbox { position: absolute; inset: 0; margin: auto }`:
+the element already has the size `CanvasManagerModel.resize` computed for the
 configured `aspectRatio`, so `margin: auto` splits the black bars evenly
-instead of piling them on one side. Two consequences: an unpositioned
-container lets the canvas escape to the viewport, and a `<canvas>` the game
-placed somewhere other than the immediate child level of the container is not
-matched by the rule (`ensureCanvas` reuses it where it is) and has to be laid
-out by the game itself. Visibility of the screens is handled
+instead of piling them on one side. The class is what scopes the rule:
+`ensureCanvas` puts `vimp-letterbox` on a canvas WITHOUT `fixSize` only — the
+one the engine sizes itself. A fixed-size canvas is a game overlay (the radar
+in `vimp-tanks`, placed with `position: absolute; right: 1%; top: 35px`), the
+engine has no rule for it at all, and a bare `canvas` selector used to leak
+`bottom`/`left`/`margin` into it and drag it into the middle of the screen.
+Two more consequences: an unpositioned container lets the canvas escape to the
+viewport, and a `<canvas>` the game placed itself is reused where it is
+(`ensureCanvas` neither moves nor marks it) and has to be laid out by the game. Visibility of the screens is handled
 by the engine itself: `ensureGameShell` marks the container with the
 `vimp-shell` class (exported as `SHELL_CLASS`), and `style.css` hides
 `.vimp-shell > *` — each screen is then shown by its own module (`main.js`

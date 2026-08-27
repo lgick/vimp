@@ -6,6 +6,7 @@ import {
   ensureCanvas,
   shellIds,
   SHELL_CLASS,
+  LETTERBOX_CLASS,
 } from '../../packages/engine/src/client/views/gameShell.js';
 
 // DOM-каркас игрового интерфейса (Этап 2 плана standalone-sdk). Главное
@@ -220,6 +221,36 @@ describe('ensureCanvas', () => {
     expect(canvas.width).toBe(640);
     expect(canvas.height).toBe(480);
     expect(document.body.querySelector(':scope > canvas')).toBeNull();
+  });
+
+  it('помечает классом леттербокса полотно, которое тянет движок', () => {
+    const container = document.createElement('div');
+
+    document.body.appendChild(container);
+
+    const canvas = ensureCanvas(
+      'vimp',
+      { width: 960, height: 600, aspectRatio: '16:10' },
+      container,
+    );
+
+    expect(canvas.classList.contains(LETTERBOX_CLASS)).toBe(true);
+  });
+
+  // регрессия: правило по типу `canvas` подмешивало оверлею игры
+  // bottom/left/margin, и радар vimp-tanks уезжал из угла в центр экрана
+  it('не помечает полотно фиксированного размера — его кладёт игра', () => {
+    const container = document.createElement('div');
+
+    document.body.appendChild(container);
+
+    const canvas = ensureCanvas(
+      'radar',
+      { width: 150, height: 150, fixSize: '150' },
+      container,
+    );
+
+    expect(canvas.classList.contains(LETTERBOX_CLASS)).toBe(false);
   });
 
   it('переиспользует полотно игры и не переносит его', () => {
