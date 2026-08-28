@@ -140,7 +140,32 @@ describe('UserRepository', () => {
     );
   });
 
-  // snakes-v3: главный выигрыш по нагрузке — на записи ровно один INSERT,
+  // агрегат срезов (миграция 008) пишется ТЕМ ЖЕ запросом, что и леджер:
+  // иначе между ними осталось бы окно, в котором дневной топ не знает о
+  // только что записанном результате
+  it('recordGameResult пишет леджер и агрегат одним запросом', async () => {
+    const calls = [];
+    const db = createDbStub(text => {
+      calls.push(text);
+      return { rows: [] };
+    });
+
+    await new UserRepository(db).recordGameResult(1, 'tanks', { points: 120, best: 90 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatch(/INSERT INTO rank_events/);
+    expect(calls[0]).toMatch(/INSERT INTO rank_periods/);
+    // сутки и месяц одной вставкой
+    expect(calls[0]).toMatch(/VALUES \('d', 'day'\), \('m', 'month'\)/);
+    // окно от created_at САМОЙ строки, а не от now() отдельного запроса:
+    // на границе суток они разъезжаются
+    expect(calls[0]).toMatch(/event\.created_at AT TIME ZONE 'utc'/);
+    // максимум берётся максимумом, сумма складывается
+    expect(calls[0]).toMatch(/best = GREATEST\(rank_periods\.best, EXCLUDED\.best\)/);
+    expect(calls[0]).toMatch(/points = rank_periods\.points \+ EXCLUDED\.points/);
+  });
+
+  // snakes-v3: главный выигрыш по нагрузке — на записи ровно один запрос,
   // без SUM по всей истории игрока (all-time считает суточная задача)
   it('recordGameResult не пересчитывает ratings на горячем пути', async () => {
     const calls = [];
@@ -476,6 +501,11 @@ describe('UserRepository', () => {
       'UPDATE rank_events SET voided = true WHERE hoster_user_id = $1 AND voided = false',
     );
     expect(calls.filter(text => text.includes('SUM(delta)')).length).toBe(2); // пересчёт для обоих задетых (user, game)
+    // агрегат срезов — производная того же леджера, и аннулирование обязано
+    // дойти и до него: `best` это максимум, вычесть из него нельзя, поэтому
+    // пересчёт, а не правка. Плюс уборка окон, от которых не осталось событий
+    expect(calls.filter(text => text.includes('INSERT INTO rank_periods')).length).toBe(2);
+    expect(calls.filter(text => text.startsWith('DELETE FROM rank_periods')).length).toBe(2);
     expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(true);
   });
 
@@ -554,17 +584,20 @@ describe('UserRepository', () => {
     expect(result).toEqual({ leaderboard: [], total: 0 });
   });
 
-  // rank-periods / snakes-v3: 'day' — MAX(best) (лучшая одиночная игра за
-  // сутки UTC), 'month' — SUM(delta) (сумма игр за месяц), 'all' — кэш
-  // ratings. Три среза = три разные агрегации, а не одна по трём окнам
-  it('getLeaderboard: period day берёт MAX(best) по суточному окну леджера', async () => {
+  // rank-periods / snakes-v3: 'day' — лучшая одиночная игра за сутки UTC,
+  // 'month' — сумма игр за месяц, 'all' — кэш ratings. Три среза = три разные
+  // агрегации. Считаются они НЕ свёрткой леджера, а готовым агрегатом
+  // rank_periods (миграция 008): свёртка полумиллиона строк в сутки на
+  // каждый запрос не держит целевой масштаб
+  it('getLeaderboard: period day берёт best из суточной строки агрегата', async () => {
     const db = createDbStub((text, values) => {
-      expect(text).toMatch(/FROM rank_events/);
-      expect(text).toMatch(/MAX\(e\.best\)/);
-      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)/);
-      expect(text).toMatch(/e\.voided = false/);
+      expect(text).toMatch(/FROM rank_periods/);
+      expect(text).toMatch(/p\.best AS rank/);
+      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)::date/);
+      // леджер на этом пути не читается вовсе — в этом весь смысл агрегата
+      expect(text).not.toMatch(/rank_events/);
       expect(text).not.toMatch(/FROM ratings/);
-      expect(values).toEqual(['tanks', 10, 'day']);
+      expect(values).toEqual(['tanks', 10, 'd']);
 
       return { rows: [{ nick: 'a', rank: 40, total: '1', place: '1' }] };
     });
@@ -577,11 +610,13 @@ describe('UserRepository', () => {
     });
   });
 
-  it('getLeaderboard: period month берёт SUM(delta) по месячному окну', async () => {
+  it('getLeaderboard: period month берёт points из месячной строки агрегата', async () => {
     const db = createDbStub((text, values) => {
-      expect(text).toMatch(/SUM\(e\.delta\)/);
-      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)/);
-      expect(values).toEqual(['tanks', 10, 'month']);
+      expect(text).toMatch(/FROM rank_periods/);
+      expect(text).toMatch(/p\.points AS rank/);
+      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)::date/);
+      expect(text).not.toMatch(/rank_events/);
+      expect(values).toEqual(['tanks', 10, 'm']);
 
       return { rows: [] };
     });
@@ -594,7 +629,7 @@ describe('UserRepository', () => {
   it('getLeaderboard: без period читает кэш ratings, как и раньше', async () => {
     const db = createDbStub(text => {
       expect(text).toMatch(/FROM ratings/);
-      expect(text).not.toMatch(/rank_events/);
+      expect(text).not.toMatch(/rank_periods/);
 
       return { rows: [] };
     });
@@ -603,12 +638,13 @@ describe('UserRepository', () => {
   });
 
   // плашка позиции обязана считаться тем же способом, что и список рядом
-  it('getPlacement: period day считает позицию тем же MAX(best)', async () => {
+  it('getPlacement: period day считает позицию по той же строке агрегата', async () => {
     const db = createDbStub((text, values) => {
-      expect(text).toMatch(/FROM rank_events/);
-      expect(text).toMatch(/MAX\(e\.best\)/);
-      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)/);
-      expect(values).toEqual([1, 'tanks', 'day']);
+      expect(text).toMatch(/FROM rank_periods/);
+      expect(text).toMatch(/p\.best AS rank/);
+      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)::date/);
+      expect(text).not.toMatch(/rank_events/);
+      expect(values).toEqual([1, 'tanks', 'd']);
 
       return { rows: [{ total: '2', rank: 40, placement: 1 }] };
     });
@@ -622,11 +658,12 @@ describe('UserRepository', () => {
     });
   });
 
-  it('getPlacement: period month считает позицию тем же SUM(delta)', async () => {
+  it('getPlacement: period month считает позицию по месячной строке агрегата', async () => {
     const db = createDbStub((text, values) => {
-      expect(text).toMatch(/SUM\(e\.delta\)/);
-      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)/);
-      expect(values).toEqual([1, 'tanks', 'month']);
+      expect(text).toMatch(/FROM rank_periods/);
+      expect(text).toMatch(/p\.points AS rank/);
+      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)::date/);
+      expect(values).toEqual([1, 'tanks', 'm']);
 
       return { rows: [{ total: '5', rank: 300, placement: 2 }] };
     });
@@ -641,7 +678,7 @@ describe('UserRepository', () => {
   it('getPlacement: без period читает тот же кэш ratings, что и список', async () => {
     const db = createDbStub(text => {
       expect(text).toMatch(/FROM ratings/);
-      expect(text).not.toMatch(/rank_events/);
+      expect(text).not.toMatch(/rank_periods/);
 
       return { rows: [{ total: '1', rank: 10, placement: 1 }] };
     });
@@ -702,7 +739,7 @@ describe('ratingsJob', () => {
     const { pool } = createPoolStub(text => {
       expect(text).toMatch(/INSERT INTO ratings/);
       expect(text).toMatch(/SUM\(e\.delta\)/);
-      expect(text).toMatch(/e\.created_at >= COALESCE\(r\.updated_at, '-infinity'::timestamptz\)/);
+      expect(text).toMatch(/e\.created_at > COALESCE\(r\.updated_at, '-infinity'::timestamptz\)/);
       expect(text).toMatch(/e\.voided = false/);
 
       return { rowCount: 3, rows: [] };
@@ -722,9 +759,15 @@ describe('ratingsJob', () => {
     await refreshRatings(pool);
   });
 
-  it('refreshRatings переставляет курсор updated_at на now()', async () => {
+  it('refreshRatings переставляет курсор на максимальный учтённый created_at', async () => {
     const { pool } = createPoolStub(text => {
-      expect(text).toMatch(/DO UPDATE SET rank = EXCLUDED\.rank, updated_at = now\(\)/);
+      // курсор — максимальный УЧТЁННЫЙ created_at, а не now(): now() терял
+      // бы событие, закоммиченное позже снимка прогона, но с меткой раньше
+      // его начала (см. комментарий в ratingsJob.js)
+      expect(text).toMatch(/MAX\(e\.created_at\)/);
+      expect(text).toMatch(
+        /DO UPDATE SET rank = EXCLUDED\.rank, updated_at = EXCLUDED\.updated_at/,
+      );
 
       return { rowCount: 1, rows: [] };
     });

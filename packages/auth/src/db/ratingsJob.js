@@ -7,24 +7,35 @@ import dbPool from './pool.js';
 // события, пришедшие после последнего прогона, поэтому стоимость задачи
 // зависит от суток, а не от всей истории.
 //
-// Граничный случай «событие ровно в момент updated_at» разрешён в пользу
-// ПОВТОРНОГО учёта: сравнение нестрогое (>=), а updated_at переставляется на
-// now(). Двойного начисления это не даёт — следующее окно стартует уже с
-// нового updated_at, и такое совпадение стоит одной лишней суммы в одном
-// прогоне. Строгий `>` от последнего учтённого created_at был бы точнее, но
-// требовал бы второго курсора; цена ошибки здесь ниже цены лишней колонки.
+// ***** ПОЧЕМУ КУРСОР — MAX(created_at), А НЕ now() *****
+//
+// now() в Postgres это время НАЧАЛА транзакции, а её снимок видит только то,
+// что закоммичено к этому моменту. Курсор now() терял бы события в узком, но
+// реальном окне: параллельный PUT /rank со своим created_at = tc чуть РАНЬШЕ
+// начала прогона, закоммиченный чуть ПОЗЖЕ, в снимок не попадает (не
+// закоммичен) и в следующее окно тоже (tc < сохранённого now()). Строка
+// выпадает из all-time навсегда и чинится только полным recomputeRank.
+//
+// Курсором поэтому служит максимальный created_at, который прогон РЕАЛЬНО
+// учёл, а сравнение строгое (>). События, закоммиченные позже снимка, но с
+// более ранней меткой, подхватывает следующий прогон.
+//
+// Остаточный риск — два события одной пары (user, game) с совпадающим до
+// микросекунды created_at: второе потерялось бы. Это на порядки менее
+// вероятно прежнего окна (одна пара пишется одной комнатой не чаще
+// minFlushInterval), и оно чинится тем же recomputeRank.
 const REFRESH_SQL = `
   INSERT INTO ratings (user_id, game_id, rank, updated_at)
   SELECT e.user_id, e.game_id,
          LEAST($2, GREATEST($1, COALESCE(r.rank, 0) + SUM(e.delta)))::int,
-         now()
+         MAX(e.created_at)
   FROM rank_events e
   LEFT JOIN ratings r ON r.user_id = e.user_id AND r.game_id = e.game_id
   WHERE e.voided = false
-    AND e.created_at >= COALESCE(r.updated_at, '-infinity'::timestamptz)
+    AND e.created_at > COALESCE(r.updated_at, '-infinity'::timestamptz)
   GROUP BY e.user_id, e.game_id, r.rank
   ON CONFLICT (user_id, game_id)
-  DO UPDATE SET rank = EXCLUDED.rank, updated_at = now()`;
+  DO UPDATE SET rank = EXCLUDED.rank, updated_at = EXCLUDED.updated_at`;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

@@ -301,8 +301,12 @@ The master server's config (see [master.md](master.md)); read by
   three slices at once, so this cache is what keeps a busy lobby off the auth
   service;
 - `playerData` — the ceiling on profile writes (snakes-v3, "hundreds of games,
-  hundreds of servers"): `writesPerMinute: 240` — `PUT /auth/rank` +
-  `PUT /auth/state` per **verified room** per minute, over it a `429`; and
+  hundreds of servers"): `writesPerMinute: 120` — `PUT /auth/rank` +
+  `PUT /auth/state` per **verified room** per minute, over it a `429`. An
+  honest room of 32 at a five-minute flush interval writes ~13 a minute, so
+  the rest is headroom for the urgent boundaries (a leaving participant
+  bypasses the interval); the ceiling exists for a broken or malicious room,
+  which is why the headroom is measured from an honest one. And
   `maxGameScore: 10000` — the default ceiling on the result of one game for a
   game that declares no `maxGameScore` of its own. The minimum interval
   between writes is held on the host side (`lobbyConfig.playerData`); this
@@ -369,15 +373,26 @@ host: the lobby happens before connecting to a host.
   `placementsUrl: '/auth/placements'` (the aggregating route — all three
   slices in one round trip on join) and `placementUrl: '/auth/placement'`
   (one slice re-asked by `refreshPlacement`). The budget:
-  `minFlushInterval: 60000` ms per participant, `flushJitter: 0.2` (±20 % per
-  room, so hundreds of servers do not write on the same second),
-  `maxRequestsPerSecond: 3` (the room's request queue — held strictly below
-  the master's own ceiling, `master:playerData:writesPerMinute / 60 = 4/s`, so
+  `minFlushInterval: 300000` ms per participant, `flushJitter: 0.2` (±20 %
+  per room, so hundreds of servers do not write on the same second),
+  `maxRequestsPerSecond: 1` (the room's request queue — held strictly below
+  the master's own ceiling, `master:playerData:writesPerMinute / 60 = 2/s`, so
   the queue throttles itself instead of learning its limit from a `429` that
   costs a round trip and drops the whole room into backoff),
-  `backoff: { baseMs: 2000, maxMs: 120000 }` (the room's exponential backoff
-  on `5xx`/`429`/network failures) and `placementTtl: 30000` (the throttle on
-  `refreshPlacement`). Nothing is sent when nothing changed, so a quiet room
+  `backoff: { baseMs: 30000, maxMs: 900000 }` (the room's exponential backoff
+  on `5xx`/`429`/network failures — both bounds are sized against
+  `minFlushInterval`, because a pause SHORTER than the interval would delay
+  nothing and leave the backoff as dead code) and `placementTtl: 30000` (the
+  throttle on `refreshPlacement`).
+
+  **Where the five minutes come from.** The target scale is 100 games × 100
+  servers × 8 players = 80 000 players at once, and a participant with a fresh
+  result costs two writes per interval: 80 000 × 2 / 60 s is 2700 writes a
+  second, 80 000 × 2 / 300 s is 530. What is paid for it is the freshness of
+  the GLOBAL ratings and nothing else — results merge in the room's memory
+  (sums add, maxima take the maximum), so nothing is lost, the player sees
+  their own numbers immediately, and the urgent boundaries still bypass the
+  interval. Nothing is sent when nothing changed, so a quiet room
   writes nothing at all; a game only ever *requests* a flush;
 - `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`,
   `leaderboardLimit: 10` (lobby page plan) — the master's proxied game

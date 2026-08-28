@@ -11,6 +11,15 @@ bumps the minor version).
 
 ### Added
 
+- Contract rule **`C11` (`statMode`)** — an ERROR when `gameConfig.statMode`
+  and `modules.stat.params.mode` disagree. Declaring one without the other is
+  a defect that never announces itself: only the client half and the host
+  broadcasts a stat table every tick to a client that throws it away; only the
+  host half and the client draws a room table nobody fills.
+
+- `accolades.boardOf(period)` and `accolades.selfOf(id, period)` alongside
+  `placeOf(id)` — the global top as rows, and the caller's own place in it.
+
 - A game result is now an engine-wide concept: `vimp.addPlayerPoints(gameId,
   delta)` collects the points of the participant's CURRENT game (a life, a
   round, a match — whatever the game calls a game) and `vimp.finishPlayerGame(
@@ -33,6 +42,34 @@ bumps the minor version).
   it on every tab open.
 
 ### Changed
+
+- **A client in a match no longer talks to the master.** The `leaderboard`
+  stat mode used to fetch the top and the caller's placement itself; both now
+  arrive in the host's `ACCOLADES_DATA` broadcast, next to the badge places.
+  The room asks the master once for all of its players. At the scale this is
+  built for — 100 games × 100 servers × 8 players — a client asking for itself
+  meant thousands of requests a second for a player's own placement, which no
+  shared cache can collapse because it is personal. `modules.stat.params
+  .refreshMs` is gone with the request it throttled.
+
+- The write budget is retuned for that scale: `lobbyConfig.playerData
+  .minFlushInterval` 60 s → **300 s** (80 000 players × 2 writes per interval
+  is 2700 writes a second at a minute, 530 at five), `maxRequestsPerSecond`
+  3 → **1**, `master:playerData:writesPerMinute` 240 → **120**, and
+  `backoff` 2 s/120 s → **30 s/900 s** — a pause shorter than the flush
+  interval delayed nothing and left the backoff as dead code. Nothing is lost
+  by the longer interval: results merge in the room's memory and the urgent
+  boundaries still bypass it.
+
+- `PlayerDataSync` tracks `ratingsLoaded` **per slice**. The aggregating route
+  answers `200` when at least one slice arrives and nulls the rest; one flag
+  marked a failed slice loaded-as-zero forever, and a zero daily slice reads
+  as "any game is a record".
+
+- A game result is now sent whether or not the ratings loaded. It is a row
+  appended to a ledger, not a value that replaces one, so there is nothing for
+  it to clobber — gating it meant holding points in memory until the room
+  died. The `state` PUT keeps its gate: that one does replace.
 
 - **The engine, not the game, owns how often participant profiles reach the
   database** (`lobbyConfig.playerData`): a `PUT /auth/rank` goes out only
@@ -65,6 +102,29 @@ bumps the minor version).
   happens to be in flight. `refresh()` lost its `force` option.
 
 ### Fixed
+
+- The host stopped draining `Stat`'s update buffer in `statMode:
+  'leaderboard'`. `getLast()` is its only drain — `reset()` only appends — so
+  the buffer grew for the whole life of the room. The buffer is now always
+  drained and only the SEND is gated.
+
+- `StatModel` rebuilt the leaderboard on top of its own previous output, so
+  the synthetic "your row" passed for a row of the top and the caller's place
+  never updated again. It is now rebuilt from the pristine board every time.
+
+- `StatModel` is a singleton that froze the first game's stat schema: entering
+  a second match in the same tab kept the first game's mode, period and row
+  count. Repeated construction now reconfigures it.
+
+- `ratingsJob` could lose a result from the all-time rating permanently. Its
+  cursor was `now()` — the transaction's start — while its snapshot sees only
+  what was committed by then, so an event committed after the snapshot but
+  stamped before it fell out of both windows. The cursor is now the greatest
+  `created_at` the run actually counted, compared strictly.
+
+- `rankCommand`'s catch block could throw the very unhandled rejection its
+  comment warns about, and `Accolades.tick()` floated an uncaught promise into
+  the game loop.
 
 - **The daily `ratings` job could double every player's day.** The statement
   is incremental (`previous rank + SUM(new events)`), and two overlapping runs

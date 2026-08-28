@@ -25,6 +25,7 @@ import c7 from './c7-key-sets.js';
 import c8 from './c8-baked-assets.js';
 import c9 from './c9-chat-messages.js';
 import c10 from './c10-auth-schema.js';
+import c11 from './c11-stat-mode.js';
 import d1 from './d1-snapshot-ids.js';
 import d2 from './d2-snapshot-classes.js';
 import d3 from './d3-snapshot-interp.js';
@@ -37,7 +38,7 @@ import e3 from './e3-sound-registry.js';
 export const rules = [
   a1, a2, a3, a4, a5, a6, a7,
   b1, b2, b3, b4, b5, b6, b7, b8, b9, b10,
-  c1, c2, c3, c4, c5, c6, c7, c8, c9, c10,
+  c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11,
   d1, d2, d3,
   e1, e2, e3,
 ];

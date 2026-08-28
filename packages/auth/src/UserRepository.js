@@ -26,17 +26,32 @@ export class NickAlreadySetError extends Error {
 // должен означать одно и то же для всех, кто на него смотрит.
 export const RANK_PERIODS = ['day', 'month', 'all'];
 
-// Кусок SQL с началом окна, или null для 'all' (окна нет). Возвращается
-// литералом, а не параметром запроса: значение приходит только из списка
-// выше — то есть из кода, — и подставлять его через $n значило бы
-// притворяться, что оно пользовательское.
-function periodStart(period) {
+// Оконный срез в терминах агрегата rank_periods (миграция 008), или null
+// для 'all' (окна нет — там читается кэш ratings).
+//
+//   kind   строка запроса: 'd' сутки UTC, 'm' календарный месяц UTC;
+//   start  кусок SQL с началом окна;
+//   column КОЛОНКА агрегата, по которой ранжирует срез: день — лучшая
+//          одиночная игра, месяц — сумма игр.
+//
+// `column` возвращается литералом, а не параметром: это идентификатор, а не
+// значение сравнения, и подставить его через $n нельзя в принципе. Значение
+// приходит только отсюда, то есть из кода, — ровно как и `start`.
+function periodSlice(period) {
   if (period === 'day') {
-    return "date_trunc('day', now() AT TIME ZONE 'utc')";
+    return {
+      kind: 'd',
+      start: "date_trunc('day', now() AT TIME ZONE 'utc')::date",
+      column: 'best',
+    };
   }
 
   if (period === 'month') {
-    return "date_trunc('month', now() AT TIME ZONE 'utc')";
+    return {
+      kind: 'm',
+      start: "date_trunc('month', now() AT TIME ZONE 'utc')::date",
+      column: 'points',
+    };
   }
 
   return null;
@@ -116,10 +131,64 @@ export default class UserRepository {
       return; // защита в глубину: пустую запись не пишем (движок и так не шлёт)
     }
 
+    // ОДИН запрос и один round-trip: строка леджера и обе строки агрегата
+    // (сутки + месяц) пишутся вместе. Агрегат — производная от леджера
+    // (миграция 008), и держать их в разных запросах значило бы оставить
+    // окно, в котором они расходятся.
+    //
+    // Окно берётся от created_at САМОЙ строки, а не от now() второго
+    // запроса: на границе суток эти два значения разъезжаются, и результат
+    // ушёл бы в чужие сутки.
     await this._db.query(
-      `INSERT INTO rank_events (user_id, game_id, hoster_user_id, session_id, delta, best)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `WITH event AS (
+         INSERT INTO rank_events (user_id, game_id, hoster_user_id, session_id, delta, best)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING created_at)
+       INSERT INTO rank_periods (user_id, game_id, kind, period, best, points)
+       SELECT $1, $2, k.kind,
+              date_trunc(k.unit, event.created_at AT TIME ZONE 'utc')::date, $6, $5
+       FROM event CROSS JOIN (VALUES ('d', 'day'), ('m', 'month')) AS k(kind, unit)
+       ON CONFLICT (user_id, game_id, kind, period)
+       DO UPDATE SET best = GREATEST(rank_periods.best, EXCLUDED.best),
+                     points = rank_periods.points + EXCLUDED.points`,
       [userId, gameId, hosterUserId, sessionId, points, best],
+    );
+  }
+
+  // Пересчитывает агрегат срезов (миграция 008) одной пары (игрок, игра) из
+  // леджера. Нужен там же, где и recomputeRank: аннулирование вклада
+  // забаненного хостера нельзя «вычесть» из агрегата — `best` это МАКСИМУМ, и
+  // обратной операции у него нет.
+  //
+  // Присваивание, а не приращение, поэтому повторный вызов безвреден. Окна,
+  // от которых после аннулирования не осталось ни одного события, удаляются
+  // отдельно — ON CONFLICT их бы не тронул, и игрок остался бы в топе с
+  // погашенными очками
+  async recomputePeriods(userId, gameId) {
+    await this._db.query(
+      `INSERT INTO rank_periods (user_id, game_id, kind, period, best, points)
+       SELECT e.user_id, e.game_id, k.kind,
+              date_trunc(k.unit, e.created_at AT TIME ZONE 'utc')::date,
+              MAX(e.best), SUM(e.delta)
+       FROM rank_events e
+       CROSS JOIN (VALUES ('d', 'day'), ('m', 'month')) AS k(kind, unit)
+       WHERE e.user_id = $1 AND e.game_id = $2 AND e.voided = false
+       GROUP BY e.user_id, e.game_id, k.kind, k.unit,
+                date_trunc(k.unit, e.created_at AT TIME ZONE 'utc')
+       ON CONFLICT (user_id, game_id, kind, period)
+       DO UPDATE SET best = EXCLUDED.best, points = EXCLUDED.points`,
+      [userId, gameId],
+    );
+
+    await this._db.query(
+      `DELETE FROM rank_periods p
+       WHERE p.user_id = $1 AND p.game_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM rank_events e
+           WHERE e.user_id = p.user_id AND e.game_id = p.game_id AND e.voided = false
+             AND date_trunc(CASE p.kind WHEN 'd' THEN 'day' ELSE 'month' END,
+                            e.created_at AT TIME ZONE 'utc')::date = p.period)`,
+      [userId, gameId],
     );
   }
 
@@ -128,8 +197,16 @@ export default class UserRepository {
   // snakes-v3: с горячего пути ушёл — остались voidHosterContributions
   // (полный пересчёт задетых пар) и ручной прогон суточной задачи
   async recomputeRank(userId, gameId) {
+    // MAX(created_at) вместе с суммой: ratings.updated_at это КУРСОР
+    // суточной задачи — «учтено по эту метку», а не «посчитано в этот
+    // момент» (см. ratingsJob.js). Полный пересчёт обязан оставить его в той
+    // же системе координат, иначе событие, закоммиченное позже снимка
+    // пересчёта, но с более ранней меткой, выпало бы из инкремента навсегда.
+    // Пустой леджер (всё аннулировано) метки не даёт — тогда now(), и
+    // курсор просто честно стоит на «сейчас»
     const sum = await this._db.query(
-      `SELECT COALESCE(SUM(delta), 0) AS total FROM rank_events
+      `SELECT COALESCE(SUM(delta), 0) AS total, MAX(created_at) AS through
+       FROM rank_events
        WHERE user_id = $1 AND game_id = $2 AND voided = false`,
       [userId, gameId],
     );
@@ -138,10 +215,10 @@ export default class UserRepository {
 
     await this._db.query(
       `INSERT INTO ratings (user_id, game_id, rank, updated_at)
-       VALUES ($1, $2, $3, now())
+       VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()))
        ON CONFLICT (user_id, game_id)
-       DO UPDATE SET rank = EXCLUDED.rank, updated_at = now()`,
-      [userId, gameId, rank],
+       DO UPDATE SET rank = EXCLUDED.rank, updated_at = EXCLUDED.updated_at`,
+      [userId, gameId, rank, sum.rows[0].through ?? null],
     );
 
     return rank;
@@ -167,17 +244,15 @@ export default class UserRepository {
   // ничто не мешает. Индекс rank_events_game_created_idx (миграция 006)
   // обслуживает оба оконных среза — отдельный под MAX(best) не нужен
   async getLeaderboard(gameId, limit, period = 'all') {
-    const since = periodStart(period);
+    const slice = periodSlice(period);
 
-    const result = since
+    const result = slice
       ? await this._db.query(
           `WITH scores AS (
-             SELECT e.user_id,
-                    CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END::int AS rank
-             FROM rank_events e
-             WHERE e.game_id = $1 AND e.voided = false AND e.created_at >= ${since}
-             GROUP BY e.user_id
-             HAVING (CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END) > 0)
+             SELECT p.user_id, p.${slice.column} AS rank
+             FROM rank_periods p
+             WHERE p.game_id = $1 AND p.kind = $3 AND p.period = ${slice.start}
+               AND p.${slice.column} > 0)
            SELECT u.nick, s.rank,
                   COUNT(*) OVER() AS total,
                   RANK() OVER (ORDER BY s.rank DESC) AS place
@@ -185,7 +260,7 @@ export default class UserRepository {
            WHERE u.nick IS NOT NULL
            ORDER BY s.rank DESC, u.nick ASC
            LIMIT $2`,
-          [gameId, limit, period],
+          [gameId, limit, slice.kind],
         )
       : await this._db.query(
           `SELECT u.nick, r.rank,
@@ -215,17 +290,15 @@ export default class UserRepository {
   // (та же CASE-агрегация), иначе плашка позиции противоречила бы списку
   // рядом с ней
   async getPlacement(userId, gameId, period = 'all') {
-    const since = periodStart(period);
+    const slice = periodSlice(period);
 
-    const result = since
+    const result = slice
       ? await this._db.query(
           `WITH scores AS (
-             SELECT e.user_id,
-                    CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END::int AS rank
-             FROM rank_events e
-             WHERE e.game_id = $2 AND e.voided = false AND e.created_at >= ${since}
-             GROUP BY e.user_id
-             HAVING (CASE WHEN $3 = 'day' THEN MAX(e.best) ELSE SUM(e.delta) END) > 0),
+             SELECT p.user_id, p.${slice.column} AS rank
+             FROM rank_periods p
+             WHERE p.game_id = $2 AND p.kind = $3 AND p.period = ${slice.start}
+               AND p.${slice.column} > 0),
            me AS (
              SELECT COALESCE((SELECT rank FROM scores WHERE user_id = $1), 0) AS rank)
            SELECT
@@ -237,7 +310,7 @@ export default class UserRepository {
                   WHERE u.nick IS NOT NULL AND s.rank > me.rank) + 1
              END AS placement
            FROM me`,
-          [userId, gameId, period],
+          [userId, gameId, slice.kind],
         )
       : await this._db.query(
           `WITH me AS (
@@ -372,6 +445,10 @@ export default class UserRepository {
 
     for (const { user_id: userId, game_id: gameId } of rankTargets.rows) {
       await this.recomputeRank(userId, gameId);
+      // агрегат срезов — производная того же леджера, и аннулирование обязано
+      // дойти и до него: иначе забаненный сервер продолжал бы держать игрока
+      // в дневном и месячном топе (миграция 008)
+      await this.recomputePeriods(userId, gameId);
     }
 
     const stateTargets = await this._db.query(

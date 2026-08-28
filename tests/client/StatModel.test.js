@@ -115,48 +115,44 @@ describe('StatModel.open/close', () => {
   });
 });
 
-// snakes-v3 этап 4: режим 'leaderboard' — по Tab показывается глобальный
-// топ игры, который клиент тянет сам; данные хоста не рисуются
-const TOP = {
-  leaderboard: [
-    { nick: 'a', rank: 100, place: 1 },
-    { nick: 'b', rank: 90, place: 2 },
-    { nick: 'c', rank: 80, place: 3 },
-  ],
-  total: 3,
-};
+// snakes-v3 этап 4: режим 'leaderboard' — по Tab показывается глобальный топ
+// игры. Топ привозит ХОСТ портом ACCOLADES_DATA: из матча клиент к мастеру не
+// ходит вовсе, поэтому в модели нет ни одного запроса и нечего троттлить
+const BOARD = [
+  { place: 1, nick: 'a', score: 100 },
+  { place: 2, nick: 'b', score: 90 },
+  { place: 3, nick: 'c', score: 80 },
+];
+
+// заглушка сервиса accolades (client/lib/accolades.js) — ровно те три
+// вопроса, которые модель ему задаёт
+const stubAccolades = ({ board = BOARD, self = { place: 42, score: 7 } } = {}) => ({
+  placeOf: () => ({ daily: null, monthly: null }),
+  boardOf: period => (period === 'day' ? board : []),
+  selfOf: (id, period) => (period === 'day' ? self : null),
+});
 
 const makeBoardModel = (deps = {}) => {
-  const fetchLeaderboard = vi.fn(async () => TOP);
-  const fetchPlacement = vi.fn(async () => ({
-    placement: 42,
-    total: 100,
-    rank: 7,
-  }));
-
   const model = new StatModel(
     {
       mode: 'leaderboard',
       period: 'day',
       limit: 3,
-      refreshMs: 15000,
       columns: ['#', 'snake', 'score'],
     },
     {
-      gameId: 'snakes',
-      fetchLeaderboard,
-      fetchPlacement,
+      accolades: stubAccolades(),
+      localPlayer: { id: '1' },
       getNick: () => 'me',
-      now: () => 0,
       ...deps,
     },
   );
 
-  return { model, fetchLeaderboard, fetchPlacement };
+  return { model };
 };
 
 describe("StatModel: режим 'leaderboard'", () => {
-  it('update от хоста ничего не рисует', async () => {
+  it('update от хоста ничего не рисует', () => {
     const { model } = makeBoardModel();
     const events = collect(model);
 
@@ -165,66 +161,35 @@ describe("StatModel: режим 'leaderboard'", () => {
     expect(events.filter(e => e.type !== 'leaderboard')).toEqual([]);
   });
 
-  it('open тянет топ и свою позицию', async () => {
-    const { model, fetchLeaderboard, fetchPlacement } = makeBoardModel();
+  it('open рисует последнюю рассылку хоста и ничего не запрашивает', () => {
+    const { model } = makeBoardModel();
     const rows = [];
 
     model.publisher.on('leaderboard', data => rows.push(data));
 
     model.open();
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(fetchLeaderboard).toHaveBeenCalledWith('snakes', 'day');
-    expect(fetchPlacement).toHaveBeenCalledWith('snakes', 'day');
     expect(rows[0].map(r => r.nick)).toEqual(['a', 'b', 'me']);
   });
 
-  it('повторный open внутри refreshMs не делает запросов', async () => {
-    const { model, fetchLeaderboard } = makeBoardModel();
-
-    await model.refreshLeaderboard();
-    await model.refreshLeaderboard();
-
-    expect(fetchLeaderboard).toHaveBeenCalledTimes(1);
-  });
-
-  it('304 (null от fetch) оставляет прошлый список', async () => {
-    let first = true;
-    const fetchLeaderboard = vi.fn(async () => {
-      if (first) {
-        first = false;
-
-        return TOP;
-      }
-
-      return null;
-    });
-    let clock = 0;
-    const { model } = makeBoardModel({
-      fetchLeaderboard,
-      fetchPlacement: async () => null,
-      now: () => clock,
-    });
+  it('пустая рассылка (до первой) даёт пустой список, а не сбой', () => {
+    const { model } = makeBoardModel({ accolades: stubAccolades({ board: [], self: null }) });
     const emitted = [];
 
     model.publisher.on('leaderboard', data => emitted.push(data));
 
-    await model.refreshLeaderboard();
-    clock = 100000;
-    await model.refreshLeaderboard();
+    model.applyAccolades();
 
-    expect(emitted).toHaveLength(1);
-    expect(emitted[0].map(r => r.nick)).toEqual(['a', 'b', 'c']);
+    expect(emitted[0]).toEqual([]);
   });
 
-  it('игрок вне топа заменяет последнюю строку', async () => {
+  it('игрок вне топа заменяет последнюю строку', () => {
     const { model } = makeBoardModel();
     const emitted = [];
 
     model.publisher.on('leaderboard', data => emitted.push(data));
 
-    await model.refreshLeaderboard();
+    model.refreshLeaderboard();
 
     const rows = emitted[0];
 
@@ -232,27 +197,50 @@ describe("StatModel: режим 'leaderboard'", () => {
     expect(rows[2]).toEqual({ place: 42, nick: 'me', score: 7, isSelf: true });
   });
 
-  it('игрок из топа подсвечивается на своём месте', async () => {
-    const { model } = makeBoardModel({ getNick: () => 'B' });
-    const emitted = [];
-
-    model.publisher.on('leaderboard', data => emitted.push(data));
-
-    await model.refreshLeaderboard();
-
-    expect(emitted[0].map(r => r.isSelf)).toEqual([false, true, false]);
-    expect(emitted[0]).toHaveLength(3);
-  });
-
-  it('неранжированный за период получает прочерк вместо места', async () => {
+  // регрессия: список пересобирался поверх самого себя, и подставленная своя
+  // строка выдавала себя за строку из топа — место игрока вне топа
+  // не обновлялось больше никогда
+  it('своя строка обновляется каждой рассылкой, а не застревает', () => {
+    let self = { place: 42, score: 7 };
     const { model } = makeBoardModel({
-      fetchPlacement: async () => ({ placement: null, total: 100, rank: 0 }),
+      accolades: {
+        placeOf: () => ({ daily: null, monthly: null }),
+        boardOf: period => (period === 'day' ? BOARD : []),
+        selfOf: () => self,
+      },
     });
     const emitted = [];
 
     model.publisher.on('leaderboard', data => emitted.push(data));
 
-    await model.refreshLeaderboard();
+    model.applyAccolades();
+    self = { place: 17, score: 55 };
+    model.applyAccolades();
+
+    expect(emitted[1][2]).toEqual({ place: 17, nick: 'me', score: 55, isSelf: true });
+  });
+
+  it('игрок из топа подсвечивается на своём месте', () => {
+    const { model } = makeBoardModel({ getNick: () => 'B' });
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    model.refreshLeaderboard();
+
+    expect(emitted[0].map(r => r.isSelf)).toEqual([false, true, false]);
+    expect(emitted[0]).toHaveLength(3);
+  });
+
+  it('неранжированный за период получает прочерк вместо места', () => {
+    const { model } = makeBoardModel({
+      accolades: stubAccolades({ self: { place: null, score: 0 } }),
+    });
+    const emitted = [];
+
+    model.publisher.on('leaderboard', data => emitted.push(data));
+
+    model.refreshLeaderboard();
 
     expect(emitted[0][2]).toEqual({
       place: null,
@@ -262,14 +250,28 @@ describe("StatModel: режим 'leaderboard'", () => {
     });
   });
 
-  it('без токена (нет ника) список остаётся как есть', async () => {
+  it('без токена (нет ника) список остаётся как есть', () => {
     const { model } = makeBoardModel({ getNick: () => null });
     const emitted = [];
 
     model.publisher.on('leaderboard', data => emitted.push(data));
 
-    await model.refreshLeaderboard();
+    model.refreshLeaderboard();
 
     expect(emitted[0].map(r => r.nick)).toEqual(['a', 'b', 'c']);
+  });
+
+  // синглтон переиспользуется на каждый вход в матч (runModules): вернуть
+  // старый экземпляр как есть значило бы играть в одну игру с параметрами
+  // другой
+  it('повторная конструкция перенастраивает синглтон под новую схему', () => {
+    const { model } = makeBoardModel();
+    const again = new StatModel(
+      { heads: {}, bodies: {}, sortList: {} },
+      {},
+    );
+
+    expect(again).toBe(model);
+    expect(again.isLeaderboard).toBe(false);
   });
 });

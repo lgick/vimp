@@ -493,6 +493,47 @@ describe('C. client', () => {
     ).toMatch(/expected 'time'/);
   });
 
+  // Режим статистики объявляется дважды — в gameConfig (читает хост) и в
+  // modules.stat.params (читает клиент). Рассинхронизация не падает и ничем
+  // себя не выдаёт: либо хост рассылает таблицу, которую никто не рисует,
+  // либо клиент рисует таблицу, которую никто не шлёт
+  it('C11 passes when both halves of the stat mode agree', () => {
+    const stat = base.clientConfig.modules.stat;
+    const both = {
+      ...base,
+      gameConfig: { ...base.gameConfig, statMode: 'leaderboard' },
+      clientConfig: withModules(base, {
+        stat: { params: { ...stat.params, mode: 'leaderboard' } },
+      }),
+    };
+
+    expect(check('C11', both).status).toBe(PASS);
+    // и по умолчанию, когда режима нет ни там, ни там
+    expect(check('C11', base).status).toBe(PASS);
+  });
+
+  it('C11 fails when only the client declares the leaderboard', () => {
+    const stat = base.clientConfig.modules.stat;
+    const clientOnly = {
+      ...base,
+      clientConfig: withModules(base, {
+        stat: { params: { ...stat.params, mode: 'leaderboard' } },
+      }),
+    };
+
+    expect(rule('C11').level).toBe('error');
+    expect(violations('C11', clientOnly)).toMatch(/gameConfig\.statMode is not set/);
+  });
+
+  it('C11 fails when only the host declares the leaderboard', () => {
+    const hostOnly = {
+      ...base,
+      gameConfig: { ...base.gameConfig, statMode: 'leaderboard' },
+    };
+
+    expect(violations('C11', hostOnly)).toMatch(/stays empty forever/);
+  });
+
   it('C6 warns on a column the engine CSS does not lay out', () => {
     const stat = base.clientConfig.modules.stat;
     const sixColumns = {

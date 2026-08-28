@@ -14,6 +14,23 @@ import { nickKey } from '../../../lib/validators.js';
 //
 // Запросы идут с If-None-Match: топ меняется медленно, совпал валидатор —
 // 304 без тела, схлопнутый TTL-кэшем мастера на всю сеть.
+//
+// ***** ЗА ТОПОМ ХОДИТ КОМНАТА, А НЕ ИГРОК *****
+//
+// Тот же топ рисуется клиенту по Tab (`modules.stat.params.mode:
+// 'leaderboard'`), и рисуется он ИЗ ЭТОЙ РАССЫЛКИ, а не собственным запросом
+// клиента. Так это и должно быть: игрок разговаривает со своим игровым
+// сервером, а не с мастером. Арифметика на целевом масштабе (100 игр × 100
+// серверов × 8 игроков = 80 000 игроков) объясняет, почему это не вкусовщина:
+//
+//   клиент сам      — 80 000 игроков / 15 с троттлинга = 5300 запросов/с,
+//                     причём место игрока (`/auth/placement`) персонально и
+//                     общим кэшем мастера не схлопывается вовсе;
+//   комната за всех — 10 000 комнат × 2 среза / 45 с = 440 запросов/с, и все
+//                     они попадают в один TTL-кэш мастера на (игру, срез),
+//                     то есть в БД доходит 100 игр × 2 среза за TTL.
+//
+// Разница — четыре порядка на самом дорогом запросе схемы.
 export default class Accolades {
   // fetchImpl обёрнут стрелкой по той же причине, что и в PlayerDataSync:
   // голый `fetch` из поля объекта вызывался бы с чужим `this` и падал на
@@ -21,12 +38,17 @@ export default class Accolades {
   constructor({
     participants,
     gameId,
+    // место и очки самого участника в срезе: их привозит PlayerDataSync на
+    // входе игрока (GET /auth/placements). Нужны для строки «я» в списке —
+    // игрок вне топа-10 видит собственное место вместо десятой строки
+    getRating = () => null,
     fetchImpl = (...args) => fetch(...args),
     config = lobbyConfig,
     now = () => Date.now(),
   }) {
     this._participants = participants;
     this._gameId = gameId;
+    this._getRating = getRating;
     this._fetch = fetchImpl;
     this._url = config.leaderboardUrl;
     this._limit = config.leaderboardLimit;
@@ -37,11 +59,17 @@ export default class Accolades {
     // последний известный топ каждого среза: ключ награды -> Map(ник в
     // нижнем регистре -> место). 304 оставляет прошлый
     this._tops = new Map();
+    // и он же строками, как их рисует клиент: ключ СРЕЗА ('day'/'month') ->
+    // [{ place, nick, score }]. Два представления одного ответа: по нику
+    // ищут знаки, по порядку — таблица
+    this._boards = {};
     // ETag прошлого ответа среза — валидатор следующего запроса
     this._etags = new Map();
 
-    this._places = {};
-    this._serialized = '{}';
+    this._payload = { places: {}, boards: {}, self: {} };
+    // слепок ПУСТОЙ рассылки, а не '{}': иначе первый же _recompute в
+    // пустой комнате считал бы её изменившейся и слал бы пустоту
+    this._serialized = JSON.stringify(this._payload);
     this._dirty = false;
 
     // null, а не 0: первый опрос обязан пройти, каким бы ни было начало
@@ -51,9 +79,13 @@ export default class Accolades {
   }
 
   // периодический опрос: зовётся каждый игровой тик, работает не чаще
-  // refreshInterval. Промис наружу не отдаётся — это фон, а не шаг кадра
+  // refreshInterval. Промис наружу не отдаётся — это фон, а не шаг кадра, —
+  // но именно поэтому он обязан быть пойман здесь: непойманный reject в
+  // игровом цикле воркера кладёт комнату целиком
   tick() {
-    this.refresh();
+    this.refresh().catch(err =>
+      console.warn('[accolades] tick failed:', err?.message),
+    );
   }
 
   // состав комнаты изменился (вход участника): места пересчитываются
@@ -91,18 +123,32 @@ export default class Accolades {
     }
   }
 
-  // Текущие места целиком — для участника, который ТОЛЬКО ЧТО стал готов
+  // Текущая рассылка целиком — для участника, который ТОЛЬКО ЧТО стал готов
   // принимать данные. Рассылка через shift() ему не досталась бы: она
   // уходит только тем, кто уже в getNetworkedReady(), а места новичка
   // считаются на входе, за всю загрузку карты до его готовности. Один раз
   // отданный shift() второй раз не повторится (места с тех пор не менялись),
-  // и знак не появился бы до первого чужого входа
+  // и ни знак, ни таблица не появились бы до первого чужого входа
   current() {
-    return this._places;
+    return this._payload;
   }
 
-  // { [gameId]: { daily, monthly } } или null, если с прошлого вызова
-  // ничего не изменилось. Обычно именно null — и рассылки не будет вовсе
+  // Рассылка или null, если с прошлого вызова ничего не изменилось. Обычно
+  // именно null — и сообщения не будет вовсе.
+  //
+  //   places — { [gameId]: { daily, monthly } }: место участника в топе-10
+  //            каждого среза или null. По ним part игры рисует знак;
+  //   boards — { day: [{ place, nick, score }], month: [...] }: сам топ, как
+  //            его рисует по Tab режим stat 'leaderboard';
+  //   self   — { [gameId]: { day: { place, score }, month: {...} } }: место и
+  //            очки самого участника, чтобы игрок ВНЕ топа видел свою строку.
+  //
+  // Всё три пересчитываются только в _recompute (опрос раз в refreshInterval
+  // и вход участника), поэтому очки в `self` отстают от только что законченной
+  // игры не больше чем на один интервал опроса. Это осознанно: они меняются с
+  // каждой смертью, и рассылать их сразу значило бы слать сообщение на каждую
+  // смерть каждого из восьми — ровно то, что «не изменилось — не отправляем»
+  // и запрещает. Свой ТЕКУЩИЙ счёт игрок и так видит на HUD
   shift() {
     if (!this._dirty) {
       return null;
@@ -110,7 +156,7 @@ export default class Accolades {
 
     this._dirty = false;
 
-    return this._places;
+    return this._payload;
   }
 
   async _load(award, period) {
@@ -139,16 +185,23 @@ export default class Accolades {
 
       const { leaderboard } = (await res.json()) ?? {};
       const places = new Map();
+      const rows = [];
 
       for (const row of leaderboard ?? []) {
         // уникальность ника в auth регистронезависимая (миграция 002) —
         // сопоставлять надо так же, иначе «Alice» и «alice» разъедутся
         if (row?.nick) {
           places.set(nickKey(row.nick), Number(row.place));
+          rows.push({
+            place: Number(row.place),
+            nick: row.nick,
+            score: Number(row.rank) || 0,
+          });
         }
       }
 
       this._tops.set(award, places);
+      this._boards[period] = rows;
       this._etags.set(award, res.headers?.get?.('etag') ?? null);
     } catch (err) {
       // недоступность мастера — остаёмся на прошлых местах: пропавший на
@@ -159,9 +212,14 @@ export default class Accolades {
 
   _recompute() {
     const places = {};
+    const self = {};
+    // срезы, за которыми ходит хост, в терминах auth ('day'/'month') — по
+    // ним же клиент выбирает таблицу под свой stat.params.period
+    const periods = Object.values(this._periods);
 
     for (const participant of this._participants.getAll()) {
       const entry = {};
+      const gameId = String(participant.gameId);
 
       for (const award of Object.keys(this._periods)) {
         entry[award] = null;
@@ -183,12 +241,34 @@ export default class Accolades {
         for (const award of Object.keys(this._periods)) {
           entry[award] = this._tops.get(award)?.get(nick) ?? null;
         }
+
+        // место и очки этого участника в каждом срезе: их привёз
+        // PlayerDataSync на входе. Игрок вне топа-10 видит по Tab свою
+        // строку вместо десятой, и взять её больше неоткуда — топ его не
+        // содержит по определению
+        const mine = {};
+
+        for (const period of periods) {
+          const rating = this._getRating(gameId, period);
+
+          if (rating) {
+            mine[period] = {
+              place: rating.placement ?? null,
+              score: rating.value ?? 0,
+            };
+          }
+        }
+
+        if (Object.keys(mine).length) {
+          self[gameId] = mine;
+        }
       }
 
-      places[String(participant.gameId)] = entry;
+      places[gameId] = entry;
     }
 
-    const serialized = JSON.stringify(places);
+    const payload = { places, boards: this._boards, self };
+    const serialized = JSON.stringify(payload);
 
     // «не изменилось — не отправляем»: и 304, и неизменившийся состав
     // комнаты оставляют рассылку пустой
@@ -197,7 +277,7 @@ export default class Accolades {
     }
 
     this._serialized = serialized;
-    this._places = places;
+    this._payload = payload;
     this._dirty = true;
   }
 }

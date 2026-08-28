@@ -156,6 +156,9 @@ export default class HostGame {
     this._accolades = new Accolades({
       participants: this._participants,
       gameId: this._gameId,
+      // место и очки самого участника: их привозит PlayerDataSync на входе,
+      // и без них игрок вне топа-10 не увидел бы по Tab собственной строки
+      getRating: (id, period) => this._playerDataSync.getRating(id, period),
       // headless-прогону некуда ходить за топом — тот же подмен, что и у
       // PlayerDataSync
       ...(playerDataFetch ? { fetchImpl: playerDataFetch } : {}),
@@ -363,9 +366,14 @@ export default class HostGame {
 
     const userList = this._participants.getNetworkedReady();
     const panelUpdates = this._panel.processUpdates();
-    // в режиме leaderboard движковый stat не рисуется вовсе — не собираем
-    // и не шлём
-    const stat = this._statLeaderboard ? null : this._stat.getLast();
+    // getLast() — ЕДИНСТВЕННЫЙ дренаж Stat: reset() в _lastBody только
+    // дописывает. Поэтому буфер осушается всегда, даже когда рассылки не
+    // будет: пропуск вызова в режиме leaderboard растил бы эти массивы всё
+    // время жизни комнаты (endlessRound — она живёт часами), а StatBridge
+    // пишет в них на каждый подобранный кристалл. Гейтится ОТПРАВКА
+    const lastStat = this._stat.getLast();
+    // в режиме leaderboard движковый stat не рисуется вовсе — не шлём
+    const stat = this._statLeaderboard ? null : lastStat;
     const accolades = this._accolades.shift();
     const chat = this._chat.shift();
     const vote = this._vote.shift();
@@ -535,16 +543,17 @@ export default class HostGame {
     this._socketManager.sendTechInform(socketId);
     this._socketManager.sendFirstVote(socketId);
 
-    // места в глобальном топе — целиком и лично, как и первый кадр stat.
+    // топ и места в нём — целиком и лично, как и первый кадр stat.
     // Периодическая рассылка (shift() в игровом цикле) уходит только тем,
     // кто УЖЕ готов, а места новичка посчитаны на его входе, за всю загрузку
     // карты до этой строки: та рассылка ушла бы без него и не повторилась
-    // бы — места с тех пор не менялись, — и знак не появился бы до первого
-    // чужого входа. В комнате, куда больше никто не заходит, никогда
-    const places = this._accolades.current();
+    // бы — места с тех пор не менялись, — и ни знак, ни таблица по Tab не
+    // появились бы до первого чужого входа. В комнате, куда больше никто не
+    // заходит, никогда
+    const accoladesNow = this._accolades.current();
 
-    if (Object.keys(places).length) {
-      this._socketManager.sendAccolades(socketId, places);
+    if (Object.keys(accoladesNow.places).length) {
+      this._socketManager.sendAccolades(socketId, accoladesNow);
     }
 
     this._chat.pushSystem('USER_JOINED', [user.name]);
@@ -1133,8 +1142,10 @@ export default class HostGame {
     return this._playerDataSync.getRating(gameId, period);
   }
 
-  isPlayerRatingLoaded(gameId) {
-    return this._playerDataSync.isRatingLoaded(gameId);
+  // приехал ли СРЕЗ с мастера: ноль незагруженного рейтинга и настоящий
+  // ноль — разные вещи, и игре, которая на них смотрит, надо их различать
+  isPlayerRatingLoaded(gameId, period) {
+    return this._playerDataSync.isRatingLoaded(gameId, period);
   }
 
   // точечный перезапрос места в срезе (чат-команда /rank): место меняют

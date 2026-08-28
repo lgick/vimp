@@ -181,8 +181,18 @@ export default class Tank {
 ### `accolades` — is this player in the global top?
 
 ```js
-const { daily, monthly } = accolades.placeOf(id); // numbers or null
+const { daily, monthly } = accolades.placeOf(id);   // numbers or null
+const rows = accolades.boardOf('day');              // [{ place, nick, score }]
+const mine = accolades.selfOf(id, 'day');           // { place, score } or null
 ```
+
+**The room asks the master, never the player.** Everything this service knows
+arrives in one broadcast from the host (`ACCOLADES_DATA`), and a client in a
+match issues no request of its own. That is a rule of the engine, not a tuning
+choice: at a hundred games on a hundred servers each, a client that asks for
+itself multiplies the master's most expensive query by the player count, and
+a player's own placement is personal — no shared cache collapses it. The room
+asks once for all of its players, and the master collapses the rooms.
 
 - Places come from the same public leaderboard the lobby draws, matched to
   the room's participants **by nickname**, so a badge follows the player onto
@@ -346,7 +356,6 @@ modules: {
       mode: 'leaderboard',
       period: 'day',        // the slice: 'day' | 'month' | 'all'
       limit: 10,
-      refreshMs: 15000,     // matches the master's cache TTL
       columns: ['#', 'snake', 'score'],
     },
   },
@@ -355,13 +364,17 @@ modules: {
 
 - No `.stat-head` and no team tables are built: the view renders one
   `.stat-leaderboard` list of `.stat-row` (place · nick · score).
-- Host stat updates are ignored in this mode, and the host stops sending them
-  (declare `statMode: 'leaderboard'` in `gameConfig` too, next to
-  `endlessRound`) — nobody draws them.
-- The list is fetched by the client itself from the master's public
-  leaderboard, at most once per `refreshMs`, with `If-None-Match`. A `304`, a
-  network failure or a missing token leaves the last known list — empty on the
-  first open, which is fine.
+- **Declare the mode on BOTH halves.** `modules.stat.params.mode` tells the
+  client what to draw; `statMode: 'leaderboard'` in `gameConfig` (next to
+  `endlessRound`) tells the host to stop sending the room's table. Declaring
+  one without the other is a defect that never announces itself — only the
+  client half and the host broadcasts a table every tick to a client that
+  throws it away; only the host half and the client draws a room table nobody
+  fills. Contract rule `C11` is an ERROR on either.
+- The list is **pushed by the host** on the `ACCOLADES_DATA` port, together
+  with the badge places and the caller's own row — the client fetches nothing
+  (see the `accolades` service above). Until the first broadcast the list is
+  empty, which is fine.
 - The caller's own row is highlighted (`is-self`); if they are not in the top
   it **replaces the last row**, and if they are not ranked for the period the
   place shows as `—`.

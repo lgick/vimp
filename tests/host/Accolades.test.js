@@ -30,13 +30,18 @@ const makeFetch = ({ day = () => top([]), month = () => top([]) } = {}) =>
     url.includes('period=day') ? day(url, opts) : month(url, opts),
   );
 
-const makeAccolades = (fetchImpl, list, now = () => 0) =>
+const makeAccolades = (fetchImpl, list, now = () => 0, getRating = () => null) =>
   new Accolades({
     participants: participants(list),
     gameId: 'snakes',
     fetchImpl,
+    getRating,
     now,
   });
+
+// рассылка целиком — три части; большинство проверок про места, поэтому
+// смотрят они именно на них
+const placesOf = payload => payload?.places ?? null;
 
 describe('Accolades: места участников в глобальном топе', () => {
   it('сопоставляет ник без учёта регистра', async () => {
@@ -48,7 +53,7 @@ describe('Accolades: места участников в глобальном т�
 
     await accolades.refresh();
 
-    expect(accolades.shift()).toEqual({ 0: { daily: 1, monthly: 4 } });
+    expect(placesOf(accolades.shift())).toEqual({ 0: { daily: 1, monthly: 4 } });
   });
 
   it('бот и гость получают null: записи в auth у них нет', async () => {
@@ -62,7 +67,7 @@ describe('Accolades: места участников в глобальном т�
 
     await accolades.refresh();
 
-    expect(accolades.shift()).toEqual({
+    expect(placesOf(accolades.shift())).toEqual({
       0: { daily: 1, monthly: null },
       1: { daily: null, monthly: null },
     });
@@ -177,10 +182,70 @@ describe('Accolades: места участников в глобальном т�
     accolades.noteRoster();
 
     expect(fetchImpl.mock.calls.length).toBe(afterRefresh);
-    expect(accolades.shift()).toEqual({
+    expect(placesOf(accolades.shift())).toEqual({
       0: { daily: null, monthly: null },
       1: { daily: 1, monthly: null },
     });
+  });
+
+  // ***** ЗА ТОПОМ ХОДИТ КОМНАТА, А НЕ ИГРОК *****
+  //
+  // Тот же топ рисуется клиенту по Tab: он приезжает ЭТОЙ рассылкой, и в
+  // матче клиент к мастеру не обращается вовсе. На целевом масштабе (100 игр
+  // × 100 серверов × 8 игроков) это разница между 5300 запросами в секунду,
+  // которые ничем не схлопываются, и 440, которые схлопываются TTL-кэшем
+  it('везёт клиенту сам топ строками, а не только места', async () => {
+    const fetchImpl = makeFetch({
+      day: () =>
+        top([
+          { nick: 'Alice', rank: 90, place: 1 },
+          { nick: 'Bob', rank: 80, place: 2 },
+        ]),
+    });
+    const accolades = makeAccolades(fetchImpl, [player(0, 'Alice')]);
+
+    await accolades.refresh();
+
+    expect(accolades.shift().boards.day).toEqual([
+      { place: 1, nick: 'Alice', score: 90 },
+      { place: 2, nick: 'Bob', score: 80 },
+    ]);
+  });
+
+  // игрок вне топа-10 должен видеть по Tab СВОЮ строку, а взять её больше
+  // неоткуда: топ его по определению не содержит. Место привозит
+  // PlayerDataSync на входе игрока
+  it('везёт участнику его собственное место и очки', async () => {
+    const fetchImpl = makeFetch({
+      day: () => top([{ nick: 'Alice', rank: 90, place: 1 }]),
+    });
+    const accolades = makeAccolades(
+      fetchImpl,
+      [player(0, 'Zoe')],
+      () => 0,
+      (id, period) =>
+        period === 'day' ? { value: 12, placement: 431, total: 900 } : null,
+    );
+
+    await accolades.refresh();
+
+    expect(accolades.shift().self).toEqual({ 0: { day: { place: 431, score: 12 } } });
+  });
+
+  // гость и бот в рассылку своей строки не попадают по той же причине, по
+  // которой не получают знака: их личность не проверена
+  it('своей строки без проверенной личности не бывает', async () => {
+    const fetchImpl = makeFetch();
+    const accolades = makeAccolades(
+      fetchImpl,
+      [{ gameId: 0, name: 'Zoe' }],
+      () => 0,
+      () => ({ value: 12, placement: 431, total: 900 }),
+    );
+
+    await accolades.refresh();
+
+    expect(accolades.shift().self).toEqual({});
   });
 
   // в лобби `name` — claim проверенного identity-токена (host/identity.js), а
@@ -198,7 +263,7 @@ describe('Accolades: места участников в глобальном т�
 
     await accolades.refresh();
 
-    expect(accolades.shift()).toEqual({
+    expect(placesOf(accolades.shift())).toEqual({
       0: { daily: null, monthly: null },
       1: { daily: 1, monthly: null },
     });

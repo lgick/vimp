@@ -647,10 +647,14 @@ socketMethods[PS_STAT_DATA] = data => {
   modules.stat.update(data);
 };
 
-// accolades data (места участников в глобальном топе): рассылка приходит
-// только когда места изменились
+// accolades data: места участников в глобальном топе, сам топ и место
+// игрока в нём. Рассылка приходит от ХОСТА и только когда что-то из этого
+// изменилось — в матче клиент за топом к мастеру не ходит (см.
+// client/lib/accolades.js)
 socketMethods[PS_ACCOLADES_DATA] = data => {
   accolades.apply(data);
+  // stat в режиме 'leaderboard' рисует ровно эту таблицу
+  modules.stat?.applyAccolades?.();
 };
 
 // chat data
@@ -931,13 +935,11 @@ function runModules(data) {
   // Stat Module
   //==========================================//
 
-  // режим 'leaderboard' (snakes-v3 этап 4) тянет глобальный топ сам — теми
-  // же запросами, что и лобби (переиспользование, а не третья копия)
+  // режим 'leaderboard' (snakes-v3 этап 4) рисует топ, привезённый хостом:
+  // ни одного запроса из матча — сервисы, а не сеть
   const statModel = new StatModel(statData.params, {
-    gameId: activeGameManifest.id,
-    fetchLeaderboard: (gameId, period) =>
-      fetchLeaderboard(gameId, period, leaderboardEtags),
-    fetchPlacement,
+    accolades,
+    localPlayer,
     getNick: () => lobbyAuthModel?.getNick() ?? null,
   });
 
@@ -1810,18 +1812,15 @@ async function fetchServers({ offset, limit, search }) {
   }
 }
 
-// валидаторы ответов топа (snakes-v3 этап 4): `${gameId}:${period}` -> ETag.
-// Заполняются только теми вызовами, что передали etagStore, — см. ниже
-const leaderboardEtags = new Map();
-
 // топ-N рейтинга игры (lobby-page-plan) — публичный эндпоинт, доступен и до
 // логина, поэтому без Authorization.
 //
-// etagStore (snakes-v3 этап 4) — необязательный кэш валидаторов: с ним
-// запрос уходит с If-None-Match, и 304 возвращает null, то есть «оставить
-// прошлое». Лобби его не передаёт намеренно: там список чистится ДО
-// запроса, и «оставить прошлое» означало бы пустой экран
-async function fetchLeaderboard(gameId, period, etagStore = null) {
+// Зовётся только ЛОББИ. Из матча за топом ходит хост комнаты и раздаёт его
+// портом ACCOLADES_DATA (host/meta/modules/Accolades.js): 80 000 игроков,
+// спрашивающих мастер лично, и 10 000 комнат, спрашивающих за них, — разные
+// порядки величин. Там же живёт и If-None-Match: валидатор имеет смысл
+// рядом с повторяющимся запросом, а лобби открывают по одному разу
+async function fetchLeaderboard(gameId, period) {
   const params = new URLSearchParams({
     game: gameId,
     limit: lobbyConfig.leaderboardLimit,
@@ -1829,26 +1828,10 @@ async function fetchLeaderboard(gameId, period, etagStore = null) {
     // значение всегда из lobbyConfig.leaderboardPeriods
     period,
   });
-  const key = `${gameId}:${period}`;
-  const etag = etagStore?.get(key);
-
   try {
-    const res = await fetch(
-      `${lobbyConfig.leaderboardUrl}?${params}`,
-      etag ? { headers: { 'if-none-match': etag } } : undefined,
-    );
+    const res = await fetch(`${lobbyConfig.leaderboardUrl}?${params}`);
 
-    if (!res.ok) {
-      return null; // 304 сюда же: тела нет, прошлое состояние остаётся
-    }
-
-    const tag = res.headers?.get?.('etag');
-
-    if (etagStore && tag) {
-      etagStore.set(key, tag);
-    }
-
-    return await res.json();
+    return res.ok ? await res.json() : null;
   } catch {
     return null;
   }
@@ -1857,8 +1840,6 @@ async function fetchLeaderboard(gameId, period, etagStore = null) {
 // позиция вызывающего в рейтинге игры (lobby-page-plan) — требует identity-
 // токена, как и остальные /auth/* запросы игрока (rank/state)
 async function fetchPlacement(gameId, period) {
-  // `?.`: в режиме 'leaderboard' (snakes-v3 этап 4) это зовётся уже из
-  // матча, в том числе solo/dedicated, где лобби с его моделью не поднято
   const token = lobbyAuthModel?.getToken();
 
   if (!token) {

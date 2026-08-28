@@ -479,6 +479,63 @@ describe('PlayerDataSync.flush', () => {
     expect(putCalls(fetchImpl)).toHaveLength(0);
   });
 
+  // Агрегирующий роут мастера отдаёт 200, если приехал ХОТЬ ОДИН срез, и
+  // кладёт провалившийся как null. Общий флаг «рейтинги загружены» пометил бы
+  // такой срез загруженным нулём навсегда, а ноль дневного среза игра читает
+  // как «сегодня ещё не играл» — то есть как побитый рекорд на каждую смерть
+  it('частично приехавшие срезы не помечаются загруженными', async () => {
+    const fetchImpl = makeFetch({
+      placements: () => okJson({ day: null, month: PLACEMENTS.month, all: null }),
+    });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+
+    expect(sync.isRatingLoaded('p1', 'month')).toBe(true);
+    expect(sync.isRatingLoaded('p1', 'day')).toBe(false);
+    expect(sync.isRatingLoaded('p1', 'all')).toBe(false);
+  });
+
+  it('повторная загрузка добирает недостающий срез и не удваивает приехавший', async () => {
+    let complete = false;
+    const fetchImpl = makeFetch({
+      placements: () =>
+        okJson(
+          complete ? PLACEMENTS : { day: null, month: PLACEMENTS.month, all: null },
+        ),
+    });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    complete = true;
+    await sync.load('p1', 'tok');
+
+    // месяц СКЛАДЫВАЕТСЯ — применить приехавший срез дважды значило бы
+    // удвоить его
+    expect(sync.getRating('p1', 'month').value).toBe(400);
+    expect(sync.getRating('p1', 'day').value).toBe(40);
+    expect(sync.isRatingLoaded('p1', 'all')).toBe(true);
+  });
+
+  // результат игры — строка в леджер, а не замещение: затирать ею нечего, и
+  // гейт по загруженности держал бы очки в pending до конца жизни комнаты
+  it('результат игры уходит, даже когда рейтинги не загрузились', async () => {
+    const fetchImpl = makeFetch({ placements: () => fail(502) });
+    const { sync, clock } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    sync.addPoints('p1', 9);
+    sync.finishGame('p1');
+    fetchImpl.mockClear();
+    clock.now += lobbyConfig.playerData.minFlushInterval;
+    await sync.flush('p1', { urgent: true });
+
+    const puts = putCalls(fetchImpl);
+
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe('/auth/rank?game=tanks');
+  });
+
   it('шлёт PUT только для успешно загруженной части (рейтинги ок, state — нет)', async () => {
     const fetchImpl = makeFetch({ state: () => fail(500) });
     const { sync, clock } = makeSync(fetchImpl);
@@ -502,7 +559,7 @@ describe('PlayerDataSync.flush', () => {
 // участить её сверх минимального интервала и не может отправить то, что не
 // изменилось. «Игр сотни, серверов сотни»
 describe('PlayerDataSync: предел синхронизации', () => {
-  const room = async (size, { placements = () => okJson({}) } = {}) => {
+  const room = async (size, { placements = () => okJson(PLACEMENTS) } = {}) => {
     const fetchImpl = makeFetch({ placements });
     const made = makeSync(fetchImpl);
 
@@ -687,14 +744,16 @@ describe('PlayerDataSync: предел синхронизации', () => {
     sync.addPoints('p1', 5);
     sync.finishGame('p1');
 
-    // пауза экспоненциальная: 2, 4, 8 … секунды. Пока она короче интервала
-    // синхронизации, её не видно — видно с шестого отказа (64 с > 60 с)
-    for (let i = 0; i < 6; i += 1) {
+    // пауза экспоненциальная: 30, 60, 120 … секунды. Пока она короче
+    // интервала синхронизации, её не видно — видно с пятого отказа
+    // (480 с > 300 с). Границы бэкоффа соразмерны интервалу намеренно: потолок
+    // ниже него не отложил бы ни одного запроса (см. lobbyConfig)
+    for (let i = 0; i < 5; i += 1) {
       await sync.flush('p1');
       clock.now += lobbyConfig.playerData.minFlushInterval;
     }
 
-    expect(putCalls(fetchImpl)).toHaveLength(6);
+    expect(putCalls(fetchImpl)).toHaveLength(5);
 
     // интервал прошёл, но комната в паузе — обычный flush молчит
     fetchImpl.mockClear();

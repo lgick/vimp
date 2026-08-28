@@ -201,8 +201,16 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     // рассылка того же состояния (её ждут ОСТАЛЬНЫЕ — в их списке появился
     // новичок), и наконец приехавший топ
     expect(frames).toHaveLength(3);
-    expect(frames[0].args[0][String(gameId)]).toEqual({ daily: null, monthly: null });
-    expect(frames.at(-1).args[0][String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+    expect(frames[0].args[0].places[String(gameId)]).toEqual({
+      daily: null,
+      monthly: null,
+    });
+    expect(frames.at(-1).args[0].places[String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+    // и сам топ: клиент рисует его по Tab из этой же рассылки, а не своим
+    // запросом к мастеру
+    expect(frames.at(-1).args[0].boards.day).toEqual([
+      { place: 2, nick: 'P1', score: 90 },
+    ]);
 
     // места не изменились — четвёртой рассылки нет
     tick(board, 1);
@@ -231,7 +239,7 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     const frames = boardSocket.framesOf('sendAccolades');
 
     expect(frames.length).toBeGreaterThan(0);
-    expect(frames.at(-1).args[0][String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+    expect(frames.at(-1).args[0].places[String(gameId)]).toEqual({ daily: 2, monthly: 2 });
   });
 
   it("в режиме stat 'leaderboard' хост stat не шлёт вовсе", async () => {

@@ -392,7 +392,7 @@ From `onCoreEvent` the `vimp` object gives you:
 vimp.addPlayerPoints(gameId, delta)     // points of the CURRENT game
 vimp.finishPlayerGame(gameId)           // that game is over: sum it, max it
 vimp.getPlayerRating(gameId, period)    // { value, placement, total } | null
-vimp.isPlayerRatingLoaded(gameId)       // have the slices arrived yet?
+vimp.isPlayerRatingLoaded(gameId, period) // has THAT slice arrived yet?
 vimp.refreshPlayerPlacement(gameId, p)  // re-ask the master for one place
 vimp.getPlayerState(gameId)             // your blob
 vimp.setPlayerState(gameId, state)      // replace it
@@ -411,11 +411,14 @@ through `overrideMapData`) has to name its own boundary and call
 `finishPlayerGame` there; in `@vimp-games/snakes` that boundary is the crash,
 because one life is one game.
 
-`getPlayerRating` answers `null` for an id it does not know and for one whose
-`PlayerDataSync.load()` has not come back yet, so a game that writes a rating
-into a stat column of its own (`bodyMethod: '='`) must gate that write on
-`isPlayerRatingLoaded` — otherwise a starting zero lands in the cell instead
-of the value the master returned, and `'='` keeps it there.
+`getPlayerRating` answers `null` for an id it does not know, and ZEROS for a
+known one whose slice has not arrived — so a game that writes a rating into a
+stat column of its own (`bodyMethod: '='`), or compares against one, must gate
+on `isPlayerRatingLoaded(gameId, period)`. Otherwise a starting zero lands in
+the cell instead of the value the master returned and `'='` keeps it there, or
+— worse — a zero gets read as a real score to beat. The flag is PER SLICE: the
+aggregating route answers `200` when at least one slice arrives and nulls the
+rest, so "the ratings loaded" is not a single fact.
 
 `refreshPlayerPlacement` re-asks the master for ONE slice's place and returns
 a promise of the same `{ value, placement, total }`. A place moves with other
@@ -437,14 +440,23 @@ host Worker takes the room down.
   `PUT /auth/state` only when the state actually changed — a quiet room writes
   nothing at all;
 - one request in flight per participant, and at most one sync per participant
-  per `minFlushInterval` (60 s, jittered ±20 % per room so that hundreds of
-  servers do not write on the same second);
+  per `minFlushInterval` (300 s, jittered ±20 % per room so that hundreds of
+  servers do not write on the same second). Five minutes, not one, because the
+  scale this is built for is 100 games × 100 servers × 8 players: at two
+  writes per participant per interval that is 530 writes a second instead of
+  2700. Results merge in the room's memory while they wait — sums add, maxima
+  take the maximum — so the interval costs the freshness of the GLOBAL
+  ratings and nothing else; the player's own numbers are local and instant;
 - a room-wide queue capped at `maxRequestsPerSecond`, and an exponential room
   backoff on `5xx` / `429` / network failures;
 - `{ urgent: true }` bypasses the interval AND the backoff. The engine uses it
   on a participant's departure and on `destroy()`; a game may pass it too, and
   should reserve it for a boundary a player is about to look at — a new daily
-  best right before the leaderboard opens, not every death. Spending it on a
+  best right before the leaderboard opens, not every death. **Check
+  `isPlayerRatingLoaded` before you call something a record**: an unloaded
+  slice answers zero, every game beats a zero, and the room would then spend
+  `urgent` on every death exactly while the auth service is the thing that is
+  down. Spending it on a
   routine event spends the room's whole budget on that event and leaves the
   room living in `429`; nothing is lost by waiting, since the points sit in the
   participant's pending counters until the next flush either way.

@@ -91,7 +91,12 @@ export default class PlayerDataSync {
       ratings: Object.fromEntries(
         PERIODS.map(period => [period, { value: 0, placement: null, total: 0 }]),
       ),
-      ratingsLoaded: false,
+      // ПО СРЕЗАМ, а не общим флагом: агрегирующий /auth/placements отдаёт
+      // 200, если приехал хоть один срез, и кладёт провалившийся как null.
+      // Общий флаг помечал бы такой срез загруженным нулём НАВСЕГДА — а
+      // ноль дневного среза игра читает как «рекорд побит» (см.
+      // isRatingLoaded)
+      ratingsLoaded: Object.fromEntries(PERIODS.map(period => [period, false])),
       currentGamePoints: 0, // очки незавершённой игры
       pendingPoints: 0, // сумма завершённых игр, ещё не отправленная
       pendingBest: 0, // лучшая завершённая игра, ещё не отправленная
@@ -166,9 +171,11 @@ export default class PlayerDataSync {
   // подгружает рейтинги+state с мастера при входе игрока. Сбой auth-сервиса
   // не должен блокировать вход — участник стартует с дефолтами (нули, пустой
   // state) и попробует синхронизироваться на следующем flush.
-  // ratingsLoaded/stateLoaded (F4 кодревью) отражают, был ли реально получен
-  // серверный ответ — flush не должен PUT'ить дефолт поверх настоящих
-  // сохранённых значений, если загрузка не удалась (auth недоступен на join)
+  // ratingsLoaded (ПО СРЕЗАМ) и stateLoaded (F4 кодревью) отражают, был ли
+  // реально получен серверный ответ: flush не должен PUT'ить дефолтный state
+  // поверх настоящего сохранённого, если загрузка не удалась. Результат игры
+  // отправляется независимо от них — он строка в леджер, а не замещение
+  // (см. _sync)
   async load(participantId, token) {
     const entry = this._entries.get(participantId) ?? this._makeEntry(token);
 
@@ -176,24 +183,53 @@ export default class PlayerDataSync {
     this._entries.set(participantId, entry);
 
     try {
-      // три среза одним запросом: агрегирующий роут мастера (этап 3.3)
+      // ***** ЗАГРУЗКА ИДЁТ МИМО ОЧЕРЕДИ, И ЭТО НАМЕРЕННО *****
+      //
+      // Очередь комнаты держит потолок ЗАПИСЕЙ: он и объявлен на записи
+      // (master:playerData:writesPerMinute считает только PUT rank/state), и
+      // растягивать по ней чтение значило бы платить за это входом — профиль
+      // участника приезжал бы через слот очереди после его появления, а в
+      // комнате на 32 последний ждал бы секунды. Чтение защищено там, где
+      // оно дорого: TTL-кэшем мастера (master/PlacementCache.js) и, с
+      // миграции 008, агрегатом вместо свёртки леджера.
+      //
+      // Что этот путь обязан делать — замечать отказ (см. ниже): срочный
+      // flush бэкофф обходит, а тянет за собой именно повторный load()
       const [ratingsRes, stateRes] = await Promise.all([
         this._authedFetch(lobbyConfig.playerData.placementsUrl, token),
         this._authedFetch(lobbyConfig.playerData.stateUrl, token),
       ]);
 
-      // неуспешный ответ логируется: ratingsLoaded/stateLoaded гейтят весь
-      // последующий flush, поэтому молчаливый 401/404 здесь навсегда
-      // выключает синхронизацию и выглядит снаружи как «данных просто нет»
+      // неуспешный ответ логируется и ставит паузу комнаты: stateLoaded
+      // гейтит синхронизацию state, поэтому молчаливый 401/404 здесь
+      // навсегда выключает её и выглядит снаружи как «данных просто нет»
       if (!ratingsRes.ok) {
+        this._noteStatus(ratingsRes.status);
         console.warn(`[playerData] GET placements ${ratingsRes.status} for ${participantId}`);
-      } else if (!entry.ratingsLoaded) {
+      } else {
         const json = (await ratingsRes.json()) ?? {};
         const at = this._now();
 
+        this._noteSuccess();
+
         for (const period of PERIODS) {
-          const slice = json[period] ?? {};
+          const slice = json[period];
           const rating = entry.ratings[period];
+
+          // срез уже загружен — второй load() (повтор после сбоя другого
+          // среза) не должен применять его снова: месяц СКЛАДЫВАЕТСЯ, и
+          // повторное применение удвоило бы его
+          if (entry.ratingsLoaded[period]) {
+            continue;
+          }
+
+          // null — этот срез не приехал (роут отдаёт 200, если приехал хоть
+          // один). Загруженным его помечать нельзя: следующий _sync
+          // повторит load() и доберёт именно его
+          if (!slice) {
+            continue;
+          }
+
           const server = Number(slice.rank) || 0;
 
           // F9: во время await мог накопиться finishGame поверх стартового
@@ -212,14 +248,16 @@ export default class PlayerDataSync {
           rating.placement = slice.placement ?? null;
           rating.total = Number(slice.total) || 0;
           entry.placementRefreshedAt[period] = at;
+          entry.ratingsLoaded[period] = true;
         }
-
-        entry.ratingsLoaded = true;
       }
 
       if (!stateRes.ok) {
+        this._noteStatus(stateRes.status);
         console.warn(`[playerData] GET state ${stateRes.status} for ${participantId}`);
       } else if (!entry.stateLoaded) {
+        this._noteSuccess();
+
         const { state } = await stateRes.json();
 
         entry.state =
@@ -230,7 +268,13 @@ export default class PlayerDataSync {
       }
     } catch (err) {
       // недоступность auth-сервиса — остаёмся на дефолтах, следующий
-      // flush повторит load() перед синхронизацией (см. flush)
+      // flush повторит load() перед синхронизацией (см. flush).
+      //
+      // Пауза комнаты ставится и здесь: без неё лежащий сервис получал бы с
+      // этого пути полную нагрузку — срочный flush (уход участника, рекорд
+      // в игре) бэкофф обходит, а именно он и тянет за собой повторный
+      // load(), пока рейтинги не загружены
+      this._noteFailure();
       console.warn(`[playerData] load failed for ${participantId}:`, err.message);
     }
 
@@ -253,11 +297,18 @@ export default class PlayerDataSync {
     return { value, placement, total };
   }
 
-  // приехали ли рейтинги с мастера. getRating отдаёт нули и знакомому
-  // участнику, чей load() ещё не вернулся — игре, которая пишет рейтинг в
-  // stat колонкой '=', нужно отличать «0» от «данных ещё нет»
-  isRatingLoaded(participantId) {
-    return this._entries.get(participantId)?.ratingsLoaded === true;
+  // приехал ли СРЕЗ с мастера. getRating отдаёт нули и знакомому участнику,
+  // чей load() ещё не вернулся, — а игре разницу знать надо: ноль дневного
+  // среза значит «сегодня ещё не играл», и игра, сравнивающая с ним счёт
+  // законченной игры, прочитает «данных нет» как «побит рекорд» и потратит
+  // срочную запись на каждую смерть (src/host/StatBridge.js в snakes)
+  isRatingLoaded(participantId, period = 'all') {
+    return this._entries.get(participantId)?.ratingsLoaded[period] === true;
+  }
+
+  // все ли три среза приехали — внутренний вопрос _sync, не игры
+  _ratingsComplete(entry) {
+    return PERIODS.every(period => entry.ratingsLoaded[period]);
   }
 
   // точечный перезапрос одного среза (чат-команда /rank): место меняется от
@@ -457,7 +508,7 @@ export default class PlayerDataSync {
 
     entry.lastFlushAt = this._now();
 
-    if (!entry.ratingsLoaded || !entry.stateLoaded) {
+    if (!this._ratingsComplete(entry) || !entry.stateLoaded) {
       entry = await this.load(participantId, entry.token);
     }
 
@@ -469,7 +520,13 @@ export default class PlayerDataSync {
     const points = entry.pendingPoints;
     const best = entry.pendingBest;
 
-    if (entry.ratingsLoaded && (points > 0 || best > 0)) {
+    // РЕЗУЛЬТАТ ИГРЫ ОТПРАВЛЯЕТСЯ БЕЗУСЛОВНО. Гейт по загруженности здесь
+    // был бы вреден: это не абсолютное значение, а строка в леджер (auth
+    // складывает её сам), затереть ею нечего — а недоступный на входе
+    // /auth/placements держал бы очки в pending до конца жизни комнаты и
+    // терял бы их вместе с ней. Гейт нужен ровно state ниже: тот PUT
+    // ЗАМЕЩАЕТ сохранённый JSON, и дефолтом поверх настоящего нельзя (F4)
+    if (points > 0 || best > 0) {
       requests.push(
         this._enqueue(() =>
           this._authedFetch(lobbyConfig.playerData.rankUrl, token, {
