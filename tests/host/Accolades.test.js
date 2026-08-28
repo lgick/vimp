@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import Accolades from '../../packages/engine/src/host/meta/modules/Accolades.js';
+import lobbyConfig from '../../packages/engine/src/config/lobby.js';
 
 // ответ мастера: топ-N среза + ETag, по которому следующий запрос получит 304
 const top = (rows, etag = 'W/"top"') => ({
@@ -17,6 +18,11 @@ const notModified = () => ({
 });
 
 const participants = list => ({ getAll: () => list });
+
+// участник с проверенной личностью. В лобби `name` — это claim
+// identity-токена (host/identity.js), и знак выдаётся только такому: гость
+// без токена мог бы просто назваться чужим ником
+const player = (gameId, name) => ({ gameId, name, token: `tok-${gameId}` });
 
 // day и month приходят одним и тем же роутом, различаются ?period=
 const makeFetch = ({ day = () => top([]), month = () => top([]) } = {}) =>
@@ -38,7 +44,7 @@ describe('Accolades: места участников в глобальном т�
       day: () => top([{ nick: 'Alice', rank: 90, place: 1 }]),
       month: () => top([{ nick: 'ALICE', rank: 900, place: 4 }]),
     });
-    const accolades = makeAccolades(fetchImpl, [{ gameId: 0, name: 'alice' }]);
+    const accolades = makeAccolades(fetchImpl, [player(0, 'alice')]);
 
     await accolades.refresh();
 
@@ -50,8 +56,8 @@ describe('Accolades: места участников в глобальном т�
       day: () => top([{ nick: 'Alice', rank: 90, place: 1 }]),
     });
     const accolades = makeAccolades(fetchImpl, [
-      { gameId: 0, name: 'Alice' },
-      { gameId: 1, name: 'bot-1' },
+      player(0, 'Alice'),
+      { gameId: 1, name: 'bot-1' }, // scripted: токена нет
     ]);
 
     await accolades.refresh();
@@ -85,12 +91,14 @@ describe('Accolades: места участников в глобальном т�
           : notModified();
       },
     });
-    const accolades = makeAccolades(fetchImpl, [{ gameId: 0, name: 'Alice' }]);
+    const clock = { now: 0 };
+    const accolades = makeAccolades(fetchImpl, [player(0, 'Alice')], () => clock.now);
 
     await accolades.refresh();
     accolades.shift();
 
-    await accolades.refresh({ force: true });
+    clock.now += lobbyConfig.accolades.refreshInterval;
+    await accolades.refresh();
 
     const [, opts] = fetchImpl.mock.calls.find(([url]) =>
       url.includes('period=day&') || url.endsWith('period=day'),
@@ -137,14 +145,62 @@ describe('Accolades: места участников в глобальном т�
         return top([{ nick: 'Alice', rank: 90, place: 1 }]);
       },
     });
-    const accolades = makeAccolades(fetchImpl, [{ gameId: 0, name: 'Alice' }]);
+    const clock = { now: 0 };
+    const accolades = makeAccolades(fetchImpl, [player(0, 'Alice')], () => clock.now);
 
     await accolades.refresh();
     accolades.shift();
 
     fail = true;
-    await accolades.refresh({ force: true });
+    clock.now += lobbyConfig.accolades.refreshInterval;
+    await accolades.refresh();
 
     expect(accolades.shift()).toBeNull();
+  });
+
+  // вход участника — это пересчёт по уже известным срезам, а не поход за
+  // ними: иначе наплыв в комнату стоил бы по два запроса на вход, а при уже
+  // летящем опросе новичок терялся бы до следующего refreshInterval
+  it('noteRoster пересчитывает места новичка, не трогая сеть', async () => {
+    const fetchImpl = makeFetch({
+      day: () => top([{ nick: 'Alice', rank: 90, place: 1 }]),
+    });
+    const list = [player(0, 'Bob')];
+    const accolades = makeAccolades(fetchImpl, list);
+
+    await accolades.refresh();
+    accolades.shift();
+
+    const afterRefresh = fetchImpl.mock.calls.length;
+
+    list.push(player(1, 'Alice'));
+    accolades.noteRoster();
+
+    expect(fetchImpl.mock.calls.length).toBe(afterRefresh);
+    expect(accolades.shift()).toEqual({
+      0: { daily: null, monthly: null },
+      1: { daily: 1, monthly: null },
+    });
+  });
+
+  // в лобби `name` — claim проверенного identity-токена (host/identity.js), а
+  // в гостевом контуре это поле формы, которое createGuestIdentity прямо
+  // объявляет незащищённым от подмены. Сопоставление идёт по нику, поэтому
+  // знак получает только тот, чья личность проверена
+  it('не выдаёт знак участнику без проверенной личности', async () => {
+    const fetchImpl = makeFetch({
+      day: () => top([{ nick: 'Alice', rank: 90, place: 1 }]),
+    });
+    const accolades = makeAccolades(fetchImpl, [
+      { gameId: 0, name: 'Alice' }, // гость, назвавшийся ником из топа
+      player(1, 'Alice'),
+    ]);
+
+    await accolades.refresh();
+
+    expect(accolades.shift()).toEqual({
+      0: { daily: null, monthly: null },
+      1: { daily: 1, monthly: null },
+    });
   });
 });

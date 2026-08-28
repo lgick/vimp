@@ -187,7 +187,18 @@ const { daily, monthly } = accolades.placeOf(id); // numbers or null
 - Places come from the same public leaderboard the lobby draws, matched to
   the room's participants **by nickname**, so a badge follows the player onto
   any server. The host refreshes them in the background and broadcasts only
-  when they change (port `ACCOLADES_DATA`).
+  when they change (port `ACCOLADES_DATA`); a join recomputes the room's
+  places from the slices already in hand rather than fetching again. A
+  participant also gets the whole set personally the moment they become ready,
+  because the periodic broadcast reaches only clients that are ALREADY ready —
+  and a newcomer's places are computed on their join, an entire map load before
+  that.
+- Because the key is a nickname, a place is handed only to a participant with
+  a **verified identity**. In the lobby that changes nothing — `name` there is
+  the claim of a verified identity token, not what the player typed — but in
+  the guest contour a nickname is a form field that `createGuestIdentity`
+  openly calls spoofable, and a guest must not be able to wear a stranger's
+  crown by naming themselves after them.
 - Bots and guests have no auth record, so their place is always `null` — a
   normal case, not a failure. So is an unknown id: `placeOf` always returns
   an object.

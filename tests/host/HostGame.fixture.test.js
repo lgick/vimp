@@ -189,18 +189,49 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     const gameId = await connectPlayer(board, { socketId: 's1' });
 
     joinTeam(board, gameId, 'team1');
-    // вход участника форсирует опрос топа — дать ответу приехать
+    // первый тик запускает опрос топа (вход участника пересчитывает места по
+    // уже известным срезам и в сеть не ходит), второй рассылает приехавшее
+    tick(board, 1);
     await vi.advanceTimersByTimeAsync(0);
     tick(board, 1);
 
     const frames = boardSocket.framesOf('sendAccolades');
 
-    expect(frames).toHaveLength(1);
-    expect(frames[0].args[0][String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+    // три кадра: личный снимок в момент готовности участника, за ним
+    // рассылка того же состояния (её ждут ОСТАЛЬНЫЕ — в их списке появился
+    // новичок), и наконец приехавший топ
+    expect(frames).toHaveLength(3);
+    expect(frames[0].args[0][String(gameId)]).toEqual({ daily: null, monthly: null });
+    expect(frames.at(-1).args[0][String(gameId)]).toEqual({ daily: 2, monthly: 2 });
 
-    // места не изменились — второй рассылки нет
+    // места не изменились — четвёртой рассылки нет
     tick(board, 1);
-    expect(boardSocket.framesOf('sendAccolades')).toHaveLength(1);
+    expect(boardSocket.framesOf('sendAccolades')).toHaveLength(3);
+  });
+
+  // регрессия: единственный игрок комнаты не получал своих мест вовсе.
+  // Места считаются на входе, рассылка уходит только уже готовым, а готовым
+  // участник становится через всю загрузку карты — кадр уходил в пустоту и
+  // не повторялся, потому что с тех пор ничего не менялось
+  it('единственный игрок комнаты получает свои места сразу', async () => {
+    const { host: board, socket: boardSocket } = await createFixtureHost({
+      opts: { playerDataFetch: boardFetch([{ nick: 'P1', rank: 90, place: 2 }]) },
+    });
+
+    // топ приезжает ДО того, как игрок стал готов: опрос стартует на первом
+    // тике, а загрузка карты у настоящего клиента идёт куда дольше
+    tick(board, 1);
+    await vi.advanceTimersByTimeAsync(0);
+    tick(board, 1);
+
+    const gameId = await connectPlayer(board, { socketId: 's1' });
+
+    joinTeam(board, gameId, 'team1');
+
+    const frames = boardSocket.framesOf('sendAccolades');
+
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.at(-1).args[0][String(gameId)]).toEqual({ daily: 2, monthly: 2 });
   });
 
   it("в режиме stat 'leaderboard' хост stat не шлёт вовсе", async () => {

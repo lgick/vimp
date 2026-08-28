@@ -1,4 +1,5 @@
 import lobbyConfig from '../../../config/lobby.js';
+import { nickKey } from '../../../lib/validators.js';
 
 // Кто из участников комнаты сейчас в глобальном топ-10 — дневном и
 // месячном (snakes-v3 этап 4). Источник — тот же публичный топ, что рисует
@@ -55,20 +56,23 @@ export default class Accolades {
     this.refresh();
   }
 
-  // force — вход участника: у новичка знак должен появиться сразу, а не
-  // через refreshInterval
-  async refresh({ force = false } = {}) {
+  // состав комнаты изменился (вход участника): места пересчитываются
+  // ЛОКАЛЬНО — срезы уже лежат в _tops, и ходить за ними ради новичка
+  // незачем. Ходили бы: по два запроса на каждый вход, а при уже летящем
+  // опросе новичок ещё и терялся бы до следующего refreshInterval, потому
+  // что _inFlight глушит вызов целиком
+  noteRoster() {
+    this._recompute();
+  }
+
+  async refresh() {
     const now = this._now();
 
     if (this._inFlight) {
       return;
     }
 
-    if (
-      !force &&
-      this._lastRefreshAt !== null &&
-      now - this._lastRefreshAt < this._interval
-    ) {
+    if (this._lastRefreshAt !== null && now - this._lastRefreshAt < this._interval) {
       return;
     }
 
@@ -85,6 +89,16 @@ export default class Accolades {
     } finally {
       this._inFlight = false;
     }
+  }
+
+  // Текущие места целиком — для участника, который ТОЛЬКО ЧТО стал готов
+  // принимать данные. Рассылка через shift() ему не досталась бы: она
+  // уходит только тем, кто уже в getNetworkedReady(), а места новичка
+  // считаются на входе, за всю загрузку карты до его готовности. Один раз
+  // отданный shift() второй раз не повторится (места с тех пор не менялись),
+  // и знак не появился бы до первого чужого входа
+  current() {
+    return this._places;
   }
 
   // { [gameId]: { daily, monthly } } или null, если с прошлого вызова
@@ -130,7 +144,7 @@ export default class Accolades {
         // уникальность ника в auth регистронезависимая (миграция 002) —
         // сопоставлять надо так же, иначе «Alice» и «alice» разъедутся
         if (row?.nick) {
-          places.set(String(row.nick).toLowerCase(), Number(row.place));
+          places.set(nickKey(row.nick), Number(row.place));
         }
       }
 
@@ -147,11 +161,28 @@ export default class Accolades {
     const places = {};
 
     for (const participant of this._participants.getAll()) {
-      const nick = String(participant.name ?? '').toLowerCase();
       const entry = {};
 
       for (const award of Object.keys(this._periods)) {
-        entry[award] = this._tops.get(award)?.get(nick) ?? null;
+        entry[award] = null;
+      }
+
+      // Знак — только участнику с проверенной личностью. В лобби это ничего
+      // не меняет: там `name` и есть claim проверенного identity-токена
+      // (host/identity.js: createTokenIdentity.resolve возвращает
+      // payload.nick, и PortMachine передаёт в createUser именно его), а не
+      // то, что игрок написал в форме.
+      //
+      // Меняет это в гостевом контуре (standalone/dedicated), где ник —
+      // поле формы и «не защищён от подмены» по прямому признанию
+      // createGuestIdentity. Токена у гостя нет, и сопоставление по нику
+      // выдало бы ему чужую корону — стоит она ровно того, что значит.
+      if (participant.token) {
+        const nick = nickKey(participant.name);
+
+        for (const award of Object.keys(this._periods)) {
+          entry[award] = this._tops.get(award)?.get(nick) ?? null;
+        }
       }
 
       places[String(participant.gameId)] = entry;

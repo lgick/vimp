@@ -57,7 +57,9 @@ export default class PlayerDataSync {
     this._flushInterval = Math.round(
       settings.minFlushInterval * (1 + (random() * 2 - 1) * settings.flushJitter),
     );
-    this._slotMs = 1000 / settings.maxRequestsPerSecond;
+    // вверх, а не как получится: слот, округлённый вниз, выпускал бы чуть
+    // больше запросов в секунду, чем объявленный потолок
+    this._slotMs = Math.ceil(1000 / settings.maxRequestsPerSecond);
     // очередь комнаты: запросы уходят последовательно, не чаще одного за
     // _slotMs — flush комнаты на 32 участника растягивается на секунды
     // вместо залпа
@@ -95,6 +97,10 @@ export default class PlayerDataSync {
       pendingBest: 0, // лучшая завершённая игра, ещё не отправленная
       placementRefreshedAt: Object.fromEntries(PERIODS.map(period => [period, 0])),
       inFlight: false,
+      // промис текущей серии flush: его отдают повторные вызовы, чтобы
+      // граница, которая ждёт записи (destroy, уход участника), ждала её
+      // по-настоящему
+      inFlightPromise: null,
       flushAgain: false,
       lastFlushAt: 0,
     };
@@ -188,10 +194,21 @@ export default class PlayerDataSync {
         for (const period of PERIODS) {
           const slice = json[period] ?? {};
           const rating = entry.ratings[period];
+          const server = Number(slice.rank) || 0;
 
           // F9: во время await мог накопиться finishGame поверх стартового
-          // нуля — прибавляем, а не перетираем серверным значением
-          rating.value += Number(slice.rank) || 0;
+          // нуля — перетирать его серверным значением нельзя. Но и складывать
+          // с ним можно не всегда: СРЕЗЫ АГРЕГИРУЮТСЯ ПО-РАЗНОМУ, ровно как в
+          // finishGame — день это МАКСИМУМ одной игры, месяц сумма, all-time
+          // локально не двигается вовсе (суточный снимок).
+          //
+          // Путь этот не только про гонку на входе: _sync повторяет load()
+          // после неудачной первой загрузки, и к тому моменту игрок успел
+          // доиграть несколько жизней — сложение дало бы дневному срезу
+          // сумму вместо максимума, и refreshPlacement её бы не исправил
+          // (при непустом pending он берёт Math.max с показанным)
+          rating.value =
+            period === 'month' ? rating.value + server : Math.max(rating.value, server);
           rating.placement = slice.placement ?? null;
           rating.total = Number(slice.total) || 0;
           entry.placementRefreshedAt[period] = at;
@@ -259,6 +276,10 @@ export default class PlayerDataSync {
       return this.getRating(participantId, period);
     }
 
+    // метка ставится ДО запроса и на сбое не сбрасывается: это анти-флуд, а
+    // не кэш. `/rank` в чате может звать кто угодно и сколько угодно, и
+    // лежащий мастер не должен превращать это в отправку запроса на каждое
+    // сообщение — цена в том, что после сбоя игрок ждёт TTL
     entry.placementRefreshedAt[period] = now;
 
     try {
@@ -399,23 +420,33 @@ export default class PlayerDataSync {
 
     // один запрос в полёте на участника: повторный вызов ставит флаг, а не
     // стартует второй запрос — по завершении делается один повтор, и
-    // добавленное во время await уходит им
+    // добавленное во время await уходит им.
+    //
+    // Наружу при этом отдаётся промис ТЕКУЩЕЙ серии, а не resolved: destroy()
+    // комнаты ждёт именно flushAll, и «нечего ждать, запрос уже летит» было
+    // бы враньём — Worker сняли бы раньше, чем ушёл повтор с последними
+    // очками
     if (entry.inFlight) {
       entry.flushAgain = true;
 
-      return;
+      return entry.inFlightPromise;
     }
 
-    entry.inFlight = true;
+    entry.inFlightPromise = (async () => {
+      entry.inFlight = true;
 
-    try {
-      do {
-        entry.flushAgain = false;
-        await this._sync(participantId, entry);
-      } while (entry.flushAgain);
-    } finally {
-      entry.inFlight = false;
-    }
+      try {
+        do {
+          entry.flushAgain = false;
+          await this._sync(participantId, entry);
+        } while (entry.flushAgain);
+      } finally {
+        entry.inFlight = false;
+        entry.inFlightPromise = null;
+      }
+    })();
+
+    return entry.inFlightPromise;
   }
 
   // F4: если исходная load() не удалась, PUT дефолтом затёр бы реальные
@@ -446,19 +477,32 @@ export default class PlayerDataSync {
             body: { points, best, hostId: this._hostId, hostSecret: this._hostSecret },
           }),
         ).then(res => {
-          if (res.ok) {
-            this._noteSuccess();
+          // pendingBest только растёт: если он тот же — отправленное учтено
+          // целиком; если больше — во время запроса закончилась игра лучше,
+          // и её максимум ещё не отправлен
+          const drop = () => {
             entry.pendingPoints -= points;
 
-            // pendingBest только растёт: если он тот же — отправленное
-            // учтено целиком; если больше — во время запроса закончилась
-            // игра лучше, и её максимум ещё не отправлен
             if (entry.pendingBest === best) {
               entry.pendingBest = 0;
             }
+          };
+
+          if (res.ok) {
+            this._noteSuccess();
+            drop();
           } else {
             this._noteStatus(res.status);
             console.warn(`[playerData] PUT rank ${res.status} for ${participantId}`);
+
+            // 4xx (кроме 429) — отказ ПО СОДЕРЖАНИЮ: повтор того же тела
+            // получит тот же ответ. Оставить его в pending значит слать
+            // заведомый мусор на каждом flush до конца жизни комнаты, а
+            // накопленное сверху — сверх него. Очки теряются, и это честнее
+            // вечного цикла (сам отказ уже в логе выше)
+            if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+              drop();
+            }
           }
         }),
       );

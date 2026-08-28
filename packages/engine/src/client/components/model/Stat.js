@@ -1,4 +1,5 @@
 import Publisher from '../../../lib/Publisher.js';
+import { nickKey } from '../../../lib/validators.js';
 
 // Singleton StatModel
 
@@ -122,6 +123,9 @@ export default class StatModel {
       return;
     }
 
+    // метка ставится ДО запроса и на сбое не сбрасывается: Tab жмут часто, и
+    // лежащий мастер не должен превращать каждое нажатие в запрос. Цена в
+    // том, что после сбоя список обновится не раньше refreshMs
     this._lastFetchAt = now;
 
     const [board, placement] = await Promise.all([
@@ -164,10 +168,10 @@ export default class StatModel {
       return rows;
     }
 
-    const lower = String(nick).toLowerCase();
+    const lower = nickKey(nick);
     const marked = rows.map(row => ({
       ...row,
-      isSelf: String(row.nick).toLowerCase() === lower,
+      isSelf: nickKey(row.nick) === lower,
     }));
 
     if (marked.some(row => row.isSelf) || !placement) {

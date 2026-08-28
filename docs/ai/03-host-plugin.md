@@ -441,14 +441,29 @@ host Worker takes the room down.
   servers do not write on the same second);
 - a room-wide queue capped at `maxRequestsPerSecond`, and an exponential room
   backoff on `5xx` / `429` / network failures;
-- `{ urgent: true }` bypasses the interval. The engine uses it on a
-  participant's departure and on `destroy()`; a game may pass it too, and
-  should reserve it for a boundary a player is about to look at (a new daily
-  best right before the leaderboard opens).
+- `{ urgent: true }` bypasses the interval AND the backoff. The engine uses it
+  on a participant's departure and on `destroy()`; a game may pass it too, and
+  should reserve it for a boundary a player is about to look at — a new daily
+  best right before the leaderboard opens, not every death. Spending it on a
+  routine event spends the room's whole budget on that event and leaves the
+  room living in `429`; nothing is lost by waiting, since the points sit in the
+  participant's pending counters until the next flush either way.
+
+A repeated `flush` while one is already in flight does not start a second
+request — it flags a repeat and returns the promise of the series in progress,
+so a boundary that must not outrun the write (`destroy()`, a departure) really
+does wait for it.
+
+A `4xx` other than `429` drops the payload instead of retrying it: the result
+was refused on its content, and the same body would be refused again — keeping
+it would send known garbage on every flush for the rest of the room's life.
 
 The master holds the ceiling for a host that ignores all of the above:
 `master:playerData:writesPerMinute` per verified room (over it → `429`) and
-`maxGameScore` clamping the result of a single game.
+`maxGameScore` clamping the result of a single game. Keep the room's
+`maxRequestsPerSecond` below `writesPerMinute / 60`, and a per-game
+`maxGameScore` such that `maxGameScore × 20` still fits auth's `rank.maxPoints`
+— a body the master forwards and auth refuses is the `4xx` case above.
 
 It is best-effort and never rejects, so there is nothing to await and nothing
 to catch.

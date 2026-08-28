@@ -371,7 +371,10 @@ host: the lobby happens before connecting to a host.
   (one slice re-asked by `refreshPlacement`). The budget:
   `minFlushInterval: 60000` ms per participant, `flushJitter: 0.2` (±20 % per
   room, so hundreds of servers do not write on the same second),
-  `maxRequestsPerSecond: 5` (the room's request queue),
+  `maxRequestsPerSecond: 3` (the room's request queue — held strictly below
+  the master's own ceiling, `master:playerData:writesPerMinute / 60 = 4/s`, so
+  the queue throttles itself instead of learning its limit from a `429` that
+  costs a round trip and drops the whole room into backoff),
   `backoff: { baseMs: 2000, maxMs: 120000 }` (the room's exponential backoff
   on `5xx`/`429`/network failures) and `placementTtl: 30000` (the throttle on
   `refreshPlacement`). Nothing is sent when nothing changed, so a quiet room

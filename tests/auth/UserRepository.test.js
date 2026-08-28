@@ -677,8 +677,29 @@ describe('UserRepository', () => {
 // snakes-v3 (stage_2.md, 2.4): all-time — суточный снимок, а не пересчёт на
 // каждой записи
 describe('ratingsJob', () => {
+  // пул с одним соединением: блокировка сессионная, поэтому прогон берёт
+  // клиента и держит его до конца. `got` — что ответил pg_try_advisory_lock
+  function createPoolStub(handlers, { got = true } = {}) {
+    const client = {
+      query: vi.fn((text, values) => {
+        if (text.includes('pg_try_advisory_lock')) {
+          return { rows: [{ got }] };
+        }
+
+        if (text.includes('pg_advisory_unlock')) {
+          return { rows: [{ 'pg_advisory_unlock': true }] };
+        }
+
+        return handlers(text, values);
+      }),
+      release: vi.fn(),
+    };
+
+    return { pool: { connect: async () => client }, client };
+  }
+
   it('refreshRatings суммирует только события после ratings.updated_at', async () => {
-    const db = createDbStub(text => {
+    const { pool } = createPoolStub(text => {
       expect(text).toMatch(/INSERT INTO ratings/);
       expect(text).toMatch(/SUM\(e\.delta\)/);
       expect(text).toMatch(/e\.created_at >= COALESCE\(r\.updated_at, '-infinity'::timestamptz\)/);
@@ -687,28 +708,60 @@ describe('ratingsJob', () => {
       return { rowCount: 3, rows: [] };
     });
 
-    await expect(refreshRatings(db)).resolves.toBe(3);
+    await expect(refreshRatings(pool)).resolves.toBe(3);
   });
 
   it('refreshRatings клампит результат в config.rank.min/max прямо в запросе', async () => {
-    const db = createDbStub((text, values) => {
+    const { pool } = createPoolStub((text, values) => {
       expect(text).toMatch(/LEAST\(\$2, GREATEST\(\$1, COALESCE\(r\.rank, 0\) \+ SUM\(e\.delta\)\)\)/);
       expect(values).toEqual([config.rank.min, config.rank.max]);
 
       return { rowCount: 0, rows: [] };
     });
 
-    await refreshRatings(db);
+    await refreshRatings(pool);
   });
 
   it('refreshRatings переставляет курсор updated_at на now()', async () => {
-    const db = createDbStub(text => {
+    const { pool } = createPoolStub(text => {
       expect(text).toMatch(/DO UPDATE SET rank = EXCLUDED\.rank, updated_at = now\(\)/);
 
       return { rowCount: 1, rows: [] };
     });
 
-    await refreshRatings(db);
+    await refreshRatings(pool);
+  });
+
+  // запрос инкрементный (prev + SUM новых событий): второй параллельный
+  // прогон не сделал бы лишнюю работу, а удвоил бы суточные очки всем
+  it('refreshRatings не считает ничего, если замок занят другим прогоном', async () => {
+    const { pool, client } = createPoolStub(
+      text => {
+        throw new Error('unexpected query: ' + text);
+      },
+      { got: false },
+    );
+
+    await expect(refreshRatings(pool)).resolves.toBe(0);
+
+    const texts = client.query.mock.calls.map(([text]) => text);
+
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatch(/pg_try_advisory_lock/);
+    expect(client.release).toHaveBeenCalled();
+  });
+
+  it('refreshRatings снимает замок и возвращает соединение даже на сбое', async () => {
+    const { pool, client } = createPoolStub(() => {
+      throw new Error('db is down');
+    });
+
+    await expect(refreshRatings(pool)).rejects.toThrow('db is down');
+
+    const texts = client.query.mock.calls.map(([text]) => text);
+
+    expect(texts.at(-1)).toMatch(/pg_advisory_unlock/);
+    expect(client.release).toHaveBeenCalled();
   });
 
   it('msUntilNextRun указывает на ближайшие 00:05 UTC', () => {

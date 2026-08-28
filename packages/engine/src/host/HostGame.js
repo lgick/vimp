@@ -534,6 +534,19 @@ export default class HostGame {
     user.isReady = true;
     this._socketManager.sendTechInform(socketId);
     this._socketManager.sendFirstVote(socketId);
+
+    // места в глобальном топе — целиком и лично, как и первый кадр stat.
+    // Периодическая рассылка (shift() в игровом цикле) уходит только тем,
+    // кто УЖЕ готов, а места новичка посчитаны на его входе, за всю загрузку
+    // карты до этой строки: та рассылка ушла бы без него и не повторилась
+    // бы — места с тех пор не менялись, — и знак не появился бы до первого
+    // чужого входа. В комнате, куда больше никто не заходит, никогда
+    const places = this._accolades.current();
+
+    if (Object.keys(places).length) {
+      this._socketManager.sendAccolades(socketId, places);
+    }
+
     this._chat.pushSystem('USER_JOINED', [user.name]);
 
     // noSpectators: голосования за вход нет — участник уже в играющей
@@ -892,8 +905,9 @@ export default class HostGame {
     this._playerDataSync.load(gameId, params.token);
 
     // место новичка в глобальном топе: знак должен появиться сразу, а не
-    // на следующем периодическом опросе
-    this._accolades.refresh({ force: true });
+    // на следующем периодическом опросе. Это пересчёт по уже известным
+    // срезам, а не поход за ними — за топом ходит только tick()
+    this._accolades.noteRoster();
 
     queueMicrotask(() => {
       cb(gameId);

@@ -32,14 +32,51 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // ровно в полночь, и пять минут форы разводят два события в логах
 const RUN_AT_MINUTE = 5;
 
+// Ключ консультативной блокировки прогона. Произвольное число, важна только
+// его уникальность в пределах базы — pg_advisory_lock живёт в общем для всей
+// БД пространстве ключей.
+const LOCK_KEY = 0x72617469; // 'rati'
+
+// Прогон обязан быть ОДИН. Запрос инкрементный (prev + SUM новых событий), и
+// два параллельных прогона не «сделают лишнюю работу», а удвоят суточные
+// очки каждому игроку: второй читает то же самое ratings.updated_at, потому
+// что первый ещё не закоммитил своё now(). Восстановить это можно только
+// полным recomputeRank по всем парам.
+//
+// Параллельность здесь не гипотетическая: реплик auth может быть больше
+// одной (startRatingsJob зовётся при старте КАЖДОГО процесса), ручной
+// `npm run db:ratings` может совпасть с плановым, а перезапуск процесса —
+// попасть ровно в окно прогона.
+//
+// Блокировка сессионная, поэтому ей нужно ОДНО соединение на всё время
+// прогона: через пул каждый запрос мог бы уйти в разное соединение, и
+// разблокировка не нашла бы своего замка.
 export async function refreshRatings(db) {
-  const started = Date.now();
-  const result = await db.query(REFRESH_SQL, [config.rank.min, config.rank.max]);
-  const rows = result?.rowCount ?? 0;
+  const client = await db.connect();
 
-  console.info(`[ratings] refreshed ${rows} rows in ${Date.now() - started} ms`);
+  try {
+    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [LOCK_KEY]);
 
-  return rows;
+    if (!lock.rows?.[0]?.got) {
+      console.info('[ratings] another run holds the lock, skipping');
+
+      return 0;
+    }
+
+    try {
+      const started = Date.now();
+      const result = await client.query(REFRESH_SQL, [config.rank.min, config.rank.max]);
+      const rows = result?.rowCount ?? 0;
+
+      console.info(`[ratings] refreshed ${rows} rows in ${Date.now() - started} ms`);
+
+      return rows;
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY]);
+    }
+  } finally {
+    client.release?.();
+  }
 }
 
 // миллисекунды до ближайших 00:05 UTC
@@ -55,28 +92,35 @@ export function msUntilNextRun(now = Date.now()) {
   return next.getTime() - now;
 }
 
-// планировщика в auth нет — минимальный свой: таймаут до ближайших 00:05 UTC,
-// дальше сутки. Оба таймера .unref(), чтобы задача не держала процесс
+// планировщика в auth нет — минимальный свой: таймаут до ближайших 00:05 UTC
+// и новый таймаут после каждого прогона. Именно таймаут, а не суточный
+// setInterval: интервал отсчитывает сутки от предыдущего СРАБАТЫВАНИЯ, а
+// таймеры Node точности не обещают — за месяцы прогон уехал бы с 00:05 на
+// произвольное время. Пересчёт от календаря возвращает его на место после
+// каждой задержки. Таймер .unref(), чтобы задача не держала процесс
 export function startRatingsJob(db) {
-  const run = () => {
-    refreshRatings(db).catch(err => console.error('[ratings] refresh failed', err));
+  let timer = null;
+  let stopped = false;
+
+  const schedule = () => {
+    if (stopped) {
+      return;
+    }
+
+    timer = setTimeout(() => {
+      refreshRatings(db)
+        .catch(err => console.error('[ratings] refresh failed', err))
+        .finally(schedule);
+    }, msUntilNextRun());
+
+    timer.unref?.();
   };
 
-  let interval = null;
-  const timeout = setTimeout(() => {
-    run();
-    interval = setInterval(run, DAY_MS);
-    interval.unref?.();
-  }, msUntilNextRun());
-
-  timeout.unref?.();
+  schedule();
 
   return () => {
-    clearTimeout(timeout);
-
-    if (interval) {
-      clearInterval(interval);
-    }
+    stopped = true;
+    clearTimeout(timer);
   };
 }
 

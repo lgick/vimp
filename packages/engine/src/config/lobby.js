@@ -61,7 +61,11 @@ export default {
     placementUrl: '/auth/placement',
     minFlushInterval: 60000, // мс на участника
     flushJitter: 0.2, // ±20 % на комнату: сотни серверов по круглому таймеру
-    maxRequestsPerSecond: 5, // потолок очереди запросов комнаты
+    // потолок очереди запросов комнаты. Держится СТРОГО НИЖЕ потолка
+    // мастера (master:playerData:writesPerMinute / 60 = 4/с): очередь должна
+    // тормозить сама, а не через 429 — отказ стоит round-trip'а и уводит в
+    // бэкофф всю комнату, то есть задерживает и тех, кто ни при чём
+    maxRequestsPerSecond: 3,
     backoff: { baseMs: 2000, maxMs: 120000 },
     placementTtl: 30000, // троттлинг refreshPlacement, мс
   },

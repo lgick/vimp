@@ -124,9 +124,19 @@ history behind it. `packages/auth/src/db/ratingsJob.js` is the daily job that
 moves the cache instead — it runs at **00:05 UTC** (five minutes after the
 daily slice resets, so the two events are apart in the log), sums only the
 events that arrived since `ratings.updated_at` and moves that cursor to
-`now()`. `npm -w @vimp/auth run db:ratings` runs it by hand. The consequence
-is worth stating out loud: the all-time list and the caller's own all-time row
-both show the snapshot taken at 00:00 UTC, and today's games are not in it.
+`now()`. `npm -w @vimp/auth run db:ratings` runs it by hand.
+
+The run takes a **session-scoped advisory lock** (`pg_try_advisory_lock`) on a
+dedicated connection and skips itself if the lock is held. That is not
+housekeeping: the statement is incremental (`previous rank + SUM(new events)`),
+so two runs overlapping would not merely duplicate work, they would DOUBLE
+every player's day — the second one reads the same `ratings.updated_at`,
+because the first has not committed its `now()` yet. And overlap is easy to
+arrange: `startRatingsJob` runs in every auth process, a manual `db:ratings`
+can land on the scheduled one, and a restart can fall inside the window. The
+consequence of the daily cadence is worth stating out loud too: the all-time
+list and the caller's own all-time row both show the snapshot taken at
+00:00 UTC, and today's games are not in it.
 
 **Write limits.** `config.rank` no longer holds a per-match `maxDelta` but two
 absolute ceilings on a result: `maxGameScore` (10 000, one game) and

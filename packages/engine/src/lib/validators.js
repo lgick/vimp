@@ -169,6 +169,17 @@ export const clampLimit = (value, fallback, max) => {
   return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
 };
 
+// Сколько завершённых игр движок может склеить в один запрос: окно склейки
+// на его стороне — минута (lobbyConfig.playerData.minFlushInterval), столько
+// игр в неё не влезает.
+//
+// Множитель СВЯЗАН с rank.maxPoints auth-сервиса (packages/auth/src/config/
+// auth.js): мастер не должен пропускать то, что auth отклонит. Отклонённое
+// тело для хоста неустранимо — PlayerDataSync повторял бы его до конца жизни
+// комнаты, — поэтому при правке per-game maxGameScore проверяется и потолок
+// суммы на той стороне.
+const MERGED_GAMES_PER_WINDOW = 20;
+
 // клампит результат игры (snakes-v3 этап 3.3): `best` — очки ОДНОЙ игры,
 // `points` — сумма склеенных игр с прошлой синхронизации. Потолок одной
 // игры объявляет сама игра (master:games[].maxGameScore), потолок суммы —
@@ -178,7 +189,7 @@ export const clampLimit = (value, fallback, max) => {
 // результата не должна пропадать из-за одной аномальной строки.
 // Инвариант `best <= points` держится и после клампа — auth его требует
 export const clampGameResult = (points, best, maxGameScore) => {
-  const maxPoints = maxGameScore * 20;
+  const maxPoints = maxGameScore * MERGED_GAMES_PER_WINDOW;
   const toInt = value => {
     const num = Math.trunc(Number(value));
 
@@ -197,3 +208,10 @@ export const clampGameResult = (points, best, maxGameScore) => {
     clamped: cappedBest !== toInt(best) || cappedPoints !== toInt(points),
   };
 };
+
+// Ключ сопоставления ника с глобальным топом. Уникальность users.nick в auth
+// регистронезависимая (миграция 002), поэтому и сравнивать надо так же —
+// иначе «Alice» и «alice» разъедутся. Правило одно, а мест, где по нику
+// ищут, три (host/meta/modules/Accolades.js, client/components/model/Stat.js
+// и сам auth), поэтому оно живёт здесь, а не переписывается в каждом.
+export const nickKey = nick => String(nick ?? '').toLowerCase();

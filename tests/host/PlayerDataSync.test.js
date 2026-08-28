@@ -167,6 +167,46 @@ describe('PlayerDataSync.load', () => {
   });
 });
 
+// повторный load() — обычный путь, а не гонка: _sync повторяет его после
+// неудачной первой загрузки, и к тому моменту игрок успел доиграть
+describe('PlayerDataSync.load: срезы агрегируются каждый по-своему', () => {
+  it('день берёт максимум, месяц складывает, all-time не двигается локально', async () => {
+    let offline = true;
+    const fetchImpl = makeFetch({
+      placements: () =>
+        offline
+          ? fail(503)
+          : okJson({
+              day: { rank: 50, placement: 3, total: 100 },
+              month: { rank: 500, placement: 7, total: 100 },
+              all: { rank: 5000, placement: 9, total: 100 },
+            }),
+    });
+    const { sync } = makeSync(fetchImpl);
+
+    // auth недоступен на входе: участник стартует с нулей
+    await sync.load('p1', 'tok');
+
+    expect(sync.isRatingLoaded('p1')).toBe(false);
+
+    // и успевает доиграть две жизни до того, как загрузка удалась
+    sync.addPoints('p1', 100);
+    sync.finishGame('p1');
+    sync.addPoints('p1', 30);
+    sync.finishGame('p1');
+
+    offline = false;
+    await sync.load('p1', 'tok');
+
+    // день — МАКСИМУМ одной игры: 100 против серверных 50, а не 150
+    expect(sync.getRating('p1', 'day').value).toBe(100);
+    // месяц — сумма: 130 своих плюс 500 серверных
+    expect(sync.getRating('p1', 'month').value).toBe(630);
+    // all-time локально не двигается вовсе — это суточный снимок
+    expect(sync.getRating('p1', 'all').value).toBe(5000);
+  });
+});
+
 describe('PlayerDataSync.finishGame', () => {
   const loaded = async () => {
     const fetchImpl = makeFetch({ placements: () => okJson({}) });
@@ -565,18 +605,76 @@ describe('PlayerDataSync: предел синхронизации', () => {
 
     expect(putCalls(fetchImpl)).toHaveLength(1);
 
+    // повторный вызов ждёт ТЕКУЩУЮ серию, а не резолвится сразу: граница,
+    // которая ждёт записи (destroy комнаты, уход участника), обязана дождаться
+    // повтора, а не решить, что писать уже нечего
+    let secondSettled = false;
+
+    second.then(() => {
+      secondSettled = true;
+    });
+
     pending.shift()();
-    await second;
     // цикл flush'а выпускает повтор — им и уходит добавленное во время запроса
     await vi.waitFor(() => expect(pending).toHaveLength(1));
+
+    expect(secondSettled).toBe(false);
+
     pending.shift()();
     await first;
+    await second;
+
+    expect(secondSettled).toBe(true);
 
     const puts = putCalls(fetchImpl);
 
     expect(puts).toHaveLength(2);
     expect(JSON.parse(puts[0][1].body)).toMatchObject({ points: 5, best: 5 });
     expect(JSON.parse(puts[1][1].body)).toMatchObject({ points: 7, best: 7 });
+  });
+
+  // отказ по содержанию неустраним: тот же payload получит тот же ответ, и
+  // держать его в pending значит слать заведомый мусор до конца жизни комнаты
+  it('перестаёт повторять результат, отклонённый как невалидный (400)', async () => {
+    const fetchImpl = makeFetch({ put: () => fail(400) });
+    const { sync, clock } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    sync.addPoints('p1', 5);
+    sync.finishGame('p1');
+
+    await sync.flush('p1', { urgent: true });
+
+    expect(putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank'))).toHaveLength(1);
+
+    clock.now += lobbyConfig.playerData.minFlushInterval;
+    await sync.flush('p1');
+
+    // отклонённое не поехало второй раз
+    expect(putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank'))).toHaveLength(1);
+  });
+
+  it('повторяет результат, отклонённый потолком записи (429)', async () => {
+    // 429 — «сейчас нельзя», а не «так и будет»: это единственный 4xx, после
+    // которого повтор имеет смысл
+    let limited = true;
+    const fetchImpl = makeFetch({ put: () => (limited ? fail(429) : okJson({ ok: true })) });
+    const { sync, clock } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    sync.addPoints('p1', 5);
+    sync.finishGame('p1');
+
+    await sync.flush('p1', { urgent: true });
+
+    limited = false;
+    clock.now += lobbyConfig.playerData.minFlushInterval;
+    await sync.flush('p1', { urgent: true });
+
+    const ranks = putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank'));
+
+    expect(ranks).toHaveLength(2);
+    expect(JSON.parse(ranks[1][1].body)).toMatchObject({ points: 5, best: 5 });
   });
 
   it('500 от auth включает бэкофф комнаты, успех его сбрасывает', async () => {
@@ -628,9 +726,11 @@ describe('PlayerDataSync: предел синхронизации', () => {
     await sync.flushAll();
 
     expect(putCalls(fetchImpl)).toHaveLength(4);
-    // четыре запроса при потолке 5/с — три интервала ожидания
+    // четыре запроса при потолке maxRequestsPerSecond — три интервала
+    // ожидания. Слот округляется вверх (иначе потолок был бы чуть выше
+    // объявленного), поэтому и здесь Math.ceil
     expect(clock.now - startedAt).toBe(
-      (3 * 1000) / lobbyConfig.playerData.maxRequestsPerSecond,
+      3 * Math.ceil(1000 / lobbyConfig.playerData.maxRequestsPerSecond),
     );
   });
 });

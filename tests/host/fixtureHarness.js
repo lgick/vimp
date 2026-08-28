@@ -25,11 +25,15 @@ export const flushMicro = () =>
 // Полный онбординг игрока до isReady=true. Возвращает gameId.
 export const connectPlayer = async (
   host,
-  { name = 'P1', model = 'm1', socketId = 's1' } = {},
+  { name = 'P1', model = 'm1', socketId = 's1', token = 'tok' } = {},
 ) => {
   let gameId;
 
-  host.createUser({ name, model }, socketId, id => {
+  // токен доезжает до участника так же, как в проде: PortMachine передаёт в
+  // createUser всё тело авторизации плюс проверенный ник. Он не декорация —
+  // по нему PlayerDataSync ходит на мастер, а Accolades отличает игрока с
+  // проверенной личностью от гостя
+  host.createUser({ name, model, token }, socketId, id => {
     gameId = id;
   });
 

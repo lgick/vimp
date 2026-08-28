@@ -54,6 +54,59 @@ bumps the minor version).
   service still accepts `delta` as an alias of `points` for one version, so
   an older host keeps working.
 
+- `lobbyConfig.playerData.maxRequestsPerSecond` is `3`, not `5`: it has to sit
+  below the master's own ceiling (`master:playerData:writesPerMinute / 60` =
+  4/s), or the room learns its limit from a `429` that costs a round trip and
+  drops everybody in the room into backoff.
+
+- A join no longer forces a leaderboard fetch. `Accolades.noteRoster()`
+  recomputes the room's places from the slices already in hand, so a rush of
+  joins costs no requests, and a newcomer is no longer skipped when a poll
+  happens to be in flight. `refresh()` lost its `force` option.
+
+### Fixed
+
+- **The daily `ratings` job could double every player's day.** The statement
+  is incremental (`previous rank + SUM(new events)`), and two overlapping runs
+  both read the same `ratings.updated_at` — the first has not committed its
+  `now()` yet. `startRatingsJob` runs in every auth process, so overlap took
+  no more than a second replica, a manual `db:ratings`, or a restart inside
+  the window. The run now takes a session advisory lock on a dedicated
+  connection and skips itself if the lock is held, and it reschedules from the
+  calendar after each run instead of drifting on a 24 h `setInterval`.
+
+- `PlayerDataSync.load()` added the server's value to the local one for every
+  slice, including the daily one — but the daily slice is a MAXIMUM, and
+  `finishGame` maintains it as such. A player whose first load failed and who
+  then finished a few games saw an inflated daily value after the retry
+  (`_sync` reloads before syncing), and `refreshPlacement` preserved it rather
+  than correcting it. Each slice is now merged the way it is aggregated.
+
+- A repeated `flush` while one was in flight resolved immediately, so
+  `destroy()` and a participant's departure could outrun the write they were
+  meant to guarantee. The repeat now returns the promise of the series in
+  progress.
+
+- A result refused with a `4xx` other than `429` stayed in the pending
+  counters and was re-sent on every subsequent flush for the rest of the
+  room's life, growing as new games were added to it. Such a body is refused
+  on its content and is now dropped.
+
+- **The only player in a room never got their places at all**, so a badge
+  earned in the global top simply did not appear. Places are computed when a
+  participant joins, the broadcast goes out to clients that are already
+  `isReady`, and a joining client becomes ready an entire map load later — the
+  frame was consumed by a tick with nobody to send it to and never repeated,
+  since nothing changed afterwards. In a room where nobody else ever joined,
+  the badge never showed. A participant is now sent the current places
+  personally the moment they become ready, the way the first stat frame works.
+
+- A place in the global top is handed only to a participant with a verified
+  identity. Matching is by nickname, which in the lobby is the claim of a
+  verified token — but in the guest contour it is a form field that
+  `createGuestIdentity` openly calls spoofable, and a guest could wear a
+  stranger's crown by naming themselves after them.
+
 
 ## [0.20.0] — 2026-08-27
 
