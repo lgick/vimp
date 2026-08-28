@@ -235,12 +235,55 @@ describe('RoundManager.overrideMapData', () => {
 
   it('подменяет карту старта раунда, не начиная раунд', () => {
     const rm = makeCtx();
-    const scaled = { respawns: { players: [[9, 9, 0]] } };
+    const mapData = {
+      scale: 1,
+      step: 128,
+      respawns: { players: [[9, 9, 0]] },
+    };
 
-    rm.overrideMapData(scaled);
+    rm.overrideMapData(mapData);
 
-    expect(rm._scaledMapData).toBe(scaled);
+    expect(rm._scaledMapData.respawns.players).toEqual([[9, 9, 0]]);
     expect(rm.currentMap).toBe('m1');
+  });
+
+  it('масштабирует подменённую карту так же, как карту каталога', () => {
+    // игра отдаёт карту в КЛИЕНТСКОМ виде (координаты без масштаба плюс
+    // `scale`) — тот же объект, что она рассылает через sendMap
+    const rm = makeCtx();
+
+    rm.overrideMapData({
+      scale: 2,
+      step: 64,
+      respawns: { players: [[9, 9, 0]] },
+    });
+
+    expect(rm._scaledMapData.step).toBe(128);
+    expect(rm._scaledMapData.respawns.players).toEqual([[18, 18, 0]]);
+  });
+
+  it('отдаёт подключающемуся карту, которая в силе, а не карту каталога', () => {
+    // без этого вошедший рисует геометрию каталога до тех пор, пока игра сама
+    // не пришлёт ему MAP_DATA, — то есть чужую границу
+    const user = { gameId: 'u', socketId: 'su', isReady: true };
+    const socketManager = { sendMap: vi.fn(), sendTechInform: vi.fn() };
+    const rm = makeRm({
+      teams: { players: 1 },
+      spectatorTeam: null,
+      participants: fakeParticipants({ u: user }),
+      socketManager,
+    });
+    const mapData = {
+      scale: 1,
+      step: 128,
+      respawns: { players: [[9, 9, 0]] },
+    };
+
+    rm.overrideMapData(mapData);
+    rm.sendMap('u');
+
+    expect(rm.currentMapData).toBe(mapData);
+    expect(socketManager.sendMap).toHaveBeenCalledWith('su', mapData);
   });
 
   it('пустое значение игнорируется — карту нечем заменить', () => {

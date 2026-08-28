@@ -516,6 +516,13 @@ the next round start — `/nr`, or a chat command that restarts the round —
 distributes the respawn points of the CATALOG map, i.e. of geometry the core
 no longer has. It replaces neither the room's current map nor the round.
 
+Pass it in the CLIENT shape — unscaled coordinates plus `scale`, the same
+object you broadcast with `sendMap` — because it replaces BOTH copies the
+engine holds: the scaled one `_startRound` places people on (the engine scales
+it for you, exactly as it does a catalog map) and the one a JOINING client is
+sent. Without the second, everyone who connects between two rebuilds draws the
+catalog geometry until your game sends them a map of its own.
+
 State is flushed to the master on map change, round end and participant
 departure — not on every mutation, and never faster than the budget above.
 

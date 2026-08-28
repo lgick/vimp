@@ -278,7 +278,7 @@ to still being the join-time default:
 
 `HostGame` exposes `getPlayerRank(gameId)`/`isPlayerRankLoaded(gameId)`/
 `addPlayerRank(gameId, delta)`/`flushPlayerData()`/
-`overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
+`overrideMapData(mapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` for game-plugin modules
 (and a future `/rank` chat command, Stage B5) to read/write rank and the
 opaque state blob. `getPlayerRank` answers `0` both for an unknown `gameId`

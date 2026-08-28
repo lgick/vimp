@@ -269,7 +269,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
 
 `HostGame` даёт `getPlayerRank(gameId)`/`isPlayerRankLoaded(gameId)`/
 `addPlayerRank(gameId, delta)`/`flushPlayerData()`/
-`overrideMapData(scaledMapData)`/`getPlayerState(gameId)`/
+`overrideMapData(mapData)`/`getPlayerState(gameId)`/
 `setPlayerState(gameId, state)`/`setHostId(hostId, hostSecret)` для игровых плагинов (и
 будущей чат-команды `/rank`, Этап B5), чтобы читать/писать rank и
 непрозрачный блок state. `getPlayerRank` отвечает `0` и для незнакомого

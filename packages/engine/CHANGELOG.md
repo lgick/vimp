@@ -9,6 +9,19 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- `roundManager.overrideMapData(mapData)` now replaces the map handed to a
+  JOINING client as well, not only the one the next round starts from.
+  `sendMap` sent the catalog map, so a game that rebuilds its geometry at
+  runtime (`@vimp-games/snakes`, `src/host/ArenaScaler.js`) had every joiner
+  draw a world of the original size until the game itself sent it a MAP_DATA
+  of its own — in snakes, a boundary circle the core was not enforcing. The
+  override is taken in the CLIENT shape (unscaled coordinates plus `scale`,
+  the same object the game broadcasts with `sendMap`) and scaled here exactly
+  as a catalog map is, so `_scaledMapData` stays correct for a game with
+  `mapScale !== 1`. `ENGINE_API_VERSION` is unchanged.
+
 ## [0.22.0] — 2026-08-28
 
 ### Added
