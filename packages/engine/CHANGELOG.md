@@ -26,6 +26,34 @@ bumps the minor version).
 
 ## [0.21.0] — 2026-08-28
 
+### ⚠️ Breaking
+
+- `ENGINE_API_VERSION` is **4** (was 3): v4 adds the `ACCOLADES_DATA` port
+  (18) with its sender `SocketManager.sendAccolades`, and a fifth service in
+  the client dependency pool (`accolades`). The plugin API itself did not
+  shrink — a v3 plugin needs no source change — but the version gate is
+  strict equality, so every package built against v3 is rejected until it is
+  rebuilt. The rejection is not equally loud everywhere: the lobby master
+  skips the game and keeps serving the rest of the catalog
+  (`GameCatalog: skip "<id>" — requires engine API v3, this engine build is
+  v4`), while `loadGamePackage` (dedicated server, `vimp-sim`, the inline
+  host), `loadClientPlugin` in the browser and the standalone SDK all throw.
+
+### Migration
+
+- Rebuild and republish every game package against this version — the build
+  stamps `engineApi` into `dist/manifest.json` from the installed engine —
+  then bump its pin where the master installs it (the root `package.json`)
+  and redeploy. A dedicated box (`dedicatedGame` in `SERVERS_MATRIX`) is the
+  urgent one: an unrebuilt game kills it at startup, the container
+  restart-loops and the domain answers 502, whereas a lobby master merely
+  stops offering the game.
+- A game whose tests stub the host transport by hand has to add
+  `sendAccolades` to that stub. Better: drop the hand-written copy for
+  `vimp-engine/devtools/RecordingSocketManager.js`, which reads its senders
+  off the live `SocketManager` prototype and therefore cannot fall behind
+  the engine again.
+
 ### Added
 
 - Contract rule **`C11` (`statMode`)** — an ERROR when `gameConfig.statMode`
