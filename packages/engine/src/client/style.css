@@ -396,20 +396,22 @@ body.hide-cursor {
   font-weight: bold;
 }
 
+/* --chat-name-color — цвет ника, который игра задала на конкретную строку
+   (ParticipantManager.setChatColor). Его нет — остаётся цвет команды */
 #chat-box .line:before {
-  color: #f00;
+  color: var(--chat-name-color, #f00);
 }
 
 #chat-box .line1:before {
-  color: #f56;
+  color: var(--chat-name-color, #f56);
 }
 
 #chat-box .line2:before {
-  color: #7ed;
+  color: var(--chat-name-color, #7ed);
 }
 
 #chat-box .line3:before {
-  color: #fe5;
+  color: var(--chat-name-color, #fe5);
 }
 
 #cmd {

@@ -149,6 +149,22 @@ class ParticipantManager {
     this._participants.delete(gameId);
   }
 
+  // задаёт цвет ника в чате: '#rgb'/'#rrggbb' или null (цвет команды).
+  // Единственный вход для игры — HostGame отдаёт это значение в chat.push,
+  // а клиентская view кладёт его инлайновой переменной на строку
+  setChatColor(gameId, color) {
+    const participant = this._participants.get(gameId);
+
+    if (!participant) {
+      return;
+    }
+
+    participant.chatColor =
+      typeof color === 'string' && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)
+        ? color
+        : null;
+  }
+
   get(gameId) {
     return this._participants.get(gameId);
   }

@@ -339,3 +339,42 @@ describe('ParticipantManager: restoreHuman/restoreScripted', () => {
     expect(pm.createHuman({ name: 'C', model: 'm1' }, 's2')).toBe('2');
   });
 });
+
+describe('ParticipantManager: цвет ника в чате', () => {
+  it('по умолчанию цвета нет — ник красит класс команды', () => {
+    const pm = make();
+    const gameId = pm.createHuman({ name: 'Alice', model: 'm1' }, 's1');
+
+    expect(pm.get(gameId).chatColor).toBe(null);
+  });
+
+  it('setChatColor принимает #rrggbb и #rgb', () => {
+    const pm = make();
+    const gameId = pm.createHuman({ name: 'Alice', model: 'm1' }, 's1');
+
+    pm.setChatColor(gameId, '#ff4d4d');
+    expect(pm.get(gameId).chatColor).toBe('#ff4d4d');
+
+    pm.setChatColor(gameId, '#F00');
+    expect(pm.get(gameId).chatColor).toBe('#F00');
+  });
+
+  it('мусор и сброс дают null', () => {
+    const pm = make();
+    const gameId = pm.createHuman({ name: 'Alice', model: 'm1' }, 's1');
+
+    pm.setChatColor(gameId, '#ff4d4d');
+    pm.setChatColor(gameId, 'red');
+    expect(pm.get(gameId).chatColor).toBe(null);
+
+    pm.setChatColor(gameId, '#ff4d4d');
+    pm.setChatColor(gameId, null);
+    expect(pm.get(gameId).chatColor).toBe(null);
+  });
+
+  it('неизвестный id не роняет вызов', () => {
+    const pm = make();
+
+    expect(() => pm.setChatColor('42', '#ff4d4d')).not.toThrow();
+  });
+});

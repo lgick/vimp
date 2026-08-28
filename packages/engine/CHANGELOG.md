@@ -9,6 +9,19 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `participants.setChatColor(gameId, color)` — a game may now colour a
+  player's nickname in chat with a colour of its own (`'#rgb'`/`'#rrggbb'`,
+  `null` back to the team colour). Until now the nickname could only take one
+  of the four team colours of the stylesheet, which says nothing in a game on
+  a single team. The colour lives on the participant (`Participant.chatColor`)
+  and `HostGame.pushMessage` applies it to every message that player sends;
+  `Chat.push` appends it as an optional fourth element of the message array
+  and the client view sets it as `--chat-name-color` on the line, so the CSS
+  of a game that sets no colour is untouched (`var(--chat-name-color,
+  <team colour>)`). `ENGINE_API_VERSION` is unchanged.
+
 ## [0.21.0] — 2026-08-28
 
 ### Added

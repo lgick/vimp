@@ -52,11 +52,19 @@ export default class ChatView {
     const text = message[0];
     const name = message[1] || 'System';
     const type = typeof message[2] === 'number' ? message[2] : '';
+    // цвет ника от игры (необязательный четвёртый элемент). CSS красит
+    // `:before` через var(--chat-name-color, <цвет команды>), поэтому без
+    // этого свойства строка выглядит ровно как раньше
+    const color = typeof message[3] === 'string' ? message[3] : '';
 
     line.id = `line_${id}`;
     line.className = `line${type}`;
     line.setAttribute('data-name', `${name}: `);
     line.textContent = text;
+
+    if (color) {
+      line.style.setProperty('--chat-name-color', color);
+    }
 
     this._chat.appendChild(line);
   }

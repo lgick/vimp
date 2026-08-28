@@ -150,6 +150,16 @@ The server list is configured through GitHub repository variables.
    jobs) or `git push` to `main` — the system deploys the master to every
    server in the list.
 
+After `docker compose up -d` the job waits for the container to actually
+serve: it polls `docker inspect` and `curl http://127.0.0.1:<port>/` for up
+to a minute, and a container that exits, restarts in a loop or never answers
+fails the job with the last 50 log lines printed. `docker compose up -d`
+alone would succeed even when the process dies right after start — the
+domain would answer 502 while the deploy stayed green. A dedicated box is
+the usual victim: a game built against an older `ENGINE_API_VERSION` is
+simply dropped from the lobby catalog, but kills the dedicated server at
+startup (see below).
+
 ## Dedicated game box (`dedicatedGame`)
 
 The same image also runs the [dedicated server](dedicated.md) — one 24/7
@@ -181,6 +191,13 @@ regular domain with its own port), then one extra field in
   `dist/core-node/` — the dedicated server loads the Node build of the
   core, like `npm run sim` does. A game whose `dist/` lacks it fails at
   startup with a named error, see [plugin-api.md](plugin-api.md).
+- The game must also be built against the current `ENGINE_API_VERSION`
+  (`dist/manifest.json` → `engineApi`). A stale build is not equally fatal
+  everywhere: the lobby master skips it (`GameCatalog: skip "<id>" —
+  requires engine API vN`) and keeps serving the rest of the catalog, while
+  the dedicated server has nothing to fall back to and exits at startup —
+  the container restart-loops and the domain answers 502. Publish a
+  rebuilt game package and bump its pin in the root `package.json`.
 - Room overrides (`VIMP_DEDICATED_ROOM`, see
   [configuration.md](configuration.md#environment-variables-env)) are not
   part of the matrix: add the line to `~/vimp_projects/<domain>/.env.prod`

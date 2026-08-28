@@ -383,6 +383,12 @@ export default {
 };
 ```
 
+`participants` also lets the game colour a player's nickname in chat:
+`participants.setChatColor(gameId, '#rrggbb')` (or `null` for the team
+colour). It is set once, when the game learns the player's colour, and the
+engine applies it to every message that player sends — see
+[docs/ai/03-host-plugin.md](../ai/03-host-plugin.md).
+
 There are no bots in the engine — only the neutral notion of a **scripted
 participant** (`isScripted` getter; the word "bot" does not survive in engine
 code). The engine policy "scripted participants give up their slot to

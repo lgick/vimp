@@ -26,9 +26,15 @@ class Chat {
     delete this._userList[gameId];
   }
 
-  // добавляет сообщение
-  push(message, name, teamId) {
-    this._list.push([message, name, teamId]);
+  // добавляет сообщение. color ('#rrggbb') — цвет ника, который игра задала
+  // через ParticipantManager.setChatColor; без него четвёртого элемента в
+  // массиве нет вовсе, и провод игры, которая цвет не задаёт, не меняется
+  push(message, name, teamId, color) {
+    if (typeof color === 'string') {
+      this._list.push([message, name, teamId, color]);
+    } else {
+      this._list.push([message, name, teamId]);
+    }
   }
 
   // добавляет системное сообщение для всех

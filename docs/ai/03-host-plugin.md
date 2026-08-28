@@ -214,7 +214,9 @@ The context is exactly:
 { participants, coreAdapter, panel, stat, chat, socketManager, scripted }
 ```
 
-- `participants` — the participant registry (humans + bots).
+- `participants` — the participant registry (humans + bots). Besides the
+  lookups (`get`, `getAll`, `getHumans`, `getScripted`), the game may call
+  `setChatColor(gameId, color)` — see «Colouring a nickname in chat» below.
 - `coreAdapter` — the JS wrapper over the WASM `GameCore`.
 - `panel`, `stat`, `chat`, `socketManager` — engine meta modules.
 - `scripted` — the `gameConfig.scripted` **config object**
@@ -226,6 +228,29 @@ The context is exactly:
 
 Only the `scripted` key of the returned object is read. Returning other
 modules is harmless but they will never be called by the engine.
+
+### Colouring a nickname in chat
+
+By default the colour of a nickname in chat is the colour of its team: the
+client view puts the message's team id into the class name (`line${teamId}`)
+and the engine stylesheet colours `.line`, `.line1`, `.line2`, `.line3`. A
+game in which the team is not what tells players apart — one team, or a
+per-player colour of its own — sets the colour itself:
+
+```js
+participants.setChatColor(gameId, '#ff4d4d'); // '#rgb' or '#rrggbb'
+participants.setChatColor(gameId, null); // back to the team colour
+```
+
+The value is carried on the participant (`Participant.chatColor`) and used by
+`HostGame.pushMessage` on every message that player sends, so it is set once
+— when the game learns the player's colour — and not per message. Anything
+that is not a hex colour is stored as `null`. System messages have no author
+and are not affected.
+
+> The colour never reaches the wire for a game that sets none: `Chat.push`
+> appends the fourth element only when a colour is present, and the CSS falls
+> back to the team colour through `var(--chat-name-color, …)`.
 
 ### The `scripted` module contract
 

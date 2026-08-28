@@ -75,6 +75,20 @@ describe('Chat: общий список', () => {
     expect(chat.shift()).toBeUndefined();
   });
 
+  it('цвет ника добавляется четвёртым элементом', () => {
+    const chat = new Chat();
+    chat.push('hello', 'Alice', 1, '#ff4d4d');
+
+    expect(chat.shift()).toEqual(['hello', 'Alice', 1, '#ff4d4d']);
+  });
+
+  it('без цвета массив остаётся из трёх элементов', () => {
+    const chat = new Chat();
+    chat.push('hello', 'Alice', 1, null);
+
+    expect(chat.shift()).toEqual(['hello', 'Alice', 1]);
+  });
+
   it('pushSystem со строкой разворачивает шаблон', () => {
     const chat = new Chat();
     chat.pushSystem('USER_LEFT', ['Carol']);

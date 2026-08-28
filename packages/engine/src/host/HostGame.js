@@ -1042,7 +1042,7 @@ export default class HostGame {
       if (message.charAt(0) === '/') {
         this._commandProcessor.parseCommand(gameId, message);
       } else {
-        this._chat.push(message, user.name, user.teamId);
+        this._chat.push(message, user.name, user.teamId, user.chatColor);
       }
     }
   }

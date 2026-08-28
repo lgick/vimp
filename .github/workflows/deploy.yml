@@ -289,6 +289,53 @@ jobs:
             # Пересоздание контейнера (удалит старый и запустит новый)
             docker compose up -d --force-recreate --remove-orphans
 
+            # `docker compose up -d` возвращает успех и тогда, когда процесс
+            # внутри падает сразу после старта: контейнер уходит в
+            # restart-петлю, домен отдаёт 502, а деплой остаётся зелёным. Так
+            # выглядит, например, игра, собранная под прошлый
+            # ENGINE_API_VERSION, в dedicated-режиме: лобби такую игру просто
+            # выбрасывает из каталога и живёт дальше, а dedicated падает на
+            # старте — подменить нечем. Поэтому ждём, пока мастер реально
+            # начнёт отвечать на своём порту.
+            echo "🩺 Checking container after start..."
+            CONTAINER="vimp-${VIMP_DOMAIN}"
+            HEALTHY=0
+            STATUS="unknown"
+
+            for attempt in $(seq 1 20); do
+              sleep 3
+              STATUS=$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo missing)
+
+              # restarting/exited — процесс уже упал, ждать нечего
+              if [ "$STATUS" != "running" ]; then
+                break
+              fi
+
+              if command -v curl >/dev/null 2>&1; then
+                if curl -fsS -o /dev/null -m 5 "http://127.0.0.1:${VIMP_PORT}/"; then
+                  HEALTHY=1
+                  break
+                fi
+              elif [ "$attempt" -ge 4 ]; then
+                # curl на сервере нет: доказательства ответа не будет, но
+                # прожитые ~12 секунд отсекают именно restart-петлю
+                HEALTHY=1
+                break
+              fi
+            done
+
+            if [ "$HEALTHY" -ne 1 ]; then
+              echo "========================================================"
+              echo "❌ ERROR: ${CONTAINER} не обслуживает 127.0.0.1:${VIMP_PORT}"
+              echo "   Статус контейнера: ${STATUS}"
+              echo "   Последние строки лога:"
+              echo "========================================================"
+              docker compose logs --tail 50 master || true
+              exit 1
+            fi
+
+            echo "🩺 Container is serving on 127.0.0.1:${VIMP_PORT} (${STATUS})"
+
             # Чистка старых неиспользуемых образов, чтобы не забивать диск
             docker image prune -f || true
 
