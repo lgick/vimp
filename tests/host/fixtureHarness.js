@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import RecordingSocketManager from '../../packages/engine/src/devtools/RecordingSocketManager.js';
+import { offlinePlayerData } from '../../packages/engine/src/lib/offlinePlayerData.js';
 
 // Каркас движковых тестов host-фасада поверх фикстурной миниигры
 // (Этап 7 плана отделения движка, PLAN.md: «Тесты движковой меты/HostGame
@@ -116,7 +117,13 @@ export const createFixtureHost = async ({ seed = 42, game = {}, opts = {} } = {}
   const core = await hostPlugin.createCore(JSON.stringify({ seed }));
   const socket = new RecordingSocketManager();
   const gameConfig = { ...config.get('game'), ...game };
-  const host = new HostGame(gameConfig, socket, core, hostPlugin, opts);
+  // мастера в тестах нет: без заглушки PlayerDataSync и Accolades уходят в
+  // настоящий fetch по относительному URL и логируют отказ уже ПОСЛЕ конца
+  // файла — vitest ловит это как unhandled EnvironmentTeardownError
+  const host = new HostGame(gameConfig, socket, core, hostPlugin, {
+    playerDataFetch: offlinePlayerData(),
+    ...opts,
+  });
 
   return { host, socket, core, config, hostPlugin };
 };

@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-08-28
+
 ### Added
 
 - Contract rule **`C11` (`statMode`)** — an ERROR when `gameConfig.statMode`
@@ -1353,6 +1355,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.21.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.21.0
 [0.20.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.20.0
 [0.19.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.19.0
 [0.18.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.18.1
