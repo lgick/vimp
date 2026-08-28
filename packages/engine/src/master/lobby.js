@@ -80,8 +80,9 @@ const leaderboardCache = new LeaderboardCache(playerDataProxy, {
 });
 
 // TTL-кэш места игрока (snakes-v3 этап 3.3): вход участника стоит трёх
-// срезов (агрегирующий GET /auth/placements), а место меняется медленно —
-// запрос за ним тяжелее топа, это оконная функция по всему леджеру
+// срезов (агрегирующий GET /auth/placements), а место меняется медленно.
+// Экономит round-trip до auth; тяжесть самого запроса снята там же
+// (auth/src/db/RankDistribution.js)
 const placementCache = new PlacementCache(playerDataProxy, {
   ttlMs: config.get('master:placement:cacheTtl'),
 });

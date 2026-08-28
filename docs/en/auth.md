@@ -134,6 +134,22 @@ ledger stays the source of truth: `recomputePeriods` rebuilds the aggregate
 from it whenever a hoster's contribution is voided, because `best` is a
 maximum and nothing can be subtracted from one.
 
+**A place is not a query per player.** "How many are ahead of me" is the same
+answer for everybody, so it is not asked per caller. `RankDistribution`
+(`src/db/RankDistribution.js`) caches, per (game, slice) and for
+`rank.distributionTtl`, the ladder of DISTINCT scores in that slice together
+with how many players stand on each step and above it; a place is then a
+binary search, and the caller's own score a primary-key lookup. The definition
+is unchanged — `1 + (players strictly above me)` is exactly `/leaderboard`'s
+`RANK()`, so the badge and the list still agree.
+
+The ladder holds distinct scores rather than players, so its memory does not
+grow with the size of the game; it is capped at `rank.distributionSteps` steps
+and a game that overflows the cap answers its deep tail with an exact query
+instead. The caller's own score is always read live, so only the FIELD can be
+stale, and only for the TTL — and it can be stale in one direction only, since
+`best` and `points` only ever grow.
+
 `all` is deliberately not recomputed on write: `PUT /rank` is one statement and
 nothing else, or every result would drag a `SUM` over the player's whole
 history behind it. `packages/auth/src/db/ratingsJob.js` is the daily job that
@@ -220,7 +236,7 @@ also reverted by the snapshot restore.
 | `PUT /host-rating/:hosterUserId` (Bearer, `{ value, reason }`) | a guest's vote for/against `hosterUserId` (the caller is the voter, taken from their Bearer token — `403 selfVote` if it equals `hosterUserId`); `value` must be `1` or `-1` (`400 invalidVote`); an empty/missing `reason` isn't counted (returns the current rating with `counted: false`, no write); otherwise upserts the vote and returns `{ score, blocked, counted }` |
 | `GET /host-rating/:hosterUserId` (no auth — server-rating stage 3) | `{ score, blocked }` for an arbitrary `hosterUserId`; unauthenticated because the value is already public lobby data (`GET /servers`' `rating` field) — the master's `HostRatingProxy.getPublic` polls this on a timer (`SignalingServer.refreshRatings()`) to refresh its per-room rating cache without holding a Bearer token for every active hoster between requests. `400 badRequest` for a non-integer `:hosterUserId` |
 | `GET /leaderboard?game=&limit=&period=` (no auth — lobby page plan) | `{ leaderboard: [{nick, rank, place}], total }` — top-`limit` (clamped `1..100`, default `10`) of `ratings` for `game`, restricted to `rank > 0 AND nick IS NOT NULL`, ordered by `rank DESC, nick ASC`. `place` is a competition ranking (`RANK() OVER (ORDER BY rank DESC)`) — tied `rank` values share a `place`, the next distinct value skips ahead by the tie's size — matching `GET /placement`'s definition below, not the row's plain 1-based index (code review M3: the two must agree, since the client shows the caller's own placement next to this same list). `total` and `place` both come from window functions computed over the whole `WHERE`-matched set before `LIMIT`, in the same query as the page (code review L1 — one round trip instead of a separate `COUNT(*)`). Unauthenticated: shown in the lobby before login, same trust level as `GET /host-rating/:hosterUserId`. `400 gameRequired` if `game` is missing. **`period`** (rank-periods, snakes-v3) selects the time slice **and the aggregation**: `all` (the default, and what an older client that sends no `period` gets) reads the `ratings` cache — the daily job's snapshot; `month` is the `points` column and `day` the `best` column of the `rank_periods` aggregate (`008_rank_period_aggregates.sql`) for the current calendar UTC window — **not** a fold of the ledger: at the target scale a popular game writes half a million ledger rows a day, and folding them per request is what the aggregate removes (one row per player per window instead, two orders of magnitude fewer, read as an index range scan) — calendar windows, not rolling ones, so "today's top" means the same thing to everybody looking at it. `400 badPeriod` on any other value: answering with the wrong slice under the right heading is worse than refusing. The route also answers `304 Not Modified` to a matching `If-None-Match`: the list changes slowly and the lobby re-requests it on every tab open |
-| `GET /placement?game=&period=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is the same competition-ranking position as `/leaderboard`'s `place` (`(COUNT(*) WHERE rank > mine) + 1`) or `null` if `rank` is `0` (not yet ranked). `period` is the same slice, computed the same way — the caller's own row must not contradict the list it is shown next to |
+| `GET /placement?game=&period=` (Bearer identity token — lobby page plan) | `{ placement, total, rank }` for the caller: `rank` is their cached score (`0` if unranked), `total` is the same ranked-player count as `/leaderboard`, `placement` is the same competition-ranking position as `/leaderboard`'s `place` (`(COUNT(*) WHERE rank > mine) + 1`) or `null` if `rank` is `0` (not yet ranked). `period` is the same slice, computed the same way — the caller's own row must not contradict the list it is shown next to. **It is not one query per caller**: `rank` is a primary-key lookup, and `placement` is a binary search over a cached ladder of the slice's distinct scores, shared by every player of that game (`src/db/RankDistribution.js`, `rank.distributionTtl`). Measured on 8 000 players in the window: 6.03 ms → 0.14 ms, which at the target scale is the difference between seven cores and a twentieth of one |
 
 Rate limiting is one middleware (`src/lib/rateLimit.js` — `main.js` starts the
 server and the DB pool on import, so the limit's contract would be untestable

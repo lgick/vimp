@@ -1,6 +1,7 @@
 import UserRepository, { NickTakenError, NickAlreadySetError } from '../../packages/auth/src/UserRepository.js';
 import config from '../../packages/auth/src/config/auth.js';
 import { refreshRatings, msUntilNextRun } from '../../packages/auth/src/db/ratingsJob.js';
+import RankDistribution from '../../packages/auth/src/db/RankDistribution.js';
 
 function createDbStub(handlers) {
   return { query: vi.fn((text, values) => handlers(text, values)) };
@@ -637,66 +638,171 @@ describe('UserRepository', () => {
     await new UserRepository(db).getLeaderboard('tanks', 10);
   });
 
-  // плашка позиции обязана считаться тем же способом, что и список рядом
-  it('getPlacement: period day считает позицию по той же строке агрегата', async () => {
-    const db = createDbStub((text, values) => {
-      expect(text).toMatch(/FROM rank_periods/);
-      expect(text).toMatch(/p\.best AS rank/);
-      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)::date/);
-      expect(text).not.toMatch(/rank_events/);
-      expect(values).toEqual([1, 'tanks', 'd']);
+  // ***** МЕСТО ИГРОКА *****
+  //
+  // Место больше не считается запросом на каждого игрока: своё значение —
+  // точечный поиск по первичному ключу, а место — бинарный поиск по лестнице
+  // значений среза, общей для всех игроков игры (db/RankDistribution.js).
+  // Замер на 8 000 игроков в окне: 6.03 мс → 0.14 мс.
+  //
+  // db-заглушка отвечает и на точечный поиск, и на загрузку лестницы, поэтому
+  // маршрутизация по тексту запроса
+  const placementStub = ({ own, ladder, total, calls = [] }) =>
+    createDbStub((text, values) => {
+      calls.push({ text, values });
 
-      return { rows: [{ total: '2', rank: 40, placement: 1 }] };
+      if (text.includes('at_or_above')) {
+        return {
+          rows: ladder.map(([score, atOrAbove]) => ({
+            score,
+            'at_or_above': String(atOrAbove),
+            total: String(total),
+          })),
+        };
+      }
+
+      return { rows: own === null ? [] : [{ rank: own }] };
     });
 
-    const repo = new UserRepository(db);
+  it('getPlacement: period day берёт своё значение точечным поиском', async () => {
+    const calls = [];
+    const db = placementStub({
+      own: 40,
+      ladder: [[100, 1], [40, 3], [10, 9]],
+      total: 9,
+      calls,
+    });
 
-    await expect(repo.getPlacement(1, 'tanks', 'day')).resolves.toEqual({
-      placement: 1,
-      total: 2,
+    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+      // одна ступень строго выше 40 — на ней и выше стоит один игрок
+      placement: 2,
+      total: 9,
       rank: 40,
     });
+
+    const own = calls[0];
+
+    expect(own.text).toMatch(/FROM rank_periods p/);
+    expect(own.text).toMatch(/p\.best AS rank/);
+    // именно попадание в первичный ключ, а не свёртка окна
+    expect(own.text).toMatch(/p\.user_id = \$1 AND p\.game_id = \$2/);
+    expect(own.values).toEqual([1, 'tanks', 'd']);
   });
 
-  it('getPlacement: period month считает позицию по месячной строке агрегата', async () => {
-    const db = createDbStub((text, values) => {
-      expect(text).toMatch(/FROM rank_periods/);
-      expect(text).toMatch(/p\.points AS rank/);
-      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)::date/);
-      expect(values).toEqual([1, 'tanks', 'm']);
-
-      return { rows: [{ total: '5', rank: 300, placement: 2 }] };
-    });
+  it('getPlacement: period month читает месячную колонку и её лестницу', async () => {
+    const calls = [];
+    const db = placementStub({ own: 300, ladder: [[300, 2]], total: 5, calls });
 
     await expect(new UserRepository(db).getPlacement(1, 'tanks', 'month')).resolves.toEqual({
-      placement: 2,
+      placement: 1,
       total: 5,
       rank: 300,
     });
+
+    expect(calls[0].values).toEqual([1, 'tanks', 'm']);
+    expect(calls[1].text).toMatch(/p\.points AS score/);
   });
 
-  it('getPlacement: без period читает тот же кэш ratings, что и список', async () => {
-    const db = createDbStub(text => {
-      expect(text).toMatch(/FROM ratings/);
-      expect(text).not.toMatch(/rank_periods/);
-
-      return { rows: [{ total: '1', rank: 10, placement: 1 }] };
-    });
-
-    await new UserRepository(db).getPlacement(1, 'tanks');
-  });
-
-  it('getPlacement возвращает placement/total/rank по CTE (проверка SQL/параметров)', async () => {
-    const db = createDbStub((text, values) => {
-      expect(text).toMatch(/WITH me AS/);
-      expect(values).toEqual([1, 'tanks']);
-      return { rows: [{ total: '3400', rank: 240, placement: 20 }] };
-    });
-
+  // лестница общая на игру и срез: второй игрок за неё уже не платит — ровно
+  // это и убирает 1200 тяжёлых запросов в секунду на целевом масштабе
+  it('getPlacement: лестница грузится один раз на всех игроков', async () => {
+    const calls = [];
+    const db = placementStub({ own: 40, ladder: [[100, 1], [40, 3]], total: 3, calls });
     const repo = new UserRepository(db);
-    const result = await repo.getPlacement(1, 'tanks');
 
-    expect(result).toEqual({ placement: 20, total: 3400, rank: 240 });
+    await repo.getPlacement(1, 'tanks', 'day');
+    await repo.getPlacement(2, 'tanks', 'day');
+    await repo.getPlacement(3, 'tanks', 'day');
+
+    expect(calls.filter(({ text }) => text.includes('at_or_above'))).toHaveLength(1);
+    // а своё значение читается живым у каждого: устаревать может только
+    // окружение, не собственный счёт
+    expect(calls.filter(({ text }) => text.includes('AS rank'))).toHaveLength(3);
+  });
+
+  // наплыв входов в комнату на холодный ключ обязан дать ОДИН запрос, а не по
+  // одному на участника: иначе первая секунда после протухания стоит столько,
+  // сколько кэш и экономит
+  it('getPlacement: одновременные вызовы делят одну загрузку лестницы', async () => {
+    const calls = [];
+    const db = placementStub({ own: 40, ladder: [[40, 1]], total: 1, calls });
+    const repo = new UserRepository(db);
+
+    await Promise.all([
+      repo.getPlacement(1, 'tanks', 'day'),
+      repo.getPlacement(2, 'tanks', 'day'),
+      repo.getPlacement(3, 'tanks', 'day'),
+    ]);
+
+    expect(calls.filter(({ text }) => text.includes('at_or_above'))).toHaveLength(1);
+  });
+
+  // значение выше верхней ступени — первое место; ничьи делят место
+  // (competition ranking, как `place` в getLeaderboard)
+  it('getPlacement: разделившие значение делят место', async () => {
+    const db = placementStub({ own: 90, ladder: [[100, 2], [90, 5], [10, 9]], total: 9 });
+
+    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+      // двое стоят выше 90 — значит место третье, и его делят все с 90
+      placement: 3,
+      total: 9,
+      rank: 90,
+    });
+  });
+
+  it('getPlacement: неранжированный получает placement === null без лестницы', async () => {
+    const db = placementStub({ own: null, ladder: [[10, 1]], total: 1 });
+
+    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+      placement: null,
+      total: 1,
+      rank: 0,
+    });
+  });
+
+  // игра, чья лестница не уместилась в потолок ступеней: глубокий хвост
+  // уходит на точный запрос, и он обязан быть точным
+  it('getPlacement: обрезанная лестница уводит хвост на точный запрос', async () => {
+    const calls = [];
+    const db = createDbStub((text, values) => {
+      calls.push({ text, values });
+
+      if (text.includes('at_or_above')) {
+        // ступеней больше, чем потолок (2) — признак обрезанного хвоста
+        return {
+          rows: [
+            { score: 100, 'at_or_above': '1', total: '900' },
+            { score: 90, 'at_or_above': '2', total: '900' },
+            { score: 80, 'at_or_above': '3', total: '900' },
+          ],
+        };
+      }
+
+      if (text.includes('FILTER')) {
+        return { rows: [{ total: '900', above: '430' }] };
+      }
+
+      return { rows: [{ rank: 5 }] };
+    });
+    const repo = new UserRepository(db, {
+      distribution: new RankDistribution(
+        (game, period, maxSteps) => repo._loadDistribution(game, period, maxSteps),
+        { ttlMs: 30000, maxSteps: 2 },
+      ),
+    });
+
+    await expect(repo.getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+      placement: 431,
+      total: 900,
+      rank: 5,
+    });
+
+    const exact = calls.find(({ text }) => text.includes('FILTER'));
+
+    // один проход по индексу: оба счётчика одним сканом, своё значение уже
+    // известно и повторно не ищется
+    expect(exact.text).toMatch(/COUNT\(\*\) FILTER \(WHERE p\.best > \$2\)/);
+    expect(exact.values).toEqual(['tanks', 5]);
   });
 
   it('getPlacement: игрок не ранжирован (rank=0) → placement === null', async () => {

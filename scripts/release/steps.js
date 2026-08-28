@@ -166,14 +166,69 @@ async function awaitRegistry(wait, label) {
   }
 }
 
+// engineApi установленной копии игры или null, если её манифест не читается
+// (не собрана, битая) — тогда пусть падает сам sim, с его собственным
+// сообщением.
+async function installedEngineApi(root, game) {
+  try {
+    const manifest = JSON.parse(
+      await readFile(
+        path.join(root, 'node_modules', game.name, 'dist', 'manifest.json'),
+        'utf8',
+      ),
+    );
+
+    return typeof manifest.engineApi === 'number' ? manifest.engineApi : null;
+  } catch {
+    return null;
+  }
+}
+
 // Прогон vimp-sim по игре, установленной в node_modules движка. Подтверждённый
 // чекаут может не быть зависимостью vimp — такую игру проверит шаг прода
 // после перепина.
-async function simGame(shell, root, game) {
+//
+// ***** ПОДНЯТЫЙ ENGINE_API_VERSION *****
+//
+// Релиз идёт на копиях ИЗ РЕЕСТРА (release/links.js снимает локальные линки),
+// а поднятый ENGINE_API_VERSION делает несовместимой каждую УЖЕ
+// опубликованную игру: `assertEngineApiCompatible` отказывается её грузить.
+// На шаге движка это не провал проверки, а её невозможность — опубликованной
+// копии под новый API ещё не существует, и появится она только следующим
+// шагом (games), который пересоберёт игру и проверит манифест
+// (checkManifest).
+//
+// Поэтому на шаге движка такая игра ПРОПУСКАЕТСЯ с объяснением, а на шаге
+// прода (strict) — это отказ: там игра уже переопубликована и перепинена
+// (`npm i game@target`), и несовпадение значит, что её выпустили без пересборки
+// под новый API. Покрытие при этом не теряется: прод сммит те же игры.
+async function simGame(shell, root, game, { engineApi = null, strict = false } = {}) {
   const relative = path.join('node_modules', game.name);
 
   if (!(await isDirectory(path.join(root, relative)))) {
     ui.log(`  · sim пропущен: ${game.name} не установлен в vimp`);
+    return;
+  }
+
+  const installed = await installedEngineApi(root, game);
+
+  if (engineApi !== null && installed !== null && installed !== engineApi) {
+    const mismatch =
+      `${game.name}: engineApi=${installed}, у движка ${engineApi}`;
+
+    if (strict) {
+      throw new Error(
+        `${mismatch}. Игра переопубликована без пересборки под новый ` +
+          `ENGINE_API_VERSION — в лобби её отвергнет GameCatalog`,
+      );
+    }
+
+    ui.log(
+      `  · sim пропущен: ${mismatch} — опубликованная копия старше ` +
+        'поднятого ENGINE_API_VERSION. Её пересоберёт шаг games, ' +
+        'а прогонит шаг prod',
+    );
+
     return;
   }
 
@@ -260,7 +315,14 @@ export async function publishCrate({ shell, root, decision, report }) {
 
 // ── Step A2: движок ────────────────────────────────────────────────────────
 
-export async function publishEngine({ shell, root, decision, games, report }) {
+export async function publishEngine({
+  shell,
+  root,
+  decision,
+  games,
+  report,
+  engineApi = null,
+}) {
   const { target } = decision;
 
   ui.log(`движок ${ENGINE_NAME}: релиз ${target}`);
@@ -276,7 +338,7 @@ export async function publishEngine({ shell, root, decision, games, report }) {
   await shell.check('npm run sim:check', 'npm', ['run', 'sim:check'], { cwd: root });
 
   for (const game of games) {
-    await simGame(shell, root, game);
+    await simGame(shell, root, game, { engineApi });
   }
 
   if (decision.bump) {
@@ -552,7 +614,14 @@ export async function publishGame({
 
 // ── Step C: прод ───────────────────────────────────────────────────────────
 
-export async function rollOutProduction({ shell, root, games, report, tags }) {
+export async function rollOutProduction({
+  shell,
+  root,
+  games,
+  report,
+  tags,
+  engineApi = null,
+}) {
   ui.log('прод: перепин плагинов и пуш в main');
 
   for (const game of games) {
@@ -564,8 +633,10 @@ export async function rollOutProduction({ shell, root, games, report, tags }) {
     cwd: root,
   });
 
+  // strict: игры уже переопубликованы и перепинены, поэтому расхождение
+  // версии API здесь — не «ещё не время», а выпуск без пересборки
   for (const game of games) {
-    await simGame(shell, root, game);
+    await simGame(shell, root, game, { engineApi, strict: true });
   }
 
   await commit(

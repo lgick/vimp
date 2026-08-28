@@ -128,6 +128,36 @@ the previous engine and crate, so the next `npm create vimp-game` produces a
 game pinned to versions that are already behind, which surfaces only when
 its core is built.
 
+### An `ENGINE_API_VERSION` bump invalidates every published game
+
+This is the one change that makes the release script's own gate impossible to
+pass in place, so it is worth stating on its own.
+
+`npm run release` unlinks the local game checkouts and works on the copies
+**from the registry** (`scripts/release/links.js`) — a release must be
+validated against what users will actually install. But every already
+published game carries the OLD `engineApi` in its manifest, and
+`assertEngineApiCompatible` refuses to load it on the new engine. So on the
+engine step there is no compatible published copy in existence yet: the
+`games` step is what rebuilds and republishes it.
+
+The script handles that itself, and the rule it follows is:
+
+- on the **engine** step a game whose installed `engineApi` differs from this
+  checkout's is **skipped**, with the reason printed — this is the check being
+  impossible, not failing;
+- on the **prod** step the same mismatch is a **hard error**. By then the game
+  has been republished and re-pinned (`npm i game@target`), so a mismatch means
+  it was released without rebuilding against the new API — exactly the manifest
+  that `GameCatalog` rejects at load time.
+
+Coverage is not lost by the skip: the prod step sims the same games, against
+the copies that were actually published.
+
+What this asks of you: **when `ENGINE_API_VERSION` changes, release the games
+in the same run** (the table below already marks them **required**), and do
+not push to `main` until the games are out — see the warning in step A2.
+
 ## What actually needs publishing
 
 | Changed | Crate | Engine on npm | Scaffolder on npm | Game on npm | Production |

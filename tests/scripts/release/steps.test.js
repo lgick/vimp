@@ -11,6 +11,7 @@ import {
   gameCommitPaths,
   publishEngine,
   publishScaffold,
+  rollOutProduction,
 } from '../../../scripts/release/steps.js';
 import { CommandError } from '../../../scripts/release/shell.js';
 
@@ -425,5 +426,114 @@ describe('режим запуска публикации', () => {
 
     expect(source.match(/shell\.write\([^)]*'publish'[^)]*\)/g)).toBe(null);
     expect(source.match(/shell\.publish\(/g)?.length).toBeGreaterThan(0);
+  });
+});
+
+// ***** ПОДНЯТЫЙ ENGINE_API_VERSION *****
+//
+// Релиз идёт на копиях ИЗ РЕЕСТРА (links.js снимает локальные линки), а
+// поднятый ENGINE_API_VERSION делает несовместимой каждую уже опубликованную
+// игру. На шаге движка её ещё физически не существует под новый API — это
+// невозможность проверки, а не её провал; на шаге прода игра уже
+// переопубликована, и то же расхождение значит выпуск без пересборки.
+describe('sim игры при поднятом ENGINE_API_VERSION', () => {
+  let simRoot;
+
+  const installGame = async (name, engineApi) => {
+    const dir = path.join(simRoot, 'node_modules', name, 'dist');
+
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, 'manifest.json'),
+      JSON.stringify({ id: name, engineApi }),
+    );
+  };
+
+  const simCalls = shell =>
+    shell.calls.filter(call => call.includes('run sim --'));
+
+  beforeAll(async () => {
+    simRoot = await mkdtemp(path.join(tmpdir(), 'vimp-sim-step-'));
+
+    const engine = path.join(simRoot, 'packages', 'engine');
+
+    await mkdir(engine, { recursive: true });
+    await writeFile(
+      path.join(engine, 'package.json'),
+      JSON.stringify({ name: 'vimp-engine', version: '0.10.2' }),
+    );
+    await writeFile(
+      path.join(engine, 'CHANGELOG.md'),
+      '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- что-то\n',
+    );
+
+    await installGame('@vimp-games/stale', 3);
+    await installGame('@vimp-games/fresh', 4);
+  });
+
+  afterAll(async () => {
+    await rm(simRoot, { recursive: true, force: true });
+  });
+
+  it('шаг движка пропускает игру, собранную под прошлую версию API', async () => {
+    const shell = recordingShell();
+
+    await publishEngine({
+      shell,
+      root: simRoot,
+      decision: { target: '0.10.3', bump: false },
+      games: [{ name: '@vimp-games/stale' }],
+      report: { published: [], tags: [] },
+      engineApi: 4,
+    });
+
+    // копии под новый API ещё не существует: её выпустит следующий шаг
+    expect(simCalls(shell)).toEqual([]);
+  });
+
+  it('шаг движка прогоняет игру, совпадающую по версии API', async () => {
+    const shell = recordingShell();
+
+    await publishEngine({
+      shell,
+      root: simRoot,
+      decision: { target: '0.10.3', bump: false },
+      games: [{ name: '@vimp-games/fresh' }],
+      report: { published: [], tags: [] },
+      engineApi: 4,
+    });
+
+    expect(simCalls(shell)).toHaveLength(1);
+    expect(simCalls(shell)[0]).toContain('node_modules/@vimp-games/fresh');
+  });
+
+  // без версии движка (шаг вызван отдельно) поведение прежнее: sim решает сам
+  it('без engineApi шаг движка ничего не пропускает', async () => {
+    const shell = recordingShell();
+
+    await publishEngine({
+      shell,
+      root: simRoot,
+      decision: { target: '0.10.3', bump: false },
+      games: [{ name: '@vimp-games/stale' }],
+      report: { published: [], tags: [] },
+    });
+
+    expect(simCalls(shell)).toHaveLength(1);
+  });
+
+  it('шаг прода на том же расхождении ОТКАЗЫВАЕТ: игра выпущена без пересборки', async () => {
+    const shell = recordingShell();
+
+    await expect(
+      rollOutProduction({
+        shell,
+        root: simRoot,
+        games: [{ name: '@vimp-games/stale', target: '0.7.5' }],
+        report: { published: [], tags: [] },
+        tags: [],
+        engineApi: 4,
+      }),
+    ).rejects.toThrow(/engineApi=3, у движка 4/);
   });
 });

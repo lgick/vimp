@@ -598,6 +598,12 @@ async function main(argv) {
       await publishCrate({ shell, root, decision: decision.crate, report });
     }
 
+    // ENGINE_API_VERSION этого чекаута. Читается ДО шагов: это исходник, а не
+    // версия пакета, и в течение прогона он не меняется. Нужен трём шагам —
+    // движку и проду, чтобы понимать, совместима ли установленная копия игры
+    // с этим движком, и играм, чтобы проверить свежесобранный манифест
+    const engineApi = await readEngineApiVersion(root);
+
     if (decision.engine.publish) {
       await publishEngine({
         shell,
@@ -605,6 +611,7 @@ async function main(argv) {
         decision: decision.engine,
         games: decision.games,
         report,
+        engineApi,
       });
     }
 
@@ -618,8 +625,6 @@ async function main(argv) {
         report,
       });
     }
-
-    const engineApi = await readEngineApiVersion(root);
 
     for (const game of selectedGames) {
       await publishGame({
@@ -641,6 +646,7 @@ async function main(argv) {
         root,
         games: selectedGames,
         report,
+        engineApi,
         // из vimp пушатся только его собственные теги: теги игр уже уехали
         // вместе с `git push --tags` в их репозиториях
         tags: report.tags

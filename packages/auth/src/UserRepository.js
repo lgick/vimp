@@ -1,4 +1,5 @@
 import config from './config/auth.js';
+import RankDistribution from './db/RankDistribution.js';
 
 // доступ к БД auth-сервиса (users/ratings/states). Принимает объект с
 // методом query({text, values}) в конструкторе (реальный pg.Pool или мок в
@@ -58,8 +59,22 @@ function periodSlice(period) {
 }
 
 export default class UserRepository {
-  constructor(db) {
+  // `distribution` — кэш лестницы значений среза (db/RankDistribution.js), из
+  // которой считается место. Инжектируется для тестов; по умолчанию свой,
+  // с загрузчиком, который умеет и оконные срезы, и кэш ratings
+  constructor(db, { distribution } = {}) {
     this._db = db;
+    this._distribution =
+      distribution ??
+      new RankDistribution(
+        (gameId, period, maxSteps) => this._loadDistribution(gameId, period, maxSteps),
+        { ttlMs: config.rank.distributionTtl, maxSteps: config.rank.distributionSteps },
+      );
+  }
+
+  // фоновая уборка кэша распределений (main.js вешает на интервал)
+  sweepDistributions() {
+    this._distribution.sweep();
   }
 
   // находит пользователя по (provider, providerUid) или создаёт нового
@@ -283,57 +298,131 @@ export default class UserRepository {
     };
   }
 
-  // позиция игрока в рейтинге игры (lobby-page-plan): placement === null,
-  // если игрок ещё не ранжирован (rank === 0, т.е. записи в ratings нет или
-  // rank оказался 0 после клампа/аннулирования). rank-periods: `period` —
-  // тот же срез, что и у getLeaderboard, и считается он тем же способом
-  // (та же CASE-агрегация), иначе плашка позиции противоречила бы списку
-  // рядом с ней
+  // ***** МЕСТО ИГРОКА *****
+  //
+  // placement === null, если игрок в этом срезе не ранжирован (нет строки или
+  // значение 0 после клампа/аннулирования).
+  //
+  // Считается ДВУМЯ дешёвыми частями вместо одного тяжёлого запроса:
+  //
+  //   своё значение — точечный поиск по первичному ключу (0.17 мс);
+  //   место         — бинарный поиск по лестнице среза, общей для всех
+  //                   игроков игры и кэшированной на `rank.distributionTtl`.
+  //
+  // Раньше это была свёртка всего окна с join к users на КАЖДЫЙ вход
+  // участника — 6 мс на 8 000 игроков в окне, то есть семь ядер на целевом
+  // масштабе. Определение места не изменилось: оно то же competition
+  // ranking, что и `place` в getLeaderboard, иначе плашка позиции
+  // противоречила бы списку рядом с ней.
+  //
+  // Глубокий хвост игры, чья лестница не уместилась в потолок ступеней,
+  // уходит на точный запрос — редкий случай, оплаченный тем, что все
+  // остальные его не делают.
   async getPlacement(userId, gameId, period = 'all') {
+    const rank = await this._ownScore(userId, gameId, period);
+    const distribution = await this._distribution.get(gameId, period);
+    const placement = RankDistribution.placementOf(distribution, rank);
+
+    if (rank > 0 && placement === null) {
+      return this._placementExactly(userId, gameId, period, rank);
+    }
+
+    return {
+      placement: rank > 0 ? placement : null,
+      total: RankDistribution.totalOf(distribution) ?? 0,
+      rank,
+    };
+  }
+
+  // своё значение в срезе: строка агрегата для оконных срезов, кэш ratings
+  // для all-time. И то и другое — попадание в первичный ключ
+  async _ownScore(userId, gameId, period) {
     const slice = periodSlice(period);
 
     const result = slice
       ? await this._db.query(
-          `WITH scores AS (
-             SELECT p.user_id, p.${slice.column} AS rank
-             FROM rank_periods p
-             WHERE p.game_id = $2 AND p.kind = $3 AND p.period = ${slice.start}
-               AND p.${slice.column} > 0),
-           me AS (
-             SELECT COALESCE((SELECT rank FROM scores WHERE user_id = $1), 0) AS rank)
-           SELECT
-             (SELECT COUNT(*) FROM scores s JOIN users u ON u.id = s.user_id
-                WHERE u.nick IS NOT NULL) AS total,
-             me.rank AS rank,
-             CASE WHEN me.rank > 0 THEN
-               (SELECT COUNT(*) FROM scores s JOIN users u ON u.id = s.user_id
-                  WHERE u.nick IS NOT NULL AND s.rank > me.rank) + 1
-             END AS placement
-           FROM me`,
+          `SELECT p.${slice.column} AS rank FROM rank_periods p
+           WHERE p.user_id = $1 AND p.game_id = $2 AND p.kind = $3
+             AND p.period = ${slice.start}`,
           [userId, gameId, slice.kind],
         )
       : await this._db.query(
-          `WITH me AS (
-             SELECT COALESCE(
-               (SELECT rank FROM ratings WHERE user_id = $1 AND game_id = $2), 0) AS rank)
-           SELECT
-             (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
-                WHERE r.game_id = $2 AND r.rank > 0 AND u.nick IS NOT NULL) AS total,
-             me.rank AS rank,
-             CASE WHEN me.rank > 0 THEN
-               (SELECT COUNT(*) FROM ratings r JOIN users u ON u.id = r.user_id
-                  WHERE r.game_id = $2 AND u.nick IS NOT NULL AND r.rank > me.rank) + 1
-             END AS placement
-           FROM me`,
+          'SELECT r.rank FROM ratings r WHERE r.user_id = $1 AND r.game_id = $2',
           [userId, gameId],
         );
+
+    return Math.max(Number(result.rows[0]?.rank) || 0, 0);
+  }
+
+  // Лестница РАЗЛИЧНЫХ значений среза по убыванию и число игроков «на этой
+  // ступени и выше». Один запрос на (игру, срез) за TTL — за него платят все
+  // игроки сразу, а не каждый по отдельности.
+  //
+  // `total` считается оконной функцией по ВСЕМ ступеням, до LIMIT, поэтому
+  // обрезание хвоста его не портит. Лишняя ступень сверх потолка запрашивается
+  // затем, чтобы отличить «уместилось целиком» от «хвост обрезан»
+  async _loadDistribution(gameId, period, maxSteps) {
+    const slice = periodSlice(period);
+    const source = slice
+      ? `SELECT p.${slice.column} AS score
+         FROM rank_periods p JOIN users u ON u.id = p.user_id
+         WHERE p.game_id = $1 AND p.kind = '${slice.kind}' AND p.period = ${slice.start}
+           AND p.${slice.column} > 0 AND u.nick IS NOT NULL`
+      : `SELECT r.rank AS score
+         FROM ratings r JOIN users u ON u.id = r.user_id
+         WHERE r.game_id = $1 AND r.rank > 0 AND u.nick IS NOT NULL`;
+
+    const result = await this._db.query(
+      `SELECT score, at_or_above, total FROM (
+         SELECT g.score,
+                SUM(g.players) OVER (ORDER BY g.score DESC) AS at_or_above,
+                SUM(g.players) OVER () AS total
+         FROM (SELECT score, COUNT(*) AS players FROM (${source}) rows GROUP BY score) g
+       ) ladder
+       ORDER BY score DESC
+       LIMIT $2`,
+      [gameId, maxSteps + 1],
+    );
+
+    const complete = result.rows.length <= maxSteps;
+
+    return {
+      steps: result.rows.slice(0, maxSteps).map(row => ({
+        score: Number(row.score),
+        atOrAbove: Number(row.at_or_above),
+      })),
+      total: Number(result.rows[0]?.total ?? 0),
+      complete,
+    };
+  }
+
+  // Точный запрос места — запасной путь для игрока ниже обрезанного хвоста
+  // лестницы. Один проход по индексу: своё значение уже известно, оба
+  // счётчика считаются одним сканом через FILTER, join к users нужен по той
+  // же причине, что и в списке — незаполненный ник в рейтинг не входит
+  async _placementExactly(userId, gameId, period, rank) {
+    const slice = periodSlice(period);
+    const source = slice
+      ? `FROM rank_periods p JOIN users u ON u.id = p.user_id
+         WHERE p.game_id = $1 AND p.kind = '${slice.kind}' AND p.period = ${slice.start}
+           AND p.${slice.column} > 0 AND u.nick IS NOT NULL`
+      : `FROM ratings p JOIN users u ON u.id = p.user_id
+         WHERE p.game_id = $1 AND p.rank > 0 AND u.nick IS NOT NULL`;
+    const column = slice ? `p.${slice.column}` : 'p.rank';
+
+    const result = await this._db.query(
+      `SELECT COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE ${column} > $2) AS above
+       ${source}`,
+      [gameId, rank],
+    );
 
     const row = result.rows[0];
 
     return {
-      placement: row.placement === null ? null : Number(row.placement),
+      placement: Number(row.above) + 1,
       total: Number(row.total),
-      rank: Number(row.rank),
+      rank,
     };
   }
 

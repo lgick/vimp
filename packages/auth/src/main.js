@@ -494,6 +494,17 @@ const server = http.createServer(app);
 // snakes-v3 (stage_2.md, 2.4): суточный пересчёт all-time-снимка
 startRatingsJob(dbPool.getPool());
 
+// уборка кэша распределений (db/RankDistribution.js): Map растёт по числу
+// увиденных (игра, срез), а популярность игр меняется. Интервал — тот же
+// TTL, дольше протухшего ключа он не живёт. .unref(), чтобы не держать
+// процесс
+const distributionSweep = setInterval(
+  () => userRepo.sweepDistributions(),
+  config.rank.distributionTtl,
+);
+
+distributionSweep.unref?.();
+
 server.listen(config.port, () => {
   console.info(`
     Auth service is running for ${env.NODE_ENV || 'development'} mode.

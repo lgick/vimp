@@ -43,6 +43,17 @@ bumps the minor version).
 
 ### Changed
 
+- **A place is no longer a database query per player.** `GET /auth/placement`
+  folded the whole window and joined `users` on every participant's join —
+  measured at 6.03 ms on 8 000 players in the window, which at the target
+  scale is ~1200 such queries a second, seven cores of one line of SQL. The
+  auth service now caches, per (game, slice), the ladder of distinct scores
+  and answers a place by binary search over it, with the caller's own score
+  read by primary key: **6.03 ms → 0.14 ms**, and the shared ladder costs one
+  query per slice per TTL (`rank.distributionTtl`) instead of one per player.
+  The definition is unchanged — a place is still `/leaderboard`'s `RANK()` —
+  and it was verified against `RANK()` on a live 8 000-player window.
+
 - **A client in a match no longer talks to the master.** The `leaderboard`
   stat mode used to fetch the top and the caller's placement itself; both now
   arrive in the host's `ACCOLADES_DATA` broadcast, next to the badge places.
