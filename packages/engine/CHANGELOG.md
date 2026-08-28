@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.22.1] — 2026-08-28
+
 ### Fixed
 
 - `roundManager.overrideMapData(mapData)` now replaces the map handed to a
@@ -1411,6 +1413,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.22.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.22.1
 [0.22.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.22.0
 [0.21.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.21.0
 [0.20.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.20.0
