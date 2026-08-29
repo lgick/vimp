@@ -30,8 +30,8 @@ const manifestOf = extra => ({
   ...extra,
 });
 
-const writeManifest = manifest => {
-  const distDir = path.join(nodeModulesDir, 'tanks', 'dist');
+const writeManifest = (manifest, pkg = 'tanks') => {
+  const distDir = path.join(nodeModulesDir, pkg, 'dist');
 
   fs.mkdirSync(distDir, { recursive: true });
   fs.writeFileSync(
@@ -96,5 +96,71 @@ describe('GameCatalog: поле compat', () => {
     expect(manifest.compat.ok).toBe(false);
 
     vi.restoreAllMocks();
+  });
+});
+
+describe('GameCatalog: битая игра не уносит каталог', () => {
+  // до правки checkPluginCompatibility бросал TypeError на такой форме, а
+  // try в конструкторе накрывал только JSON.parse — исключение уходило из
+  // конструктора, и мастер не стартовал вовсе
+  it('битое requires помечает игру недоступной, а не роняет конструктор', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    writeManifest(manifestOf({ requires: 'accolades' }));
+
+    const { compat } = new GameCatalog(games, nodeModulesDir).getManifest(
+      'tanks',
+    );
+
+    expect(compat.ok).toBe(false);
+    expect(compat.reason).toBe('bad-manifest');
+
+    warn.mockRestore();
+  });
+
+  it('здоровая игра доезжает до каталога рядом с битой', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    writeManifest(manifestOf({ id: 'broken', requires: {} }), 'broken');
+    writeManifest(manifestOf());
+
+    const catalog = new GameCatalog(
+      [
+        { id: 'broken', package: 'broken' },
+        { id: 'tanks', package: 'tanks' },
+      ],
+      nodeModulesDir,
+    );
+
+    expect(catalog.ids).toEqual(['broken', 'tanks']);
+    expect(catalog.getManifest('tanks').compat).toBeUndefined();
+    expect(catalog.getManifest('broken').compat.reason).toBe('bad-manifest');
+
+    warn.mockRestore();
+  });
+
+  it('исключение внутри разбора одной игры пропускает только её', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // манифест без entries: _toDevManifest разыменует entries.wasm и бросит
+    const { entries, ...noEntries } = manifestOf({ id: 'broken' });
+
+    writeManifest(noEntries, 'broken');
+    writeManifest(manifestOf());
+
+    const catalog = new GameCatalog(
+      [
+        { id: 'broken', package: 'broken' },
+        { id: 'tanks', package: 'tanks' },
+      ],
+      nodeModulesDir,
+      { dev: true },
+    );
+
+    expect(entries).toBeDefined();
+    expect(catalog.ids).toEqual(['tanks']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('skip "broken"'));
+
+    warn.mockRestore();
   });
 });

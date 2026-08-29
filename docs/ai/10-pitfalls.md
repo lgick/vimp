@@ -196,7 +196,11 @@ name the violation. Do not verify those by eye — run the tool
       `checkbox`, `radio`. The four retired in v3 (`range`, `number`,
       `toggle`, `segmented`) still work forever, as permanent aliases of
       `text`+`numeric`, `text`+`numeric`, `checkbox` and `radio`, so an older
-      game keeps rendering — but B5 warns on them, so write the native name.
+      game keeps rendering — but B5 (and C10 for `authSchema`) warns on them,
+      so write the native name. The alias applies to the host's authoritative
+      validation too, not just to rendering: a `segmented` field is checked
+      against its options list exactly like `radio`, and a `number`/`range`
+      field is checked against `min`/`max` in the declared display unit.
       A `control` the engine's registry does not know at all skips the field
       with a `console.error`. Native
       `min`/`max`/`step` attributes are never emitted (these fields are

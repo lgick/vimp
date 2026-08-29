@@ -26,7 +26,11 @@ import StatCtrl from './components/controller/Stat.js';
 import VoteModel from './components/model/Vote.js';
 import VoteView from './components/view/Vote.js';
 import VoteCtrl from './components/controller/Vote.js';
-import { buildForm, mergeRoomDefaults, bindLiveErrors } from './lib/formBuilder.js';
+import {
+  buildForm,
+  mergeRoomDefaults,
+  bindLiveErrors,
+} from './lib/formBuilder.js';
 import { normalizeAuthParams } from './lib/authParams.js';
 import { renderProjectLink } from './lib/footerLink.js';
 import { createGameActivator } from './lib/gameActivator.js';
@@ -37,6 +41,9 @@ import { createContextTracker } from './lib/contextTracker.js';
 import { createLocalPlayer } from './lib/localPlayer.js';
 import { createAccolades } from './lib/accolades.js';
 import { dispatchSocketMessage } from './lib/socketDispatch.js';
+import { pickActiveGame, isGameAvailable } from './lib/pickActiveGame.js';
+import { readCoreAbi, dispatchCoreOp, ABI_UNKNOWN } from '../lib/coreAbi.js';
+import { ABI_OP_DEBUG_JSON } from '../config/abiOps.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import {
@@ -110,13 +117,6 @@ function bindActiveGame(manifest, plugin) {
   gameStyleNode.textContent = plugin.styles ?? '';
 }
 
-// поле `compat` появляется у манифеста каталога мастера, только когда игра
-// просит возможность, которой в этой сборке движка нет; манифест без него
-// (все опубликованные до этапа 5) доступен по определению
-function isGameAvailable(manifest) {
-  return manifest.compat?.ok !== false;
-}
-
 // режим загрузки (Этап 2 плана standalone-sdk): lobby — прод с мастером,
 // solo — хост в этой же вкладке (standalone SDK), dedicated — прямой WS к
 // Node-серверу. Ветвлений ровно пять: манифест, сигналинг/лобби, транспорт,
@@ -154,13 +154,8 @@ try {
       throw gamesManifest;
     }
 
-    // недоступная игра (manifest.compat.ok === false, этап 5 плана
-    // plugin-forward-compat) не годится в активные: её плагин не загрузится,
-    // и вкладка встала бы на первой же игре каталога. В список лобби она
-    // при этом попадает — с причиной
-    activeGameManifest = boot.gameId
-      ? gamesManifest.find(manifest => manifest.id === boot.gameId)
-      : (gamesManifest.find(isGameAvailable) ?? gamesManifest[0]);
+    // недоступная игра активной быть не может (lib/pickActiveGame.js)
+    activeGameManifest = pickActiveGame(gamesManifest, boot.gameId);
   }
 
   if (!activeGameManifest) {
@@ -294,7 +289,7 @@ let wasm = null;
 // читаются один раз при создании ядра, а не в момент вызова. Ядро старше
 // самоописания даёт поколение 0 с пустым списком опкодов: это не ошибка,
 // а игра, собранная до появления механизма (И2 плана plugin-forward-compat)
-let clientCoreAbi = { abi: 0, core: null, ops: [] };
+let clientCoreAbi = ABI_UNKNOWN;
 
 // сервис пула зависимостей: «эта сущность моя или чужая?». Ядро читается
 // геттером — оно создаётся позже пула сервисов (см. lib/localPlayer.js)
@@ -330,10 +325,7 @@ socketMethods[PS_CONFIG_DATA] = async data => {
 
   clientCore = core;
   wasm = { memory };
-  clientCoreAbi =
-    typeof core.abi_describe === 'function'
-      ? JSON.parse(core.abi_describe())
-      : { abi: 0, core: null, ops: [] };
+  clientCoreAbi = readCoreAbi(core, 'client core');
 
   // инициализация сущностей игры
   for (const entity of Object.keys(entitiesOnCanvas)) {
@@ -1152,8 +1144,7 @@ const RESYNC_AFTER_HIDDEN_MS = 3000;
 
 // вкладка могла быть скрыта уже в момент навешивания слушателя — события
 // 'hidden' тогда не будет, а пауза всё равно идёт
-let hiddenAt =
-  document.visibilityState === 'hidden' ? performance.now() : null;
+let hiddenAt = document.visibilityState === 'hidden' ? performance.now() : null;
 
 // обработчик видимости вкладки
 function handleVisibilityChange() {
@@ -1199,18 +1190,22 @@ function handleVisibilityChange() {
 
 // дамп клиентского ядра: сначала опкод dispatch, затем замороженный метод.
 // Метод не удаляется никогда (И1), поэтому запасной путь остаётся навсегда:
-// ядро, собранное до появления dispatch, отдаёт дамп по-старому
+// ядро, собранное до появления dispatch, отдаёт дамп по-старому.
+// dispatchCoreOp — та же точка вызова, что у хостового GameCoreAdapter._op:
+// имя опкода читается из реестра, три исхода ответа различимы
 function clientCoreDebug() {
   if (!clientCore) {
     return undefined;
   }
 
-  if (clientCoreAbi.ops.includes('debug.json')) {
-    const out = clientCore.dispatch('debug.json', new Uint8Array(0));
+  const { handled, bytes } = dispatchCoreOp(
+    clientCore,
+    clientCoreAbi,
+    ABI_OP_DEBUG_JSON,
+  );
 
-    if (out.length > 0) {
-      return new TextDecoder().decode(out);
-    }
+  if (handled && bytes !== null) {
+    return new TextDecoder().decode(bytes);
   }
 
   return clientCore.debug_json?.();
@@ -1413,7 +1408,9 @@ if (isDevBuild) {
     reportUrl: lobbyConfig.debugReportUrl,
   });
 
-  debugLog('window.__vimpDebug is available: dump, startRecording, stopRecording, divergence');
+  debugLog(
+    'window.__vimpDebug is available: dump, startRecording, stopRecording, divergence',
+  );
 }
 
 // WebRTC обязателен для P2P-игры. В Firefox RTCPeerConnection может
@@ -1944,7 +1941,9 @@ function populateRoomForm(manifest) {
 
 // каталог манифестов по id: форма и leaderboard селектора игр, а также
 // активация игры перед созданием комнаты и входом в чужую
-const gamesById = new Map(gamesManifest.map(manifest => [manifest.id, manifest]));
+const gamesById = new Map(
+  gamesManifest.map(manifest => [manifest.id, manifest]),
+);
 
 // ClientPlugin выбранной игры грузится в момент клика (создание комнаты /
 // вход в комнату), а не при смене селектора: просмотр каталога не должен

@@ -366,11 +366,6 @@ impl<G: GameDef> EngineSim<G> {
         .to_string()
     }
 
-    // ***** handoff (Spike B / Этап 5.2) ***** //
-
-    /// Сериализует состояние симуляции для эстафетной передачи между
-    /// инстансами WASM. Накопители снапшота должны быть дренированы
-    /// (pack_body) перед вызовом.
     /// Самоописание игрового ядра: версия формата, версия движкового
     /// крейта, опкоды `dispatch` (движковые + объявленные игрой).
     pub fn abi_describe(&self) -> String {
@@ -390,6 +385,11 @@ impl<G: GameDef> EngineSim<G> {
         crate::abi::dispatch_result(out)
     }
 
+    // ***** handoff (Spike B / Этап 5.2) ***** //
+
+    /// Сериализует состояние симуляции для эстафетной передачи между
+    /// инстансами WASM. Накопители снапшота должны быть дренированы
+    /// (pack_body) перед вызовом.
     pub fn serialize_state(&self) -> Result<Vec<u8>, String> {
         let dump = EngineDump {
             world: WorldDump {

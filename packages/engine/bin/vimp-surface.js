@@ -44,7 +44,7 @@ async function main(argv) {
 
   try {
     committed = JSON.parse(await readFile(SURFACE_PATH, 'utf8'));
-  } catch (err) {
+  } catch {
     process.stderr.write(
       `surface: no snapshot at ${SURFACE_PATH} — run ` +
         '`npm run surface:update` to create it\n',

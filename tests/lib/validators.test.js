@@ -62,14 +62,22 @@ describe('validateAuth', () => {
   });
 
   it('сообщает о нестроковом значении', () => {
-    const result = validateAuth({ name: 123, model: 'm1' }, authParams, validators);
+    const result = validateAuth(
+      { name: 123, model: 'm1' },
+      authParams,
+      validators,
+    );
     expect(result).toEqual([
       { name: 'name', error: 'Property must be a string' },
     ]);
   });
 
   it('накапливает ошибки валидации', () => {
-    const result = validateAuth({ name: '1', model: 'm9' }, authParams, validators);
+    const result = validateAuth(
+      { name: '1', model: 'm9' },
+      authParams,
+      validators,
+    );
     expect(result).toEqual([
       { name: 'name', error: 'not valid' },
       { name: 'model', error: 'not valid' },
@@ -174,7 +182,9 @@ describe('validateAuth', () => {
   });
 
   it('пустое значение декларативные правила пропускают (required не проверяется)', () => {
-    const params = [{ name: 'tag', options: { regExp: '[a-z]+', required: true } }];
+    const params = [
+      { name: 'tag', options: { regExp: '[a-z]+', required: true } },
+    ];
 
     expect(validateAuth({ tag: '' }, params)).toBeUndefined();
   });
@@ -183,7 +193,10 @@ describe('validateAuth', () => {
   // вне своих options не отдаст, и хост обязан требовать того же
   it('отбивает значение вне списка вариантов select/radio', () => {
     const params = [
-      { name: 'side', options: { control: 'select', options: ['red', 'blue'] } },
+      {
+        name: 'side',
+        options: { control: 'select', options: ['red', 'blue'] },
+      },
     ];
 
     expect(validateAuth({ side: 'green' }, params)).toEqual([
@@ -218,7 +231,9 @@ describe('validateAuth', () => {
   // отказывает безусловно ('no options available'), и хост не вправе
   // пропускать то, чего игрок отправить не может
   it('select без вариантов не принимает ничего', () => {
-    const empty = [{ name: 'side', options: { control: 'select', options: [] } }];
+    const empty = [
+      { name: 'side', options: { control: 'select', options: [] } },
+    ];
     const missing = [{ name: 'side', options: { control: 'select' } }];
     const broken = [
       { name: 'side', options: { control: 'select', options: 'red' } },
@@ -293,8 +308,12 @@ describe('resolveValidator', () => {
 
   it('незнакомое имя и не-функция резолвятся в undefined', () => {
     expect(resolveValidator('isValidMdoel')).toBeUndefined();
-    expect(resolveValidator('isValidModel', { isValidModel: 'm1' })).toBeUndefined();
-    expect(resolveValidator('isValidName', { isValidName: null })).toBeUndefined();
+    expect(
+      resolveValidator('isValidModel', { isValidModel: 'm1' }),
+    ).toBeUndefined();
+    expect(
+      resolveValidator('isValidName', { isValidName: null }),
+    ).toBeUndefined();
   });
 });
 
@@ -335,17 +354,124 @@ describe('clampGameResult', () => {
   });
 
   it('best > points — битый клиент: режется максимум, а не растёт сумма', () => {
-    expect(clampGameResult(5, 100, 10000)).toMatchObject({ points: 5, best: 5 });
+    expect(clampGameResult(5, 100, 10000)).toMatchObject({
+      points: 5,
+      best: 5,
+    });
   });
 
   it('отрицательное, дробное и мусор — ноль', () => {
-    expect(clampGameResult(-10, -1, 10000)).toMatchObject({ points: 0, best: 0 });
-    expect(clampGameResult('junk', undefined, 10000)).toMatchObject({ points: 0, best: 0 });
-    expect(clampGameResult(7.9, 3.2, 10000)).toMatchObject({ points: 7, best: 3 });
+    expect(clampGameResult(-10, -1, 10000)).toMatchObject({
+      points: 0,
+      best: 0,
+    });
+    expect(clampGameResult('junk', undefined, 10000)).toMatchObject({
+      points: 0,
+      best: 0,
+    });
+    expect(clampGameResult(7.9, 3.2, 10000)).toMatchObject({
+      points: 7,
+      best: 3,
+    });
   });
 
   it('потолок объявляет игра: 100 у одной, 10000 у другой', () => {
-    expect(clampGameResult(500, 500, 100)).toMatchObject({ points: 500, best: 100 });
-    expect(clampGameResult(500, 500, 10000)).toMatchObject({ points: 500, best: 500 });
+    expect(clampGameResult(500, 500, 100)).toMatchObject({
+      points: 500,
+      best: 100,
+    });
+    expect(clampGameResult(500, 500, 10000)).toMatchObject({
+      points: 500,
+      best: 500,
+    });
+  });
+});
+
+// Алиасы выведенных контролов в авторитетной валидации хоста. Этап 3 плана
+// plugin-forward-compat научил разрешать их ТОЛЬКО билдер формы, и
+// authSchema с именем прошлого поколения строилась у клиента, а на хосте не
+// совпадала ни с одним именем — поле уезжало вообще без проверок. Инвариант
+// модуля: клиент, обошедший форму, не получает больше прав, чем заполнивший
+describe('validateAuth: выведенные контролы проверяются как их замены', () => {
+  const optionField = control => [
+    { name: 'team', options: { control, options: ['red', 'blue'] } },
+  ];
+
+  it("'segmented' проверяет членство в options ровно как 'radio'", () => {
+    expect(validateAuth({ team: 'hacked' }, optionField('segmented'))).toEqual([
+      { name: 'team', error: 'not an option' },
+    ]);
+    expect(
+      validateAuth({ team: 'red' }, optionField('segmented')),
+    ).toBeUndefined();
+  });
+
+  it("'toggle' ведёт себя как 'checkbox' — свободное значение", () => {
+    expect(
+      validateAuth({ t: 'on' }, [
+        { name: 't', options: { control: 'toggle' } },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("'number' и 'range' проверяются диапазоном, а не длиной строки", () => {
+    const field = control => [
+      { name: 'players', options: { control, min: 1, max: 8 } },
+    ];
+
+    expect(validateAuth({ players: 4 }, field('number'))).toBeUndefined();
+    expect(validateAuth({ players: 99 }, field('range'))).toEqual([
+      { name: 'players', error: 'must be <= 8' },
+    ]);
+    expect(validateAuth({ players: 0 }, field('number'))).toEqual([
+      { name: 'players', error: 'must be >= 1' },
+    ]);
+  });
+
+  it('числовое поле не принимает строку вместо числа', () => {
+    expect(
+      validateAuth({ players: '4' }, [
+        { name: 'players', options: { control: 'number', min: 1, max: 8 } },
+      ]),
+    ).toEqual([{ name: 'players', error: 'must be a number' }]);
+  });
+
+  it('min/max сверяются в единице отображения, а не хранения', () => {
+    const field = [
+      {
+        name: 'roundTime',
+        options: { control: 'range', unit: 's', min: 10, max: 60 },
+      },
+    ];
+
+    // 30000 мс = 30 с — внутри диапазона; 300000 мс = 300 с — вне его
+    expect(validateAuth({ roundTime: 30000 }, field)).toBeUndefined();
+    expect(validateAuth({ roundTime: 300000 }, field)).toEqual([
+      { name: 'roundTime', error: 'must be <= 60' },
+    ]);
+  });
+
+  it('игровой валидатор зовётся и для числового поля', () => {
+    const isEven = vi.fn(value => value % 2 === 0);
+
+    expect(
+      validateAuth(
+        { n: 3 },
+        [{ name: 'n', options: { control: 'number', validator: 'isEven' } }],
+        { isEven },
+      ),
+    ).toEqual([{ name: 'n', error: 'not valid' }]);
+    expect(isEven).toHaveBeenCalledWith(3);
+  });
+
+  it('активные контролы не изменились в поведении', () => {
+    expect(validateAuth({ team: 'hacked' }, optionField('radio'))).toEqual([
+      { name: 'team', error: 'not an option' },
+    ]);
+    expect(
+      validateAuth({ nick: 'abcdefgh' }, [
+        { name: 'nick', options: { control: 'text', maxlength: 3 } },
+      ]),
+    ).toEqual([{ name: 'nick', error: 'too long' }]);
   });
 });

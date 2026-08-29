@@ -68,3 +68,37 @@ describe('gamePlugin: assertEngineApiCompatible', () => {
     ).not.toThrow();
   });
 });
+
+describe('gamePlugin: битая форма requires', () => {
+  // `requires` пишет ЧУЖОЙ репозиторий игры. До правки .filter по строке или
+  // объекту давал TypeError, который уходил из конструктора GameCatalog и не
+  // давал стартовать мастеру целиком — одна битая игра уносила весь каталог
+  it.each([
+    ['строка', 'accolades'],
+    ['объект', {}],
+    ['число', 5],
+    ['массив с не-строкой', ['accolades', null]],
+  ])('%s → вердикт bad-manifest, а не исключение', (_name, requires) => {
+    const compat = checkPluginCompatibility({ id: 'tanks', requires });
+
+    expect(compat.ok).toBe(false);
+    expect(compat.reason).toBe('bad-manifest');
+    expect(compat.missing).toEqual([]);
+    expect(compat.text).toMatch(/must be an array of capability names/);
+  });
+
+  it('null и undefined — это «ничего сверх базового», а не битый манифест', () => {
+    expect(checkPluginCompatibility({ id: 'tanks', requires: null })).toEqual({
+      ok: true,
+    });
+    expect(
+      checkPluginCompatibility({ id: 'tanks', requires: undefined }),
+    ).toEqual({ ok: true });
+  });
+
+  it('assertEngineApiCompatible бросает на битой форме тем же текстом', () => {
+    expect(() =>
+      assertEngineApiCompatible({ id: 'tanks', requires: 'accolades' }),
+    ).toThrow(/must be an array of capability names/);
+  });
+});

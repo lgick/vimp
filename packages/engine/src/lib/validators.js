@@ -1,5 +1,7 @@
 import { anchorPattern } from './formPattern.js';
 import { normalizeOptions } from './formOptions.js';
+import { resolveDescriptor } from './formControls.js';
+import { toDisplay, isNumericField } from './formUnit.js';
 
 const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w\\s#]{0,13})[\\w]{1}$');
 
@@ -29,6 +31,33 @@ const OPTION_CONTROLS = ['select', 'radio'];
 // сам же предложил список, значит завести игрока в тупик. Контрол по
 // умолчанию — text (тот же дефолт, что у билдера формы)
 const isTextControl = control => control === 'text' || control === undefined;
+
+// числовое поле (control 'text' + numeric/unit — в том числе разрешённые из
+// выведенных 'number' и 'range'). Форма отдаёт его ЧИСЛОМ в единице
+// хранения (formBuilder.buildText: getValue → toStored(Number(...))), а не
+// строкой, поэтому оно идёт отдельной веткой до проверки типа
+const isNumericControl = options =>
+  isTextControl(options?.control) && isNumericField(options);
+
+// min/max дескриптора объявлены в единице ОТОБРАЖЕНИЯ, а по сети едет
+// единица хранения — сравниваем ровно так же, как validateField на клиенте
+const numericError = (options, value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 'must be a number';
+  }
+
+  const shown = toDisplay(options, value);
+
+  if (options.min !== undefined && shown < options.min) {
+    return `must be >= ${options.min}`;
+  }
+
+  if (options.max !== undefined && shown > options.max) {
+    return `must be <= ${options.max}`;
+  }
+
+  return null;
+};
 
 // source-варианты хост не резолвит (их и форма в auth не резолвит: она
 // строится с пустым ctx) — сверяем только объявленный inline-список.
@@ -76,6 +105,26 @@ export const resolveValidator = (name, validators = {}) => {
   return typeof fn === 'function' ? fn : undefined;
 };
 
+// игровой валидатор поля (authSchema.validators). Нерезолвнутое имя
+// (опечатка) и не-функция ведут себя одинаково — поле проходит. Для клиента
+// это норма (игровые валидаторы к нему не едут, авторитет проверки на
+// хосте), для хоста — дефект схемы, о котором говорят C10 и console.error в
+// PortMachine: звать что попало нельзя, TypeError отсюда уходит прямо в
+// обработчик сообщения
+const gameValidatorError = (options, value, validators) => {
+  if (options?.validator === undefined) {
+    return null;
+  }
+
+  const validatorFn = resolveValidator(options.validator, validators);
+
+  return validatorFn && !validatorFn(value) ? 'not valid' : null;
+};
+
+// null → ничего не добавляем: errors.push(...withName(...)) читается одной
+// строкой на обеих ветках поля
+const withName = (name, error) => (error === null ? [] : [{ name, error }]);
+
 /**
  * Валидирует объект с данными для авторизации.
  * @param {object} data - Объект с данными для проверки.
@@ -87,12 +136,37 @@ export const resolveValidator = (name, validators = {}) => {
 export const validateAuth = (data, authParams, validators = {}) => {
   const errors = [];
 
-  for (const { name, options } of authParams) {
+  for (const { name, options: declared } of authParams) {
     if (!(name in data)) {
       return [{ name, error: `Property is missing` }];
     }
 
+    // Тот же резолв алиаса, что делает билдер формы (client/lib/formBuilder.js:
+    // buildField, collectFormErrors, resolveForcedValue). Без него контрол,
+    // выведенный из эксплуатации в v3 ('segmented', 'number', 'range',
+    // 'toggle'), не совпадает ни с одним именем ниже, и клиент, обошедший
+    // форму, получает поле ВООБЩЕ без проверок — ровно то превосходство над
+    // заполнившим форму, которого здесь быть не должно. Алиасы стали
+    // достижимы вместе с реестром контролов (этап 3 plugin-forward-compat):
+    // до него такое поле не строилось у клиента и сюда не доезжало
+    const options = resolveDescriptor(declared);
     const value = data[name];
+
+    // Числовое поле идёт своей веткой: форма отдаёт его числом, и общий
+    // путь ниже (длина, список вариантов, regExp) к нему не применим —
+    // проверяется диапазон, ровно как validateField делает на клиенте.
+    // Игровой валидатор зовётся для обоих видов поля одинаково
+    if (isNumericControl(options)) {
+      const error = numericError(options, value);
+
+      errors.push(
+        ...withName(
+          name,
+          error ?? gameValidatorError(options, value, validators),
+        ),
+      );
+      continue;
+    }
 
     if (typeof value !== 'string') {
       return [{ name, error: `Property must be a string` }];
@@ -103,10 +177,7 @@ export const validateAuth = (data, authParams, validators = {}) => {
     // не должен получать больше прав, чем клиент, её заполнивший. Пустое
     // значение пропускается ровно как на клиенте (required здесь не
     // проверяется: solo-путь boot.autoAuth отвечает дефолтами схемы, среди
-    // которых бывает '') — пустота остаётся делом игрового валидатора.
-    // min/max формы здесь не применяются и не нужны: числовое поле отдаёт из
-    // формы число, а нестроковое значение отбито выше, то есть числовых
-    // полей в authSchema не бывает вовсе
+    // которых бывает '') — пустота остаётся делом игрового валидатора
 
     // длина — первой и безусловно: потолок ограничивает не столько ввод,
     // сколько работу паттерна ниже (см. MAX_FIELD_LENGTH)
@@ -142,18 +213,9 @@ export const validateAuth = (data, authParams, validators = {}) => {
       continue;
     }
 
-    if (options?.validator) {
-      const validatorFn = resolveValidator(options.validator, validators);
-
-      // нерезолвнутое имя (опечатка) и не-функция ведут себя одинаково —
-      // поле проходит. Для клиента это норма (игровые валидаторы к нему не
-      // едут, авторитет проверки на хосте), для хоста — дефект схемы, о
-      // котором говорят C10 и console.error в PortMachine: звать что попало
-      // нельзя, TypeError отсюда уходит прямо в обработчик сообщения
-      if (validatorFn && !validatorFn(value)) {
-        errors.push({ name, error: 'not valid' });
-      }
-    }
+    errors.push(
+      ...withName(name, gameValidatorError(options, value, validators)),
+    );
   }
 
   return errors.length ? errors : undefined;

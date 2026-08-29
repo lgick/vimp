@@ -36,6 +36,10 @@ import { ensureGameShell } from '../client/views/gameShell.js';
  *   голосований, например `['/bot 4']`.
  * @param {Object} [options.room] - Переопределения комнаты (map, maxPlayers,
  *   roundTime, friendlyFire, seed).
+ * @param {Array<string>} [options.requires] - Возможности движка, без
+ *   которых игра не запустится (аналог `GameManifest.requires`, которого в
+ *   solo-режиме нет). По умолчанию — объединение `requires` обеих половин
+ *   плагина.
  * @param {boolean} [options.devMode] - room.isDevMode: рекордер и хостовый
  *   CONSOLE-лог.
  * @returns {Promise<Object>} `{ stop() }` — останов матча.
@@ -52,6 +56,7 @@ export async function startStandaloneGame({
   startupVotes = [],
   startupCommands = [],
   room = {},
+  requires,
   devMode = false,
 } = {}) {
   requireOption(hostPlugin, 'hostPlugin');
@@ -59,9 +64,19 @@ export async function startStandaloneGame({
   requireOption(wasmUrl, 'wasmUrl');
 
   // возможность, которой в этой сборке движка нет, иначе всплыла бы где-то
-  // в середине хендшейка непрозрачной ошибкой
-  requireCompatible(hostPlugin);
-  requireCompatible(clientPlugin);
+  // в середине хендшейка непрозрачной ошибкой. Мастера тут нет, а значит нет
+  // и GameManifest с его `requires` — источником служат сами половины
+  // плагина (необязательное поле `requires`, docs/en/plugin-api.md) либо
+  // опция вызова, если встраивающий знает лучше. Одна проверка вместо двух:
+  // сообщение адресовано разработчику встраивания, делить его по половинам
+  // незачем
+  requireCompatible({
+    id: hostPlugin.id,
+    requires: requires ?? [
+      ...(hostPlugin.requires ?? []),
+      ...(clientPlugin.requires ?? []),
+    ],
+  });
 
   // одна view на прогон: умолчания вместо обязательных полей (И2 этапа 2)
   const configView = assertGameConfigShape(hostPlugin);
@@ -97,8 +112,8 @@ export async function startStandaloneGame({
   };
 }
 
-// половина плагина просит возможность, которой в этой сборке движка нет:
-// подменить её в SDK нечем — матч не поднимется
+// игра просит возможность, которой в этой сборке движка нет: подменить её в
+// SDK нечем — матч не поднимется
 function requireCompatible(plugin) {
   const compat = checkPluginCompatibility(plugin);
 

@@ -352,6 +352,73 @@ describe('register_host', () => {
     expect(registry.size).toBe(0);
   });
 
+  // игра, помеченная каталогом недоступной (compat.ok === false, этап 5
+  // плана plugin-forward-compat), в лобби показана disabled — но это решение
+  // КЛИЕНТА. Хост со своей сборкой поднял бы по ней комнату, она попала бы в
+  // список живой строкой, а присоединяющиеся упёрлись бы в loadClientPlugin
+  describe('игра, помеченная каталогом недоступной', () => {
+    const catalogWithUnavailable = () => ({
+      getManifest: id =>
+        id === 'snakes'
+          ? { id, compat: { ok: false, text: 'needs accolades' } }
+          : { id, version: 'v1', maps: { version: 'tanks-maps-v1' } },
+    });
+
+    const serverWithCatalog = () =>
+      new SignalingServer(registry, {
+        iceServers: ICE_SERVERS,
+        regionHeader: 'x-region',
+        heartbeatTimeout: 1000,
+        pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+        checkOrigin: allowAllOrigins,
+        mapsVersion: 'v-test',
+        codeVersion: 'code-test',
+        jwksProxy,
+        hostRatingProxy,
+        issuer: ISSUER,
+        gameCatalog: catalogWithUnavailable(),
+      });
+
+    const registerOn = async (server, gameId) => {
+      const ws = new FakeWs();
+
+      server.handleConnection(ws, {
+        headers: { origin: 'https://localhost:3001', 'x-region': 'EU' },
+        socket: { remoteAddress: '3.3.3.3' },
+      });
+      await nextTick();
+
+      ws.message({
+        type: 'register_host',
+        name: 'Room',
+        gameId,
+        token: signToken(1),
+      });
+      await server.idle();
+
+      return ws;
+    };
+
+    it('регистрация хоста отклоняется кодом gameUnavailable', async () => {
+      const ws = await registerOn(serverWithCatalog(), 'snakes');
+
+      expect(ws.lastSent()).toEqual({
+        type: 'error',
+        code: 'gameUnavailable',
+      });
+      expect(registry.size).toBe(0);
+      // проверка стоит до обращения к auth: она дешевле сетевого запроса
+      expect(hostRatingProxy.getRating).not.toHaveBeenCalled();
+    });
+
+    it('доступная игра того же каталога регистрируется как обычно', async () => {
+      const ws = await registerOn(serverWithCatalog(), 'tanks');
+
+      expect(ws.lastSent().type).toBe('host_registered');
+      expect(registry.size).toBe(1);
+    });
+  });
+
   it('отклоняет повторную регистрацию того же соединения', async () => {
     const { ws } = await connectHost();
 

@@ -167,6 +167,20 @@ export default class SignalingServer {
       return;
     }
 
+    // Игра, помеченная каталогом недоступной (compat.ok === false, этап 5
+    // плана plugin-forward-compat), в лобби показана disabled — но это
+    // решение КЛИЕНТА. Хост со своей сборкой или с открытой консолью поднял
+    // бы по ней комнату, она попала бы в список живой строкой, а
+    // присоединяющиеся упёрлись бы в loadClientPlugin. Проверка стоит до
+    // _verifyToken: она дешевле сетевого запроса к auth
+    if (
+      gameId &&
+      this._gameCatalog?.getManifest(gameId)?.compat?.ok === false
+    ) {
+      this._sendError(session, 'gameUnavailable');
+      return;
+    }
+
     const hosterUserId = await this._verifyToken(token);
 
     if (hosterUserId === null) {

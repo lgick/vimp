@@ -1,28 +1,29 @@
 import { anchorPattern } from '../../lib/formPattern.js';
 import { normalizeOptions } from '../../lib/formOptions.js';
 import { resolveDescriptor } from '../../lib/formControls.js';
+import { toDisplay, toStored, isNumericField } from '../../lib/formUnit.js';
 
 // Общий билдер полей форм (room-форма и auth-форма используют один
 // контракт дескрипторов — docs/en/plugin-api.md, раздел "Form schema").
 // control: 'select'|'text'|'checkbox'|'radio'; все контролы — нативные
-// элементы формы, без визуальной кастомизации. Имя контрола приезжает от
-// игры и разрешается через append-only реестр (lib/formControls.js): имена,
-// выведенные из эксплуатации в v3 ('range', 'number', 'toggle',
-// 'segmented'), продолжают строиться алиасами своих нативных замен (И1). Валидация — не нативная
-// (никаких браузерных попапов): collectFormErrors/renderFormErrors ниже
-// собирают и рисуют ошибки в разметку (#lobby-error/#auth-error).
+// элементы формы, без визуальной кастомизации.
+//
+// Имя контрола приезжает от игры и разрешается через append-only реестр
+// (lib/formControls.js): имена, выведенные из эксплуатации в v3 ('range',
+// 'number', 'toggle', 'segmented'), продолжают строиться алиасами своих
+// нативных замен (И1). Тот же резолв обязана делать авторитетная валидация
+// хоста (lib/validators.js) — иначе поле строится одним контролом, а
+// проверяется как другой.
+//
+// Валидация — не нативная (никаких браузерных попапов):
+// collectFormErrors/renderFormErrors ниже собирают и рисуют ошибки в
+// разметку (#lobby-error/#auth-error).
 // Проверяются только поля, у которых есть строка в DOM: ошибка на скрытом
 // поле игроку не видна и исправить её нечем — она просто запирает форму.
 
 // контролы, у которых есть список вариантов: держим одним списком, чтобы
 // resolveForcedValue не расходился с builders при добавлении нового
 const OPTION_CONTROLS = ['select', 'radio'];
-
-// числовое text-поле: unit задан или numeric:true. Правило одно на билдер и
-// на валидацию, поэтому живёт в одном месте
-function isNumeric(descriptor) {
-  return descriptor.numeric === true || descriptor.unit !== undefined;
-}
 
 // 'source' — спец-источник вариантов из каталога движка (например карты),
 // прокидывается вызывающей стороной через ctx.sources
@@ -61,15 +62,6 @@ export function resolveForcedValue(descriptor, ctx = {}) {
   // validateAuth отбивает «Property must be a string» (lib/validators.js), а
   // строки поля в DOM нет — игроку нечем это поправить
   return forced === undefined ? undefined : String(forced);
-}
-
-// unit:'s' — значение хранится в мс, показывается/редактируется в секундах
-function toDisplay(descriptor, value) {
-  return descriptor.unit === 's' ? value / 1000 : value;
-}
-
-function toStored(descriptor, value) {
-  return descriptor.unit === 's' ? value * 1000 : value;
 }
 
 function buildSelect(descriptor, ctx) {
@@ -116,7 +108,7 @@ function buildSelect(descriptor, ctx) {
 // вместо превращения его в 0 на сабмите
 function buildText(descriptor) {
   const el = document.createElement('input');
-  const numeric = isNumeric(descriptor);
+  const numeric = isNumericField(descriptor);
 
   el.type = 'text';
   // выпадашка прошлых значений/автозаполнения кроет форму, а подставить в
@@ -386,7 +378,7 @@ function validateField(descriptor, field) {
   const isEmpty = isText
     ? raw === ''
     : value === undefined || value === null || value === '';
-  const numeric = isText && isNumeric(descriptor);
+  const numeric = isText && isNumericField(descriptor);
 
   // числовое поле всегда несёт число и «необязательным» быть не может:
   // пустой ввод getValue() подменяет default'ом (чтобы не уехал нолём), и

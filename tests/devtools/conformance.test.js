@@ -3,6 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { runScenario } from '../../packages/engine/src/devtools/ScenarioRunner.js';
 import { loadGameForSim } from '../../packages/engine/src/devtools/pluginLoader.js';
 import { FAIL } from '../../packages/engine/src/devtools/invariants.js';
+import {
+  formControls,
+  resolveDescriptor,
+} from '../../packages/engine/src/lib/formControls.js';
+import { validateAuth } from '../../packages/engine/src/lib/validators.js';
+import { checkPluginCompatibility } from '../../packages/engine/src/lib/gamePlugin.js';
 
 // Корпус совместимости (этап 1 плана plugin-forward-compat). Слепок
 // поверхности ловит статические нарушения — исчезнувшее имя, изменившуюся
@@ -55,9 +61,10 @@ const scenario = () => ({
 for (const generation of GENERATIONS) {
   describe(`поколение ${generation}`, () => {
     let report;
+    let plugin;
 
     beforeAll(async () => {
-      const plugin = await loadGameForSim({ game: manifestOf(generation) });
+      plugin = await loadGameForSim({ game: manifestOf(generation) });
 
       report = await runScenario(scenario(), { plugin });
     });
@@ -84,5 +91,77 @@ for (const generation of GENERATIONS) {
 
       expect(failed.map(check => [check.name, check.violations])).toEqual([]);
     });
+
+    // Прогон матча идёт мимо PortMachine (ScenarioRunner зовёт host.createUser
+    // напрямую), поэтому формы поколения он не задевает. Проверяем их
+    // статически: имя контрола, переставшее резолвиться, и поле, переставшее
+    // валидироваться на хосте, — оба слома совместимости, которых прогон не
+    // увидит
+    it('каждое имя control поколения резолвится реестром', () => {
+      const descriptors = [
+        ...(plugin.hostPlugin.gameConfig.roomForm ?? []),
+        ...(plugin.hostPlugin.authSchema?.params ?? []).map(
+          param => param.options ?? {},
+        ),
+      ];
+
+      for (const { control } of descriptors) {
+        if (control !== undefined) {
+          expect([control, formControls.has(control)]).toEqual([control, true]);
+        }
+      }
+    });
+
+    it('поле поколения валидируется хостом так же, как его алиас', () => {
+      // gen-api3 держит `control: 'range'` — имя, выведенное в v3. Хост
+      // обязан проверять такое поле как его активную замену (numeric text):
+      // до правки validators.js оно не совпадало ни с одним именем и
+      // уезжало вообще без проверок, давая обошедшему форму клиенту больше
+      // прав, чем заполнившему
+      const retired = (plugin.hostPlugin.gameConfig.roomForm ?? []).filter(
+        field => formControls.isRetired(field.control),
+      );
+
+      // у текущего поколения выведенных имён нет — проверять нечего;
+      // что хотя бы одно поколение корпуса их держит, проверяется ниже
+      for (const field of retired) {
+        // резолв алиаса — то же, что делает билдер формы: 'range' →
+        // numeric 'text', и накладка `numeric: true` едет вместе с ним
+        const resolved = resolveDescriptor(field);
+        const asRetired = validateAuth({ [field.name]: 'не-число' }, [
+          { name: field.name, options: field },
+        ]);
+        const asResolved = validateAuth({ [field.name]: 'не-число' }, [
+          { name: field.name, options: resolved },
+        ]);
+
+        expect([field.control, asRetired]).toEqual([field.control, asResolved]);
+        expect(asRetired).not.toBeUndefined();
+      }
+    });
+
+    it('манифест поколения совместим с этой сборкой движка', () => {
+      expect(checkPluginCompatibility(plugin.manifest)).toEqual({ ok: true });
+    });
   });
 }
+
+// Свойство самого корпуса, а не отдельного поколения: если ни одна фикстура
+// не пишет выведенное имя контрола, алиасы этапа 3 не проверяются ничем и
+// разъезд билдера с хостовой валидацией снова пройдёт молча
+describe('корпус совместимости', () => {
+  it('хотя бы одно поколение держит выведенный из эксплуатации control', async () => {
+    const withRetired = [];
+
+    for (const generation of GENERATIONS) {
+      const plugin = await loadGameForSim({ game: manifestOf(generation) });
+      const fields = plugin.hostPlugin.gameConfig.roomForm ?? [];
+
+      if (fields.some(field => formControls.isRetired(field.control))) {
+        withRetired.push(generation);
+      }
+    }
+
+    expect(withRetired).not.toEqual([]);
+  });
+});

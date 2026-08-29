@@ -14,6 +14,27 @@ import globals from 'globals';
 // перестаёт звать), добавить — нет, потому что в dist уже опубликованной
 // игры символ не появится никогда. Новая возможность ядра приезжает
 // опкодом `dispatch` (packages/engine/src/config/abiOps.js).
+const FROZEN_CLIENT_ABI = [
+  'abi_describe',
+  'apply_aim',
+  'apply_input',
+  'debug_json',
+  'decode_frame',
+  'dispatch',
+  'hot_ptr',
+  'hot_values',
+  'my_game_id',
+  'offset',
+  'push_frame',
+  'reset',
+  'resync',
+  'sample',
+  'set_active',
+  'set_map',
+  'take_divergence',
+  'take_frames',
+];
+
 const FROZEN_CORE_ABI = [
   'abi_describe',
   'alive_players',
@@ -228,6 +249,15 @@ export default [
           message:
             'таблица экспортов ядра заморожена (И1/И3, plan/plugin-forward-compat/stage_4.md): ' +
             'у ядра, собранного год назад, нового метода нет — зови возможность опкодом через _op()',
+        },
+        // клиентская половина: ядро живёт в модульной переменной clientCore,
+        // а не в this._core, — тот же запрет ей нужен по тем же причинам
+        // (её таблица экспортов заморожена в contract/surface.json → abi.client)
+        {
+          selector: `MemberExpression[object.name="clientCore"]:not([property.name=/^(${FROZEN_CLIENT_ABI.join('|')})$/])`,
+          message:
+            'таблица экспортов клиентского ядра заморожена (И1/И3): у ядра, собранного год назад, ' +
+            'нового метода нет — зови возможность опкодом через dispatchCoreOp() (lib/coreAbi.js)',
         },
       ],
     },

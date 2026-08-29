@@ -32,58 +32,73 @@ export default class GameCatalog {
     this._games = new Map(); // id -> { manifest, mapCatalog }
     this._distDirs = new Map(); // id -> абсолютный путь к dist/ пакета
 
-    for (const { id, package: pkg } of games) {
-      const gameDir = path.join(nodeModulesDir, pkg);
-      const distDir = path.join(gameDir, 'dist');
-      const manifestPath = path.join(distDir, 'manifest.json');
-
-      let manifest;
-
+    for (const game of games) {
+      // Разбор ОДНОЙ игры целиком под try: инвариант «битая игра не уносит
+      // каталог» обязан держаться механически, а не по доброй воле
+      // вызываемого кода. Раньше try накрывал только JSON.parse, и
+      // TypeError из checkPluginCompatibility на кривом manifest.requires
+      // уходил из конструктора — мастер не стартовал вовсе
       try {
-        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        this._addGame(game, nodeModulesDir, dev);
       } catch (err) {
-        continue; // игра не собрана/не установлена (npm run build в репозитории игры) — пропускаем
+        console.warn(`GameCatalog: skip "${game.id}" — ${err.message}`);
       }
-
-      // статик-маунт мастера раздаёт dist/ по id из конфига — при
-      // расхождении с manifest.id он бьёт мимо
-      if (manifest.id !== id) {
-        console.warn(
-          `GameCatalog: skip "${id}" — manifest.id "${manifest.id}" ` +
-            'does not match configured id',
-        );
-        continue;
-      }
-
-      // метаданные npm-пакета игры (версия и адрес проекта) — их движок
-      // показывает в футере формы входа. Источник здесь, а не в манифесте:
-      // манифест пишет сборка в репозитории игры, и любое новое поле в нём
-      // доезжает до игроков только через правку скрипта сборки каждой игры и
-      // её перепубликацию, тогда как package.json лежит рядом с уже
-      // установленным пакетом и верен по определению
-      const withPackage = { ...manifest, ...this._readPackageMeta(gameDir) };
-
-      // игра просит возможность, которой в этой сборке движка нет (этап 5
-      // плана plugin-forward-compat): она ОСТАЁТСЯ в каталоге с пометкой
-      // недоступности. Молчаливое выкидывание выглядело у игрока как пустое
-      // лобби без единой строки о причине; теперь причина едет клиенту
-      const compat = checkPluginCompatibility(manifest);
-
-      if (!compat.ok) {
-        console.warn(`GameCatalog: "${id}" is unavailable — ${compat.text}`);
-        withPackage.compat = compat;
-      }
-
-      this._games.set(manifest.id, {
-        manifest: dev ? this._toDevManifest(withPackage, gameDir) : withPackage,
-        mapCatalog: new MapCatalog(this._readMaps(path.join(distDir, 'maps'))),
-      });
-      this._distDirs.set(manifest.id, distDir);
     }
 
     this._manifestList = JSON.stringify(
-      [...this._games.values()].map(game => game.manifest),
+      [...this._games.values()].map(g => g.manifest),
     );
+  }
+
+  // одна игра каталога: манифест, метаданные пакета, вердикт совместимости,
+  // карты. Бросает — вызывающий пропускает игру и продолжает с остальными
+  _addGame({ id, package: pkg }, nodeModulesDir, dev) {
+    const gameDir = path.join(nodeModulesDir, pkg);
+    const distDir = path.join(gameDir, 'dist');
+    const manifestPath = path.join(distDir, 'manifest.json');
+
+    let manifest;
+
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (err) {
+      return; // игра не собрана/не установлена (npm run build в репозитории игры) — пропускаем молча
+    }
+
+    // статик-маунт мастера раздаёт dist/ по id из конфига — при
+    // расхождении с manifest.id он бьёт мимо
+    if (manifest.id !== id) {
+      console.warn(
+        `GameCatalog: skip "${id}" — manifest.id "${manifest.id}" ` +
+          'does not match configured id',
+      );
+      return;
+    }
+
+    // метаданные npm-пакета игры (версия и адрес проекта) — их движок
+    // показывает в футере формы входа. Источник здесь, а не в манифесте:
+    // манифест пишет сборка в репозитории игры, и любое новое поле в нём
+    // доезжает до игроков только через правку скрипта сборки каждой игры и
+    // её перепубликацию, тогда как package.json лежит рядом с уже
+    // установленным пакетом и верен по определению
+    const withPackage = { ...manifest, ...this._readPackageMeta(gameDir) };
+
+    // игра просит возможность, которой в этой сборке движка нет (этап 5
+    // плана plugin-forward-compat): она ОСТАЁТСЯ в каталоге с пометкой
+    // недоступности. Молчаливое выкидывание выглядело у игрока как пустое
+    // лобби без единой строки о причине; теперь причина едет клиенту
+    const compat = checkPluginCompatibility(manifest);
+
+    if (!compat.ok) {
+      console.warn(`GameCatalog: "${id}" is unavailable — ${compat.text}`);
+      withPackage.compat = compat;
+    }
+
+    this._games.set(manifest.id, {
+      manifest: dev ? this._toDevManifest(withPackage, gameDir) : withPackage,
+      mapCatalog: new MapCatalog(this._readMaps(path.join(distDir, 'maps'))),
+    });
+    this._distDirs.set(manifest.id, distDir);
   }
 
   // package.json пакета игры: версия и адрес проекта (уже нормализованный —

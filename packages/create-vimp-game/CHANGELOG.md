@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Both generated plugin halves declare `requires: []` next to `engineApi`,
+  matching what `build-game-manifest.js` writes into `dist/manifest.json`.
+  The standalone SDK (`npm run dev` in a game repository) has no manifest to
+  read the capability list from and takes it from the halves.
+
 ## [0.3.7] — 2026-08-29
 
 ### Changed

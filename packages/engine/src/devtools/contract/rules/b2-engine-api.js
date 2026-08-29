@@ -1,5 +1,8 @@
-import { ERROR, skip, verdict } from '../result.js';
-import { CAPABILITIES } from '../../../lib/capabilities.js';
+import { ERROR, WARN, skip, verdict } from '../result.js';
+import {
+  ENGINE_CAPABILITIES,
+  CAPABILITIES,
+} from '../../../lib/capabilities.js';
 
 // `engineApi` живёт в трёх местах (манифест, HostPlugin, ClientPlugin).
 // Расхождение между ними — рассинхрон сборки внутри пакета, и это ошибка.
@@ -34,6 +37,7 @@ export default {
     }
 
     const violations = [];
+    const retired = [];
     const [source, reference] = declared[0];
 
     for (const [where, value] of declared) {
@@ -56,15 +60,59 @@ export default {
       }
     }
 
-    for (const name of ctx.manifest?.requires ?? []) {
-      if (!CAPABILITIES.includes(name)) {
+    // форма `requires` — то же недоверие, что в checkPluginCompatibility:
+    // строка проитерировалась бы здесь посимвольно, объект уронил бы чекер
+    // «not iterable»
+    const requires = ctx.manifest?.requires;
+
+    if (requires === undefined || requires === null) {
+      return finish(violations, retired);
+    }
+
+    if (
+      !Array.isArray(requires) ||
+      requires.some(name => typeof name !== 'string')
+    ) {
+      violations.push(
+        'manifest.requires must be an array of capability names, got ' +
+          `${JSON.stringify(requires)} — the engine reads it before it ` +
+          'loads the plugin',
+      );
+
+      return finish(violations, retired);
+    }
+
+    for (const name of requires) {
+      // has, а не CAPABILITIES.includes: реестр возможностей append-only,
+      // и выведенное алиасом имя движок принимает вечно (ENGINE_CAPABILITIES.
+      // has в checkPluginCompatibility). Сверка с одними активными именами
+      // отвергала бы игру за то, что движок переименовал возможность — тот
+      // самый отказ по возрасту, который план и снимал
+      if (!ENGINE_CAPABILITIES.has(name)) {
         violations.push(
           `manifest.requires names '${name}', which this engine does not ` +
             `provide — known capabilities: ${CAPABILITIES.join(', ')}`,
         );
+      } else if (ENGINE_CAPABILITIES.isRetired(name)) {
+        retired.push(
+          `manifest.requires names '${name}', which was retired — it still ` +
+            `works (the engine resolves it to ` +
+            `'${ENGINE_CAPABILITIES.resolve(name)}' forever), but a new game ` +
+            `should declare '${ENGINE_CAPABILITIES.resolve(name)}' itself`,
+        );
       }
     }
 
-    return verdict(violations);
+    return finish(violations, retired);
   },
 };
+
+// то же, что делают B5 и C10: выведенное имя — не отказ, а предупреждение.
+// Отвергать за него значило бы отвергать игру за возраст (И1)
+function finish(violations, retired) {
+  if (violations.length === 0 && retired.length > 0) {
+    return verdict(retired, 'retired capability names still resolve', WARN);
+  }
+
+  return verdict(violations);
+}

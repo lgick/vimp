@@ -28,4 +28,10 @@ export const abiOps = createRegistry('abiOps', [
 // плоский список активных опкодов — то, что вправе позвать движок
 export const ABI_OPS = abiOps.values();
 
+// Именованные константы вместо литералов в местах вызова: строка 'debug.json',
+// написанная руками у хоста и у клиента, обходила бы реестр молча — новый
+// опкод уехал бы в прод, не попав ни в слепок поверхности, ни в
+// CHANGELOG. Имя опкода читается ТОЛЬКО отсюда.
+export const ABI_OP_DEBUG_JSON = 'debug.json';
+
 export default abiOps;

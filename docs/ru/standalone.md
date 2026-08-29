@@ -209,5 +209,8 @@ startStandaloneGame(options): Promise<{ stop(): void }>
 - **`/bot` отвечает «только для игроков»** — не заданы `startupVotes`, игрок
   всё ещё наблюдатель (в игре с `noSpectators` такого не бывает — там
   `startupVotes` не нужны).
-- **`game "<id>" requires engine API vN`** — плагин и установленный
-  `vimp-engine` из разных поколений API; выровняйте версии.
+- **`game "<id>" needs engine capabilities this build does not have: …`** —
+  половина плагина объявила в `requires` имя, которого установленный
+  `vimp-engine` не предоставляет (`src/lib/capabilities.js`): игра **новее**
+  движка, обновляйте `vimp-engine`. Возраст плагина причиной отказа не
+  бывает — `engineApi` заморожен и гейтом больше не является.

@@ -210,5 +210,8 @@ fully disabled.
 - **`/bot` answers "players only"** — `startupVotes` are missing, so the
   player is still a spectator (this cannot happen in a `noSpectators` game,
   where `startupVotes` are not needed at all).
-- **`game "<id>" requires engine API vN`** — the plugin and the installed
-  `vimp-engine` are from different API generations; align the versions.
+- **`game "<id>" needs engine capabilities this build does not have: …`** —
+  a plugin half declares a `requires` name the installed `vimp-engine` does
+  not provide (`src/lib/capabilities.js`): the game is **newer** than the
+  engine, so update `vimp-engine`. Plugin age alone is never a reason for
+  refusal — `engineApi` is frozen and no longer a gate.

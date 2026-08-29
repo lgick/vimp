@@ -1,6 +1,7 @@
 /* eslint-disable camelcase -- фейк ядра повторяет snake_case ABI GameCore */
 import { describe, it, expect } from 'vitest';
 import GameCoreAdapter from '../../packages/engine/src/host/GameCoreAdapter.js';
+import { ABI_OP_DEBUG_JSON } from '../../packages/engine/src/config/abiOps.js';
 
 // Опкоды dispatch (этап 4 плана plugin-forward-compat). Проверяется главное
 // свойство: ядро ЛЮБОГО возраста работает. Три поколения ядра —
@@ -12,8 +13,10 @@ const DUMP = { bodies: [], map: null };
 
 const participants = { get: () => undefined };
 
-// поколение 2: ядро с самоописанием и опкодом
-const modernCore = (ops = ['debug.json']) => ({
+// поколение 2: ядро с самоописанием и опкодом. `answer` подменяет ответ на
+// заявленный опкод — так проверяются все три исхода dispatch на ОДНОМ
+// зарегистрированном опкоде: выдуманное имя _op больше не пропускает
+const modernCore = (ops = ['debug.json'], answer = null) => ({
   calls: [],
   abi_describe() {
     return JSON.stringify({ abi: 1, core: '0.9.0', ops });
@@ -21,13 +24,12 @@ const modernCore = (ops = ['debug.json']) => ({
   dispatch(op, payload) {
     this.calls.push([op, [...payload]]);
 
-    if (op === 'debug.json') {
-      return new TextEncoder().encode(JSON.stringify(DUMP));
+    if (answer !== null) {
+      return answer;
     }
 
-    // «обработан, ответа нет» — это НЕ то же самое, что «не обработан»
-    if (op === 'engine.ack') {
-      return new Uint8Array([0x00]);
+    if (op === 'debug.json') {
+      return new TextEncoder().encode(JSON.stringify(DUMP));
     }
 
     return new Uint8Array(0);
@@ -67,37 +69,69 @@ describe('самоописание ядра', () => {
 });
 
 describe('_op', () => {
-  it('незаявленный опкод не зовётся вовсе', () => {
+  it('опкод вне реестра — дефект движка, а не старого ядра: бросает', () => {
     const core = modernCore();
-    const adapter = adapterFor(core);
 
-    expect(adapter._op('snapshot.deltaV2')).toBeNull();
+    // имя, которого нет в config/abiOps.js, не попало бы ни в слепок
+    // поверхности, ни в CHANGELOG: молчать о нём нельзя
+    expect(() => adapterFor(core)._op('snapshot.deltaV2')).toThrow(
+      /unknown opcode "snapshot\.deltaV2"/,
+    );
     expect(core.calls).toEqual([]);
   });
 
-  it('пустой ответ ядра — «не обработан»', () => {
-    const core = modernCore(['snapshot.deltaV2']);
+  it('опкод, которого ядро не заявило, не зовётся вовсе', () => {
+    const core = modernCore([]);
 
-    expect(adapterFor(core)._op('snapshot.deltaV2')).toBeNull();
-    expect(core.calls).toEqual([['snapshot.deltaV2', []]]);
+    expect(adapterFor(core)._op(ABI_OP_DEBUG_JSON)).toEqual({
+      handled: false,
+      bytes: null,
+    });
+    expect(core.calls).toEqual([]);
   });
 
-  it('маркер [0x00] — «обработан, ответа нет»', () => {
-    const out = adapterFor(modernCore(['engine.ack']))._op('engine.ack');
+  it('пустой ответ ядра — «не обработан», а не «пустой ответ»', () => {
+    const core = modernCore(['debug.json'], new Uint8Array(0));
 
-    expect([...out]).toEqual([0x00]);
+    expect(adapterFor(core)._op(ABI_OP_DEBUG_JSON)).toEqual({
+      handled: false,
+      bytes: null,
+    });
+    expect(core.calls).toEqual([['debug.json', []]]);
+  });
+
+  it('маркер [0x00] — «обработан, ответа нет»: полезных байт нет', () => {
+    const core = modernCore(['debug.json'], new Uint8Array([0x00]));
+
+    // сырой Uint8Array [0] наверх не уходит: он поехал бы в TextDecoder и
+    // JSON.parse у первого же опкода-команды
+    expect(adapterFor(core)._op(ABI_OP_DEBUG_JSON)).toEqual({
+      handled: true,
+      bytes: null,
+    });
+  });
+
+  it('полезные байты приходят как есть, с handled: true', () => {
+    const core = modernCore(['debug.json'], new Uint8Array([7, 8]));
+    const { handled, bytes } = adapterFor(core)._op(ABI_OP_DEBUG_JSON);
+
+    expect(handled).toBe(true);
+    expect([...bytes]).toEqual([7, 8]);
   });
 
   it('нагрузка доезжает до ядра как есть', () => {
-    const core = modernCore(['snapshot.deltaV2']);
+    const core = modernCore();
 
-    adapterFor(core)._op('snapshot.deltaV2', new Uint8Array([1, 2, 3]));
+    adapterFor(core)._op(ABI_OP_DEBUG_JSON, new Uint8Array([1, 2, 3]));
 
-    expect(core.calls).toEqual([['snapshot.deltaV2', [1, 2, 3]]]);
+    expect(core.calls).toEqual([['debug.json', [1, 2, 3]]]);
   });
 
   it('ядро без dispatch опкодов не заявляет — вызова не происходит', () => {
-    expect(adapterFor(legacyCore())._op('debug.json')).toBeNull();
+    expect(adapterFor(legacyCore())._op(ABI_OP_DEBUG_JSON)).toEqual({
+      handled: false,
+      bytes: null,
+    });
   });
 });
 

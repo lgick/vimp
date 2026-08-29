@@ -1,3 +1,5 @@
+import { ABI_OP_DEBUG_JSON } from '../config/abiOps.js';
+import { readCoreAbi, dispatchCoreOp } from '../lib/coreAbi.js';
 // Адаптер Rust-ядра (GameCore) под интерфейс, который потребляют мета-модули
 // хоста (RoundManager, SocketManager) и host-фасад. За поверхностью Game.js
 // (+ упаковка снапшотов) стоит WASM-ядро; события ядра (take_events) несут
@@ -9,9 +11,6 @@
 // scripted-участник создаётся как танк + ИИ-контроллер внутри ядра
 // (spawn_scripted_actor/remove_scripted_actor), человек — только танк
 // (spawn_actor/remove_actor).
-
-// пустая нагрузка опкода: ядро ждёт байты всегда, даже когда их нет
-const EMPTY_PAYLOAD = new Uint8Array(0);
 
 export default class GameCoreAdapter {
   /**
@@ -28,14 +27,11 @@ export default class GameCoreAdapter {
     this._onCoreEvent = onCoreEvent;
     this._services = {}; // { vimp, panel } — инъекция как у Game.js
 
-    // Метода нет — ядро собрано до появления самоописания. Это не ошибка:
-    // поколение 0, ни одного опционального опкода (И2). Читается один раз
-    // здесь, а не при вызове: ветку упаковки, поле формы или ответ лобби
-    // движок выбирает заранее, а не посреди матча.
-    this._abi =
-      typeof core.abi_describe === 'function'
-        ? JSON.parse(core.abi_describe())
-        : { abi: 0, core: null, ops: [] };
+    // Метода нет (или самоописание нечитаемо) — ядро собрано до появления
+    // механизма. Это не ошибка: поколение 0, ни одного опционального опкода
+    // (И2). Читается один раз здесь, а не при вызове: ветку упаковки, поле
+    // формы или ответ лобби движок выбирает заранее, а не посреди матча.
+    this._abi = readCoreAbi(core, 'game core');
   }
 
   /**
@@ -237,10 +233,10 @@ export default class GameCoreAdapter {
    * @returns {Object|null}
    */
   debugJson() {
-    const out = this._op('debug.json');
+    const { handled, bytes } = this._op(ABI_OP_DEBUG_JSON);
 
-    if (out !== null) {
-      return JSON.parse(new TextDecoder().decode(out));
+    if (handled && bytes !== null) {
+      return JSON.parse(new TextDecoder().decode(bytes));
     }
 
     // ядро старше опкода, но с замороженным методом — метод не удаляется
@@ -257,18 +253,22 @@ export default class GameCoreAdapter {
    * ядра: прямой вызов нового метода на `this._core` запрещён (И2) — у
    * ядра, собранного год назад, его нет и не будет. ESLint стережёт это
    * правилом no-restricted-syntax.
+   *
+   * Исходов ровно три, и они РАЗЛИЧИМЫ (соглашение `abi::dispatch_result`,
+   * core/src/abi.rs): пустой ответ — «опкод не понят», маркер `[0x00]` —
+   * «понят, ответа нет», иначе — полезные байты. Схлопывать первые два в
+   * один `null` нельзя: опкод-команда (ради них механизм и делался) отдавала
+   * бы вызывающему сырой `Uint8Array [0]`, который поехал бы в TextDecoder
+   * и JSON.parse.
    * @param {string} op - Опкод из config/abiOps.js.
    * @param {Uint8Array} [payload] - Полезная нагрузка опкода.
-   * @returns {Uint8Array|null} null — ядро опкод не умеет либо не обработало.
+   * @returns {{handled: boolean, bytes: Uint8Array|null}} `handled: false` —
+   *   ядро опкода не знает (вызывающий идёт по запасному пути);
+   *   `handled: true, bytes: null` — обработано без ответа.
+   * @see lib/coreAbi.js — то же для клиентского ядра
    */
-  _op(op, payload = EMPTY_PAYLOAD) {
-    if (!this._abi.ops.includes(op)) {
-      return null;
-    }
-
-    const out = this._core.dispatch(op, payload);
-
-    return out.length === 0 ? null : out;
+  _op(op, payload) {
+    return dispatchCoreOp(this._core, this._abi, op, payload);
   }
 
   // бот ли участник (спавн/удаление в ядре различаются)

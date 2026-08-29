@@ -42,8 +42,30 @@ export async function fetchGameManifest(url) {
 // правильная реакция — каталог помечает игру недоступной и продолжает
 // раздавать остальные, остальные три бросают.
 export function checkPluginCompatibility(manifest) {
-  const wanted = manifest.requires ?? [];
-  const missing = wanted.filter(name => !ENGINE_CAPABILITIES.has(name));
+  const wanted = manifest.requires;
+
+  // `requires` пишет ЧУЖОЙ репозиторий игры, и его форме нельзя доверять:
+  // строка или объект вместо массива давали здесь TypeError, который уходил
+  // из конструктора GameCatalog и не давал стартовать мастеру целиком —
+  // одна битая игра уносила весь каталог. Битый манифест обязан вести себя
+  // как несовместимый (вердикт), а не как краш движка
+  if (wanted !== undefined && wanted !== null) {
+    if (
+      !Array.isArray(wanted) ||
+      wanted.some(name => typeof name !== 'string')
+    ) {
+      return {
+        ok: false,
+        reason: 'bad-manifest',
+        missing: [],
+        text:
+          `game "${manifest.id}": manifest.requires must be an array of ` +
+          'capability names — rebuild the game package',
+      };
+    }
+  }
+
+  const missing = (wanted ?? []).filter(name => !ENGINE_CAPABILITIES.has(name));
 
   if (missing.length === 0) {
     return { ok: true };

@@ -9,6 +9,69 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Security
+
+- The host now resolves retired form-control aliases before it validates auth
+  data (`src/lib/validators.js`). Stage 3 of `plan/plugin-forward-compat`
+  taught only the form builder to resolve them, so a game declaring a v2 name
+  in `authSchema` (`segmented`, `number`, `range`, `toggle`) built and
+  validated fine in the browser while the authoritative check on the host
+  matched no branch at all and let the field through unchecked: `segmented`
+  skipped the "is it one of the declared options" test, `number`/`range`
+  skipped `regExp` and `maxlength`. A client bypassing the form could send an
+  arbitrary string where the schema declared a fixed list. Numeric fields also
+  get their own branch now — the form sends them as numbers, and the host
+  checks `min`/`max` in the declared display unit, sharing `toDisplay` with
+  the builder through the new `src/lib/formUnit.js`.
+
+### Added
+
+- `HostPlugin.requires` / `ClientPlugin.requires` — the optional capability
+  list is now readable from both plugin halves, and `startStandaloneGame`
+  accepts a `requires` option that overrides them. In solo mode there is no
+  master and therefore no `GameManifest` to read `requires` from, so the SDK's
+  compatibility check had nothing to look at: neither the template nor any
+  game declared the field on a half. Both halves are now checked as one union.
+  The field is additive — `contract/surface.json` gains it in
+  `hostPluginMembers`/`clientPluginMembers`, nothing is removed.
+
+### Fixed
+
+- A malformed `manifest.requires` no longer takes the whole master down.
+  `checkPluginCompatibility` used to call `.filter` on whatever the game's
+  repository wrote there, so a bare string or an object threw a `TypeError`
+  out of the `GameCatalog` constructor and the master did not start at all.
+  It now answers with a verdict (`reason: 'bad-manifest'`) like any other
+  incompatible game, and `GameCatalog` wraps the parse of a single game
+  entirely, so one broken package can never remove the rest of the catalog.
+  Contract rule B2 rejects the same shape instead of iterating a string
+  character by character.
+- The signaling server refuses `register_host` with `gameUnavailable` when the
+  catalog marked the game incompatible (`compat.ok === false`). Availability
+  used to be enforced by the client alone (`option.disabled`), so a host with
+  its own build could open a room nobody could join.
+- `GameCoreAdapter._op` tells "the core does not know this opcode" from "the
+  core handled it and has no answer" — it returns
+  `{handled, bytes}` and unwraps the `[0x00]` marker of
+  `abi::dispatch_result` instead of passing it up as payload bytes. It also
+  rejects an opcode absent from `config/abiOps.js`, so a new capability cannot
+  reach production without a registry entry and a surface-snapshot diff.
+- Reading a core's `abi_describe` moved into one place, `src/lib/coreAbi.js`,
+  used by the host adapter and the client. A core answering with something
+  that is not JSON (or with a non-array `ops`) now degrades to generation 0
+  with a warning instead of throwing out of the adapter constructor and out of
+  the client's `PS_CONFIG_DATA` handler as an unhandled rejection.
+- A game the catalog marked unavailable can no longer become the active game
+  of the tab, including through a stored `boot.gameId`; a catalog with no
+  playable game states the reason for every entry
+  (`src/client/lib/pickActiveGame.js`).
+- Contract rule B2 accepts a retired capability name (the runtime does, via
+  the append-only registry) and reports it as a warning rather than refusing
+  the game; rule C10 now checks `authSchema` control names the way B5 checks
+  `roomForm` ones.
+- The ESLint guard against calling an unfrozen core method now covers the
+  client half (`clientCore`), not only `this._core` on the host.
+
 ## [0.23.0] — 2026-08-29
 
 ### Added

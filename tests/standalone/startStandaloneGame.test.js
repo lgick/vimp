@@ -228,4 +228,37 @@ describe('startStandaloneGame', () => {
       }),
     ).rejects.toThrow('update the engine');
   });
+
+  // мастера в solo-режиме нет, а значит нет и GameManifest.requires:
+  // источником служат обе половины плагина. Раньше документация обещала
+  // проверку «на любой из половин», но ни шаблон, ни игры поля у половин не
+  // объявляли — до SDK доезжал только манифестный requires, которого тут нет
+  it('клиентская половина проверяется наравне с хостовой', async () => {
+    await expect(
+      startStandaloneGame({
+        ...options(container),
+        clientPlugin: { ...clientPlugin, requires: ['телепортация'] },
+      }),
+    ).rejects.toThrow('update the engine');
+  });
+
+  it('опция requires перекрывает объявленное половинами', async () => {
+    await expect(
+      startStandaloneGame({
+        ...options(container),
+        hostPlugin: { ...hostPlugin, requires: ['телепортация'] },
+        requires: [],
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it('пустое requires у обеих половин — матч поднимается', async () => {
+    await expect(
+      startStandaloneGame({
+        ...options(container),
+        hostPlugin: { ...hostPlugin, requires: [] },
+        clientPlugin: { ...clientPlugin, requires: [] },
+      }),
+    ).resolves.toBeDefined();
+  });
 });

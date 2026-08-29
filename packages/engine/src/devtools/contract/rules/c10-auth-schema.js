@@ -1,5 +1,9 @@
-import { ERROR, skip, verdict } from '../result.js';
+import { ERROR, WARN, skip, verdict } from '../result.js';
 import { resolveValidator } from '../../../lib/validators.js';
+import {
+  formControls,
+  ACTIVE_FORM_CONTROLS,
+} from '../../../lib/formControls.js';
 
 // authSchema. Четыре ошибки, каждая из которых уже случалась:
 // formId вместо fieldsId (контейнер резолвится в null и экран авторизации
@@ -24,6 +28,7 @@ export default {
 
     const { elems = {}, params = [] } = ctx.authSchema;
     const violations = [];
+    const retired = [];
 
     if (elems.formId !== undefined) {
       violations.push(
@@ -45,6 +50,24 @@ export default {
         violations.push(
           `authSchema param "${field.name}" looks like a nickname field — ` +
             'identity comes from the lobby JWT',
+        );
+      }
+
+      const control = field.options?.control;
+
+      if (control !== undefined && !formControls.has(control)) {
+        violations.push(
+          `authSchema param "${field.name}": control "${control}" does not ` +
+            `exist (${ACTIVE_FORM_CONTROLS.join(', ')}) — the form throws ` +
+            "'unknown control' and the auth screen never renders",
+        );
+      } else if (control !== undefined && formControls.isRetired(control)) {
+        retired.push(
+          `authSchema param "${field.name}": control "${control}" was ` +
+            `retired in plugin API v${formControls.get(control).retiredIn} — ` +
+            `it still works (the engine builds and validates it as ` +
+            `"${formControls.resolve(control)}" forever), but a new game ` +
+            `should declare "${formControls.resolve(control)}" itself`,
         );
       }
 
@@ -70,6 +93,16 @@ export default {
       violations.push(
         'authSchema has no param named exactly "model" — the engine reads ' +
           'params.model when it creates the participant',
+      );
+    }
+
+    // то же, что делает B5 для roomForm: выведенный контрол — не отказ, а
+    // предупреждение, иначе правило отвергало бы игру за возраст (И1)
+    if (violations.length === 0 && retired.length > 0) {
+      return verdict(
+        retired,
+        'retired controls still build and validate, via aliases',
+        WARN,
       );
     }
 

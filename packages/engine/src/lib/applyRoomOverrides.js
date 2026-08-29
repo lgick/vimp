@@ -8,7 +8,9 @@ import { createGameConfigView } from './gameConfigView.js';
  * @param {Object} [room] - Переопределения комнаты.
  * @param {Object} plugin - HostPlugin игры.
  * @param {Object} [view] - Готовая gameConfig-view (createHostRuntime строит
- *   её один раз на прогон); без неё собирается своя.
+ *   её один раз на прогон). Путь по умолчанию — ТЕСТОВЫЙ: он строит вторую
+ *   view, и deriveSpectatorTeam предупреждает в консоль дважды за прогон.
+ *   Прод-вызов всегда передаёт готовую.
  * @returns {Object} Конфиг матча: движковые дефолты + игровая половина.
  */
 export function applyRoomOverrides(

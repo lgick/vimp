@@ -640,12 +640,25 @@ game that rebuilds against any future engine picks up every opcode that
 engine knows, without touching a line of its own source — while the export
 table stays constant.
 
-On the JS side the only allowed way to call an optional core capability is
-`GameCoreAdapter._op(op, payload)`, which refuses opcodes the loaded core did
-not declare; an ESLint rule restricts `this._core.<name>` to the frozen list.
-The first opcode, `debug.json`, duplicates the frozen `debug_json` method:
-the adapter tries the opcode and falls back to the method, which is what a
-core of any age gets. Both halves stay forever — I1 does not delete.
+On the JS side every optional core capability is called through one function,
+`dispatchCoreOp(core, abi, op, payload)` in `src/lib/coreAbi.js` — the host
+adapter reaches it as `GameCoreAdapter._op(op, payload)`, the client calls it
+directly, and `readCoreAbi(core)` in the same module is the one place
+`abi_describe` is read and normalized (an unreadable self-description degrades
+to generation 0 with a warning, never an exception). It refuses an opcode the
+loaded core did not declare **and** an opcode absent from `config/abiOps.js`:
+a name outside the registry would reach production without a
+surface-snapshot diff. ESLint restricts `this._core.<name>` and
+`clientCore.<name>` to their frozen export tables.
+
+The return value distinguishes all three outcomes of `abi::dispatch_result`:
+`{handled: false, bytes: null}` — the core does not know the opcode, take the
+fallback path; `{handled: true, bytes: null}` — handled, no answer (the
+`[0x00]` marker, unwrapped here so it never reaches a caller as payload);
+`{handled: true, bytes}` — the answer. The first opcode, `debug.json`,
+duplicates the frozen `debug_json` method: the caller tries the opcode and
+falls back to the method, which is what a core of any age gets. Both halves
+stay forever — I1 does not delete.
 
 ### Snapshot blocks — a declarative schema
 
@@ -861,14 +874,26 @@ degrades gracefully — does not ask for the service, is not subscribed to the
 port — needs no `requires`: engine defaults (`gameConfigView`) and the
 append-only vocabularies accept it as is.
 
+`HostPlugin.requires` and `ClientPlugin.requires` are the same optional array
+on the plugin halves. The standalone SDK reads them: in solo mode there is no
+master, so there is no manifest to read `requires` from. Keep the three lists
+equal — the template does that by declaring `requires: []` in all three
+places. `startStandaloneGame({ requires })` overrides both halves when the
+embedding code knows better.
+
+`requires` must be an array of strings. Any other shape (a bare string, an
+object, a non-string element) is a **broken manifest**: the verdict is
+`{ok: false, reason: 'bad-manifest'}`, treated exactly like an incompatible
+game rather than crashing whoever read it.
+
 Where the verdict lands:
 
 | Entry point | On a missing capability |
 | --- | --- |
-| master catalog (`GameCatalog`) | the game **stays** in `manifestList` with `compat: {ok: false, missing, text}`; the lobby shows it disabled with the reason, and no room can be created for it |
+| master catalog (`GameCatalog`) | the game **stays** in `manifestList` with `compat: {ok: false, missing, text}`; the lobby shows it disabled with the reason, and the signaling server refuses to register a host for it (`gameUnavailable`) |
 | `loadGamePackage` (dedicated, `vimp-sim`, inline host) | throws — there is only one game and nothing to fall back to |
 | `loadClientPlugin` (browser) | throws before the plugin bundle is imported |
-| standalone SDK | throws for either plugin half |
+| standalone SDK | throws — one check over the union of both halves' `requires` |
 
 Every message names the side to update: *"game "x" needs engine capabilities
 this build does not have: … — update the engine"*.

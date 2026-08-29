@@ -126,7 +126,10 @@ function setPath(target, dottedPath, value) {
  * Строит представление gameConfig с умолчаниями и проверяет обязательное.
  * @param {Object} gameConfig - HostPlugin.gameConfig игры как есть.
  * @param {string} [gameId] - id плагина; попадает в текст ошибок.
- * @returns {Object} Замороженный конфиг: поля игры плюс умолчания движка.
+ * @returns {Object} Конфиг: поля игры плюс умолчания движка. Заморожен
+ *   ПОВЕРХНОСТНО — вложенные ветки (parts, roomDefaults) правятся; глубокая
+ *   заморозка стоила бы обхода всего конфига игры на каждом старте матча, а
+ *   единственный потребитель (applyRoomOverrides) и так делает structuredClone.
  * @throws {Error} Если нет поля из REQUIRED_GAME_CONFIG_PATHS или конфиг
  *   внутренне противоречив (spectatorTeam вне teams, noSpectators при двух
  *   командах).

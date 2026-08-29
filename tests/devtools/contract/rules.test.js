@@ -259,6 +259,30 @@ describe('B. host', () => {
     ).toMatch(/requires names 'teleport'/);
   });
 
+  it.each([
+    ['a bare string', 'accolades'],
+    ['an object', {}],
+    ['an array with a non-string', ['accolades', null]],
+  ])('B2 catches requires being %s instead of an array', (_name, requires) => {
+    // строка проитерировалась бы посимвольно, объект уронил бы чекер
+    // «not iterable» — та же форма недоверия, что в checkPluginCompatibility
+    expect(
+      violations('B2', { ...base, manifest: { ...base.manifest, requires } }),
+    ).toMatch(/requires must be an array of capability names/);
+  });
+
+  it('B2 accepts requires being absent or empty', () => {
+    expect(violations('B2', { ...base, manifest: { ...base.manifest } })).toBe(
+      '',
+    );
+    expect(
+      violations('B2', {
+        ...base,
+        manifest: { ...base.manifest, requires: [] },
+      }),
+    ).toBe('');
+  });
+
   it('B3 catches a gameConfig missing a required path', () => {
     const { playerKeys, ...gameConfig } = base.gameConfig;
 
@@ -819,6 +843,48 @@ describe('C. client', () => {
     expect(found).toMatch(/fieldsId is missing/);
     expect(found).toMatch(/"nickname" looks like a nickname field/);
     expect(found).toMatch(/no param named exactly "model"/);
+  });
+
+  it('C10 catches a control name the form cannot build', () => {
+    const found = violations('C10', {
+      ...base,
+      authSchema: {
+        elems: { fieldsId: 'auth-fields' },
+        params: [{ name: 'model', options: { control: 'dial' } }],
+      },
+    });
+
+    expect(found).toMatch(/control "dial" does not exist/);
+  });
+
+  // выведенный контрол — не отказ: он строится алиасом и валидируется как
+  // алиас (lib/validators.js). Отвергать за него значило бы отвергать игру
+  // за возраст (И1)
+  it('C10 warns, not fails, on a retired control name', () => {
+    const result = check('C10', {
+      ...base,
+      authSchema: {
+        elems: { fieldsId: 'auth-fields' },
+        params: [{ name: 'model', options: { control: 'segmented' } }],
+      },
+    });
+
+    expect(result.level).toBe('warn');
+    expect(result.violations.join('\n')).toMatch(
+      /control "segmented" was retired/,
+    );
+  });
+
+  it('C10 accepts an active control name', () => {
+    expect(
+      violations('C10', {
+        ...base,
+        authSchema: {
+          elems: { fieldsId: 'auth-fields' },
+          params: [{ name: 'model', options: { control: 'select' } }],
+        },
+      }),
+    ).toBe('');
   });
 
   it('C10 catches a validator name authSchema.validators does not provide', () => {

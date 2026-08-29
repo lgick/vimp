@@ -338,6 +338,7 @@
     "hooks.onPanel",
     "hooks.services",
     "parts",
+    "requires",
     "styles"
   ],
   "clientServices": [
@@ -454,6 +455,7 @@
     "gameConfig",
     "id",
     "onCoreEvent",
+    "requires",
     "systemMessages"
   ],
   "manifestFields": [

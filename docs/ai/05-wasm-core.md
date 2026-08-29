@@ -265,7 +265,10 @@ string your core either understands or does not.
   `{"abi":1,"core":"<vimp-engine-core version>","ops":[…]}`. The engine reads
   it once, when it loads your core, and uses it to decide in advance what
   your core can do. You write nothing: the macro fills it in, listing the
-  engine opcodes it knows plus whatever `dispatch_ops()` returns.
+  engine opcodes it knows plus whatever `dispatch_ops()` returns. A core that
+  predates the mechanism, or one whose self-description is unreadable, is read
+  as generation 0 (`{abi: 0, core: null, ops: []}`) with a console warning —
+  never as a load failure.
 - `dispatch(op, payload) -> Vec<u8>` routes an opcode: engine opcodes first,
   then your `GameSim::dispatch_op` (`GameClientDef::dispatch_op` on the
   client). Return an empty vector for "not handled" — the engine then takes

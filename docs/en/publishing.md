@@ -141,11 +141,13 @@ What follows describes how the script behaved for a bump.
 
 `npm run release` unlinks the local game checkouts and works on the copies
 **from the registry** (`scripts/release/links.js`) — a release must be
-validated against what users will actually install. But every already
-published game carries the OLD `engineApi` in its manifest, and
-`assertEngineApiCompatible` refuses to load it on the new engine. So on the
-engine step there is no compatible published copy in existence yet: the
-`games` step is what rebuilds and republishes it.
+validated against what users will actually install. Back then every already
+published game carried the OLD `engineApi` in its manifest, and
+`assertEngineApiCompatible` **refused** to load it on the new engine. So on
+the engine step no compatible published copy existed yet: the `games` step was
+what rebuilt and republished it. (Today that refusal is gone — the engine
+accepts a package of any generation — and the check that remains only guards
+against a package built by one engine and pinned to another.)
 
 The script handles that itself, and the rule it follows is:
 

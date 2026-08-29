@@ -191,13 +191,17 @@ regular domain with its own port), then one extra field in
   `dist/core-node/` — the dedicated server loads the Node build of the
   core, like `npm run sim` does. A game whose `dist/` lacks it fails at
   startup with a named error, see [plugin-api.md](plugin-api.md).
-- The game must also be built against the current `ENGINE_API_VERSION`
-  (`dist/manifest.json` → `engineApi`). A stale build is not equally fatal
-  everywhere: the lobby master skips it (`GameCatalog: skip "<id>" —
-  requires engine API vN`) and keeps serving the rest of the catalog, while
-  the dedicated server has nothing to fall back to and exits at startup —
-  the container restart-loops and the domain answers 502. Publish a
-  rebuilt game package and bump its pin in the root `package.json`.
+- The game's age is **not** a deployment concern. `ENGINE_API_VERSION` is
+  frozen and no longer a gate: the lobby catalog accepts a `dist/` built
+  against any older engine, and `engineApi` is only a generation stamp. The
+  one fatal case is `manifest.requires` naming a capability this engine build
+  does not provide (`src/lib/capabilities.js`) — the game is *newer* than the
+  engine. Even then it is not equally fatal everywhere: the lobby master keeps
+  the game in the catalog with `compat: {ok: false, …}` (the lobby shows it
+  disabled with the reason and refuses to register a host for it) and keeps
+  serving the rest, while the dedicated server has nothing to fall back to and
+  exits at startup — the container restart-loops and the domain answers 502.
+  Fix it by upgrading `vimp-engine`, not by rebuilding the game.
 - Room overrides (`VIMP_DEDICATED_ROOM`, see
   [configuration.md](configuration.md#environment-variables-env)) are not
   part of the matrix: add the line to `~/vimp_projects/<domain>/.env.prod`
