@@ -327,6 +327,42 @@ describe('B. host', () => {
     ).toBe('');
   });
 
+  // реестр возможностей append-only: выведенное алиасом имя движок принимает
+  // вечно наравне с активным, поэтому манифест с новым именем и половина,
+  // оставшаяся на старом, просят ОДНО И ТО ЖЕ
+  it('B2 accepts a manifest and a half naming the two ends of an alias', async () => {
+    vi.resetModules();
+    vi.doMock('../../../packages/engine/src/lib/capabilities.js', async () => {
+      const { createRegistry } = await import(
+        '../../../packages/engine/src/lib/registry.js'
+      );
+      const registry = createRegistry('engine-capabilities', [
+        { value: 'accolades', since: '0.21.0', alias: 'crowns' },
+        { value: 'crowns', since: '0.25.0' },
+      ]);
+
+      return {
+        ENGINE_CAPABILITIES: registry,
+        CAPABILITIES: registry.values(),
+        default: registry,
+      };
+    });
+
+    const { default: b2 } = await import(
+      '../../../packages/engine/src/devtools/contract/rules/b2-engine-api.js'
+    );
+    const result = b2.check({
+      ...base,
+      manifest: { ...base.manifest, requires: ['crowns'] },
+      hostPlugin: { ...base.hostPlugin, requires: ['accolades'] },
+    });
+
+    expect(result.violations ?? []).toEqual([]);
+
+    vi.doUnmock('../../../packages/engine/src/lib/capabilities.js');
+    vi.resetModules();
+  });
+
   it('B2 accepts halves that agree with the manifest', () => {
     expect(
       violations('B2', {
@@ -945,6 +981,38 @@ describe('C. client', () => {
   // auth-форма строится с пустым ctx (components/view/Auth.js): source-поле
   // резолвится в пустой список, игрок видит 'no options available' и войти
   // не может, а обошедший форму слал бы что угодно
+  it('C10 ignores a stray source on a control that never reads it', () => {
+    // `source` читают только buildSelect/buildRadio: у text-поля лишний ключ
+    // ничего не ломает, и отвергать за него значило бы отвергать игру,
+    // которая логинит игроков как ни в чём не бывало
+    expect(
+      violations('C10', {
+        ...base,
+        authSchema: {
+          elems: { fieldsId: 'auth-fields' },
+          params: [
+            { name: 'model', options: { control: 'select', options: ['a'] } },
+            { name: 'note', options: { control: 'text', source: 'maps' } },
+          ],
+        },
+      }),
+    ).toBe('');
+  });
+
+  it('C10 catches source under a retired option control too', () => {
+    expect(
+      violations('C10', {
+        ...base,
+        authSchema: {
+          elems: { fieldsId: 'auth-fields' },
+          params: [
+            { name: 'model', options: { control: 'segmented', source: 'maps' } },
+          ],
+        },
+      }),
+    ).toMatch(/declares options\.source "maps"/);
+  });
+
   it('C10 catches options.source in authSchema', () => {
     expect(
       violations('C10', {

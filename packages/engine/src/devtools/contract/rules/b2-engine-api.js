@@ -123,7 +123,7 @@ export default {
 // исключена: пакет, собранный до появления поля, обязан оставаться
 // валидным (И1/И2)
 function halfViolations(ctx, manifestRequires) {
-  const wanted = new Set(manifestRequires);
+  const wanted = new Set(resolveNames(manifestRequires));
   const violations = [];
   const halves = [
     ['HostPlugin', ctx.hostPlugin?.requires],
@@ -139,7 +139,7 @@ function halfViolations(ctx, manifestRequires) {
       continue;
     }
 
-    const extra = value.filter(name => !wanted.has(name));
+    const extra = resolveNames(value).filter(name => !wanted.has(name));
 
     if (extra.length) {
       violations.push(
@@ -158,10 +158,12 @@ function halfViolations(ctx, manifestRequires) {
     return violations;
   }
 
-  const declared = halves
-    .map(([, value]) => value)
-    .filter(Array.isArray)
-    .flat();
+  const declared = resolveNames(
+    halves
+      .map(([, value]) => value)
+      .filter(Array.isArray)
+      .flat(),
+  );
 
   const missing = [...wanted].filter(name => !declared.includes(name));
 
@@ -174,6 +176,19 @@ function halfViolations(ctx, manifestRequires) {
   }
 
   return violations;
+}
+
+// Имена сравниваются РЕЗОЛВНУТЫМИ: реестр возможностей append-only, и
+// выведенное алиасом имя движок принимает вечно наравне с активным.
+// Манифест с новым именем и половина, оставшаяся на выведенном, просят одно
+// и то же — считать это расхождением значило бы ругаться на игру за то, что
+// движок переименовал возможность (тот самый отказ по возрасту, который план
+// снимал). Неизвестное имя резолва не имеет и сравнивается как есть: о нём
+// говорит проверка по реестру выше
+function resolveNames(names) {
+  return (Array.isArray(names) ? names : []).map(
+    name => ENGINE_CAPABILITIES.resolve(name) ?? name,
+  );
 }
 
 // то же, что делают B5 и C10: выведенное имя — не отказ, а предупреждение.

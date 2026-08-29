@@ -9,14 +9,39 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- A numeric auth field is no longer matched against its `regExp` on the host
+  (0.24.1 added that). The client matches the pattern against the raw string
+  the player typed; the host only ever sees the number, and re-stringifying it
+  yields the canonical spelling — so a pattern accepting a non-canonical one
+  (`^\d+\.\d{2}$` and a player typing `1.50`) passed the form and failed the
+  host, with no string satisfying both: a login lockout. The range check,
+  which is what the field actually declares, stays.
+- `loadGamePackage` **warns** about a `requires` mismatch between the manifest
+  and a plugin half instead of refusing the package (0.24.1 threw). The Node
+  paths read the authoritative manifest, whose compatibility is already
+  checked, so the mismatch breaks nothing there — and refusing a package that
+  loaded before is exactly what this plan forbids. Contract rule `B2` still
+  reports it as an error, which is where a game author meets it.
+- The manifest/half `requires` comparison resolves capability names through
+  the append-only registry before comparing them (`loadGamePackage`, rule
+  `B2`). A manifest on a new capability name and a half still on its retired
+  alias ask for the same thing, and the engine accepts either.
+- Contract rule `C10` reports `options.source` in `authSchema` only for
+  controls that have an option list (`select`/`radio`, aliases resolved).
+  `source` is read by nothing else, so a `text` param carrying a stray key
+  builds and logs players in — 0.24.1 failed such a package with a message
+  ("nobody can log in") that was untrue for it.
+
 ## [0.24.1] — 2026-08-29
 
 ### Security
 
 - The host validates an auth field the way the form does on three paths where
   it used to check less (`src/lib/validators.js`). A numeric field is now
-  matched against its `regExp` as well as its range — the pattern is what
-  catches a fraction or a leading zero, which a range cannot. A field whose
+  matched against its `regExp` as well as its range (**reverted in
+  `[Unreleased]`** — it could lock a player out). A field whose
   `options` are replaced by `source` is rejected instead of skipped: the auth
   form is built without `ctx.sources`, so such a field resolves to an empty
   list and no player can fill it in, while a client bypassing the form used to

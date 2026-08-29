@@ -291,8 +291,11 @@ then checks, before the JS validator:
 - a **numeric** text field (`numeric: true` or `unit`) on its own branch,
   because the form submits it as a *number*: `must be a number`, then
   `min`/`max` compared in the **display** unit (`toDisplay`, shared with the
-  builder), then `regExp` against that same displayed value — the pattern
-  catches what a range cannot (a fraction, a leading zero).
+  builder). `regExp` is deliberately **not** applied here: the client matches
+  the pattern against the raw string the player typed, and the host only ever
+  sees the number, so re-stringifying it would reject a canonical spelling the
+  form accepted (`1.50` arrives as `1.5`) and lock the player out with no
+  string that satisfies both sides.
 - otherwise: length (`too long`), membership in a `select`/`radio` field's
   declared `options` (`not an option` — a browser cannot submit anything
   else, so neither can a bypassing client), then `regExp` (`invalid format`,
@@ -904,13 +907,17 @@ master, so there is no manifest to read `requires` from.
 `startStandaloneGame({ requires })` overrides both halves when the embedding
 code knows better.
 
-The three lists **must agree**, and both `loadGamePackage` and contract rule
-**B2** enforce it, the same way they enforce a consistent `engineApi`: a game
-whose manifest asks for a capability its halves do not is refused by the lobby
-and accepted by the SDK, which then plays a silently reduced match — the exact
-failure mode capabilities exist to replace. A half that declares no `requires`
-at all is exempt (a package built before the field existed must keep loading);
-`requires: []` is not — it is a claim that the game needs nothing.
+The three lists **must agree**: a game whose manifest asks for a capability its
+halves do not is refused by the lobby and accepted by the SDK, which then plays
+a silently reduced match — the exact failure mode capabilities exist to
+replace. Contract rule **B2** refuses the mismatch, which is where a game
+author meets it, before publishing. `loadGamePackage` only *warns*: the Node
+paths read the authoritative manifest, whose compatibility is already checked,
+so a package that loaded before must keep loading (I4). Names are compared
+**resolved** through the capability registry, so a manifest on a new name and a
+half still on its retired alias agree. A half that declares no `requires` at
+all is exempt; `requires: []` is not — it is a claim that the game needs
+nothing.
 
 `requires` must be an array of strings. Any other shape (a bare string, an
 object, a non-string element) is a **broken manifest**: the verdict is

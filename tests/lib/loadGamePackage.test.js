@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -124,9 +133,24 @@ describe('loadGamePackage', () => {
 
   // `requires` пишут три места одного пакета: скрипт сборки манифеста и обе
   // половины плагина. Разъехавшись, они дают игру, которую лобби отвергает,
-  // а solo-режим принимает и тихо недоигрывает
+  // а solo-режим принимает и тихо недоигрывает. Здесь это ПРЕДУПРЕЖДЕНИЕ:
+  // Node-путь читает авторитетный манифест и рассинхрон переживает, а
+  // отвергнуть пакет, который грузился раньше, значило бы нарушить И4.
+  // Место отказа — правило контракта B2
   describe('requires манифеста и половин плагина', () => {
-    it('половина просит возможность, которой нет в манифесте — stale dist/', async () => {
+    let warn;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const warned = () => warn.mock.calls.map(args => args.join(' ')).join('\n');
+
+    it('половина просит возможность, которой нет в манифесте — предупреждение', async () => {
       const file = await variant(
         'half-extra.json',
         manifestWith({
@@ -135,7 +159,8 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).rejects.toThrow(
+      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      expect(warned()).toMatch(
         /host plugin requires accolades, which manifest\.requires does not list/,
       );
     });
@@ -150,11 +175,12 @@ describe('loadGamePackage', () => {
       );
 
       // половины поля не объявляют вовсе — старый пакет, собранный до его
-      // появления: сверять не с чем, отказа нет
+      // появления: сверять не с чем, молчим
       await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      expect(warn).not.toHaveBeenCalled();
     });
 
-    it('половина объявила поле, а манифест просит больше — отказ', async () => {
+    it('половина объявила поле, а манифест просит больше — предупреждение', async () => {
       const file = await variant(
         'manifest-more.json',
         manifestWith({
@@ -164,12 +190,13 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).rejects.toThrow(
+      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      expect(warned()).toMatch(
         /manifest\.requires names stat\.leaderboard, which neither plugin half declares/,
       );
     });
 
-    it('согласованные списки грузятся', async () => {
+    it('согласованные списки грузятся молча', async () => {
       const file = await variant(
         'half-match.json',
         manifestWith({
@@ -180,6 +207,7 @@ describe('loadGamePackage', () => {
       );
 
       await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it('не-массив в половине назван дефектом, а не проитерирован', async () => {
@@ -192,9 +220,8 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).rejects.toThrow(
-        /host plugin requires must be an array/,
-      );
+      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      expect(warned()).toMatch(/host plugin requires must be an array/);
     });
   });
 });

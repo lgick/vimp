@@ -2,6 +2,7 @@ import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { checkPluginCompatibility } from './gamePlugin.js';
+import { ENGINE_CAPABILITIES } from './capabilities.js';
 
 // Загрузка пакета игры в Node по его собранному dist/ (Этап 4 плана
 // standalone-sdk). В браузере плагин грузится по URL из GameManifest мастера;
@@ -107,25 +108,28 @@ function assertPluginMatchesManifest(manifest, plugins) {
     }
   }
 
-  assertRequiresMatchManifest(manifest, plugins);
+  warnOnRequiresMismatch(manifest, plugins);
 }
 
 // `requires` пишут ТРИ независимых места одного пакета игры: скрипт сборки
 // манифеста и обе половины плагина (последние — ради standalone SDK, у
 // которого манифеста нет вовсе). Разъехавшись, они дают игру, которая в
-// лобби честно отвергается, а в solo-режиме тихо недоигрывает — то есть
-// именно тот молчаливый режим, ради отказа от которого возможности и
-// заводились. Проверка — того же класса, что сверка engineApi выше: это
-// рассинхрон сборки ВНУТРИ пакета, а не отказ по возрасту (И4).
+// лобби честно отвергается, а в solo-режиме тихо недоигрывает.
+//
+// Здесь это ПРЕДУПРЕЖДЕНИЕ, а не отказ, и разница принципиальная. Node-путь
+// (dedicated, vimp-sim, inline host) читает авторитетный манифест, и его
+// совместимость уже проверена выше (checkPluginCompatibility): рассинхрон с
+// половинами ничего здесь не ломает. Бросить значило бы отвергнуть пакет,
+// который грузился раньше, — прямое нарушение И4 плана
+// plugin-forward-compat ради дефекта упаковки, который движок переживает.
+// Место отказа — правило контракта B2: чекер запускает автор игры, и он
+// узнаёт о расхождении до публикации, а не игрок вместо матча.
 //
 // Половина, вовсе НЕ объявившая поле, из сверки исключена: старый пакет,
-// собранный до его появления, обязан грузиться (И1/И2). Объявленное пустым
-// (`requires: []`) — уже утверждение «игре ничего не нужно», и оно
-// расходится с манифестом наравне с неполным списком.
-function assertRequiresMatchManifest(manifest, plugins) {
-  const wanted = new Set(
-    Array.isArray(manifest.requires) ? manifest.requires : [],
-  );
+// собранный до его появления, ничего не утверждает (И1/И2). Объявленное
+// пустым (`requires: []`) — уже утверждение «игре ничего не нужно».
+function warnOnRequiresMismatch(manifest, plugins) {
+  const wanted = new Set(resolveNames(manifest.requires));
 
   for (const [half, plugin] of Object.entries(plugins)) {
     if (plugin.requires === undefined || plugin.requires === null) {
@@ -133,16 +137,19 @@ function assertRequiresMatchManifest(manifest, plugins) {
     }
 
     if (!Array.isArray(plugin.requires)) {
-      throw new Error(
+      console.warn(
         `game "${manifest.id}": ${half} plugin requires must be an array ` +
-          'of capability names',
+          'of capability names — the standalone SDK reads it',
       );
+      continue;
     }
 
-    const extra = plugin.requires.filter(name => !wanted.has(name));
+    const extra = resolveNames(plugin.requires).filter(
+      name => !wanted.has(name),
+    );
 
     if (extra.length) {
-      throw new Error(
+      console.warn(
         `game "${manifest.id}": ${half} plugin requires ` +
           `${extra.join(', ')}, which manifest.requires does not list — ` +
           'stale dist/ (the manifest is what the lobby master reads)',
@@ -156,24 +163,36 @@ function assertRequiresMatchManifest(manifest, plugins) {
   // (`requires: []`) — это утверждение «ничего не нужно», и оно расходится
   // с манифестом наравне с неполным списком
   const halves = Object.values(plugins).filter(
-    plugin => plugin.requires !== undefined && plugin.requires !== null,
+    plugin => Array.isArray(plugin.requires),
   );
 
   if (halves.length === 0) {
     return;
   }
 
-  const declared = halves.flatMap(plugin => plugin.requires);
-
+  const declared = resolveNames(halves.flatMap(plugin => plugin.requires));
   const missing = [...wanted].filter(name => !declared.includes(name));
 
   if (missing.length) {
-    throw new Error(
+    console.warn(
       `game "${manifest.id}": manifest.requires names ${missing.join(', ')}, ` +
         'which neither plugin half declares — stale dist/ (the standalone ' +
         'SDK reads the halves, there is no manifest in solo mode)',
     );
   }
+}
+
+// Сравнивать имена возможностей буквально нельзя: реестр append-only, и
+// выведенное алиасом имя движок принимает вечно наравне с активным
+// (ENGINE_CAPABILITIES.has в checkPluginCompatibility). Манифест, назвавший
+// новое имя, и половина, оставшаяся на выведенном, просят ОДНО И ТО ЖЕ —
+// объявить это расхождением значило бы ругаться на игру за то, что движок
+// переименовал возможность. Неизвестное имя резолва не имеет и сравнивается
+// как есть: о нём говорит checkPluginCompatibility, а не эта сверка
+function resolveNames(names) {
+  return (Array.isArray(names) ? names : []).map(
+    name => ENGINE_CAPABILITIES.resolve(name) ?? name,
+  );
 }
 
 function importDefault(baseDir, entry, assetsBase) {

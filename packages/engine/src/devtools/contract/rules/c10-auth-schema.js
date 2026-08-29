@@ -2,6 +2,7 @@ import { ERROR, WARN, skip, verdict } from '../result.js';
 import { resolveValidator } from '../../../lib/validators.js';
 import {
   formControls,
+  resolveDescriptor,
   ACTIVE_FORM_CONTROLS,
 } from '../../../lib/formControls.js';
 
@@ -12,6 +13,10 @@ import {
 // params.model, всё остальное до Participant не доезжает, и имя валидатора,
 // которого нет в authSchema.validators (поле не проверяется никем).
 const NICKNAME = /^(name|nick|nickname|player|playername|login|username)$/i;
+
+// те же имена, что у validateAuth и билдера формы: список вариантов есть
+// только у них, и только им движок резолвит `source`
+const OPTION_CONTROLS = ['select', 'radio'];
 
 export default {
   id: 'C10',
@@ -76,8 +81,18 @@ export default {
       // значит список вариантов у такого поля пуст всегда: игрок видит
       // 'no options available' и войти не может, а хост отвергает любое
       // значение как не-вариант. Это только для authSchema; в roomForm
-      // (правило B5) source штатный — там движок отдаёт каталог карт
-      if (field.options?.source !== undefined) {
+      // (правило B5) source штатный — там движок отдаёт каталог карт.
+      //
+      // Только для контролов со списком: у text/checkbox `source` не читает
+      // никто (formBuilder.resolveOptions зовут лишь buildSelect/buildRadio),
+      // и такое поле работает — отвергать за лишний ключ значило бы отвергать
+      // игру, которая логинит игроков как ни в чём не бывало
+      // по резолвнутому контролу, а не по написанному: 'segmented' — та же
+      // группа вариантов, что radio, и source в ней так же не резолвится
+      if (
+        OPTION_CONTROLS.includes(resolveDescriptor(field.options)?.control) &&
+        field.options?.source !== undefined
+      ) {
         violations.push(
           `authSchema param "${field.name}" declares options.source ` +
             `"${field.options.source}" — the auth form is built without ` +

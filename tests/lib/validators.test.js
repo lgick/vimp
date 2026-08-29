@@ -486,9 +486,30 @@ describe('validateAuth: выведенные контролы проверяют
 // Мерило одно: клиент, обошедший форму, не должен получать больше прав, чем
 // клиент, её заполнивший
 describe('validateAuth: паритет с формой', () => {
-  it('числовое поле проверяется и regExp, а не только диапазоном', () => {
-    // regExp ловит то, что диапазон пропускает: дробное и ведущий ноль —
-    // ровно то, ради чего клиент проверяет паттерн отдельно от min/max
+  // regExp числового поля хост НЕ проверяет: клиент сверяет паттерн с сырой
+  // строкой игрока, а сюда приезжает число, и набранную строку из него не
+  // восстановить. Паттерн, принимающий неканоническую запись, разошёлся бы с
+  // формой так, что валидной строки не существует вовсе — вход заперт
+  it('числовое поле не запирается паттерном, принимающим «1.50»', () => {
+    const field = [
+      {
+        name: 'price',
+        options: {
+          control: 'number',
+          numeric: true,
+          min: 1,
+          max: 8,
+          regExp: '\\d+\\.\\d{2}',
+        },
+      },
+    ];
+
+    // форма приняла бы «1.50», а String(1.5) паттерну не соответствует:
+    // отбить это значило бы не пустить игрока вовсе
+    expect(validateAuth({ price: 1.5 }, field)).toBeUndefined();
+  });
+
+  it('диапазон числового поля проверяется по-прежнему', () => {
     const field = [
       {
         name: 'players',
@@ -497,21 +518,9 @@ describe('validateAuth: паритет с формой', () => {
     ];
 
     expect(validateAuth({ players: 4 }, field)).toBeUndefined();
-    expect(validateAuth({ players: 3.5 }, field)).toEqual([
-      { name: 'players', error: 'invalid format' },
+    expect(validateAuth({ players: 99 }, field)).toEqual([
+      { name: 'players', error: 'must be <= 8' },
     ]);
-  });
-
-  it('regExp числового поля сверяется в единице ОТОБРАЖЕНИЯ', () => {
-    const field = [
-      {
-        name: 'roundTime',
-        options: { control: 'range', unit: 's', min: 10, max: 60, regExp: '\\d+' },
-      },
-    ];
-
-    // 30000 мс = 30 с: паттерн смотрит на «30», а не на «30000»
-    expect(validateAuth({ roundTime: 30000 }, field)).toBeUndefined();
   });
 
   // `source` резолвится вызывающей стороной через ctx.sources, а auth-форма
