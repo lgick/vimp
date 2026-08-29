@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.24.1] — 2026-08-29
+
 ### Security
 
 - The host validates an auth field the way the form does on three paths where
@@ -1632,6 +1634,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.24.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.24.1
 [0.24.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.24.0
 [0.23.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.23.0
 [0.22.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.22.1
