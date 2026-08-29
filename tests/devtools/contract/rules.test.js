@@ -283,6 +283,61 @@ describe('B. host', () => {
     ).toBe('');
   });
 
+  // `requires` живёт в трёх местах пакета: манифест (его читает лобби) и обе
+  // половины плагина (их читает standalone SDK, у которого манифеста нет).
+  // Разъехавшись, они дают игру, которую лобби отвергает, а solo-режим
+  // принимает и тихо недоигрывает
+  it('B2 catches a half requiring what the manifest does not list', () => {
+    expect(
+      violations('B2', {
+        ...base,
+        manifest: { ...base.manifest, requires: [] },
+        hostPlugin: { ...base.hostPlugin, requires: ['accolades'] },
+      }),
+    ).toMatch(/HostPlugin\.requires names accolades/);
+  });
+
+  it('B2 catches a manifest requiring what no half declares', () => {
+    expect(
+      violations('B2', {
+        ...base,
+        manifest: { ...base.manifest, requires: ['accolades'] },
+        clientPlugin: { ...base.clientPlugin, requires: [] },
+      }),
+    ).toMatch(/neither plugin half declares/);
+  });
+
+  it('B2 catches a half whose requires is not an array', () => {
+    expect(
+      violations('B2', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, requires: 'accolades' },
+      }),
+    ).toMatch(/HostPlugin\.requires must be an array/);
+  });
+
+  // половина без поля — пакет, собранный до его появления: сверять не с чем,
+  // и отвергать за возраст нельзя (И1/И2)
+  it('B2 accepts halves that declare no requires at all', () => {
+    expect(
+      violations('B2', {
+        ...base,
+        manifest: { ...base.manifest, requires: ['accolades'] },
+      }),
+    ).toBe('');
+  });
+
+  it('B2 accepts halves that agree with the manifest', () => {
+    expect(
+      violations('B2', {
+        ...base,
+        manifest: { ...base.manifest, requires: ['accolades'] },
+        hostPlugin: { ...base.hostPlugin, requires: ['accolades'] },
+        clientPlugin: { ...base.clientPlugin, requires: ['accolades'] },
+      }),
+    ).toBe('');
+  });
+
   it('B3 catches a gameConfig missing a required path', () => {
     const { playerKeys, ...gameConfig } = base.gameConfig;
 
@@ -885,6 +940,23 @@ describe('C. client', () => {
         },
       }),
     ).toBe('');
+  });
+
+  // auth-форма строится с пустым ctx (components/view/Auth.js): source-поле
+  // резолвится в пустой список, игрок видит 'no options available' и войти
+  // не может, а обошедший форму слал бы что угодно
+  it('C10 catches options.source in authSchema', () => {
+    expect(
+      violations('C10', {
+        ...base,
+        authSchema: {
+          elems: { fieldsId: 'auth-fields' },
+          params: [
+            { name: 'model', options: { control: 'select', source: 'maps' } },
+          ],
+        },
+      }),
+    ).toMatch(/declares options\.source "maps"/);
   });
 
   it('C10 catches a validator name authSchema.validators does not provide', () => {

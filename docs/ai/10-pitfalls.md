@@ -175,6 +175,10 @@ name the violation. Do not verify those by eye — run the tool
       resolves to `null` and the auth screen dies with a `TypeError` on the
       first render.
 - [ ] ⚙ `C10` There is no nickname field — identity comes from the lobby JWT.
+- [ ] ⚙ `C10` No param uses `options.source` — the auth form is built without
+      the engine's catalogs, so such a field resolves to an empty list, shows
+      `no options available` and nobody can log in. Inline the options.
+      (`source` is fine in `roomForm`, where the engine does pass the maps.)
 - [ ] `authSchema.validators` are functions, are not serialised, and run on
       the host.
 - [ ] ⚙ `C10` A param's `validator` names a function `authSchema.validators`

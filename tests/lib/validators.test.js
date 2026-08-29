@@ -252,12 +252,18 @@ describe('validateAuth', () => {
     ]);
   });
 
-  it('поле с source хост не проверяет по списку (каталога он не знает)', () => {
+  // раньше такое поле хост пропускал целиком («каталога он не знает»), но
+  // auth-форма строится с ПУСТЫМ ctx: у игрока список пуст и войти он не
+  // может, а обошедший форму слал что угодно — инвариант модуля наизнанку.
+  // Правило C10 запрещает source в authSchema, валидация — последний рубеж
+  it('поле с source отвергается: валидного значения у него нет вовсе', () => {
     const params = [
       { name: 'map', options: { control: 'select', source: 'maps' } },
     ];
 
-    expect(validateAuth({ map: 'anything' }, params)).toBeUndefined();
+    expect(validateAuth({ map: 'anything' }, params)).toEqual([
+      { name: 'map', error: 'not an option' },
+    ]);
   });
 
   // гостевой контур (createGuestIdentity) — единственное место в
@@ -473,5 +479,65 @@ describe('validateAuth: выведенные контролы проверяют
         { name: 'nick', options: { control: 'text', maxlength: 3 } },
       ]),
     ).toEqual([{ name: 'nick', error: 'too long' }]);
+  });
+});
+
+// Паритет с формой на путях, где хост раньше проверял меньше клиента.
+// Мерило одно: клиент, обошедший форму, не должен получать больше прав, чем
+// клиент, её заполнивший
+describe('validateAuth: паритет с формой', () => {
+  it('числовое поле проверяется и regExp, а не только диапазоном', () => {
+    // regExp ловит то, что диапазон пропускает: дробное и ведущий ноль —
+    // ровно то, ради чего клиент проверяет паттерн отдельно от min/max
+    const field = [
+      {
+        name: 'players',
+        options: { control: 'number', min: 1, max: 8, regExp: '([1-8])' },
+      },
+    ];
+
+    expect(validateAuth({ players: 4 }, field)).toBeUndefined();
+    expect(validateAuth({ players: 3.5 }, field)).toEqual([
+      { name: 'players', error: 'invalid format' },
+    ]);
+  });
+
+  it('regExp числового поля сверяется в единице ОТОБРАЖЕНИЯ', () => {
+    const field = [
+      {
+        name: 'roundTime',
+        options: { control: 'range', unit: 's', min: 10, max: 60, regExp: '\\d+' },
+      },
+    ];
+
+    // 30000 мс = 30 с: паттерн смотрит на «30», а не на «30000»
+    expect(validateAuth({ roundTime: 30000 }, field)).toBeUndefined();
+  });
+
+  // `source` резолвится вызывающей стороной через ctx.sources, а auth-форма
+  // строится с пустым ctx: у игрока список пуст ('no options available') и
+  // войти он не может. Пропустить это на хосте значило бы дать обошедшему
+  // форму клиенту то, чего у заполнившего нет вовсе
+  it('поле с options.source не принимает произвольную строку', () => {
+    expect(
+      validateAuth({ map: 'что угодно' }, [
+        { name: 'map', options: { control: 'select', source: 'maps' } },
+      ]),
+    ).toEqual([{ name: 'map', error: 'not an option' }]);
+  });
+
+  // билдер такому полю выносит тот же приговор ('unknown control'): оно не
+  // строится, в сабмит не попадает и до хоста доезжает только от клиента,
+  // обошедшего форму, — а проверить его нечем
+  it('поле с неизвестным контролом отвергается, а не проходит по длине', () => {
+    expect(
+      validateAuth({ x: 'что угодно' }, [
+        { name: 'x', options: { control: 'megaslider' } },
+      ]),
+    ).toEqual([{ name: 'x', error: 'unknown control' }]);
+  });
+
+  it('контрол по умолчанию (его нет вовсе) остаётся текстовым', () => {
+    expect(validateAuth({ x: 'abc' }, [{ name: 'x' }])).toBeUndefined();
   });
 });

@@ -442,7 +442,7 @@ impl<G: GameClientDef> ClientState<G> {
     /// заморожена, символа в dist уже опубликованной игры не появится.
     pub fn dispatch(&mut self, op: &str, payload: &[u8]) -> Vec<u8> {
         let out = match op {
-            "debug.json" => Some(self.debug_json().into_bytes()),
+            crate::abi::OP_DEBUG_JSON => Some(self.debug_json().into_bytes()),
             _ => self.game.dispatch_op(op, payload),
         };
 

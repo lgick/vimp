@@ -1,6 +1,6 @@
 import { anchorPattern } from './formPattern.js';
 import { normalizeOptions } from './formOptions.js';
-import { resolveDescriptor } from './formControls.js';
+import { formControls, resolveDescriptor } from './formControls.js';
 import { toDisplay, isNumericField } from './formUnit.js';
 
 const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w\\s#]{0,13})[\\w]{1}$');
@@ -56,15 +56,25 @@ const numericError = (options, value) => {
     return `must be <= ${options.max}`;
   }
 
+  // regExp — не дубль диапазона: сгенерированный сборкой паттерн (вроде
+  // "^([1-8])$") ловит то, что диапазон пропускает — дробное и ведущий
+  // ноль. Клиент проверяет числовое поле и тем, и другим (formBuilder.
+  // validateField), и сверяет паттерн с СЫРОЙ строкой поля, то есть со
+  // значением в единице отображения — здесь то же самое
+  if (options.regExp && !matchesPattern(options.regExp, String(shown))) {
+    return 'invalid format';
+  }
+
   return null;
 };
 
-// source-варианты хост не резолвит (их и форма в auth не резолвит: она
-// строится с пустым ctx) — сверяем только объявленный inline-список.
-// String(): и <option>.value, и <input type=radio>.value — DOM-свойства,
-// они всегда строки, так что options: [1, 2] форма отдаёт как '1'/'2'.
-// Списка нет вовсе (или он не массив — дефект схемы) — валидного значения у
-// поля не существует, и форма это говорит прямо ('no options available'):
+// Сверяется только объявленный inline-список. String(): и <option>.value, и
+// <input type=radio>.value — DOM-свойства, они всегда строки, так что
+// options: [1, 2] форма отдаёт как '1'/'2'.
+//
+// Списка нет вовсе — ни массива, ни `source` (последний в auth-схеме не
+// резолвится: форма строится с пустым ctx). Валидного значения у такого поля
+// не существует, и форма это говорит прямо ('no options available'):
 // пропустить здесь что угодно значило бы дать обошедшему форму клиенту
 // больше прав, чем игроку, который войти не может вовсе
 const isDeclaredOption = (list, value) =>
@@ -152,6 +162,17 @@ export const validateAuth = (data, authParams, validators = {}) => {
     const options = resolveDescriptor(declared);
     const value = data[name];
 
+    // Контрол, которого нет в реестре, — дефект схемы (опечатка или игра из
+    // будущего), и билдер выносит ему тот же приговор: поле не строится
+    // (`unknown control`), в сабмит не попадает и до хоста не доезжает.
+    // Значит доехать оно может только от клиента, обошедшего форму, — и
+    // проверить его нечем: ниже не совпадёт ни одна ветка, останется лишь
+    // потолок длины. Отвергаем явно; раньше это ловит правило C10
+    if (options?.control !== undefined && !formControls.has(options.control)) {
+      errors.push({ name, error: 'unknown control' });
+      continue;
+    }
+
     // Числовое поле идёт своей веткой: форма отдаёт его числом, и общий
     // путь ниже (длина, список вариантов, regExp) к нему не применим —
     // проверяется диапазон, ровно как validateField делает на клиенте.
@@ -194,9 +215,16 @@ export const validateAuth = (data, authParams, validators = {}) => {
     // членство в списке вариантов — самое жёсткое ограничение формы: без
     // этой проверки поле-select без игрового валидатора принимает от
     // обошедшего форму клиента любую строку
+    // `source` (спец-источник вариантов движка, например карты) в auth-схеме
+    // не работает вовсе: auth-форма строится с ПУСТЫМ ctx
+    // (client/components/view/Auth.js), поэтому у игрока такое поле
+    // резолвится в пустой список и получает 'no options available' — войти
+    // с ним нельзя. Пропустив его здесь, хост дал бы обошедшему форму
+    // клиенту произвольную строку там, где игрок не может ввести ничего:
+    // инвариант модуля наизнанку. Отвергаем как и любой не-вариант; раньше
+    // это ловит правило C10
     if (
       OPTION_CONTROLS.includes(options?.control) &&
-      !options.source &&
       !isDeclaredOption(options.options, value)
     ) {
       errors.push({ name, error: 'not an option' });

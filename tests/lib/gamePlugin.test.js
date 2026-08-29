@@ -5,6 +5,7 @@ import {
   assertEngineApiCompatible,
   assertGameConfigShape,
   loadClientPlugin,
+  mergeRequires,
 } from '../../packages/engine/src/lib/gamePlugin.js';
 import { ENGINE_API_VERSION } from '../../packages/engine/src/config/opcodes.js';
 
@@ -205,5 +206,34 @@ describe('gamePlugin: loadClientPlugin', () => {
         entries: { client: '/unreachable.js' },
       }),
     ).rejects.toThrow(/update the engine/);
+  });
+});
+
+// склейка `requires` из нескольких объявлений (обе половины плагина, опция
+// SDK). Недоверенное значение обязано доехать до checkPluginCompatibility
+// как есть: только она умеет сказать про форму
+describe('gamePlugin: mergeRequires', () => {
+  it('объединяет объявленное, отбрасывая дубли', () => {
+    expect(mergeRequires(['accolades'], ['accolades', 'dispatch'])).toEqual([
+      'accolades',
+      'dispatch',
+    ]);
+  });
+
+  it('необъявленное (undefined/null) не участвует', () => {
+    expect(mergeRequires(undefined, null, ['accolades'])).toEqual([
+      'accolades',
+    ]);
+    expect(mergeRequires(undefined, null)).toEqual([]);
+  });
+
+  it('строку возвращает как есть, а не раскладывает посимвольно', () => {
+    expect(mergeRequires('accolades', ['dispatch'])).toBe('accolades');
+  });
+
+  it('объект возвращает как есть, а не роняет «not iterable»', () => {
+    const wrong = {};
+
+    expect(mergeRequires(['accolades'], wrong)).toBe(wrong);
   });
 });

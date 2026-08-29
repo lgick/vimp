@@ -1,5 +1,3 @@
-import { ABI_OP_DEBUG_JSON } from '../config/abiOps.js';
-import { readCoreAbi, dispatchCoreOp } from '../lib/coreAbi.js';
 // Адаптер Rust-ядра (GameCore) под интерфейс, который потребляют мета-модули
 // хоста (RoundManager, SocketManager) и host-фасад. За поверхностью Game.js
 // (+ упаковка снапшотов) стоит WASM-ядро; события ядра (take_events) несут
@@ -11,6 +9,9 @@ import { readCoreAbi, dispatchCoreOp } from '../lib/coreAbi.js';
 // scripted-участник создаётся как танк + ИИ-контроллер внутри ядра
 // (spawn_scripted_actor/remove_scripted_actor), человек — только танк
 // (spawn_actor/remove_actor).
+
+import { ABI_OP_DEBUG_JSON } from '../config/abiOps.js';
+import { readCoreAbi, dispatchCoreOp } from '../lib/coreAbi.js';
 
 export default class GameCoreAdapter {
   /**

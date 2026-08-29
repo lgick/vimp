@@ -132,4 +132,101 @@ describe('dispatchCoreOp', () => {
 
     expect(c.calls).toEqual([['debug.json', [9]]]);
   });
+
+  // ядро — тот же «другой отправитель», что и его самоописание: движок
+  // обязан продолжить работу на любом ответе, а не упасть в конструкторе
+  // адаптера или невыловленным промисом в PS_CONFIG_DATA
+  it('ядро с самоописанием, но без dispatch — исход «не обработан»', () => {
+    expect(
+      dispatchCoreOp(
+        { abi_describe: () => '{}' },
+        abiWith(['debug.json']),
+        ABI_OP_DEBUG_JSON,
+      ),
+    ).toEqual({ handled: false, bytes: null });
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['строку', 'не байты'],
+    ['обычный массив', [1, 2]],
+  ])('ответ ядра %s — «не обработан», а не TypeError', (_name, answer) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(
+      dispatchCoreOp(core(answer), abiWith(['debug.json']), ABI_OP_DEBUG_JSON),
+    ).toEqual({ handled: false, bytes: null });
+  });
+});
+
+// Алиас опкода резолвится в сторону, обратную остальным реестрам: имя опкода
+// пишет ДВИЖОК, а понимает уже опубликованное ядро, которое его старше.
+// Разрешив имя вперёд, в активное, движок спросил бы у старого ядра то,
+// чего в нём нет, и молча потерял бы возможность
+describe('dispatchCoreOp: выведенное имя опкода', () => {
+  const withAliasedRegistry = async () => {
+    vi.resetModules();
+    vi.doMock('../../packages/engine/src/config/abiOps.js', async () => {
+      const { createRegistry } = await import(
+        '../../packages/engine/src/lib/registry.js'
+      );
+
+      return {
+        abiOps: createRegistry('abiOps', [
+          { value: 'debug.json', since: 4, alias: 'debug.dump', retiredIn: 5 },
+          { value: 'debug.dump', since: 5 },
+        ]),
+        ABI_OP_DEBUG_JSON: 'debug.json',
+      };
+    });
+
+    return import('../../packages/engine/src/lib/coreAbi.js');
+  };
+
+  afterEach(() => {
+    vi.doUnmock('../../packages/engine/src/config/abiOps.js');
+    vi.resetModules();
+  });
+
+  const core = () => ({
+    calls: [],
+    dispatch(op) {
+      this.calls.push(op);
+
+      return new Uint8Array([1]);
+    },
+  });
+
+  it('новое ядро обслуживается активным именем', async () => {
+    const { dispatchCoreOp: dispatchOp } = await withAliasedRegistry();
+    const c = core();
+
+    expect(
+      dispatchOp(c, { abi: 1, core: 'x', ops: ['debug.dump'] }, 'debug.json')
+        .handled,
+    ).toBe(true);
+    expect(c.calls).toEqual(['debug.dump']);
+  });
+
+  it('старое ядро обслуживается выведенным именем, а не теряется', async () => {
+    const { dispatchCoreOp: dispatchOp } = await withAliasedRegistry();
+    const c = core();
+
+    expect(
+      dispatchOp(c, { abi: 1, core: 'x', ops: ['debug.json'] }, 'debug.json')
+        .handled,
+    ).toBe(true);
+    expect(c.calls).toEqual(['debug.json']);
+  });
+
+  it('ядро, не знающее ни одного имени цепочки, — «не обработан»', async () => {
+    const { dispatchCoreOp: dispatchOp } = await withAliasedRegistry();
+    const c = core();
+
+    expect(
+      dispatchOp(c, { abi: 1, core: 'x', ops: [] }, 'debug.json'),
+    ).toEqual({ handled: false, bytes: null });
+    expect(c.calls).toEqual([]);
+  });
 });

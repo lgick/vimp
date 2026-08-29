@@ -63,8 +63,6 @@ export function readCoreAbi(core, label = 'core') {
   };
 }
 
-export default readCoreAbi;
-
 /**
  * Зовёт необязательную возможность ядра опкодом. Единственное место, где
  * движок вызывает `dispatch` — и игровой половины, и клиентской: таблица
@@ -96,13 +94,44 @@ export function dispatchCoreOp(core, abi, op, payload = EMPTY_PAYLOAD) {
     );
   }
 
-  const resolved = abiOps.resolve(op);
+  // Направление резолва здесь ОБРАТНОЕ остальным реестрам, и это не описка.
+  // Имя контрола или сервиса пишет игра, а движок разрешает его вперёд, в
+  // активное. Имя опкода пишет ДВИЖОК, а понимать его должно уже
+  // опубликованное ядро, которое старше движка: разрешив 'debug.json' в
+  // будущее 'debug.dump', движок спросил бы у старого ядра имя, которого в
+  // нём нет, и молча потерял бы возможность на ровно тех ядрах, ради
+  // которых весь план и писался. Поэтому пробуется вся цепочка: активное
+  // имя первым, выведенные — как запасной путь для старого ядра
+  const known = abiOps
+    .chain(op)
+    .map(entry => entry.value)
+    .reverse()
+    .find(name => abi.ops.includes(name));
 
-  if (!abi.ops.includes(resolved)) {
+  if (known === undefined) {
     return NOT_HANDLED;
   }
 
-  const out = core.dispatch(resolved, payload);
+  // ядро с самоописанием, но без самого dispatch (ручное раскрытие макроса,
+  // обрезанная сборка, мок в тестах игры) — не краш движка, а ядро без
+  // опциональных возможностей: тот же исход, что «опкод не понят»
+  if (typeof core.dispatch !== 'function') {
+    return NOT_HANDLED;
+  }
+
+  const out = core.dispatch(known, payload);
+
+  // ответ ядра нормализуется так же, как самоописание: не-Uint8Array
+  // (undefined, строка, null) — это чужая форма, а не полезные байты, и
+  // TypeError на .length ушёл бы в конструктор адаптера или в async-обработчик
+  // PS_CONFIG_DATA невыловленным промисом
+  if (!(out instanceof Uint8Array)) {
+    if (out !== undefined && out !== null) {
+      console.warn(`dispatchCoreOp: "${known}" answered with a non-Uint8Array`);
+    }
+
+    return NOT_HANDLED;
+  }
 
   if (out.length === 0) {
     return NOT_HANDLED;
@@ -114,3 +143,7 @@ export function dispatchCoreOp(core, abi, op, payload = EMPTY_PAYLOAD) {
     bytes: out.length === 1 && out[0] === 0x00 ? null : out,
   };
 }
+
+// дефолтный экспорт — чтение самоописания: с него начинается работа с
+// любым ядром, dispatchCoreOp зовётся уже с его результатом
+export default readCoreAbi;

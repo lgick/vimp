@@ -106,6 +106,74 @@ function assertPluginMatchesManifest(manifest, plugins) {
       );
     }
   }
+
+  assertRequiresMatchManifest(manifest, plugins);
+}
+
+// `requires` пишут ТРИ независимых места одного пакета игры: скрипт сборки
+// манифеста и обе половины плагина (последние — ради standalone SDK, у
+// которого манифеста нет вовсе). Разъехавшись, они дают игру, которая в
+// лобби честно отвергается, а в solo-режиме тихо недоигрывает — то есть
+// именно тот молчаливый режим, ради отказа от которого возможности и
+// заводились. Проверка — того же класса, что сверка engineApi выше: это
+// рассинхрон сборки ВНУТРИ пакета, а не отказ по возрасту (И4).
+//
+// Половина, вовсе НЕ объявившая поле, из сверки исключена: старый пакет,
+// собранный до его появления, обязан грузиться (И1/И2). Объявленное пустым
+// (`requires: []`) — уже утверждение «игре ничего не нужно», и оно
+// расходится с манифестом наравне с неполным списком.
+function assertRequiresMatchManifest(manifest, plugins) {
+  const wanted = new Set(
+    Array.isArray(manifest.requires) ? manifest.requires : [],
+  );
+
+  for (const [half, plugin] of Object.entries(plugins)) {
+    if (plugin.requires === undefined || plugin.requires === null) {
+      continue;
+    }
+
+    if (!Array.isArray(plugin.requires)) {
+      throw new Error(
+        `game "${manifest.id}": ${half} plugin requires must be an array ` +
+          'of capability names',
+      );
+    }
+
+    const extra = plugin.requires.filter(name => !wanted.has(name));
+
+    if (extra.length) {
+      throw new Error(
+        `game "${manifest.id}": ${half} plugin requires ` +
+          `${extra.join(', ')}, which manifest.requires does not list — ` +
+          'stale dist/ (the manifest is what the lobby master reads)',
+      );
+    }
+  }
+
+  // обратная сторона: манифест просит возможность, о которой половины не
+  // знают. Половина, вовсе не объявившая поле, из сверки исключена — иначе
+  // правка ломала бы каждый уже опубликованный пакет. Объявленное пустым
+  // (`requires: []`) — это утверждение «ничего не нужно», и оно расходится
+  // с манифестом наравне с неполным списком
+  const halves = Object.values(plugins).filter(
+    plugin => plugin.requires !== undefined && plugin.requires !== null,
+  );
+
+  if (halves.length === 0) {
+    return;
+  }
+
+  const declared = halves.flatMap(plugin => plugin.requires);
+
+  const missing = [...wanted].filter(name => !declared.includes(name));
+
+  if (missing.length) {
+    throw new Error(
+      `game "${manifest.id}": manifest.requires names ${missing.join(', ')}, ` +
+        'which neither plugin half declares — stale dist/ (the standalone ' +
+        'SDK reads the halves, there is no manifest in solo mode)',
+    );
+  }
 }
 
 function importDefault(baseDir, entry, assetsBase) {

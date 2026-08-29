@@ -1,6 +1,7 @@
 import {
   assertGameConfigShape,
   checkPluginCompatibility,
+  mergeRequires,
 } from '../lib/gamePlugin.js';
 import { setBootConfig } from '../client/boot.js';
 import { ensureGameShell } from '../client/views/gameShell.js';
@@ -72,10 +73,12 @@ export async function startStandaloneGame({
   // незачем
   requireCompatible({
     id: hostPlugin.id,
-    requires: requires ?? [
-      ...(hostPlugin.requires ?? []),
-      ...(clientPlugin.requires ?? []),
-    ],
+    // mergeRequires, а не спред: строка вместо массива ('accolades' —
+    // естественная опечатка в поле, которого у игры раньше не было)
+    // разошлась бы посимвольно и дала отказ со списком букв вместо внятного
+    // «должен быть массив», а объект уронил бы SDK «not iterable»
+    requires:
+      requires ?? mergeRequires(hostPlugin.requires, clientPlugin.requires),
   });
 
   // одна view на прогон: умолчания вместо обязательных полей (И2 этапа 2)

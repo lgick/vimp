@@ -18,8 +18,8 @@ export default {
   name: 'authSchema',
   level: ERROR,
   title:
-    'authSchema: fieldsId, no nickname field, the model field, resolvable ' +
-    'validators',
+    'authSchema: fieldsId, no nickname field, the model field, inline ' +
+    'options, resolvable validators',
 
   check(ctx) {
     if (!ctx.authSchema) {
@@ -68,6 +68,21 @@ export default {
             `it still works (the engine builds and validates it as ` +
             `"${formControls.resolve(control)}" forever), but a new game ` +
             `should declare "${formControls.resolve(control)}" itself`,
+        );
+      }
+
+      // `source` резолвится вызывающей стороной через ctx.sources, а
+      // auth-форма строится с ПУСТЫМ ctx (client/components/view/Auth.js) —
+      // значит список вариантов у такого поля пуст всегда: игрок видит
+      // 'no options available' и войти не может, а хост отвергает любое
+      // значение как не-вариант. Это только для authSchema; в roomForm
+      // (правило B5) source штатный — там движок отдаёт каталог карт
+      if (field.options?.source !== undefined) {
+        violations.push(
+          `authSchema param "${field.name}" declares options.source ` +
+            `"${field.options.source}" — the auth form is built without ` +
+            'sources, so the field resolves to an empty list and nobody can ' +
+            'log in; inline the options',
         );
       }
 

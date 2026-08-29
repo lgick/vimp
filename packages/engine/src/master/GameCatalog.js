@@ -61,7 +61,7 @@ export default class GameCatalog {
 
     try {
       manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    } catch (err) {
+    } catch {
       return; // игра не собрана/не установлена (npm run build в репозитории игры) — пропускаем молча
     }
 
@@ -112,7 +112,7 @@ export default class GameCatalog {
       meta = JSON.parse(
         fs.readFileSync(path.join(gameDir, 'package.json'), 'utf8'),
       );
-    } catch (err) {
+    } catch {
       return { packageVersion: null, packageUrl: null };
     }
 
@@ -128,7 +128,7 @@ export default class GameCatalog {
 
     try {
       files = fs.readdirSync(mapsDir).filter(name => name.endsWith('.json'));
-    } catch (err) {
+    } catch {
       return maps;
     }
 
@@ -170,7 +170,7 @@ export default class GameCatalog {
         .find(name => name.endsWith('_bg.wasm'));
 
       return file ? path.join(pkgWebDir, file) : null;
-    } catch (err) {
+    } catch {
       return null;
     }
   }

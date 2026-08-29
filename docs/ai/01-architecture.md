@@ -79,8 +79,10 @@ catalog, flagged `compat: {ok: false, …}` and shown unavailable in the lobby
 (and the signaling server refuses to register a host for it);
 `loadGamePackage`, `loadClientPlugin` and the standalone SDK throw. The SDK
 reads the list from `HostPlugin.requires` / `ClientPlugin.requires`, since in
-solo mode there is no manifest — declare the same list in all three places.
-A manifest with no `requires` needs nothing beyond the base contract.
+solo mode there is no manifest — declare the same list in all three places,
+and keep them equal: `loadGamePackage` and rule `B2` refuse a package whose
+manifest and halves disagree. A manifest with no `requires` needs nothing
+beyond the base contract.
 
 Additionally, `manifest.id` must equal both the id configured in the master's
 game list and the URL prefix the master mounts (`/games/<id>/`). A mismatch is

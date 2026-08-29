@@ -38,6 +38,16 @@ beforeAll(async () => {
     path.join(dist, 'host-stale.js'),
     `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION - 1} };\n`,
   );
+  // половины, объявившие `requires` — поле читает standalone SDK, у
+  // которого манифеста нет вовсе
+  await writeFile(
+    path.join(dist, 'host-requires.js'),
+    `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION}, requires: ["accolades"] };\n`,
+  );
+  await writeFile(
+    path.join(dist, 'host-requires-bad.js'),
+    `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION}, requires: "accolades" };\n`,
+  );
   await writeFile(path.join(dir, 'core', 'pkg-node', 'demo.js'), 'export {};\n');
 
   await writeFile(
@@ -50,9 +60,10 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const manifestWith = ({ host = '/games/demo/host-abc.js', wasmNode }) => ({
+const manifestWith = ({ host = '/games/demo/host-abc.js', wasmNode, requires }) => ({
   id: 'demo',
   engineApi: ENGINE_API_VERSION,
+  ...(requires ? { requires } : {}),
   assetsBase: '/games/demo/',
   entries: {
     host,
@@ -109,5 +120,81 @@ describe('loadGamePackage', () => {
     );
 
     await expect(loadGamePackage(file)).rejects.toThrow(/host plugin engineApi/);
+  });
+
+  // `requires` пишут три места одного пакета: скрипт сборки манифеста и обе
+  // половины плагина. Разъехавшись, они дают игру, которую лобби отвергает,
+  // а solo-режим принимает и тихо недоигрывает
+  describe('requires манифеста и половин плагина', () => {
+    it('половина просит возможность, которой нет в манифесте — stale dist/', async () => {
+      const file = await variant(
+        'half-extra.json',
+        manifestWith({
+          host: '/games/demo/host-requires.js',
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
+
+      await expect(loadGamePackage(file)).rejects.toThrow(
+        /host plugin requires accolades, which manifest\.requires does not list/,
+      );
+    });
+
+    it('манифест просит возможность, которой не объявила ни одна половина', async () => {
+      const file = await variant(
+        'manifest-extra.json',
+        manifestWith({
+          requires: ['accolades'],
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
+
+      // половины поля не объявляют вовсе — старый пакет, собранный до его
+      // появления: сверять не с чем, отказа нет
+      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+    });
+
+    it('половина объявила поле, а манифест просит больше — отказ', async () => {
+      const file = await variant(
+        'manifest-more.json',
+        manifestWith({
+          host: '/games/demo/host-requires.js',
+          requires: ['accolades', 'stat.leaderboard'],
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
+
+      await expect(loadGamePackage(file)).rejects.toThrow(
+        /manifest\.requires names stat\.leaderboard, which neither plugin half declares/,
+      );
+    });
+
+    it('согласованные списки грузятся', async () => {
+      const file = await variant(
+        'half-match.json',
+        manifestWith({
+          host: '/games/demo/host-requires.js',
+          requires: ['accolades'],
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
+
+      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+    });
+
+    it('не-массив в половине назван дефектом, а не проитерирован', async () => {
+      const file = await variant(
+        'half-bad.json',
+        manifestWith({
+          host: '/games/demo/host-requires-bad.js',
+          requires: ['accolades'],
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
+
+      await expect(loadGamePackage(file)).rejects.toThrow(
+        /host plugin requires must be an array/,
+      );
+    });
   });
 });

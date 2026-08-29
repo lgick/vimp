@@ -41,6 +41,27 @@ export async function fetchGameManifest(url) {
 // мастера, Node-загрузчик, браузерный клиент, standalone SDK) разная
 // правильная реакция — каталог помечает игру недоступной и продолжает
 // раздавать остальные, остальные три бросают.
+
+/** Объявлено ли `requires` вообще (undefined/null = «ничего сверх базового»). */
+const isDeclared = value => value !== undefined && value !== null;
+
+/**
+ * Склеивает несколько объявлений `requires` в одно. Спредить их напрямую
+ * нельзя: строка разошлась бы посимвольно ('accolades' → 'a','c','c'...) и
+ * проехала бы проверку формы ниже, потому что каждый символ — валидная
+ * строка. Недоверенное значение возвращается КАК ЕСТЬ, чтобы о его форме
+ * говорила одна точка — checkPluginCompatibility, — а не место склейки.
+ * @param {...*} sources - Значения `requires` (половины плагина, опция SDK).
+ * @returns {Array<string>|*} Объединение объявленных списков либо первое
+ *   значение неверной формы.
+ */
+export function mergeRequires(...sources) {
+  const declared = sources.filter(isDeclared);
+  const malformed = declared.find(source => !Array.isArray(source));
+
+  return malformed ?? [...new Set(declared.flat())];
+}
+
 export function checkPluginCompatibility(manifest) {
   const wanted = manifest.requires;
 

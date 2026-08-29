@@ -13,6 +13,25 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Changed
+
+- `abi::OP_DEBUG_JSON` — the name of the `debug.json` opcode is now read from
+  one constant instead of being spelled out in `ENGINE_GAME_OPS`,
+  `ENGINE_CLIENT_OPS` and both `dispatch` match arms. A list that drifts from
+  its handler produces a core advertising an opcode it does not answer, and
+  the engine reads that as "not handled" and silently takes the fallback path.
+  The JS side already reads the name from one place
+  (`src/config/abiOps.js`). Behaviour is unchanged.
+
+## [0.9.1] — 2026-08-29
+
+### Changed
+
+- Documentation only: the doc comment warning that the snapshot accumulators
+  must be drained (`pack_body`) before `serialize_state` went back to
+  `serialize_state`, from where `abi_describe`/`dispatch` had displaced it.
+  No behaviour changed, and a game does not have to follow this bump.
+
 ## [0.9.0] — 2026-08-29
 
 ### Added

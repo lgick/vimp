@@ -261,4 +261,26 @@ describe('startStandaloneGame', () => {
       }),
     ).resolves.toBeDefined();
   });
+
+  // строка вместо массива — естественная опечатка в поле, которого у игры
+  // раньше не было. Спред разложил бы её посимвольно, и разработчик получил
+  // бы список букв вместо внятного «должен быть массив»
+  it('строка в requires половины названа дефектом формы, а не списком букв', async () => {
+    const failure = await startStandaloneGame({
+      ...options(container),
+      hostPlugin: { ...hostPlugin, requires: 'телепортация' },
+    }).catch(err => err);
+
+    expect(failure.message).toMatch(/must be an array of capability names/);
+    expect(failure.message).not.toMatch(/т, е, л/);
+  });
+
+  it('объект в requires половины не роняет SDK «not iterable»', async () => {
+    await expect(
+      startStandaloneGame({
+        ...options(container),
+        clientPlugin: { ...clientPlugin, requires: {} },
+      }),
+    ).rejects.toThrow(/must be an array of capability names/);
+  });
 });

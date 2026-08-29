@@ -378,7 +378,7 @@ impl<G: GameDef> EngineSim<G> {
     /// символ не появится никогда.
     pub fn dispatch(&mut self, op: &str, payload: &[u8]) -> Vec<u8> {
         let out = match op {
-            "debug.json" => Some(self.debug_json().into_bytes()),
+            crate::abi::OP_DEBUG_JSON => Some(self.debug_json().into_bytes()),
             _ => self.sim.dispatch_op(op, payload),
         };
 

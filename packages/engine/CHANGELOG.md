@@ -9,6 +9,46 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Security
+
+- The host validates an auth field the way the form does on three paths where
+  it used to check less (`src/lib/validators.js`). A numeric field is now
+  matched against its `regExp` as well as its range — the pattern is what
+  catches a fraction or a leading zero, which a range cannot. A field whose
+  `options` are replaced by `source` is rejected instead of skipped: the auth
+  form is built without `ctx.sources`, so such a field resolves to an empty
+  list and no player can fill it in, while a client bypassing the form used to
+  send anything. A `control` the registry does not know is rejected as well —
+  the form builder refuses to build that field, so it can only ever arrive
+  from a bypassing client, and nothing below matched it. Contract rule `C10`
+  reports `options.source` in `authSchema` statically.
+
+### Fixed
+
+- `requires` must agree between `dist/manifest.json` and both plugin halves.
+  The field lives in three places of one game package — the lobby master reads
+  the manifest, the standalone SDK reads the halves — and nothing compared
+  them, so a game could be refused by the lobby and silently under-play in
+  solo mode. `loadGamePackage` now refuses the mismatch the way it refuses a
+  mismatched `engineApi` ("stale dist/"), and rule `B2` reports it statically.
+  A half that declares no `requires` at all stays exempt: a package built
+  before the field existed must keep loading.
+- `startStandaloneGame` no longer spreads an untrusted `requires`. A half
+  declaring a bare string used to decay into a list of single letters in the
+  refusal text, and an object threw `TypeError: not iterable` out of the SDK;
+  both now answer with the `bad-manifest` verdict. The merge lives in
+  `mergeRequires` (`src/lib/gamePlugin.js`).
+- `dispatchCoreOp` tries the whole alias chain of an opcode against the core's
+  self-description, active name first. Opcode aliases resolve backwards
+  compared to every other registry — the name is written by the engine and has
+  to be understood by an older published core — so resolving forward only
+  would have silently lost the capability on exactly those cores.
+- `dispatchCoreOp` treats a core with no `dispatch` method, or one answering
+  with something other than a `Uint8Array`, as "opcode not handled" instead of
+  throwing a `TypeError` out of the adapter constructor or out of the client's
+  `PS_CONFIG_DATA` handler. A core is exactly as untrusted as its
+  self-description, which `readCoreAbi` already normalized.
+
 ## [0.24.0] — 2026-08-29
 
 ### Security

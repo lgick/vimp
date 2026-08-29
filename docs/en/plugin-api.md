@@ -281,29 +281,42 @@ same `renderFormErrors`).
 
 For the auth form the host repeats the declarative part itself, so that a
 client bypassing the form gets no more rights than one that filled it in.
-`validateAuth` checks, in this order and before the JS validator: length
-(`too long`), membership in a `select`/`radio` field's declared `options`
-(`not an option` — a browser cannot submit anything else, so neither can a
-bypassing client; a field whose `options` list is empty or absent accepts
-*nothing*, matching the form's unconditional `no options available`; a
-`source` list is not checked, the host does not resolve catalogs), then
-`regExp` (`invalid format`, anchored exactly as in the
-browser). `maxlength` and `regExp` apply to text fields only, exactly as in
-the form.
+`validateAuth` resolves retired `control` aliases first — exactly as the form
+builder does, so a field is validated as the control it was built from — and
+then checks, before the JS validator:
+
+- a `control` the registry does not know at all: `unknown control`. The
+  builder refuses to build such a field, so it never reaches the host from an
+  honest client; `C10` reports it statically.
+- a **numeric** text field (`numeric: true` or `unit`) on its own branch,
+  because the form submits it as a *number*: `must be a number`, then
+  `min`/`max` compared in the **display** unit (`toDisplay`, shared with the
+  builder), then `regExp` against that same displayed value — the pattern
+  catches what a range cannot (a fraction, a leading zero).
+- otherwise: length (`too long`), membership in a `select`/`radio` field's
+  declared `options` (`not an option` — a browser cannot submit anything
+  else, so neither can a bypassing client), then `regExp` (`invalid format`,
+  anchored exactly as in the browser). `maxlength` and `regExp` apply to text
+  fields only, exactly as in the form.
+
+A `select`/`radio` field whose `options` list is empty, absent, or replaced by
+`source` accepts **nothing**: the auth form is built without `ctx.sources`, so
+such a field resolves to an empty list, shows `no options available` and
+cannot be filled in at all — letting the host through would hand a bypassing
+client what a player cannot have. `C10` rejects `source` in `authSchema`
+outright; in `roomForm` (rule `B5`) it stays the normal way to offer the map
+catalog.
 
 A field with no `maxlength` is still capped at **256 characters**: the game's
 `regExp` now runs on the host — the Worker holding the authoritative match, or
 the whole `dedicated` process — and a catastrophic pattern such as `(a+)+b`
 turns a few dozen characters into minutes of a blocked event loop.
 
-Three deliberate gaps. `required` is **not** enforced on the host: the solo
+Two deliberate gaps. `required` is **not** enforced on the host: the solo
 path (`boot.autoAuth`) answers with the schema defaults, and those may be
 `''`, so an empty value skips the checks above and is left to the game's
-validator. `min`/`max` are not applied either, and cannot matter: a numeric
-field submits a *number*, and `validateAuth` rejects a non-string value
-outright (`Property must be a string`) — `authSchema` has no numeric fields.
-And a `regExp` that does not compile is a schema defect, not a restriction, so
-the field passes (the same as on the client).
+validator. And a `regExp` that does not compile is a schema defect, not a
+restriction, so the field passes (the same as on the client).
 
 A `validator` name that `authSchema.validators` does not provide **as a
 function** leaves the field checked by nobody: the host skips it silently
@@ -655,10 +668,21 @@ The return value distinguishes all three outcomes of `abi::dispatch_result`:
 `{handled: false, bytes: null}` — the core does not know the opcode, take the
 fallback path; `{handled: true, bytes: null}` — handled, no answer (the
 `[0x00]` marker, unwrapped here so it never reaches a caller as payload);
-`{handled: true, bytes}` — the answer. The first opcode, `debug.json`,
-duplicates the frozen `debug_json` method: the caller tries the opcode and
-falls back to the method, which is what a core of any age gets. Both halves
-stay forever — I1 does not delete.
+`{handled: true, bytes}` — the answer. Anything else a core might return
+(no `dispatch` method at all, `undefined`, a string) is read as "not handled"
+too: a core is exactly as untrusted as its self-description. The first opcode,
+`debug.json`, duplicates the frozen `debug_json` method: the caller tries the
+opcode and falls back to the method, which is what a core of any age gets.
+Both halves stay forever — I1 does not delete.
+
+Opcode aliases resolve **backwards** compared to every other registry, and
+that is deliberate. A control or service name is written by the *game* and
+resolved forward by the engine; an opcode name is written by the *engine* and
+has to be understood by an already published core that is older than it.
+`dispatchCoreOp` therefore tries the whole chain against `abi_describe` —
+the active name first, the retired ones as the fallback for an old core.
+Resolving forward only would silently lose the capability on exactly the cores
+the whole scheme exists for.
 
 ### Snapshot blocks — a declarative schema
 
@@ -876,15 +900,24 @@ append-only vocabularies accept it as is.
 
 `HostPlugin.requires` and `ClientPlugin.requires` are the same optional array
 on the plugin halves. The standalone SDK reads them: in solo mode there is no
-master, so there is no manifest to read `requires` from. Keep the three lists
-equal — the template does that by declaring `requires: []` in all three
-places. `startStandaloneGame({ requires })` overrides both halves when the
-embedding code knows better.
+master, so there is no manifest to read `requires` from.
+`startStandaloneGame({ requires })` overrides both halves when the embedding
+code knows better.
+
+The three lists **must agree**, and both `loadGamePackage` and contract rule
+**B2** enforce it, the same way they enforce a consistent `engineApi`: a game
+whose manifest asks for a capability its halves do not is refused by the lobby
+and accepted by the SDK, which then plays a silently reduced match — the exact
+failure mode capabilities exist to replace. A half that declares no `requires`
+at all is exempt (a package built before the field existed must keep loading);
+`requires: []` is not — it is a claim that the game needs nothing.
 
 `requires` must be an array of strings. Any other shape (a bare string, an
 object, a non-string element) is a **broken manifest**: the verdict is
 `{ok: false, reason: 'bad-manifest'}`, treated exactly like an incompatible
-game rather than crashing whoever read it.
+game rather than crashing whoever read it. That holds for the halves too: the
+SDK merges them with `mergeRequires`, which never spreads an untrusted value —
+a bare string would otherwise decay into a list of single letters.
 
 Where the verdict lands:
 
