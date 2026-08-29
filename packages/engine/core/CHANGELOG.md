@@ -13,6 +13,8 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-29
+
 ### Added
 
 - `export_game_core_abi!` / `export_client_core_abi!` now also emit
@@ -244,6 +246,7 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.9.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.9.0
 [0.8.3]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.3
 [0.8.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.2
 [0.8.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.8.1
