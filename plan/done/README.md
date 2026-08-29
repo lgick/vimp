@@ -58,6 +58,20 @@
   публикуется вручную (`npm publish -w create-vimp-game`) после релиза
   движка. Остался ручной браузерный смоук `npm run dev` в
   сгенерированной игре.
+- [plugin-forward-compat/](plugin-forward-compat/) — направление K: игры
+  VIMP не устаревают (✅ 2026-08-29, 6 этапов). Плагинная поверхность
+  заморожена слепком `packages/engine/contract/surface.json` и корпусом
+  совместимости, `gameConfigView` даёт умолчания вместо обязательных полей,
+  словари (`control`, сервисы, порты, ключи снапшота) стали append-only
+  реестрами, wasm-ABI получил `abi_describe`/`dispatch` с реализацией по
+  умолчанию, гейт `ENGINE_API_VERSION` снят: отказ теперь только по
+  реально отсутствующей возможности (`manifest.requires` ×
+  `src/lib/capabilities.js`). `ENGINE_API_VERSION` заморожен на 4 навсегда —
+  правило записано в `CLAUDE.md`. Крейт `vimp-engine-core` 0.9.0 (minor),
+  npm `vimp-engine` 0.23.0 (minor), `create-vimp-game` 0.3.7; обе игры
+  пересобраны **по желанию, не по необходимости** — сборка под
+  `engineApi: 3` продолжает загружаться (`tests/master/gameCatalogCompat.test.js`).
+  Остался ручной браузерный смоук и публикация пакетов игр.
 
 ## Зафиксированные решения
 
