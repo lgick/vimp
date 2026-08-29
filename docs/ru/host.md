@@ -46,7 +46,12 @@
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
   wasmUrl }`, собирается `connectAsHost` из активного `GameManifest`),
   собирает конфиг игры (merge движковых дефолтов
-  `packages/engine/src/config/hostDefaults.js` и `HostPlugin.gameConfig`) и
+  `packages/engine/src/config/hostDefaults.js` и представления `gameConfig` —
+  `packages/engine/src/lib/gameConfigView.js`, единственная точка чтения
+  конфига плагина: проверяет четыре обязательных пути и подставляет
+  задокументированное умолчание для всех остальных полей, поэтому грузится
+  игра любого возраста; см.
+  [plugin-api.md](plugin-api.md#поля-gameconfig-и-их-умолчания)) и
   применяет к нему настройки комнаты (`applyRoomOverrides`,
   `packages/engine/src/lib/applyRoomOverrides.js`: имя/карта/лимит
   ≤ `roomDefaults.maxPlayers`/таймеры (`roundTime`/`mapTime` клампятся в

@@ -7,6 +7,8 @@
 
 Клиент различает форматы по типу входящих данных: строка → JSON-диспетчер `socketMethods[portId]` ([packages/engine/src/client/main.js](../../packages/engine/src/client/main.js) `handleMessage`), `ArrayBuffer` → `ClientCore.push_frame` (распаковка и буфер интерполяции — в клиентском ядре, см. [core.md](core.md#rust-трейты-vimp-engine-core)).
 
+**Номера портов append-only.** Номер никогда не переиспользуется и не перенумеровывается: уже опубликованная сборка игры шлёт и слушает те номера, что видела при сборке, и её `dist` больше никто не тронет. Выведенный из эксплуатации порт остаётся в `wsports.js` со своим номером и пометкой `// retired in vN`, чтобы номер не был выдан повторно; раздел `ports` слепка поверхности (`packages/engine/contract/surface.json`, [plugin-api.md](plugin-api.md#инварианты-совместимости)) валит сборку, если имя исчезло или номер сменился. На приёмной стороне порт без обработчика — не ошибка: `dispatchSocketMessage` ([client/lib/socketDispatch.js](../../packages/engine/src/client/lib/socketDispatch.js)) пишет `console.debug` и игнорирует сообщение, а не бросает исключение — то, что отправитель знает больше получателя, не должно убивать обработку сообщений.
+
 ## Транспорт (WebRTC)
 
 Игровой транспорт — прямое P2P-соединение клиента с браузерным хостом (два `RTCDataChannel`), а не WebSocket. Протокол портов и форматы от этого не меняются — только транспорт. Клиентский сетевой слой — [packages/engine/src/client/network/](../../packages/engine/src/client/network/):

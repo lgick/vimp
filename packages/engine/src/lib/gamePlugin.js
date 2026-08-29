@@ -1,4 +1,5 @@
-import { ENGINE_API_VERSION } from '../config/opcodes.js';
+import { ENGINE_CAPABILITIES } from './capabilities.js';
+import { createGameConfigView } from './gameConfigView.js';
 
 // Динамическая загрузка игры по GameManifest мастера (Этап 6.3): клиент
 // больше не импортирует игру статически (gameRegistry.static.js) — вместо
@@ -28,102 +29,79 @@ export async function fetchGameManifest(url) {
   return res.json();
 }
 
-// несовпадение engineApi — плагин собран под другую версию контрактов
-// движка (§3.7 PLAN.md); загружать его небезопасно
+// Совместимость плагина с этой сборкой движка (этап 5 плана
+// plugin-forward-compat). Числа больше не сравниваются: `engineApi` заморожен
+// на 4 и остался меткой поколения контракта, а не гейтом. Плагин отвергается,
+// только если просит возможность, которой в этой сборке нет (то есть он
+// НОВЕЕ движка) — движок не может выдать того, чего в нём не существует.
+// Плагин любого возраста принимается: поверхность append-only (И1), и имя,
+// которое он написал, работает вечно.
+//
+// Функция возвращает вердикт, а не бросает: у четырёх входов (каталог
+// мастера, Node-загрузчик, браузерный клиент, standalone SDK) разная
+// правильная реакция — каталог помечает игру недоступной и продолжает
+// раздавать остальные, остальные три бросают.
+export function checkPluginCompatibility(manifest) {
+  const wanted = manifest.requires ?? [];
+  const missing = wanted.filter(name => !ENGINE_CAPABILITIES.has(name));
+
+  if (missing.length === 0) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: 'engine-too-old',
+    missing,
+    // текст обязан называть сторону, которую надо обновить: это единственный
+    // оставшийся режим отказа, и он должен быть однозначным
+    text:
+      `game "${manifest.id}" needs engine capabilities this build does ` +
+      `not have: ${missing.join(', ')} — update the engine`,
+  };
+}
+
+// Имя, на которое ссылается существующий код и тесты (И1 действует и на
+// экспорты движка): та же проверка, но бросающая.
 export function assertEngineApiCompatible(manifest) {
-  if (manifest.engineApi !== ENGINE_API_VERSION) {
-    throw new Error(
-      `game "${manifest.id}" requires engine API v${manifest.engineApi}, ` +
-        `this engine build is v${ENGINE_API_VERSION}`,
-    );
+  const compat = checkPluginCompatibility(manifest);
+
+  if (!compat.ok) {
+    throw new Error(compat.text);
   }
 }
 
-// поля gameConfig, которые движок читает до какой-либо игровой логики
-// (applyRoomOverrides/coreConfig/buildClientConfig) — недостающее валится
-// непрозрачной ошибкой глубоко в onInit; проверяем контракт §HostPlugin API
-// (docs/en/plugin-api.md) сразу после import, рядом с engineApi-гейтом
-const REQUIRED_GAME_CONFIG_PATHS = [
-  'roomDefaults.maxPlayers',
-  'snapshot',
-  'parts.models',
-  'parts.weapons',
-  'parts.friendlyFire',
-  'panel.fields',
-  'playerKeys',
-  // без них HostGame разыменовывает undefined (this._teams[spectatorTeam])
-  // и игра умирает тремя разными сообщениями вместо одного контрактного
-  'teams',
-];
+// Обязательные поля gameConfig и умолчания для всего остального живут в
+// lib/gameConfigView.js (этап 2 плана plugin-forward-compat) — здесь только
+// имена, на которые мог сослаться чужой код, и тонкая обёртка над view.
+export { REQUIRED_GAME_CONFIG_PATHS } from './gameConfigView.js';
 
-// spectatorTeam обязателен ровно до тех пор, пока игра не объявила
-// noSpectators: там наблюдателей нет как концепции и ключа тоже нет
-const SPECTATOR_CONFIG_PATH = 'spectatorTeam';
+// spectatorTeam перестал быть обязательным (у него есть умолчание) —
+// константа остаётся именем пути, а не требованием
+export const SPECTATOR_CONFIG_PATH = 'spectatorTeam';
 
-function getPath(obj, dottedPath) {
-  return dottedPath
-    .split('.')
-    .reduce((value, key) => value?.[key], obj);
-}
-
-// бросает при отсутствии обязательных полей HostPlugin.gameConfig
+/**
+ * Проверяет gameConfig плагина и возвращает представление с умолчаниями.
+ * Гейт стоит сразу после import — рядом с engineApi-гейтом: недостающее
+ * обязательное поле иначе валится непрозрачной ошибкой глубоко в onInit.
+ * @param {Object} hostPlugin - Загруженный HostPlugin игры.
+ * @returns {Object} Результат createGameConfigView (одна view на прогон).
+ */
 export function assertGameConfigShape(hostPlugin) {
-  // null проходил бы проверку присутствия, хотя ни одно из этих полей не
-  // бывает пустым по контракту: движок разыменовывает их сразу, и гейт,
-  // заведённый ради текста вместо TypeError, сам отвечал бы TypeError
-  const noSpectators = hostPlugin.gameConfig?.noSpectators === true;
-  const required = noSpectators
-    ? REQUIRED_GAME_CONFIG_PATHS
-    : [...REQUIRED_GAME_CONFIG_PATHS, SPECTATOR_CONFIG_PATH];
-
-  const missing = required.filter(p => {
-    const value = getPath(hostPlugin.gameConfig, p);
-
-    return value === undefined || value === null;
-  });
-
-  if (missing.length > 0) {
-    throw new Error(
-      `game "${hostPlugin.id}": gameConfig is missing required field(s): ` +
-        missing.join(', '),
-    );
-  }
-
-  // единственная связь между полями, которую стоит проверять здесь:
-  // spectatorTeam — имя ключа внутри teams, и опечатка даёт spectatorId ===
-  // undefined, после чего участник заходит в несуществующую команду
-  // (ParticipantManager.createHuman валится на её счётчике)
-  const { teams, spectatorTeam } = hostPlugin.gameConfig;
-
-  // noSpectators: связывать нечего — зато команда обязана быть ровно одна.
-  // Вторая играющая команда без наблюдателей означала бы вход «куда-нибудь»,
-  // а ParticipantManager выбирает команду входа однозначно
-  if (noSpectators) {
-    if (Object.keys(teams).length !== 1) {
-      throw new Error(
-        `game "${hostPlugin.id}": noSpectators requires exactly one team, ` +
-          `got ${Object.keys(teams).length} (${Object.keys(teams).join(', ')})`,
-      );
-    }
-
-    return;
-  }
-
-  if (teams[spectatorTeam] === undefined) {
-    throw new Error(
-      `game "${hostPlugin.id}": spectatorTeam '${spectatorTeam}' is not a ` +
-        `key of teams (${Object.keys(teams).join(', ')})`,
-    );
-  }
+  return createGameConfigView(hostPlugin.gameConfig, hostPlugin.id);
 }
 
-// динамический import ClientPlugin игры (client-entry её сборки). Манифест и
-// плагин собираются одной сборкой (build-game-manifest.js читает то же
-// entries.client) и их engineApi всегда совпадает — проверяем только
-// манифест (дешевле: до сетевого import), плагин сверяем после загрузки как
-// защиту от рассинхрона сборки, а не как отдельный путь отказа
+// динамический import ClientPlugin игры (client-entry её сборки). Сначала —
+// вердикт совместимости по манифесту (дешевле: до сетевого import): игра,
+// требующая возможности, которой в этой сборке нет, не заработает и после
+// загрузки бандла. Сверка engineApi манифеста с плагином ниже — про
+// рассинхрон сборки внутри пакета, а не про версию движка
 export async function loadClientPlugin(manifest) {
-  assertEngineApiCompatible(manifest);
+  const compat = checkPluginCompatibility(manifest);
+
+  if (!compat.ok) {
+    throw new Error(compat.text);
+  }
 
   const module = await import(/* @vite-ignore */ manifest.entries.client);
   const plugin = module.default;

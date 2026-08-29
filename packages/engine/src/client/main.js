@@ -36,6 +36,7 @@ import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
 import { createContextTracker } from './lib/contextTracker.js';
 import { createLocalPlayer } from './lib/localPlayer.js';
 import { createAccolades } from './lib/accolades.js';
+import { dispatchSocketMessage } from './lib/socketDispatch.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import {
@@ -109,6 +110,13 @@ function bindActiveGame(manifest, plugin) {
   gameStyleNode.textContent = plugin.styles ?? '';
 }
 
+// поле `compat` появляется у манифеста каталога мастера, только когда игра
+// просит возможность, которой в этой сборке движка нет; манифест без него
+// (все опубликованные до этапа 5) доступен по определению
+function isGameAvailable(manifest) {
+  return manifest.compat?.ok !== false;
+}
+
 // режим загрузки (Этап 2 плана standalone-sdk): lobby — прод с мастером,
 // solo — хост в этой же вкладке (standalone SDK), dedicated — прямой WS к
 // Node-серверу. Ветвлений ровно пять: манифест, сигналинг/лобби, транспорт,
@@ -146,9 +154,13 @@ try {
       throw gamesManifest;
     }
 
+    // недоступная игра (manifest.compat.ok === false, этап 5 плана
+    // plugin-forward-compat) не годится в активные: её плагин не загрузится,
+    // и вкладка встала бы на первой же игре каталога. В список лобби она
+    // при этом попадает — с причиной
     activeGameManifest = boot.gameId
       ? gamesManifest.find(manifest => manifest.id === boot.gameId)
-      : gamesManifest[0];
+      : (gamesManifest.find(isGameAvailable) ?? gamesManifest[0]);
   }
 
   if (!activeGameManifest) {
@@ -278,6 +290,12 @@ const socketMethods = []; // методы для обработки сокет-�
 let clientCore = null;
 let wasm = null;
 
+// возможности загруженного клиентского ядра ({ abi, core, ops }) —
+// читаются один раз при создании ядра, а не в момент вызова. Ядро старше
+// самоописания даёт поколение 0 с пустым списком опкодов: это не ошибка,
+// а игра, собранная до появления механизма (И2 плана plugin-forward-compat)
+let clientCoreAbi = { abi: 0, core: null, ops: [] };
+
 // сервис пула зависимостей: «эта сущность моя или чужая?». Ядро читается
 // геттером — оно создаётся позже пула сервисов (см. lib/localPlayer.js)
 const localPlayer = createLocalPlayer(() => clientCore);
@@ -312,6 +330,10 @@ socketMethods[PS_CONFIG_DATA] = async data => {
 
   clientCore = core;
   wasm = { memory };
+  clientCoreAbi =
+    typeof core.abi_describe === 'function'
+      ? JSON.parse(core.abi_describe())
+      : { abi: 0, core: null, ops: [] };
 
   // инициализация сущностей игры
   for (const entity of Object.keys(entitiesOnCanvas)) {
@@ -1170,9 +1192,28 @@ function handleVisibilityChange() {
         }
       }
 
-      debugLog('clientCore', clientCore?.debug_json?.());
+      debugLog('clientCore', clientCoreDebug());
     }
   }
+}
+
+// дамп клиентского ядра: сначала опкод dispatch, затем замороженный метод.
+// Метод не удаляется никогда (И1), поэтому запасной путь остаётся навсегда:
+// ядро, собранное до появления dispatch, отдаёт дамп по-старому
+function clientCoreDebug() {
+  if (!clientCore) {
+    return undefined;
+  }
+
+  if (clientCoreAbi.ops.includes('debug.json')) {
+    const out = clientCore.dispatch('debug.json', new Uint8Array(0));
+
+    if (out.length > 0) {
+      return new TextDecoder().decode(out);
+    }
+  }
+
+  return clientCore.debug_json?.();
 }
 
 // единая точка управления рендер-циклом: Ticker.add дубликаты не отсеивает,
@@ -1270,10 +1311,9 @@ function handleMessage(data) {
     return;
   }
 
-  // JSON-сообщение [portId, payload]
-  const msg = unpacking(data);
-
-  socketMethods[msg[0]](msg[1]);
+  // JSON-сообщение [portId, payload]; порт без обработчика игнорируется, а
+  // не роняет обработку (lib/socketDispatch.js)
+  dispatchSocketMessage(socketMethods, unpacking(data));
 }
 
 // разрыв P2P: выход хоста = смерть комнаты (host-migration нет). Останавливаем
@@ -1965,9 +2005,17 @@ function populateGameSelect() {
 
   gamesManifest.forEach(manifest => {
     const option = document.createElement('option');
+    const available = isGameAvailable(manifest);
 
     option.value = manifest.id;
-    option.textContent = manifest.title;
+    // недоступная игра остаётся видимой (раньше мастер выкидывал её из
+    // каталога, и игрок видел пустое лобби без причины), но выбрать её
+    // нельзя: комнату по ней всё равно не поднять
+    option.textContent = available
+      ? manifest.title
+      : `${manifest.title} — unavailable`;
+    option.disabled = !available;
+    option.title = available ? '' : manifest.compat.text;
     gameSelect.appendChild(option);
   });
 

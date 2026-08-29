@@ -55,18 +55,29 @@ The boundary is **URL-driven**: the engine never imports a plugin statically.
 It loads `manifest.entries.client` in the client, `manifest.entries.host` in
 the Worker, and the master only reads `dist/manifest.json`.
 
-## Version gates — three independent numbers
+## Version numbers — three independent values
 
 | Constant | Value | Meaning | Checked where |
 | --- | --- | --- | --- |
-| `ENGINE_API_VERSION` | `4` | The plugin contract as a whole (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema) | master `GameCatalog` (skips the game with a `console.warn`), client `loadClientPlugin` (throws), Worker after import |
+| `ENGINE_API_VERSION` | `4`, frozen | Generation label of the plugin contract (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema). **Not a gate**: no plugin is rejected for its age | nowhere at runtime; contract rule `B2` checks it is consistent inside the package |
 | `SNAPSHOT_FORMAT_VERSION` | `3` | Byte layout of the state frame | inside the WASM core, both ends |
 | `HANDOFF_VERSION` | `3` | Shape of the state blob passed when host duty migrates | `HostGame` (rejects a mismatched blob) |
 
 A plugin publishes `engineApi` in **three** places and all three must agree
-with the engine build: `manifest.engineApi`, `hostPlugin.engineApi`,
-`clientPlugin.engineApi`. Import `ENGINE_API_VERSION` from
-`vimp-engine/config/opcodes.js` rather than hardcoding `4`.
+**with each other** (a mismatch means a stale `dist/`): `manifest.engineApi`,
+`hostPlugin.engineApi`, `clientPlugin.engineApi`. Import `ENGINE_API_VERSION`
+from `vimp-engine/config/opcodes.js` rather than hardcoding `4`. Agreeing with
+the *installed* engine is not required — a game built a year ago runs on
+today's build.
+
+Compatibility is negotiated by capability, not by number. If your game cannot
+run without a specific engine feature, list it in the optional
+`manifest.requires`; the engine rejects the plugin only when a name is unknown
+to its capability registry (`vimp-engine/src/lib/capabilities.js`), which means
+the game is newer than the engine. On the master such a game stays in the
+catalog, flagged `compat: {ok: false, …}` and shown unavailable in the lobby;
+`loadGamePackage`, `loadClientPlugin` and the standalone SDK throw. A manifest
+with no `requires` needs nothing beyond the base contract.
 
 Additionally, `manifest.id` must equal both the id configured in the master's
 game list and the URL prefix the master mounts (`/games/<id>/`). A mismatch is
@@ -80,7 +91,7 @@ skipped with a warning and the game silently disappears from the lobby.
    `HostRegistry` sanitises the name (≤30 chars), clamps `maxPlayers` to
    `1..8`, and allows **one room per IP**.
 2. **Boot.** The host tab spawns the Worker, which dynamically imports the
-   host plugin, validates `engineApi` and the required `gameConfig` fields,
+   host plugin, validates the required `gameConfig` fields,
    merges engine defaults with `gameConfig`, applies the room overrides,
    builds the core config and instantiates the WASM core.
 3. **Join.** A client picks the room in the lobby; the master relays

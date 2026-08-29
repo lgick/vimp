@@ -14,6 +14,19 @@ JSON dispatcher `socketMethods[portId]`
 buffer live in the client core, see
 [core.md](core.md#rust-traits-vimp-engine-core)).
 
+**Port numbers are append-only.** A number is never reused and never
+renumbered: an already published game build sends and listens on the numbers
+it saw when it was built, and its `dist` will never be touched again. A port
+taken out of service keeps its number in `wsports.js` with a
+`// retired in vN` note so the number is not handed out twice; the `ports`
+section of the surface snapshot (`packages/engine/contract/surface.json`,
+[plugin-api.md](plugin-api.md#compatibility-invariants)) fails the build if a
+name disappears or a number changes. On the receiving side a port with no
+handler is not an error: `dispatchSocketMessage`
+([client/lib/socketDispatch.js](../../packages/engine/src/client/lib/socketDispatch.js))
+logs it with `console.debug` and ignores the message instead of throwing —
+the sender knowing more than the receiver must not kill the message loop.
+
 ## Transport (WebRTC)
 
 The game transport is a direct P2P connection between the client and the

@@ -8,6 +8,44 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 import noConsecutiveCapsPlugin from 'eslint-plugin-no-consecutive-caps';
 import globals from 'globals';
 
+// Замороженная таблица экспортов игрового wasm-ядра (И1/И3 плана
+// plugin-forward-compat, core/src/abi.rs). Список только сокращается:
+// удалить метод безопасно (старое ядро его всё ещё экспортирует, движок
+// перестаёт звать), добавить — нет, потому что в dist уже опубликованной
+// игры символ не появится никогда. Новая возможность ядра приезжает
+// опкодом `dispatch` (packages/engine/src/config/abiOps.js).
+const FROZEN_CORE_ABI = [
+  'abi_describe',
+  'alive_players',
+  'apply_aim',
+  'apply_input',
+  'body_has_events',
+  'clear',
+  'debug_json',
+  'deserialize_state',
+  'dispatch',
+  'frame_bytes',
+  'frame_ptr',
+  'is_alive',
+  'last_input_seq',
+  'load_map',
+  'map_info',
+  'pack_body',
+  'pack_frame',
+  'players_data',
+  'position_of',
+  'remove_actor',
+  'remove_players_and_shots',
+  'remove_scripted_actor',
+  'reset_actor',
+  'reset_all_vitals',
+  'serialize_state',
+  'spawn_actor',
+  'spawn_scripted_actor',
+  'step',
+  'take_events',
+];
+
 export default [
   // базовые рекомендованные правила ESLint
   js.configs.recommended,
@@ -165,6 +203,36 @@ export default [
     },
   },
 
+  // Умолчания gameConfig (этап 2 плана plugin-forward-compat): движок читает
+  // конфиг игры только через createGameConfigView. Прямое разыменование
+  // обходит умолчания, и поле, которого нет у игры прошлого поколения,
+  // снова становится обязательным (И2). Исключения: сам модуль view и
+  // правила devtools/contract/ — те проверяют конфиг РАЗРАБАТЫВАЕМОЙ игры
+  // как есть, включая «поле не объявлено».
+  {
+    files: ['packages/engine/src/**/*.js'],
+    ignores: [
+      'packages/engine/src/lib/gameConfigView.js',
+      'packages/engine/src/devtools/contract/**/*.js',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'MemberExpression[object.property.name="gameConfig"]',
+          message:
+            'читай через createGameConfigView — прямое чтение обходит умолчания (И2)',
+        },
+        {
+          selector: `MemberExpression[object.object.type="ThisExpression"][object.property.name="_core"]:not([property.name=/^(${FROZEN_CORE_ABI.join('|')})$/])`,
+          message:
+            'таблица экспортов ядра заморожена (И1/И3, plan/plugin-forward-compat/stage_4.md): ' +
+            'у ядра, собранного год назад, нового метода нет — зови возможность опкодом через _op()',
+        },
+      ],
+    },
+  },
+
   // конфигурация для тестов (Vitest) + движковой тестовой фикстуры
   // (packages/engine/tests/fixtures/miniGame/**, Этап 7 плана: HostPlugin/
   // ClientPlugin фикстуры и её собственные тесты — вне packages/engine/src/,
@@ -232,6 +300,9 @@ export default [
     files: [
       'packages/engine/tests/fixtures/miniGame/host/fakeCore.js',
       'packages/engine/tests/fixtures/miniGame/client/fakeClientCore.js',
+      // замороженные поколения корпуса совместимости — те же фейковые ядра
+      'packages/engine/tests/fixtures/generations/*/host/fakeCore.js',
+      'packages/engine/tests/fixtures/generations/*/client/fakeClientCore.js',
       'tests/devtools/VirtualClient.test.js',
       'tests/devtools/invariants.test.js',
       'tests/client/debug.test.js',

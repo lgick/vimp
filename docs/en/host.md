@@ -49,7 +49,11 @@ strategy and this switch over main-thread messages. Main-thread messages:
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
   wasmUrl }`, built by `connectAsHost` from the active `GameManifest`),
   assembles the game config (a merge of the engine defaults
-  `packages/engine/src/config/hostDefaults.js` and `HostPlugin.gameConfig`)
+  `packages/engine/src/config/hostDefaults.js` and the `gameConfig` view —
+  `packages/engine/src/lib/gameConfigView.js`, the engine's single read point
+  for the plugin's config: it validates the four required paths and fills in
+  a documented default for every other field, so a game of any age loads;
+  see [plugin-api.md](plugin-api.md#gameconfig-fields-and-their-defaults))
   and applies room settings to it
   (`applyRoomOverrides`, `packages/engine/src/lib/applyRoomOverrides.js`:
   name/map/limit ≤ `roomDefaults.maxPlayers`/timers (`roundTime`/`mapTime`

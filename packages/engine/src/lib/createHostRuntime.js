@@ -40,9 +40,11 @@ export async function createHostRuntime(room, options = {}) {
 
   const hostPlugin = await loadHostPlugin(room);
 
-  assertGameConfigShape(hostPlugin);
+  // одна view на прогон: она же валидирует обязательные поля gameConfig и
+  // подставляет умолчания для всего остального (lib/gameConfigView.js)
+  const configView = assertGameConfigShape(hostPlugin);
 
-  const game = applyRoomOverrides(room, hostPlugin);
+  const game = applyRoomOverrides(room, hostPlugin, configView);
 
   if (overrideGameConfig) {
     overrideGameConfig(game);
@@ -57,7 +59,7 @@ export async function createHostRuntime(room, options = {}) {
 
   const core = await hostPlugin.createCore(
     JSON.stringify(
-      buildCoreConfig(hostPlugin.gameConfig, {
+      buildCoreConfig(configView, {
         friendlyFire: game.parts.friendlyFire,
         seed,
       }),

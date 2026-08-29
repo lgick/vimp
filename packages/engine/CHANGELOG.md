@@ -9,6 +9,118 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- `GameManifest.requires` — an optional list of engine capabilities a game
+  needs (stage 5 of `plan/plugin-forward-compat`). The engine now rejects a
+  plugin only when it asks for something this build does not have, that is,
+  when the plugin is *newer* than the engine; the capability names live in the
+  append-only registry `src/lib/capabilities.js`. A manifest without
+  `requires` — every package published so far — needs nothing beyond the base
+  contract and is accepted as is. The registry is part of
+  `contract/surface.json`, so dropping a capability name fails the build the
+  same way dropping a form control does: a published game may already ask for
+  it.
+- `ENGINE_API_VERSION` is frozen at 4 and is no longer a compatibility gate: a
+  plugin built against an older engine now loads and runs. The constant stays
+  exported (game build scripts and contract rule B2 import it) as the
+  generation label of the contract. `assertEngineApiCompatible(manifest)` is
+  kept as a throwing wrapper around the new
+  `checkPluginCompatibility(manifest)`, which returns a verdict
+  (`{ok}` / `{ok: false, reason, missing, text}`) instead of throwing —
+  `loadGamePackage`, `loadClientPlugin` and the standalone SDK still throw,
+  now with a message that names the side to update.
+- `GameCatalog` keeps an incompatible game in the catalog marked unavailable
+  (`manifest.compat`) with a reason, instead of dropping it silently; the
+  lobby's game selector shows it disabled with that reason as the tooltip. A
+  game requiring nothing carries no `compat` field, so an older client simply
+  does not see it.
+
+- The host reads a loaded core's `abi_describe()` once, at construction
+  (`GameCoreAdapter`, stage 4 of `plan/plugin-forward-compat`), and routes
+  optional core calls through `dispatch` — `_op(op, payload)` is now the only
+  allowed way to call an optional core capability, enforced by an ESLint rule
+  that restricts `this._core.<name>` to the frozen export table. A core built
+  against an older engine reports generation 0 (`{ abi: 0, core: null, ops:
+  [] }`) and keeps running: `debugJson()` tries the `debug.json` opcode first
+  and falls back to the frozen `debug_json` method, and the client mirrors
+  both the self-description and the fallback. Opcodes live in the append-only
+  registry `src/config/abiOps.js` and are part of `contract/surface.json`.
+
+- Plugin-surface snapshot and compatibility corpus (stage 1 of
+  `plan/plugin-forward-compat`). `contract/surface.json` records every name a
+  game can write or read — required `gameConfig` paths, client service pool,
+  form controls, server/client ports, `GameManifest` fields the engine reads,
+  the members it dereferences on `HostPlugin`/`ClientPlugin`, and the
+  normalized signature of every wasm-ABI method in `core/src/abi.rs`. The new
+  internal CLI `bin/vimp-surface.js` (`npm run surface:update`) rewrites it,
+  and `tests/devtools/surface.test.js` fails the build when a name disappears,
+  is renamed, or changes shape — the invariants I1/I3 of the plan. Additions
+  are not failures: they pass with a "snapshot is stale" hint. Frozen plugin
+  generations live in `packages/engine/tests/fixtures/generations/` and are
+  driven through a headless match by `tests/devtools/conformance.test.js`, so
+  a change that keeps every name and still stops running an older game is
+  caught too. `ENGINE_API_VERSION` is unchanged (4), and no plugin that
+  loaded before is rejected.
+- `gameConfig` fields the engine reads now resolve through a single view
+  (`src/lib/gameConfigView.js`, stage 2 of `plan/plugin-forward-compat`) with
+  documented defaults, so a game may omit `roomDefaults.maxPlayers`,
+  `parts.weapons`, `parts.friendlyFire`, `panel.fields` and `spectatorTeam` —
+  the engine substitutes `hostDefaults.maxPlayers`, `{}`, `false`, `{}` and
+  the `spectators` team (or `null` with a `console.warn`). Required paths are
+  down to four and frozen: `parts.models`, `playerKeys`, `snapshot`, `teams`.
+  `assertGameConfigShape(hostPlugin)` still throws on those, and now returns
+  the view; `applyRoomOverrides` takes it as an optional third argument and
+  `buildCoreConfig` takes it in place of the raw `gameConfig`. Contract rule
+  B3 no longer rejects a defaulted field — it reports reliance on an engine
+  default as a warning, and B4/B10 read the resolved `spectatorTeam` from the
+  view (`ctx.gameConfigView`) instead of the declared one, so a config the
+  engine accepts no longer fails the checker. The snapshot gains a `gameConfigFields` section
+  (I1: a field with a default is still a name a game can write), and
+  `requiredGameConfig` is now shrink-only (I2: a new required field would
+  reject every published game). `ENGINE_API_VERSION` is unchanged (4).
+- Form `control` values retired in plugin API v3 (`range`, `number`,
+  `toggle`, `segmented`) are accepted again as permanent aliases of their
+  native replacements, and the engine's plugin-facing vocabularies are now
+  append-only registries (stage 3 of `plan/plugin-forward-compat`,
+  `src/lib/registry.js`). `range`/`number` build as a numeric `text` field
+  (the alias adds `numeric: true`, so `min`/`max`/`regExp` keep working),
+  `toggle` as `checkbox`, `segmented` as `radio`; the alias resolves both in
+  `buildField` and in `collectFormErrors`, so a retired field is validated the
+  way it is built. The control vocabulary lives in `src/lib/formControls.js`
+  and the five client services in `src/config/clientServices.js` (rule C4
+  imports `SERVICES` from there instead of declaring it); both feed the
+  surface snapshot, which now records retired entries next to active ones —
+  retiring is not deleting. `wsports.js` states the rule its numbers already
+  followed: a port number is never reused or renumbered, and a retired port
+  keeps its number with a `// retired in vN` note. Contract rule B5 now checks
+  the control against the registry and reports a retired one as a **warning**
+  instead of failing the run. The snapshot also gains `snapshotFormatVersion`
+  as an engine-side value, so changing the frame framing shows up in the diff.
+  `ENGINE_API_VERSION` is unchanged (4).
+- `REQUIRED_GAME_CONFIG_PATHS` and `SPECTATOR_CONFIG_PATH` (`src/lib/gamePlugin.js`)
+  and `FORM_CONTROLS` (`src/client/lib/formBuilder.js`) are now exported: the
+  surface snapshot reads the engine's own registries instead of restating them.
+
+### Changed
+
+- Contract rule B2 no longer requires a game's `engineApi` to equal the
+  installed `ENGINE_API_VERSION` — building a game against an engine that is
+  not the latest is normal. It now checks that the manifest and both plugin
+  halves agree with each other (a stale `dist/`), that `engineApi` is imported
+  rather than hardcoded (unchanged), and that every name in
+  `manifest.requires` exists in the installed engine's capability registry.
+
+### Fixed
+
+- The client no longer throws on a JSON message whose port has no handler
+  (`src/client/lib/socketDispatch.js`, extracted from `main.js`
+  `handleMessage`). `socketMethods` is a sparse array, so an unknown port id
+  raised `TypeError: socketMethods[...] is not a function` and killed the
+  handling of that message; it is now logged with `console.debug` and ignored
+  — a sender that knows more than the receiver must not break the message
+  loop.
+
 ## [0.22.1] — 2026-08-28
 
 ### Fixed

@@ -16,8 +16,12 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] ⚙ `A6` `manifest.id` === the id in the master's game list === the URL segment
       `/games/<id>/`. A mismatch makes the master skip the game with a
       `console.warn` — it simply never appears in the lobby.
-- [ ] A game that fails any gate is skipped, not reported to the user. When a
-      game is missing from the lobby, read the master's console first.
+- [ ] A game the master cannot read (missing manifest, id mismatch) is
+      skipped, not reported to the user. When a game is missing from the
+      lobby, read the master's console first. Age is not a reason any more: a
+      game built against an older engine is served as is, and a game whose
+      `requires` names an unknown capability is shown in the lobby as
+      unavailable with the reason.
 
 ## Host plugin
 
@@ -25,11 +29,12 @@ name the violation. Do not verify those by eye — run the tool
       unguarded. Use `[]` for none.
 - [ ] ⚙ `B1` `createModules` is present and its result has a `scripted` key.
 - [ ] ⚙ `B1` `buildClientGameConfig` is present — it is called unconditionally.
-- [ ] ⚙ `B3` All nine `REQUIRED_GAME_CONFIG_PATHS` exist:
-      `roomDefaults.maxPlayers`, `snapshot`, `parts.models`, `parts.weapons`,
-      `parts.friendlyFire`, `panel.fields`, `playerKeys`, `teams`,
-      `spectatorTeam` — and `spectatorTeam` is spelled exactly as one of the
-      `teams` keys (the gate checks that too).
+- [ ] ⚙ `B3` All four `REQUIRED_GAME_CONFIG_PATHS` exist: `parts.models`,
+      `playerKeys`, `snapshot`, `teams`. Everything else the engine reads has
+      a default (`createGameConfigView`) — `B3` only *warns* about it. If you
+      do declare `spectatorTeam`, spell it exactly as one of the `teams` keys
+      (the gate checks that too); omitted, it resolves to the `spectators`
+      key, or `null` with a `console.warn` if there is none.
 - [ ] The `createModules` context has **no** `timerManager` and **no**
       `voteCoordinator` (a comment in the tanks source says otherwise — it is
       wrong). Only chat-command handlers get those.
@@ -187,8 +192,13 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] A field with no `maxlength` is capped at 256 characters on the host:
       your `regExp` runs there against whatever the client sent, and a
       catastrophic pattern would freeze the match, not just a tab.
-- [ ] ⚙ `B5` Only `text`, `select`, `checkbox`, `radio` controls exist in v3. An
-      unknown `control` skips the field with a `console.error`. Native
+- [ ] ⚙ `B5` Declare one of the four native controls — `text`, `select`,
+      `checkbox`, `radio`. The four retired in v3 (`range`, `number`,
+      `toggle`, `segmented`) still work forever, as permanent aliases of
+      `text`+`numeric`, `text`+`numeric`, `checkbox` and `radio`, so an older
+      game keeps rendering — but B5 warns on them, so write the native name.
+      A `control` the engine's registry does not know at all skips the field
+      with a `console.error`. Native
       `min`/`max`/`step` attributes are never emitted (these fields are
       `type=text`): the descriptor's own `min`/`max` numbers drive the label
       hint and the check instead, alongside `regExp`.

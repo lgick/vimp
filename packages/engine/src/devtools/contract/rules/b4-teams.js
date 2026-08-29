@@ -17,7 +17,10 @@ export default {
       return skip('no gameConfig.teams');
     }
 
-    const { spectatorTeam } = ctx.gameConfig;
+    // эффективное значение, а не объявленное: движок выводит spectatorTeam
+    // из команды `spectators`, и игра вправе его не писать (И2)
+    const spectatorTeam = ctx.gameConfigView?.spectatorTeam ?? null;
+    const declared = ctx.gameConfig.spectatorTeam;
     const violations = [];
 
     if (ctx.gameConfig.noSpectators === true) {
@@ -33,9 +36,9 @@ export default {
       return verdict(violations);
     }
 
-    if (teams[spectatorTeam] === undefined) {
+    if (declared !== undefined && teams[declared] === undefined) {
       violations.push(
-        `spectatorTeam "${spectatorTeam}" is not a key of teams ` +
+        `spectatorTeam "${declared}" is not a key of teams ` +
           `(${Object.keys(teams).join(', ')})`,
       );
     }

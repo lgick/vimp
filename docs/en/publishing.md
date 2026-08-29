@@ -130,8 +130,14 @@ its core is built.
 
 ### An `ENGINE_API_VERSION` bump invalidates every published game
 
-This is the one change that makes the release script's own gate impossible to
-pass in place, so it is worth stating on its own.
+**Historical, kept for reading old releases (0.21.0 was the last such bump).**
+`ENGINE_API_VERSION` is frozen at 4 and is no longer a compatibility gate
+(`plan/plugin-forward-compat`), so this situation cannot arise again: a
+published game is not rejected for its age, and the release script's skip
+below never triggers. New engine capabilities are registered in
+`src/lib/capabilities.js` instead — see
+[Changelog headings set the version](#changelog-headings-set-the-version).
+What follows describes how the script behaved for a bump.
 
 `npm run release` unlinks the local game checkouts and works on the copies
 **from the registry** (`scripts/release/links.js`) — a release must be
@@ -254,6 +260,13 @@ blocks nobody:
 
 What it cannot check — and the reason the level is chosen this early:
 
+- **`ENGINE_API_VERSION` is no longer bumped.** It is frozen at 4
+  (`plan/plugin-forward-compat`), and a new engine capability is *registered*
+  instead: add an append-only entry to `src/lib/capabilities.js` and describe
+  it under `### Added`. A game asks for it through the optional
+  `GameManifest.requires`, and a game that does not ask keeps running. What
+  used to be a fleet-wide forced rebuild is now a minor release like any
+  other.
 - A new public export goes under `Added`, not `Changed`. That is exactly the
   difference between a minor and a patch release.
 - A removal that can break a plugin goes under `⚠️ Breaking` + `Migration`,

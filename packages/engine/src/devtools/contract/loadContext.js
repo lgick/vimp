@@ -2,6 +2,7 @@ import { access, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE_API_VERSION } from '../../config/opcodes.js';
+import { createGameConfigView } from '../../lib/gameConfigView.js';
 
 // Сбор контекста статической проверки: по каталогу пакета игры собирается
 // всё, что удалось прочитать, и помечается недостающее. Ни одна неудача не
@@ -53,10 +54,28 @@ export async function loadContext(gameDir) {
   ctx.clientPlugin = await loadHalf(ctx, 'client', CLIENT_ENTRIES);
 
   ctx.gameConfig = ctx.hostPlugin?.gameConfig ?? null;
+  // то же представление, что построит движок при загрузке (этап 2 плана
+  // plugin-forward-compat): правило, которое спрашивает «что получится»,
+  // а не «что объявлено», обязано смотреть сюда — иначе оно краснеет на
+  // конфиге, который движок принимает. Невалидный конфиг о себе скажет
+  // правилом B3, поэтому здесь падение вырождается в исходный объект
+  ctx.gameConfigView = resolveConfigView(ctx);
   ctx.authSchema = ctx.hostPlugin?.authSchema ?? null;
   ctx.clientConfig = buildClientConfig(ctx);
 
   return ctx;
+}
+
+function resolveConfigView(ctx) {
+  if (!ctx.gameConfig) {
+    return null;
+  }
+
+  try {
+    return createGameConfigView(ctx.gameConfig, ctx.hostPlugin?.id);
+  } catch {
+    return ctx.gameConfig;
+  }
 }
 
 // Половина плагина: сначала исходник (он свежее сборки), при неудаче —
@@ -156,7 +175,9 @@ async function readEngineCoreVersion() {
 // Разбор обязан совпадать — правьте обе или ни одной (см. тест
 // tests/scaffold/versions.test.js).
 export function parseCrateVersion(text) {
-  const section = text.split(/^\s*\[/m).find(part => part.startsWith('package]'));
+  const section = text
+    .split(/^\s*\[/m)
+    .find(part => part.startsWith('package]'));
 
   return section?.match(/^\s*version\s*=\s*"([^"]+)"/m)?.[1] ?? null;
 }
@@ -226,7 +247,9 @@ async function listFiles(root) {
       // симлинк-каталог (обычная dev-раскладка: dist/img -> ../assets/img)
       // у readdir не isDirectory(); без разыменования он попал бы в список
       // файлом, и правила ассетов дали бы ложный отказ
-      if (entry.isSymbolicLink() ? await isDirectory(full) : entry.isDirectory()) {
+      if (
+        entry.isSymbolicLink() ? await isDirectory(full) : entry.isDirectory()
+      ) {
         await walk(full, rel);
       } else {
         found.add(rel);

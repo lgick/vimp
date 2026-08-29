@@ -145,6 +145,17 @@ pub trait GameClientDef: Sized {
     /// Локальное визуальное действие актора (выстрел и т.п.; гейты внутри —
     /// предикт активен, свой актор жив). JSON спавна либо `None`.
     fn try_action(&mut self, my_game_id: Option<u32>, local_now: f64) -> Option<String>;
+
+    /// Игровые опкоды `dispatch` клиентского ядра — зеркало
+    /// `GameSim::dispatch_op`, с тем же дефолтом «не обработано».
+    fn dispatch_op(&mut self, _op: &str, _payload: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Зеркало `GameSim::dispatch_ops`.
+    fn dispatch_ops(&self) -> &'static [&'static str] {
+        &[]
+    }
 }
 
 // приводит любое поле строки к f32 для плоского hot-буфера
@@ -418,6 +429,24 @@ impl<G: GameClientDef> ClientState<G> {
             "framesOut": self.frames_out.len(),
         })
         .to_string()
+    }
+
+    /// Самоописание клиентского ядра: версия формата, версия движкового
+    /// крейта, опкоды `dispatch` (движковые + объявленные игрой).
+    pub fn abi_describe(&self) -> String {
+        crate::abi::describe_json(crate::abi::ENGINE_CLIENT_OPS, self.game.dispatch_ops())
+    }
+
+    /// Опкод движка, иначе игровой опкод, иначе «не обработан» (пустой
+    /// вектор). Единая точка роста клиентского ABI: таблица экспортов
+    /// заморожена, символа в dist уже опубликованной игры не появится.
+    pub fn dispatch(&mut self, op: &str, payload: &[u8]) -> Vec<u8> {
+        let out = match op {
+            "debug.json" => Some(self.debug_json().into_bytes()),
+            _ => self.game.dispatch_op(op, payload),
+        };
+
+        crate::abi::dispatch_result(out)
     }
 
     /// Записи расхождения предикта с авторитетным состоянием (JSON,

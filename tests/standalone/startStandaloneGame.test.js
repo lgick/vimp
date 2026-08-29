@@ -218,12 +218,14 @@ describe('startStandaloneGame', () => {
     ).rejects.toThrow('wasmUrl');
   });
 
-  it('отбивает плагин, собранный под другую версию API движка', async () => {
+  // возраст плагина причиной отказа быть перестал (этап 5 плана
+  // plugin-forward-compat) — отбивается только плагин НОВЕЕ движка
+  it('отбивает плагин, просящий возможность, которой в движке нет', async () => {
     await expect(
       startStandaloneGame({
         ...options(container),
-        hostPlugin: { ...hostPlugin, engineApi: hostPlugin.engineApi + 1 },
+        hostPlugin: { ...hostPlugin, requires: ['телепортация'] },
       }),
-    ).rejects.toThrow('engine API');
+    ).rejects.toThrow('update the engine');
   });
 });

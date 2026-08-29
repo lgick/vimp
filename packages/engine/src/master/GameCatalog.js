@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ENGINE_API_VERSION } from '../config/opcodes.js';
+import { checkPluginCompatibility } from '../lib/gamePlugin.js';
 import { resolveProjectUrl } from '../lib/packageLink.js';
 import MapCatalog from './MapCatalog.js';
 
@@ -12,9 +12,11 @@ import MapCatalog from './MapCatalog.js';
 // JSON карт). Пакет игры — обычная npm-зависимость (`@vimp-games/tanks` и т.п.),
 // не workspace-член этого репозитория (Этап A3).
 //
-// Манифест с несовпадающим `engineApi` (Этап A4) пропускается тем же
-// гейтом, что `assertEngineApiCompatible` на клиенте/хосте — несовместимая
-// игра не должна попасть в manifestList, который отдаётся клиентам.
+// Гейта по `engineApi` здесь больше нет (этап 5 плана
+// plugin-forward-compat): игра любого возраста попадает в manifestList.
+// Игра, которая просит возможность, отсутствующую в этой сборке движка,
+// тоже остаётся в каталоге — но с полем `compat` ({ok: false, missing,
+// text}), по которому лобби показывает её недоступной с причиной.
 //
 // В dev entries манифеста (client/host/wasm) подменяются на исходники через
 // Vite `/@fs/` (HMR штатный, как у остального движка); maps/assetsBase
@@ -53,18 +55,6 @@ export default class GameCatalog {
         continue;
       }
 
-      // игра собрана под другую версию плагинного контракта (Этап A4) —
-      // тот же гейт, что assertEngineApiCompatible на клиенте/хосте, но
-      // здесь ещё до раздачи манифеста: несовместимая игра не должна даже
-      // попасть в manifestList
-      if (manifest.engineApi !== ENGINE_API_VERSION) {
-        console.warn(
-          `GameCatalog: skip "${id}" — requires engine API ` +
-            `v${manifest.engineApi}, this engine build is v${ENGINE_API_VERSION}`,
-        );
-        continue;
-      }
-
       // метаданные npm-пакета игры (версия и адрес проекта) — их движок
       // показывает в футере формы входа. Источник здесь, а не в манифесте:
       // манифест пишет сборка в репозитории игры, и любое новое поле в нём
@@ -72,6 +62,17 @@ export default class GameCatalog {
       // её перепубликацию, тогда как package.json лежит рядом с уже
       // установленным пакетом и верен по определению
       const withPackage = { ...manifest, ...this._readPackageMeta(gameDir) };
+
+      // игра просит возможность, которой в этой сборке движка нет (этап 5
+      // плана plugin-forward-compat): она ОСТАЁТСЯ в каталоге с пометкой
+      // недоступности. Молчаливое выкидывание выглядело у игрока как пустое
+      // лобби без единой строки о причине; теперь причина едет клиенту
+      const compat = checkPluginCompatibility(manifest);
+
+      if (!compat.ok) {
+        console.warn(`GameCatalog: "${id}" is unavailable — ${compat.text}`);
+        withPackage.compat = compat;
+      }
 
       this._games.set(manifest.id, {
         manifest: dev ? this._toDevManifest(withPackage, gameDir) : withPackage,

@@ -18,9 +18,11 @@ export default {
       return skip('no gameConfig.maps or gameConfig.teams');
     }
 
-    const playing = Object.keys(teams).filter(
-      team => team !== ctx.gameConfig.spectatorTeam,
-    );
+    // эффективное значение: игра вправе не объявлять spectatorTeam (И2), а
+    // по объявленному команда наблюдателей попала бы в играющие и правило
+    // потребовало бы для неё респауны
+    const spectatorTeam = ctx.gameConfigView?.spectatorTeam ?? null;
+    const playing = Object.keys(teams).filter(team => team !== spectatorTeam);
     const maxPlayers = ctx.gameConfig.roomDefaults?.maxPlayers;
     const violations = [];
 

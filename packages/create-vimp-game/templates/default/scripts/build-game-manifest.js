@@ -153,7 +153,17 @@ if (hasNodeCore) {
 
 const manifest = {
   id: '{{GAME_ID}}',
+  // a generation stamp, not a gate: the engine no longer rejects a package
+  // whose engineApi is older than its own, so a game does not expire when the
+  // engine releases (docs/en/plugin-api.md)
   engineApi: ENGINE_API_VERSION,
+  // engine capabilities the game cannot run without — names from
+  // `vimp-engine/lib/capabilities.js`, checked by contract rule B2. Empty is
+  // the normal state: a game that degrades gracefully (does not ask for the
+  // service, does not subscribe to the port) declares nothing. Add a name
+  // only when its absence makes the match unplayable — an engine too old to
+  // provide it then refuses the game instead of half-running it.
+  requires: [],
   version,
   title: '{{GAME_TITLE}}',
   entries: {

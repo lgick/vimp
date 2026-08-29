@@ -41,7 +41,7 @@ export default {
 | Field | Required? | Notes |
 | --- | --- | --- |
 | `id` | ✅ | must equal `manifest.id` |
-| `engineApi` | ✅ | compared with the engine build |
+| `engineApi` | ✅ | generation label; must match the manifest and the client half |
 | `createCore(json, { wasmUrl })` | ✅ | async; returns the `GameCore` instance. `wasmUrl` comes in two shapes: the `.wasm` asset URL in the browser, and a `file:` URL of the Node glue (`entries.wasmNode`) under `npm run sim` — see [Two shapes of `wasmUrl`](#two-shapes-of-wasmurl) |
 | `gameConfig` | ✅ | validated field-by-field, see below |
 | `authSchema` | ✅ | sent to every joining client |
@@ -91,34 +91,41 @@ return `memory: null`; the headless client reads the hot buffer by copy
 
 ## `gameConfig` validation gate
 
-Immediately after import the Worker asserts these paths exist (a missing one
-throws with a clear message instead of failing deep inside init):
+Immediately after import the Worker builds the **config view**
+(`createGameConfigView`, `packages/engine/src/lib/gameConfigView.js`) — the
+engine's single read point for `gameConfig`. It asserts four paths exist (a
+missing one throws with a clear message instead of failing deep inside init):
 
 ```
-roomDefaults.maxPlayers
-snapshot
 parts.models
-parts.weapons
-parts.friendlyFire
-panel.fields
 playerKeys
+snapshot
 teams
-spectatorTeam
 ```
 
-Plus one cross-check: `spectatorTeam` must be a **key of `teams`**. A typo
-there leaves the spectator team id `undefined`, and the first participant to
-join lands in a team that does not exist — the gate names the typo instead.
+That list is frozen and can only **shrink**: a new required field would
+reject every game already published. Everything else the engine reads has a
+default and may be omitted — `roomDefaults.maxPlayers` (→ `hostDefaults`,
+30), `parts.weapons` (→ `{}`), `parts.friendlyFire` (→ `false`),
+`panel.fields` (→ `{}`), `spectatorTeam` (→ the `spectators` key of `teams`,
+else `null` with a `console.warn`), and the rest of the table below. Contract
+rule **B3** reports each omitted field as a *warning*, not an error.
 
-A game that declares `noSpectators: true` is exempt from both: `spectatorTeam`
-drops off the required list, and `teams` must instead declare **exactly one**
-team — the one every joining human is put into.
+Plus one cross-check on what you did send: a declared `spectatorTeam` must be
+a **key of `teams`**. A typo there leaves the spectator team id `undefined`,
+and the first participant to join lands in a team that does not exist — the
+gate names the typo instead.
+
+A game that declares `noSpectators: true` is exempt from that cross-check,
+and `teams` must instead declare **exactly one** team — the one every joining
+human is put into.
 
 ## Config merge order
 
 ```
-game = structuredClone({ ...hostDefaults, ...gameConfig })   // shallow merge
-game = applyRoomOverrides(room, game)                        // 5 keys + maps
+view = createGameConfigView(gameConfig, id)                // defaults filled
+game = structuredClone({ ...hostDefaults, ...view })       // shallow merge
+game = applyRoomOverrides(room, plugin, view)              // 5 keys + maps
 ```
 
 The merge is **shallow at the top level**: supplying `timers` in `gameConfig`
@@ -166,7 +173,7 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 | `parts.*` (free-form) | any | extra keys are passed to the client config untouched (tanks uses `mapConstructor`, `hitscanService`) |
 | `snapshot` | schema object | the binary protocol layout — see `06-snapshot-protocol.md` |
 | `teams` | `{ teamName: teamId }` | includes the spectator team; **required** |
-| `spectatorTeam` | `string` | which key of `teams` is spectators; **required** unless `noSpectators` |
+| `spectatorTeam` | `string` | which key of `teams` is spectators; optional — defaults to the `spectators` key |
 | `noSpectators` | `boolean` | opt-in: no spectator concept at all. `teams` holds exactly one team, `spectatorTeam` is omitted (`spectatorTeam`/`spectatorId` are `null` in the host), a joining human is created in the playing team with their stat row there, and gets an actor from `RoundManager.admitPlayer` on `firstShotReady` — no vote, no team change. `admitPlayer` takes the first respawn slot no participant holds; if the map has none left it frees one with `scripted.removeOneForHuman(team)` (a human outranks a bot, the same rule `changeTeam` follows), and only then refuses, telling the player `TEAMS_TEAM_FULL` — under `noSpectators` there is no vote to ask for a place with, so the next round start (`/nr`, a bot command) is what hands them an actor |
 | `endlessRound` | `boolean` | opt-in: the engine never restarts the round by itself — no stat wipe when fewer than two humans are active, no round end on a team wipe, no restart when the round timer expires. `/nr` and map changes still work. Independent of `noSpectators` |
 | `scripted` | `{ namePrefix, defaultModel }` | bot naming/model defaults |

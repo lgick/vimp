@@ -14,9 +14,13 @@ describe('game config', () => {
     expect(() => assertGameConfigShape(hostPlugin)).not.toThrow();
   });
 
-  it('declares one API version in both halves', () => {
+  // rule B2: the two halves and the manifest must agree with EACH OTHER —
+  // a mismatch there is a stale bundle inside one package. Agreement with the
+  // installed engine is no longer required of a published game; here it holds
+  // because both halves import the value instead of writing a literal
+  it('stamps one generation on both halves', () => {
+    expect(hostPlugin.engineApi).toBe(clientPlugin.engineApi);
     expect(hostPlugin.engineApi).toBe(ENGINE_API_VERSION);
-    expect(clientPlugin.engineApi).toBe(ENGINE_API_VERSION);
     expect(hostPlugin.id).toBe(clientPlugin.id);
   });
 });

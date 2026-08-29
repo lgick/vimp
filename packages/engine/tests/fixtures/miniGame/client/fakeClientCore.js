@@ -301,4 +301,21 @@ export default class FakeClientCore {
       return 'null';
     }
   }
+
+  // ***** расширение (этап 4 плана plugin-forward-compat) ***** //
+
+  // самоописание: фикстура представляет ядро текущего поколения, поэтому
+  // отвечает так же, как раскрытие движкового макроса
+  abi_describe() {
+    return JSON.stringify({ abi: 1, core: 'fixture', ops: ['debug.json'] });
+  }
+
+  // опкод вместо нового символа: пустой ответ — «не обработан»
+  dispatch(op) {
+    if (op === 'debug.json') {
+      return new TextEncoder().encode(this.debug_json());
+    }
+
+    return new Uint8Array(0);
+  }
 }

@@ -88,21 +88,37 @@ describe('gamePlugin: assertGameConfigShape', () => {
   });
 
   it('бросает при отсутствии обязательного поля', () => {
-    const { roomDefaults, ...rest } = validGameConfig;
+    const { snapshot, ...rest } = validGameConfig;
 
     expect(() =>
       assertGameConfigShape({ id: 'tanks', gameConfig: rest }),
-    ).toThrow(/roomDefaults\.maxPlayers/);
+    ).toThrow(/snapshot/);
   });
 
-  // HostGame разыменовывает их безусловно (this._teams[spectatorTeam]):
+  // HostGame разыменовывает teams безусловно (this._teams[spectatorTeam]):
   // отсутствие обязано называться контрактом, а не тремя TypeError подряд
-  it('требует teams и spectatorTeam', () => {
+  it('требует teams', () => {
     const { teams, spectatorTeam, ...rest } = validGameConfig;
 
     expect(() =>
       assertGameConfigShape({ id: 'tanks', gameConfig: rest }),
-    ).toThrow(/teams, spectatorTeam/);
+    ).toThrow(/missing required field\(s\): teams/);
+  });
+
+  // этап 2 плана plugin-forward-compat: поля с умолчанием больше не
+  // отвергают игру — движок подставляет своё значение (И2)
+  it('не требует полей, у которых есть умолчание', () => {
+    const { roomDefaults, panel, spectatorTeam, ...rest } = validGameConfig;
+    const view = assertGameConfigShape({
+      id: 'tanks',
+      gameConfig: { ...rest, parts: { models: {} } },
+    });
+
+    expect(view.roomDefaults.maxPlayers).toBe(30);
+    expect(view.panel.fields).toEqual({});
+    expect(view.parts.weapons).toEqual({});
+    expect(view.parts.friendlyFire).toBe(false);
+    expect(view.spectatorTeam).toBe('spectators');
   });
 
   // null — не «поле есть»: движок разыменовывает эти поля сразу, и до
@@ -155,17 +171,19 @@ describe('gamePlugin: assertGameConfigShape', () => {
   });
 });
 
+// гейт по версии снят (этап 5 плана plugin-forward-compat) — вердикт и
+// реестр возможностей проверяет tests/lib/capabilities.test.js
 describe('gamePlugin: assertEngineApiCompatible', () => {
-  it('пропускает манифест с совпадающей версией engineApi', () => {
+  it('пропускает манифест текущего поколения engineApi', () => {
     expect(() =>
       assertEngineApiCompatible({ id: 'tanks', engineApi: ENGINE_API_VERSION }),
     ).not.toThrow();
   });
 
-  it('бросает при несовпадении engineApi', () => {
+  it('не бросает на манифесте прошлого поколения — возраст не причина', () => {
     expect(() =>
-      assertEngineApiCompatible({ id: 'tanks', engineApi: ENGINE_API_VERSION + 1 }),
-    ).toThrow(/tanks/);
+      assertEngineApiCompatible({ id: 'tanks', engineApi: ENGINE_API_VERSION - 1 }),
+    ).not.toThrow();
   });
 });
 
@@ -178,13 +196,14 @@ describe('gamePlugin: loadClientPlugin', () => {
     vi.restoreAllMocks();
   });
 
-  it('отказывается грузить плагин с несовместимым engineApi (import не вызывается)', async () => {
+  it('отказывается грузить плагин, просящий чужую возможность (import не вызывается)', async () => {
     await expect(
       loadClientPlugin({
         id: 'tanks',
-        engineApi: ENGINE_API_VERSION + 1,
+        engineApi: ENGINE_API_VERSION,
+        requires: ['телепортация'],
         entries: { client: '/unreachable.js' },
       }),
-    ).rejects.toThrow(/engine API/);
+    ).rejects.toThrow(/update the engine/);
   });
 });

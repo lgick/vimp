@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The generated game states its forward compatibility explicitly:
+  `build-game-manifest.js` writes `requires: []` into `dist/manifest.json`
+  with a comment on when a capability name belongs there, and both plugin
+  halves now say next to `engineApi` that the value is a generation stamp
+  rather than a gate — the engine no longer rejects a package whose
+  `engineApi` is older than its own, so a published game does not expire
+  when the engine releases (see `vimp-engine`'s own changelog).
+
 ## [0.3.1] — 2026-08-26
 
 ### Fixed

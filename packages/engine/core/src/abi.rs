@@ -14,6 +14,61 @@
 //! `use`, но зависят от наличия крейта в `Cargo.toml` вызывающей стороны).
 //! `new` (парсинг игрового конфига) и не-`#[wasm_bindgen]` тестовые
 //! аксессоры в макрос не входят — остаются рукописными в game-crate.
+
+/// Версия формата самоописания (`abi_describe`), не контракта плагина.
+pub const ABI_DESCRIBE_VERSION: u32 = 1;
+
+/// Версия крейта движка, с которым собрано ядро. Внутри макроса `env!`
+/// раскрылся бы в версию крейта ИГРЫ — поэтому константа живёт здесь.
+pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Движковые опкоды `dispatch`, которые умеет это раскрытие игрового
+/// макроса. Список растёт вместе с движком: игра, пересобранная с новым
+/// крейтом, получает их без единой правки своего исходника.
+pub const ENGINE_GAME_OPS: &[&str] = &["debug.json"];
+
+/// То же для клиентского макроса.
+pub const ENGINE_CLIENT_OPS: &[&str] = &["debug.json"];
+
+/// JSON самоописания ядра: версия формата, версия движкового крейта и
+/// объединённый список опкодов (движковые + объявленные игрой).
+pub fn describe_json(engine_ops: &[&str], game_ops: &[&str]) -> String {
+    let mut ops: Vec<&str> = engine_ops.to_vec();
+
+    for op in game_ops {
+        if !ops.contains(op) {
+            ops.push(op);
+        }
+    }
+
+    ::serde_json::json!({
+        "abi": ABI_DESCRIBE_VERSION,
+        "core": CORE_VERSION,
+        "ops": ops,
+    })
+    .to_string()
+}
+
+/// Соглашение о возврате `dispatch`: пустой вектор — «опкод не обработан»
+/// (вызывающий идёт по запасному пути), однобайтовый маркер `[0x00]` —
+/// «обработан, ответа нет».
+pub fn dispatch_result(out: Option<Vec<u8>>) -> Vec<u8> {
+    match out {
+        None => Vec::new(),
+        Some(bytes) if bytes.is_empty() => vec![0x00],
+        Some(bytes) => bytes,
+    }
+}
+
+// ЗАМОРОЖЕНО (И3 плана plugin-forward-compat). Имя, арность и типы каждого
+// `pub fn` в макросах ниже неизменны НАВСЕГДА. Glue-код wasm-bindgen лежит в
+// dist уже опубликованных игр: добавленный аргумент он молча выбросит, и
+// старая игра будет тихо врать вместо того чтобы упасть. Нужна другая форма —
+// заведи опкод `dispatch` (см. ниже и src/config/abiOps.js), а не правь
+// сигнатуру. Метод можно удалить (старая игра его всё ещё экспортирует,
+// движок перестаёт звать), но не переименовать и не изменить.
+// Страж: tests/devtools/surface.test.js, раздел abi.
+
 #[macro_export]
 macro_rules! export_game_core_abi {
     ($GameCoreTy:ty) => {
@@ -253,6 +308,23 @@ macro_rules! export_game_core_abi {
                     .deserialize_state(data)
                     .map_err(|e| ::wasm_bindgen::JsError::new(&e))
             }
+
+            // ***** расширение ***** //
+
+            /// Самоописание ядра (JSON: версия формата, версия движкового
+            /// крейта, список опкодов dispatch). Движок читает его один раз
+            /// при загрузке — до первого вызова, а не посреди матча.
+            pub fn abi_describe(&self) -> String {
+                self.state.abi_describe()
+            }
+
+            /// Единая точка роста ABI: новая возможность приезжает опкодом,
+            /// а не новым символом (таблица экспортов заморожена). Пустой
+            /// возврат — «опкод не обработан», `[0x00]` — «обработан, ответа
+            /// нет».
+            pub fn dispatch(&mut self, op: &str, payload: &[u8]) -> Vec<u8> {
+                self.state.dispatch(op, payload)
+            }
         }
     };
 }
@@ -393,6 +465,54 @@ macro_rules! export_client_core_abi {
             pub fn decode_frame(&self, data: &[u8]) -> String {
                 self.state.decode_frame(data)
             }
+
+            // ***** расширение ***** //
+
+            /// Зеркало `abi_describe` игрового ядра (см. игровой макрос).
+            pub fn abi_describe(&self) -> String {
+                self.state.abi_describe()
+            }
+
+            /// Зеркало `dispatch` игрового ядра (см. игровой макрос).
+            pub fn dispatch(&mut self, op: &str, payload: &[u8]) -> Vec<u8> {
+                self.state.dispatch(op, payload)
+            }
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn describe_carries_engine_crate_version_and_ops() {
+        let json: ::serde_json::Value =
+            ::serde_json::from_str(&describe_json(ENGINE_GAME_OPS, &["snakes.grow"])).unwrap();
+
+        assert_eq!(json["abi"], ABI_DESCRIBE_VERSION);
+        assert_eq!(json["core"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            json["ops"],
+            ::serde_json::json!(["debug.json", "snakes.grow"])
+        );
+    }
+
+    // игра, объявившая движковый опкод, не должна удваивать его в списке
+    #[test]
+    fn describe_does_not_repeat_an_engine_op() {
+        let json: ::serde_json::Value =
+            ::serde_json::from_str(&describe_json(ENGINE_GAME_OPS, &["debug.json"])).unwrap();
+
+        assert_eq!(json["ops"], ::serde_json::json!(["debug.json"]));
+    }
+
+    // соглашение возврата: «не обработан» и «обработан, ответа нет» —
+    // разные состояния, иначе движок не отличит отказ от пустого ответа
+    #[test]
+    fn dispatch_result_separates_unhandled_from_empty_answer() {
+        assert_eq!(dispatch_result(None), Vec::<u8>::new());
+        assert_eq!(dispatch_result(Some(Vec::new())), vec![0x00]);
+        assert_eq!(dispatch_result(Some(vec![1, 2])), vec![1, 2]);
+    }
 }

@@ -1,10 +1,14 @@
 import { anchorPattern } from '../../lib/formPattern.js';
 import { normalizeOptions } from '../../lib/formOptions.js';
+import { resolveDescriptor } from '../../lib/formControls.js';
 
 // Общий билдер полей форм (room-форма и auth-форма используют один
 // контракт дескрипторов — docs/en/plugin-api.md, раздел "Form schema").
 // control: 'select'|'text'|'checkbox'|'radio'; все контролы — нативные
-// элементы формы, без визуальной кастомизации. Валидация — не нативная
+// элементы формы, без визуальной кастомизации. Имя контрола приезжает от
+// игры и разрешается через append-only реестр (lib/formControls.js): имена,
+// выведенные из эксплуатации в v3 ('range', 'number', 'toggle',
+// 'segmented'), продолжают строиться алиасами своих нативных замен (И1). Валидация — не нативная
 // (никаких браузерных попапов): collectFormErrors/renderFormErrors ниже
 // собирают и рисуют ошибки в разметку (#lobby-error/#auth-error).
 // Проверяются только поля, у которых есть строка в DOM: ошибка на скрытом
@@ -43,11 +47,14 @@ function forcedValue(options) {
 // то же правило вне формы: solo-путь (boot.autoAuth) отвечает хосту без
 // всякой формы и должен прийти ровно к тому же значению, что и она
 export function resolveForcedValue(descriptor, ctx = {}) {
-  if (!OPTION_CONTROLS.includes(descriptor.control)) {
+  // после разрешения алиаса: 'segmented' — та же группа вариантов, что radio
+  const resolved = resolveDescriptor(descriptor);
+
+  if (!OPTION_CONTROLS.includes(resolved.control)) {
     return undefined;
   }
 
-  const forced = forcedValue(resolveOptions(descriptor, ctx));
+  const forced = forcedValue(resolveOptions(resolved, ctx));
 
   // форма отдала бы строку: и <option>.value, и <input type=radio>.value —
   // DOM-свойства, они всегда строки. Нестроковое значение (options: [1, 2])
@@ -265,18 +272,27 @@ const builders = {
   radio: buildRadio,
 };
 
+// имена control, которые билдер умеет строить. Активный набор имён диктует
+// реестр (lib/formControls.js), и совпадение этих двух списков проверяет
+// tests/client/formControls.test.js: разъехавшись, они дали бы «unknown
+// control» на имени, которое реестр считает живым
+export const FORM_CONTROLS = Object.keys(builders);
+
 // строит одно поле формы по дескриптору (docs/en/plugin-api.md, "Form schema")
 export function buildField(descriptor, ctx = {}) {
-  const build = builders[descriptor.control];
+  // алиас выведенного контрола ('range' → numeric 'text') разрешается
+  // здесь же, где строится поле, и теми же правилами, что в валидации
+  const patched = resolveDescriptor(descriptor);
+  const build = builders[patched.control];
 
   if (!build) {
     throw new Error(`formBuilder: unknown control "${descriptor.control}"`);
   }
 
-  const field = build(descriptor, ctx);
+  const field = build(patched, ctx);
 
-  if (descriptor.default !== undefined) {
-    field.setValue(descriptor.default);
+  if (patched.default !== undefined) {
+    field.setValue(patched.default);
   }
 
   return field;
@@ -441,7 +457,10 @@ export function collectFormErrors(descriptors, fields) {
       return;
     }
 
-    const error = validateField(descriptor, field);
+    // тот же резолв алиаса, что и в buildField: валидация обязана смотреть
+    // на контрол, которым поле построено, иначе бывшее range-поле уезжает
+    // на хост без проверки диапазона
+    const error = validateField(resolveDescriptor(descriptor), field);
 
     if (error) {
       errors.push({

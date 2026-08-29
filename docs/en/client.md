@@ -768,6 +768,15 @@ data, calls `update(data)` on an existing one, or removes it (`null`).
   the shot effect uses to anchor its debris to the box it hit). An engine key
   always wins a name clash, and a service nobody declared in
   `componentDependencies` is simply never handed out.
+  The engine's own five names live in an append-only registry
+  ([config/clientServices.js](../../packages/engine/src/config/clientServices.js)):
+  a name a published game wrote into `componentDependencies` keeps working
+  forever, and retiring one means an alias, not a deleted row. Because the
+  pool hands out **what was asked for**, a sixth engine service demands
+  nothing of older games — they neither ask for it nor receive it. An unknown
+  name is not a load failure either: the part simply gets `undefined` (which
+  is exactly why `vimp-contract` has rule C4 — an unserved service looks like
+  a blank canvas with no error at all).
 
 ## SoundManager
 

@@ -1,13 +1,26 @@
-import { ERROR, skip, verdict } from '../result.js';
+import { ERROR, WARN, skip, verdict } from '../result.js';
 import { anchorPattern } from '../../../lib/formPattern.js';
+import {
+  formControls,
+  ACTIVE_FORM_CONTROLS,
+} from '../../../lib/formControls.js';
 
 // roomForm. Поле вне белого списка форма показывает, лобби отправляет, а
 // хост молча выбрасывает — правило игры, построенное на своей настройке
-// комнаты, не работает и ничего об этом не сообщает. Контролов в v3 ровно
-// четыре: неизвестный пропускается с console.error. `regExp` едет в манифесте
-// строкой и компилируется уже у игрока — некомпилируемая ловится здесь.
-const HONOURED = ['maps', 'maxPlayers', 'map', 'roundTime', 'mapTime', 'friendlyFire'];
-const CONTROLS = ['text', 'select', 'checkbox', 'radio'];
+// комнаты, не работает и ничего об этом не сообщает. Контрол проверяется по
+// реестру (lib/formControls.js): неизвестный пропускается с console.error,
+// выведенный из эксплуатации строится алиасом и потому только WARN — новая
+// игра его писать не должна, старая продолжает работать. `regExp` едет в
+// манифесте строкой и компилируется уже у игрока — некомпилируемая ловится
+// здесь.
+const HONOURED = [
+  'maps',
+  'maxPlayers',
+  'map',
+  'roundTime',
+  'mapTime',
+  'friendlyFire',
+];
 
 export default {
   id: 'B5',
@@ -23,6 +36,7 @@ export default {
     }
 
     const violations = [];
+    const retired = [];
 
     for (const field of roomForm) {
       if (!HONOURED.includes(field.name)) {
@@ -32,10 +46,20 @@ export default {
         );
       }
 
-      if (!CONTROLS.includes(field.control)) {
+      if (!formControls.has(field.control)) {
         violations.push(
           `roomForm field "${field.name}": control "${field.control}" does ` +
-            `not exist (${CONTROLS.join(', ')})`,
+            `not exist (${ACTIVE_FORM_CONTROLS.join(', ')})`,
+        );
+      } else if (formControls.isRetired(field.control)) {
+        const entry = formControls.get(field.control);
+
+        retired.push(
+          `roomForm field "${field.name}": control "${field.control}" was ` +
+            `retired in plugin API v${entry.retiredIn} — it still works ` +
+            `(the engine builds it as "${formControls.resolve(field.control)}" ` +
+            `forever), but a new game should declare ` +
+            `"${formControls.resolve(field.control)}" itself`,
         );
       }
 
@@ -52,6 +76,14 @@ export default {
           );
         }
       }
+    }
+
+    if (violations.length === 0 && retired.length > 0) {
+      return verdict(
+        retired,
+        'retired controls still build, via aliases',
+        WARN,
+      );
     }
 
     return verdict(violations);

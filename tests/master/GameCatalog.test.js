@@ -206,17 +206,16 @@ describe('GameCatalog', () => {
     warn.mockRestore();
   });
 
-  it('игра с несовпадающим engineApi пропускается с warn (Этап A4)', () => {
+  it('игра прошлого поколения engineApi остаётся в каталоге (этап 5)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    writeManifest('tanks', { ...fixtureManifest, engineApi: ENGINE_API_VERSION + 1 });
+    writeManifest('tanks', { ...fixtureManifest, engineApi: ENGINE_API_VERSION - 1 });
 
     const catalog = new GameCatalog(tanksGames, nodeModulesDir);
 
-    expect(catalog.ids).toEqual([]);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('requires engine API'),
-    );
+    expect(catalog.ids).toEqual(['tanks']);
+    expect(catalog.getManifest('tanks').compat).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
 
     warn.mockRestore();
   });

@@ -16,6 +16,7 @@ import {
   WARN,
 } from '../../../packages/engine/src/devtools/contract/result.js';
 import { ENGINE_API_VERSION } from '../../../packages/engine/src/config/opcodes.js';
+import { createGameConfigView } from '../../../packages/engine/src/lib/gameConfigView.js';
 
 // По негативной фикстуре на правило. Правило, которое не умеет краснеть,
 // бесполезно ровно так же, как отсутствующее: тесты здесь проверяют не
@@ -211,22 +212,51 @@ describe('B. host', () => {
   it('B1 catches a missing field and a non-array chatCommands', () => {
     const found = violations('B1', {
       ...base,
-      hostPlugin: { ...base.hostPlugin, createModules: undefined, chatCommands: {} },
+      hostPlugin: {
+        ...base.hostPlugin,
+        createModules: undefined,
+        chatCommands: {},
+      },
     });
 
     expect(found).toMatch(/HostPlugin\.createModules is missing/);
     expect(found).toMatch(/chatCommands must be an array/);
   });
 
-  it('B2 catches a wrong engineApi and a hardcoded one', () => {
+  it('B2 catches an inconsistent engineApi and a hardcoded one', () => {
     const found = violations('B2', {
       ...base,
       hostPlugin: { ...base.hostPlugin, engineApi: 999 },
       hostText: 'export default { engineApi: 3 };',
     });
 
-    expect(found).toMatch(/host plugin declares engineApi v999/);
+    expect(found).toMatch(/but host plugin declares v999/);
     expect(found).toMatch(/hardcodes engineApi/);
+  });
+
+  // этап 5 плана plugin-forward-compat: игра, собранная против движка не
+  // последней версии, — нормальное состояние, а не нарушение
+  it('B2 молчит на игре прошлого поколения engineApi', () => {
+    const old = ENGINE_API_VERSION - 1;
+
+    expect(
+      violations('B2', {
+        ...base,
+        engineApi: ENGINE_API_VERSION,
+        hostPlugin: { ...base.hostPlugin, engineApi: old },
+        clientPlugin: { ...base.clientPlugin, engineApi: old },
+        manifest: { ...base.manifest, engineApi: old },
+      }),
+    ).toBe('');
+  });
+
+  it('B2 catches a requires naming a capability the engine does not have', () => {
+    expect(
+      violations('B2', {
+        ...base,
+        manifest: { ...base.manifest, requires: ['accolades', 'teleport'] },
+      }),
+    ).toMatch(/requires names 'teleport'/);
   });
 
   it('B3 catches a gameConfig missing a required path', () => {
@@ -238,6 +268,38 @@ describe('B. host', () => {
         hostPlugin: { ...base.hostPlugin, gameConfig },
       }),
     ).toMatch(/playerKeys/);
+  });
+
+  // этап 2 плана plugin-forward-compat: поле с умолчанием игру не отвергает,
+  // но разработчик обязан знать, что полагается на движковое значение
+  it('B3 warns (not errors) about a field the engine defaults', () => {
+    const { panel, ...gameConfig } = base.hostPlugin.gameConfig;
+    const result = check('B3', {
+      ...base,
+      hostPlugin: { ...base.hostPlugin, gameConfig },
+    });
+
+    expect(result.status).toBe(FAIL);
+    expect(result.level).toBe(WARN);
+    expect(result.violations.join('\n')).toMatch(
+      /panel\.fields is not declared/,
+    );
+  });
+
+  // этап 2 плана plugin-forward-compat: конфиг, который движок принимает,
+  // не имеет права краснеть в чекере — B4/B10 смотрят на выведенное
+  // значение spectatorTeam, а не на объявленное
+  it('B4 and B10 accept a game that leaves spectatorTeam to the engine', () => {
+    const { spectatorTeam, ...gameConfig } = base.gameConfig;
+    const ctx = {
+      ...base,
+      gameConfig,
+      gameConfigView: createGameConfigView(gameConfig, 'mini'),
+      hostPlugin: { ...base.hostPlugin, gameConfig },
+    };
+
+    expect(check('B4', ctx).status).toBe(PASS);
+    expect(check('B10', ctx).status).toBe(PASS);
   });
 
   it('B4 catches a game with no playing team', () => {
@@ -282,12 +344,29 @@ describe('B. host', () => {
       ...base,
       gameConfig: {
         ...base.gameConfig,
-        roomForm: [{ name: 'gravity', control: 'range' }],
+        roomForm: [{ name: 'gravity', control: 'slider' }],
       },
     });
 
     expect(found).toMatch(/"gravity" is not read by the host/);
-    expect(found).toMatch(/control "range" does not exist/);
+    expect(found).toMatch(/control "slider" does not exist/);
+  });
+
+  // выведенный в v3 контрол строится алиасом и работает вечно (И1): новая
+  // игра его писать не должна, но прогон он не валит
+  it('B5 warns about a retired control instead of failing the run', () => {
+    const result = check('B5', {
+      ...base,
+      gameConfig: {
+        ...base.gameConfig,
+        roomForm: [{ name: 'maxPlayers', control: 'range' }],
+      },
+    });
+
+    expect(result.level).toBe(WARN);
+    expect(result.violations.join('\n')).toMatch(
+      /control "range" was retired in plugin API v3/,
+    );
   });
 
   it('B5 catches a regExp that does not compile', () => {
@@ -305,7 +384,9 @@ describe('B. host', () => {
       },
     };
 
-    expect(violations('B5', ctx)).toMatch(/"maxPlayers": regExp "\[1-8" does not compile/);
+    expect(violations('B5', ctx)).toMatch(
+      /"maxPlayers": regExp "\[1-8" does not compile/,
+    );
     expect(violations('B5', ctx)).not.toMatch(/roundTime/);
   });
 
@@ -476,7 +557,9 @@ describe('C. client', () => {
     expect(
       violations('C5', {
         ...base,
-        clientConfig: withModules(base, { panel: { ...panel, keys: { h: 'energy' } } }),
+        clientConfig: withModules(base, {
+          panel: { ...panel, keys: { h: 'energy' } },
+        }),
       }),
     ).toMatch(/panel\.keys has no 't'/);
 
@@ -522,7 +605,9 @@ describe('C. client', () => {
     };
 
     expect(rule('C11').level).toBe('error');
-    expect(violations('C11', clientOnly)).toMatch(/gameConfig\.statMode is not set/);
+    expect(violations('C11', clientOnly)).toMatch(
+      /gameConfig\.statMode is not set/,
+    );
   });
 
   it('C11 fails when only the host declares the leaderboard', () => {
@@ -562,7 +647,8 @@ describe('C. client', () => {
         ...base,
         clientPlugin: {
           ...base.clientPlugin,
-          styles: '#stat .stat-head span:nth-child(6),\n#stat table td:nth-child(6) { width: 10%; }',
+          styles:
+            '#stat .stat-head span:nth-child(6),\n#stat table td:nth-child(6) { width: 10%; }',
         },
         clientConfig: withModules(base, {
           stat: {
@@ -597,7 +683,10 @@ describe('C. client', () => {
 
   it('C6 reads the rule body: a colour is not a layout', () => {
     expect(
-      check('C6', sixColumnsWithStyles('#stat table td:nth-child(6) { color: red; }')).status,
+      check(
+        'C6',
+        sixColumnsWithStyles('#stat table td:nth-child(6) { color: red; }'),
+      ).status,
     ).toBe(FAIL);
   });
 
@@ -615,10 +704,16 @@ describe('C. client', () => {
 
   it('C6 counts th and flex-grow as a layout too', () => {
     expect(
-      check('C6', sixColumnsWithStyles('#stat table th:nth-child(6) { width: 10%; }')).status,
+      check(
+        'C6',
+        sixColumnsWithStyles('#stat table th:nth-child(6) { width: 10%; }'),
+      ).status,
     ).toBe(PASS);
     expect(
-      check('C6', sixColumnsWithStyles('#stat table td:nth-child(6) { flex-grow: 1; }')).status,
+      check(
+        'C6',
+        sixColumnsWithStyles('#stat table td:nth-child(6) { flex-grow: 1; }'),
+      ).status,
     ).toBe(PASS);
   });
 
@@ -628,7 +723,9 @@ describe('C. client', () => {
     expect(
       check(
         'C6',
-        sixColumnsWithStyles('#stat table { grid-template-columns: repeat(6, 1fr); }'),
+        sixColumnsWithStyles(
+          '#stat table { grid-template-columns: repeat(6, 1fr); }',
+        ),
       ).status,
     ).toBe(PASS);
   });
@@ -656,7 +753,11 @@ describe('C. client', () => {
       clientPlugin: { ...base.clientPlugin, styles },
       clientConfig: withModules(base, {
         stat: {
-          params: { ...stat.params, mode: 'leaderboard', columns: ['#', 'snake', 'score'] },
+          params: {
+            ...stat.params,
+            mode: 'leaderboard',
+            columns: ['#', 'snake', 'score'],
+          },
         },
       }),
     };
@@ -665,7 +766,10 @@ describe('C. client', () => {
   it("C6 asks a 'leaderboard' stat for its own list styles", () => {
     expect(check('C6', leaderboardStat('')).status).toBe(FAIL);
     expect(
-      check('C6', leaderboardStat('#stat .stat-leaderboard .stat-row { color: red; }')).status,
+      check(
+        'C6',
+        leaderboardStat('#stat .stat-leaderboard .stat-row { color: red; }'),
+      ).status,
     ).toBe(PASS);
   });
 
@@ -879,7 +983,9 @@ describe('runRules: уровень вердикта', () => {
     const [result] = runRules({}, [fake('warning')]);
 
     expect(result.level).toBe(ERROR);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('unknown level "warning"'));
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('unknown level "warning"'),
+    );
     expect(hasBlockingFailure({ results: [result] })).toBe(true);
 
     error.mockRestore();
@@ -925,7 +1031,10 @@ async function writeGood(dir) {
     JSON.stringify({
       name: '@vimp-games/demo',
       type: 'module',
-      repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/demo.git' },
+      repository: {
+        type: 'git',
+        url: 'git+ssh://git@github.com/lgick/demo.git',
+      },
       files: ['dist'],
       publishConfig: { access: 'public' },
       scripts: Object.fromEntries(SCRIPTS.map(name => [name, 'true'])),
@@ -954,14 +1063,20 @@ async function writeGood(dir) {
   // исходники не импортируются (vimp-engine из временной папки не
   // резолвится) — они нужны правилу A3 как файлы и B2 как текст
   await writeFile(path.join(dir, 'src', 'host', 'index.js'), plugin('host'));
-  await writeFile(path.join(dir, 'src', 'client', 'index.js'), plugin('client'));
+  await writeFile(
+    path.join(dir, 'src', 'client', 'index.js'),
+    plugin('client'),
+  );
 
   const built = half =>
     `export default { id: 'demo', engineApi: ${ENGINE_API_VERSION}, half: '${half}' };\n`;
 
   await writeFile(path.join(dir, 'dist', 'host-abc.js'), built('host'));
   await writeFile(path.join(dir, 'dist', 'client-abc.js'), built('client'));
-  await writeFile(path.join(dir, 'dist', 'core-node', 'demo.js'), 'export {};\n');
+  await writeFile(
+    path.join(dir, 'dist', 'core-node', 'demo.js'),
+    'export {};\n',
+  );
   await writeFile(path.join(dir, 'dist', 'assets', 'demo_bg.wasm'), '');
 
   await writeFile(

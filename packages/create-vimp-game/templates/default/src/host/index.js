@@ -21,7 +21,10 @@ import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 export default {
   id: '{{GAME_ID}}',
   // never a literal: a number written by hand agrees with the engine on the
-  // day it is typed and silently disagrees after the next release
+  // day it is typed and silently disagrees after the next release.
+  // It is a generation stamp, not a gate — the engine accepts a package whose
+  // engineApi is older than its own, so the game does not expire when the
+  // engine releases (docs/en/plugin-api.md)
   engineApi: ENGINE_API_VERSION,
 
   // wasmUrl comes from the manifest: init() loads by an explicit URL instead

@@ -7,11 +7,19 @@ import hostDefaults from '../../packages/engine/src/config/hostDefaults.js';
 
 const { roomTimeMin, roomTimeMax } = hostDefaults.timers;
 
+// обязательный минимум gameConfig (lib/gameConfigView.js): applyRoomOverrides
+// собирает view, а та отвергает конфиг без полей, которые движку нечем
+// заменить. Остальное — умолчания движка, здесь их и проверяем
 const plugin = {
+  id: 'stub',
   gameConfig: {
     maps: { arena: {} },
     currentMap: 'arena',
     roomDefaults: { maxPlayers: 8 },
+    parts: { models: { m1: {} } },
+    playerKeys: { forward: { key: 1 } },
+    snapshot: { a1: { id: 1 } },
+    teams: { team1: 1, spectators: 2 },
   },
 };
 

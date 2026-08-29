@@ -1,0 +1,510 @@
+{
+  "abi": {
+    "client": [
+      {
+        "args": [],
+        "name": "abi_describe",
+        "ret": "String"
+      },
+      {
+        "args": [
+          "f32",
+          "f32",
+          "u32",
+          "f64"
+        ],
+        "name": "apply_aim",
+        "ret": "()"
+      },
+      {
+        "args": [
+          "str",
+          "str",
+          "f64"
+        ],
+        "name": "apply_input",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "debug_json",
+        "ret": "String"
+      },
+      {
+        "args": [
+          "[u8]"
+        ],
+        "name": "decode_frame",
+        "ret": "String"
+      },
+      {
+        "args": [
+          "str",
+          "[u8]"
+        ],
+        "name": "dispatch",
+        "ret": "Vec<u8>"
+      },
+      {
+        "args": [],
+        "name": "hot_ptr",
+        "ret": "*constf32"
+      },
+      {
+        "args": [],
+        "name": "hot_values",
+        "ret": "Vec<f32>"
+      },
+      {
+        "args": [],
+        "name": "my_game_id",
+        "ret": "i32"
+      },
+      {
+        "args": [],
+        "name": "offset",
+        "ret": "f64"
+      },
+      {
+        "args": [
+          "[u8]",
+          "f64"
+        ],
+        "name": "push_frame",
+        "ret": "bool"
+      },
+      {
+        "args": [],
+        "name": "reset",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "resync",
+        "ret": "()"
+      },
+      {
+        "args": [
+          "f64"
+        ],
+        "name": "sample",
+        "ret": "usize"
+      },
+      {
+        "args": [
+          "bool"
+        ],
+        "name": "set_active",
+        "ret": "()"
+      },
+      {
+        "args": [
+          "str"
+        ],
+        "name": "set_map",
+        "ret": "Result<()>"
+      },
+      {
+        "args": [],
+        "name": "take_divergence",
+        "ret": "String"
+      },
+      {
+        "args": [],
+        "name": "take_frames",
+        "ret": "String"
+      }
+    ],
+    "game": [
+      {
+        "args": [],
+        "name": "abi_describe",
+        "ret": "String"
+      },
+      {
+        "args": [],
+        "name": "alive_players",
+        "ret": "Vec<f32>"
+      },
+      {
+        "args": [
+          "u32",
+          "u32",
+          "f32",
+          "f32",
+          "u32"
+        ],
+        "name": "apply_aim",
+        "ret": "()"
+      },
+      {
+        "args": [
+          "u32",
+          "u32",
+          "str",
+          "str"
+        ],
+        "name": "apply_input",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "body_has_events",
+        "ret": "bool"
+      },
+      {
+        "args": [],
+        "name": "clear",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "debug_json",
+        "ret": "String"
+      },
+      {
+        "args": [
+          "[u8]"
+        ],
+        "name": "deserialize_state",
+        "ret": "Result<()>"
+      },
+      {
+        "args": [
+          "str",
+          "[u8]"
+        ],
+        "name": "dispatch",
+        "ret": "Vec<u8>"
+      },
+      {
+        "args": [],
+        "name": "frame_bytes",
+        "ret": "Vec<u8>"
+      },
+      {
+        "args": [],
+        "name": "frame_ptr",
+        "ret": "*constu8"
+      },
+      {
+        "args": [
+          "u32"
+        ],
+        "name": "is_alive",
+        "ret": "bool"
+      },
+      {
+        "args": [
+          "u32"
+        ],
+        "name": "last_input_seq",
+        "ret": "u32"
+      },
+      {
+        "args": [
+          "str"
+        ],
+        "name": "load_map",
+        "ret": "Result<()>"
+      },
+      {
+        "args": [],
+        "name": "map_info",
+        "ret": "String"
+      },
+      {
+        "args": [],
+        "name": "pack_body",
+        "ret": "Result<()>"
+      },
+      {
+        "args": [
+          "f64",
+          "u32",
+          "bool",
+          "f32",
+          "f32",
+          "bool",
+          "Option<String>",
+          "i32"
+        ],
+        "name": "pack_frame",
+        "ret": "usize"
+      },
+      {
+        "args": [],
+        "name": "players_data",
+        "ret": "String"
+      },
+      {
+        "args": [
+          "u32"
+        ],
+        "name": "position_of",
+        "ret": "Vec<f32>"
+      },
+      {
+        "args": [
+          "u32"
+        ],
+        "name": "remove_actor",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "remove_players_and_shots",
+        "ret": "String"
+      },
+      {
+        "args": [
+          "u32"
+        ],
+        "name": "remove_scripted_actor",
+        "ret": "()"
+      },
+      {
+        "args": [
+          "u32",
+          "u8",
+          "f32",
+          "f32",
+          "f32"
+        ],
+        "name": "reset_actor",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "reset_all_vitals",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "serialize_state",
+        "ret": "Result<Vec<u8>>"
+      },
+      {
+        "args": [
+          "u32",
+          "str",
+          "u8",
+          "f32",
+          "f32",
+          "f32"
+        ],
+        "name": "spawn_actor",
+        "ret": "Result<()>"
+      },
+      {
+        "args": [
+          "u32",
+          "str",
+          "u8",
+          "f32",
+          "f32",
+          "f32"
+        ],
+        "name": "spawn_scripted_actor",
+        "ret": "Result<()>"
+      },
+      {
+        "args": [
+          "f32"
+        ],
+        "name": "step",
+        "ret": "()"
+      },
+      {
+        "args": [],
+        "name": "take_events",
+        "ret": "String"
+      }
+    ]
+  },
+  "abiOps": [
+    {
+      "name": "debug.json",
+      "since": 4
+    }
+  ],
+  "clientPluginMembers": [
+    "bakers",
+    "createClientCore",
+    "engineApi",
+    "hooks",
+    "hooks.onAuth",
+    "hooks.onLocalAction",
+    "hooks.onPanel",
+    "hooks.services",
+    "parts",
+    "styles"
+  ],
+  "clientServices": [
+    {
+      "name": "accolades",
+      "since": 4
+    },
+    {
+      "name": "assetsBase",
+      "since": 3
+    },
+    {
+      "name": "localPlayer",
+      "since": 3
+    },
+    {
+      "name": "renderer",
+      "since": 1
+    },
+    {
+      "name": "soundManager",
+      "since": 1
+    }
+  ],
+  "engineCapabilities": [
+    {
+      "name": "accolades",
+      "since": "0.21.0"
+    },
+    {
+      "name": "dispatch",
+      "since": "0.23.0"
+    },
+    {
+      "name": "stat.leaderboard",
+      "since": "0.20.0"
+    }
+  ],
+  "formControls": [
+    {
+      "name": "checkbox",
+      "since": 1
+    },
+    {
+      "alias": "text",
+      "name": "number",
+      "retiredIn": 3,
+      "since": 1
+    },
+    {
+      "name": "radio",
+      "since": 1
+    },
+    {
+      "alias": "text",
+      "name": "range",
+      "retiredIn": 3,
+      "since": 1
+    },
+    {
+      "alias": "radio",
+      "name": "segmented",
+      "retiredIn": 3,
+      "since": 1
+    },
+    {
+      "name": "select",
+      "since": 1
+    },
+    {
+      "name": "text",
+      "since": 1
+    },
+    {
+      "alias": "checkbox",
+      "name": "toggle",
+      "retiredIn": 3,
+      "since": 1
+    }
+  ],
+  "gameConfigFields": [
+    "currentMap",
+    "endlessRound",
+    "initialVote",
+    "mapScale",
+    "mapSetId",
+    "maps",
+    "mapsInVote",
+    "noSpectators",
+    "panel.activeKey",
+    "panel.fields",
+    "parts.friendlyFire",
+    "parts.models",
+    "parts.weapons",
+    "playerKeys",
+    "playerState",
+    "roomDefaults.maxPlayers",
+    "scripted",
+    "snapshot",
+    "soundCues",
+    "spectatorTeam",
+    "stat",
+    "statMode",
+    "teams",
+    "title"
+  ],
+  "hostPluginMembers": [
+    "authSchema",
+    "buildClientGameConfig",
+    "chatCommands",
+    "createCore",
+    "createModules",
+    "engineApi",
+    "gameConfig",
+    "id",
+    "onCoreEvent",
+    "systemMessages"
+  ],
+  "manifestFields": [
+    "assetsBase",
+    "engineApi",
+    "entries.client",
+    "entries.host",
+    "entries.wasm",
+    "entries.wasmNode",
+    "id",
+    "requires"
+  ],
+  "ports": {
+    "client": {
+      "AUTH_RESPONSE": 1,
+      "CHAT_DATA": 6,
+      "CONFIG_READY": 0,
+      "FIRST_SHOT_READY": 4,
+      "KEYS_DATA": 5,
+      "MAP_READY": 3,
+      "MODULES_READY": 2,
+      "PONG": 8,
+      "VOTE_DATA": 7
+    },
+    "server": {
+      "ACCOLADES_DATA": 18,
+      "AUTH_DATA": 1,
+      "AUTH_RESULT": 2,
+      "CHAT_DATA": 15,
+      "CLEAR": 11,
+      "CONFIG_DATA": 0,
+      "CONSOLE": 12,
+      "FIRST_SHOT_DATA": 4,
+      "GAME_INFORM_DATA": 7,
+      "KEYSET_DATA": 17,
+      "MAP_DATA": 3,
+      "MISC": 9,
+      "PANEL_DATA": 13,
+      "PING": 10,
+      "SHOT_DATA": 5,
+      "SOUND_DATA": 6,
+      "STAT_DATA": 14,
+      "TECH_INFORM_DATA": 8,
+      "VOTE_DATA": 16
+    }
+  },
+  "requiredGameConfig": [
+    "parts.models",
+    "playerKeys",
+    "snapshot",
+    "teams"
+  ],
+  "snapshotFormatVersion": 5
+}

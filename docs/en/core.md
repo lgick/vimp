@@ -96,6 +96,22 @@ accessors stay hand-written in the game crate. The exact mandatory method
 set is documented as the contract in
 [plugin-api.md](plugin-api.md#wasm-host-abi-v1).
 
+That set is **frozen** (stage 4 of `plan/plugin-forward-compat`): the export
+table of an already published `.wasm` cannot grow, so neither can the
+macros'. Both of them additionally emit `abi_describe()` (the core's
+self-description: format version, the `vimp-engine-core` version it was
+built against, the dispatch opcodes it understands) and
+`dispatch(op, payload)` — the single entry point through which every future
+capability arrives as an opcode rather than a symbol. Empty return means
+"opcode not handled", `[0x00]` means "handled, no answer".
+
+A game plugs into `dispatch` through `GameSim::dispatch_op` /
+`dispatch_ops` (and their `GameClientDef` mirrors), both with **default
+implementations** — a required trait method would stop a game crate from
+compiling, which is the very breakage this design forbids. The macro expands
+in the game crate, so a game that rebuilds against a newer engine gains
+every opcode that engine knows for free.
+
 ## Determinism
 
 - `rapier2d` is built with `enhanced-determinism` (bit-for-bit across

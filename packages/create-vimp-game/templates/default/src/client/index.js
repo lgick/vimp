@@ -10,6 +10,8 @@ import { isNodeCore, loadNodeCore, loadWebCore } from '../host/nodeCore.js';
 // GameManifest.entries.client.
 export default {
   id: '{{GAME_ID}}',
+  // same generation stamp as the host half and the manifest: imported, never
+  // a literal, and not something the game ages out of (see src/host/index.js)
   engineApi: ENGINE_API_VERSION,
 
   // MUST return { core, memory }: `memory` is the WebAssembly memory the

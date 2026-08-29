@@ -32,30 +32,33 @@ the same change. Area → page (paths under `packages/engine/`):
 | release flow, `files`, versions, plugin pin | `publishing.md` |
 
 `docs/ai/` is an English-only plugin spec for LLMs — outside the bilingual
-rule, but plugin-contract changes land there too. Gameplay/extending docs
-live in the plugin's own repo; root `README.md` is a showcase, keep details
-out.
+rule, but plugin-contract changes land there too. Gameplay docs live in the
+plugin's own repo; root `README.md` is a showcase.
 
 ## Changelogs
 
 Three journals (English, Keep a Changelog), updated unasked in the same
-change as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`:
-plugin contract, `ENGINE_API_VERSION`, `vimp-sim`/scenarios, master
-endpoints, exports), `packages/engine/core/CHANGELOG.md` (crate
-`vimp-engine-core`) and `packages/create-vimp-game/CHANGELOG.md` (npm
-`create-vimp-game`: CLI, generator, template).
-Unreleased work under `## [Unreleased]`, dated at release. Tests, refactors
-and `docs/` are not entries.
+change as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`),
+`packages/engine/core/CHANGELOG.md` (crate `vimp-engine-core`),
+`packages/create-vimp-game/CHANGELOG.md` (npm `create-vimp-game`: CLI,
+generator, template). Unreleased work under `## [Unreleased]`, dated at
+release. Tests, refactors and `docs/` are not entries.
 
 **The sub-heading sets the release level** — the only place it is recorded,
 so pick it deliberately: `### ⚠️ Breaking` (minor in `0.x`, major from `1.0`)
 · `### Added` (minor) · `Changed`/`Deprecated`/`Removed`/`Fixed`/`Security`
 (patch) · `### Migration` (companion of `⚠️ Breaking`, never alone). The list
 is closed; `npm run release` stops on anything else. Anything that can reject
-a plugin or config which loaded before is `⚠️ Breaking` + `Migration` even
-with `ENGINE_API_VERSION` unchanged; a new public export is `Added`, not
-`Changed`. Details: `docs/en/publishing.md` → "Changelog headings set the
-version".
+a plugin or config which loaded before is `⚠️ Breaking` + `Migration`; a new
+public export is `Added`, not `Changed`. Details: `docs/en/publishing.md` →
+"Changelog headings set the version".
+
+**`ENGINE_API_VERSION` is frozen at 4, never bumped.** A new engine
+capability goes into `src/lib/capabilities.js`; a game that cannot run
+without it names it in `GameManifest.requires`. `⚠️ Breaking` in the plugin
+contract is legitimate only when the engine *must* reject input it accepted
+before (a security fix), and then the same commit deletes the line from
+`contract/surface.json`.
 
 ## Release impact
 
@@ -63,11 +66,12 @@ Published code: `packages/engine/core/` (crate), the `files` paths of
 `packages/engine/package.json` (npm) and those of
 `packages/create-vimp-game/package.json` (npm). A change touching any of
 them **must be flagged when reporting the work**, unasked: which artifact,
-which bump (read
-it off the `[Unreleased]` sub-heading), whether the game repo must follow (a
-crate bump or a new `ENGINE_API_VERSION` means it does), and which
-pre-publish checks ran. Never edit a `version`, never publish — the developer
-does both, `npm run release` drives it. Details: `docs/en/publishing.md`.
+which bump (read it off the `[Unreleased]` sub-heading), whether the game
+repo must follow (a crate bump lets it follow, never forces it), and which
+pre-publish checks ran. A deletion from
+`packages/engine/contract/surface.json` is always a reason to stop and
+discuss. Never edit a `version`, never publish — the developer does both,
+`npm run release` drives it. Details: `docs/en/publishing.md`.
 
 ## Commands
 
@@ -88,17 +92,16 @@ A local match also needs a plugin package installed or linked into
 
 ## Architecture
 
-Under `packages/engine/`: `src/master/` (entry point `main.js` forks on
+Under `packages/engine/`: `src/master/` (`main.js` forks on
 `VIMP_DEDICATED_GAME` into `lobby.js` — rooms, catalogs, signaling, no game
-logic — or `src/dedicated/` — one match of one game in the Node process) ·
-`src/host/` (the match in a Worker) · `core/` (the Rust crate) ·
-`src/client/` (WebRTC transport, MVC triplets) · `src/devtools/` +
-`bin/vimp-sim.js` (headless runner). `packages/auth/` is a separate workspace
-package with its own deploy artifact. Boundaries nothing will catch for you:
-`host/meta/` stays Worker-safe (isomorphic APIs only, no Node globals),
-`src/devtools/` never reaches the app bundle, plugins load only via
-`GameManifest`/`GameCatalog` (ESLint enforces the last one). Layout:
-`docs/en/architecture.md`.
+logic — or `src/dedicated/`, one match in the Node process) · `src/host/`
+(the match in a Worker) · `core/` (the Rust crate) · `src/client/` (WebRTC
+transport, MVC triplets) · `src/devtools/` + `bin/vimp-sim.js` (headless
+runner). `packages/auth/` is a separate workspace package with its own deploy
+artifact. Boundaries nothing will catch for you: `host/meta/` stays
+Worker-safe (isomorphic APIs only, no Node globals), `src/devtools/` never
+reaches the app bundle, plugins load only via `GameManifest`/`GameCatalog`
+(ESLint enforces the last). Layout: `docs/en/architecture.md`.
 
 ## Conventions
 

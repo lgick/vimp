@@ -1,4 +1,4 @@
-# Этап 2 — `gameConfigView`: умолчания вместо обязательных полей
+# Этап 2 — `gameConfigView`: умолчания вместо обязательных полей ✅ выполнен
 
 **Проблема.** `assertGameConfigShape` (`packages/engine/src/lib/gamePlugin.js:44-113`)
 держит список обязательных путей `gameConfig`:

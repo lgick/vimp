@@ -1,4 +1,7 @@
-import { assertEngineApiCompatible } from '../lib/gamePlugin.js';
+import {
+  assertGameConfigShape,
+  checkPluginCompatibility,
+} from '../lib/gamePlugin.js';
 import { setBootConfig } from '../client/boot.js';
 import { ensureGameShell } from '../client/views/gameShell.js';
 
@@ -55,21 +58,24 @@ export async function startStandaloneGame({
   requireOption(clientPlugin, 'clientPlugin');
   requireOption(wasmUrl, 'wasmUrl');
 
-  // несовпадение ENGINE_API_VERSION иначе всплыло бы где-то в середине
-  // хендшейка непрозрачной ошибкой
-  assertEngineApiCompatible(hostPlugin);
-  assertEngineApiCompatible(clientPlugin);
+  // возможность, которой в этой сборке движка нет, иначе всплыла бы где-то
+  // в середине хендшейка непрозрачной ошибкой
+  requireCompatible(hostPlugin);
+  requireCompatible(clientPlugin);
+
+  // одна view на прогон: умолчания вместо обязательных полей (И2 этапа 2)
+  const configView = assertGameConfigShape(hostPlugin);
 
   ensureGameShell(container);
 
   setBootConfig({
     mode: 'solo',
     container,
-    manifest: buildManifest(hostPlugin, { wasmUrl, assetsBase }),
+    manifest: buildManifest(hostPlugin, configView, { wasmUrl, assetsBase }),
     clientPlugin,
     hostPlugin,
     room: {
-      ...hostPlugin.gameConfig.roomDefaults,
+      ...configView.roomDefaults,
       ...room,
       isDevMode: devMode,
     },
@@ -91,6 +97,16 @@ export async function startStandaloneGame({
   };
 }
 
+// половина плагина просит возможность, которой в этой сборке движка нет:
+// подменить её в SDK нечем — матч не поднимется
+function requireCompatible(plugin) {
+  const compat = checkPluginCompatibility(plugin);
+
+  if (!compat.ok) {
+    throw new Error(compat.text);
+  }
+}
+
 // незаданное поле — это «взять дефолт схемы», а не «отправить undefined»:
 // JSON.stringify ключ с undefined выбрасывает, и хост отвечает
 // 'Property is missing' (main.js накрывает autoAuth поверх дефолтов схемы)
@@ -103,18 +119,16 @@ function pruneUndefined(source) {
 // манифест-подобный объект в памяти: мастера нет, а клиент читает из
 // манифеста id/version, entries.wasm и assetsBase. entries.client/host не
 // нужны — оба плагина уже живые объекты
-function buildManifest(hostPlugin, { wasmUrl, assetsBase }) {
-  const { gameConfig } = hostPlugin;
-
+function buildManifest(hostPlugin, configView, { wasmUrl, assetsBase }) {
   return {
     id: hostPlugin.id,
     engineApi: hostPlugin.engineApi,
     version: 'dev',
-    title: gameConfig.title ?? hostPlugin.id,
+    title: configView.title ?? hostPlugin.id,
     entries: { wasm: wasmUrl },
     assetsBase,
-    maps: { version: 'dev', list: Object.keys(gameConfig.maps) },
-    roomDefaults: gameConfig.roomDefaults,
+    maps: { version: 'dev', list: Object.keys(configView.maps) },
+    roomDefaults: configView.roomDefaults,
   };
 }
 

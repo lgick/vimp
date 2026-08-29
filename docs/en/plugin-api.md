@@ -24,12 +24,13 @@ game is a **dynamic plugin**: JS bundles (client/host), a WASM binary and
 assets, loaded by a manifest served by the master. One master serves many
 games in the long run.
 
-Four contracts, all versioned by a single constant `ENGINE_API_VERSION`
-(owned by the engine, `packages/engine/src/config/opcodes.js`). A plugin whose
-`engineApi` does not match is rejected at load time with a clear error — on
-the master, `GameCatalog` skips such a manifest entirely (Stage A4, it never
-reaches `manifestList`); on the client/host, `assertEngineApiCompatible`
-throws before the plugin bundle is imported:
+Four contracts, labelled by the constant `ENGINE_API_VERSION` (owned by the
+engine, `packages/engine/src/config/opcodes.js`, **frozen at 4**). The label
+is no longer a gate: a plugin is never rejected for its age. The only reason
+to reject one is that it asks — through the optional
+[`requires`](#requires-and-engine-capabilities) field of its manifest — for a
+capability this engine build does not have, which means the plugin is *newer*
+than the engine:
 
 1. **GameManifest** — JSON describing the game build (master → lobby/host/client);
 2. **HostPlugin API** — default export of the game's host entry (worker-safe);
@@ -59,6 +60,8 @@ map JSON (a `maps:export` product of the game build).
   },
   "assetsBase": "/games/tanks/",           // base for the package's own assets:
                                            // sounds/ and img/ (see below)
+  "requires": ["accolades"],               // OPTIONAL: engine capabilities the game
+                                           // cannot run without (see below)
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
   "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
                     "friendlyFire": false, "map": "pool mini" },
@@ -233,6 +236,27 @@ A form is an **ordered array of descriptors** — array order is field order:
 - `radio` — a group of `<input type=radio>` sharing one generated `name`,
   one per option.
 
+**The `control` vocabulary is append-only.** It lives in an engine registry
+(`packages/engine/src/lib/formControls.js`) that never loses a row: a name a
+published game already wrote into its manifest keeps working forever (I1).
+Cutting the set down is what broke v2 → v3 — the four controls dropped then
+are back, permanently, as aliases of their native replacements:
+
+| Retired `control` | Built as | Since |
+| --- | --- | --- |
+| `range` | `text` + `numeric: true` | retired in v3 |
+| `number` | `text` + `numeric: true` | retired in v3 |
+| `toggle` | `checkbox` | retired in v3 |
+| `segmented` | `radio` | retired in v3 |
+
+The alias resolves before the builder is picked and before validation, so a
+retired numeric field keeps its `min`/`max`/`regExp` checks rather than
+degrading into free text. A **new** game should declare the native control
+itself: `vimp-contract` (rule B5) reports a retired one as a warning, not an
+error. An `control` the registry does not know at all is a plugin asking for
+the future: the field is skipped with a `console.error` and the rest of the
+form still renders.
+
 **Validation split.** `roomForm` travels to the client as JSON in the game
 manifest (`/games/<id>/manifest.json`) — functions don't survive JSON, so the
 room form only gets the declarative checks above, applied in this order:
@@ -332,7 +356,7 @@ export default {
 
   gameConfig: {                       // the game half of the former config/game.js
     teams: { team1: 1, team2: 2, spectators: 3 },   // any number of teams — required
-    spectatorTeam: 'spectators',                    // required (unless noSpectators), must be a key of teams
+    spectatorTeam: 'spectators',                    // optional: defaults to the 'spectators' key of teams
     // noSpectators: true,            // opt-in: no spectator team at all — exactly one team,
     //                                // a joining human enters it directly (no vote)
     // endlessRound: true,            // opt-in: the engine never restarts the round by itself
@@ -382,6 +406,56 @@ export default {
   //   removeOneForHuman(team), getCount(), getCountsPerTeam()
 };
 ```
+
+
+### `gameConfig` fields and their defaults
+
+The engine reads `gameConfig` through one module —
+`packages/engine/src/lib/gameConfigView.js`. `createGameConfigView(gameConfig,
+gameId)` validates the required paths, fills in a default for everything else
+and returns a frozen view; the host, the core config, `applyRoomOverrides` and
+the standalone SDK all read that view, never the raw object (an ESLint rule
+enforces it). A game that never heard of a field is therefore still valid —
+invariant I2 below.
+
+**Required — four paths, and the list can only shrink:**
+
+| Path | Why the engine cannot default it |
+| --- | --- |
+| `parts.models` | what a participant is made of; nothing to synthesize |
+| `playerKeys` | without them the core has no input |
+| `snapshot` | the frame layout; the engine does not invent one |
+| `teams` | `ParticipantManager` picks the team a joiner enters |
+
+**Everything else has a default:**
+
+| Field | Default | Effect when omitted |
+| --- | --- | --- |
+| `title` | `null` | the lobby falls back to `HostPlugin.id` |
+| `maps` | `{}` | maps come from the master (`room.maps`) |
+| `currentMap` | `null` | the first map of the catalog is used |
+| `mapsInVote` | `1` | one map per map vote |
+| `mapScale` | `1` | the core scales geometry 1:1 |
+| `mapSetId` | `null` | no default tile set id |
+| `roomDefaults.maxPlayers` | `hostDefaults.maxPlayers` (30) | the engine limit caps the room |
+| `parts.weapons` | `{}` | a game without weapons (`@vimp-games/snakes`) |
+| `parts.friendlyFire` | `false` | friendly fire off unless the room turns it on |
+| `panel.fields` | `{}` | an empty panel renders correctly |
+| `panel.activeKey` | `null` | no highlighted panel cell |
+| `stat` | `{}` | no game columns beyond the engine layout |
+| `scripted` | `{}` | `ParticipantManager` uses its own naming |
+| `playerState` | `{}` | no default persistent state |
+| `soundCues` | `{}` | the engine sends no sound cues |
+| `initialVote` | `null` | a joiner enters without a vote |
+| `statMode` | `'table'` | the engine draws the room table on Tab |
+| `noSpectators` | `false` | spectators exist as a concept |
+| `endlessRound` | `false` | the engine restarts the round itself |
+| `spectatorTeam` | derived | `null` under `noSpectators`; otherwise the `spectators` key of `teams`, else `null` with a `console.warn` |
+
+Consistency of what the game *did* send is still checked, and still throws:
+a declared `spectatorTeam` must be a key of `teams`, and `noSpectators`
+requires exactly one team. Contract rule **B3** reports every field left to a
+default as a warning, so relying on one stays a deliberate choice.
 
 `participants` also lets the game colour a player's nickname in chat:
 `participants.setChatColor(gameId, '#rrggbb')` (or `null` for the team
@@ -519,6 +593,60 @@ the layout: if the first two components are not world x/y, implement
 `predicted_state()`, otherwise that fallback reports meaningless
 violations. See [debugging.md](debugging.md#prediction-divergence-detector).
 
+### The export table is frozen — new capabilities are opcodes
+
+The method set above is **frozen forever** (invariant I3 of
+`plan/plugin-forward-compat`). A game's `.wasm` is compiled once: its export
+table is fixed at `wasm-pack build` time, and no engine-side shim can
+synthesize a symbol that is not in it. So an engine that grows the table ages
+every published game — and a changed signature is worse than a missing
+method, because the wasm-bindgen glue in an old `dist` silently drops the
+extra argument instead of failing. A method may be *deleted* (an old core
+still exports it, the engine just stops calling it), never renamed or
+reshaped. The guard is `tests/devtools/surface.test.js`, section `abi`.
+
+Growth happens through two macro-generated methods instead:
+
+- `abi_describe() -> String` — the core's self-description,
+  `{"abi":1,"core":"0.9.0","ops":["debug.json"]}`: the format version of the
+  self-description itself, the version of `vimp-engine-core` the core was
+  built against, and the opcodes this core understands (engine opcodes the
+  macro knows plus those the game declared). The engine reads it once, when
+  it loads the core, so decisions that must be made in advance — which
+  packing branch to take, whether to show a form field, what to tell the
+  lobby — no longer wait for a call in the middle of a match. A core built
+  before the mechanism existed has no such method: that is generation 0
+  (`{abi: 0, core: null, ops: []}`), not an error.
+- `dispatch(op: &str, payload: &[u8]) -> Vec<u8>` — the single entry point
+  for every optional capability. An empty return means "opcode not handled"
+  (the caller takes its fallback path); the one-byte marker `[0x00]` means
+  "handled, no answer". The payload and the answer are raw bytes; each
+  opcode's encoding is recorded in the engine's append-only registry
+  `src/config/abiOps.js` alongside its name, which is of the form
+  `<area>.<action>` (`debug.json`, `state.replaySeek`).
+
+A game extends `dispatch` through two `GameSim` trait methods with default
+implementations (mirrored on `GameClientDef`) — a game that needs neither
+writes no code:
+
+```rust
+fn dispatch_op(&mut self, _op: &str, _payload: &[u8]) -> Option<Vec<u8>> { None }
+fn dispatch_ops(&self) -> &'static [&'static str] { &[] }
+```
+
+`dispatch` tries the engine opcodes first, then the game's `dispatch_op`,
+then reports "not handled". The macro expands **inside the game crate**, so a
+game that rebuilds against any future engine picks up every opcode that
+engine knows, without touching a line of its own source — while the export
+table stays constant.
+
+On the JS side the only allowed way to call an optional core capability is
+`GameCoreAdapter._op(op, payload)`, which refuses opcodes the loaded core did
+not declare; an ESLint rule restricts `this._core.<name>` to the frozen list.
+The first opcode, `debug.json`, duplicates the frozen `debug_json` method:
+the adapter tries the opcode and falls back to the method, which is what a
+core of any age gets. Both halves stay forever — I1 does not delete.
+
 ### Snapshot blocks — a declarative schema
 
 Fixed block layouts are replaced by a schema: `SnapshotConfig.keys` maps each
@@ -650,11 +778,106 @@ another game's.
   [master.md](master.md#server-rating-likeunlike). A game cannot opt out of
   this: it is a property of the shared profile, not of the game's own data.
 
+## Compatibility invariants
+
+A published game is a build that will never be rebuilt: its `.wasm`, its
+`gameConfig`, its part names are frozen at publish time. The engine keeps
+running it by never taking anything away — the rules below are enforced
+mechanically by the surface snapshot (`packages/engine/contract/surface.json`)
+and the compatibility corpus
+(`packages/engine/tests/fixtures/generations/`), see
+[Debugging](debugging.md) for the commands.
+
+- **I1. Nothing is deleted or renamed.** Any name a game can write or read —
+  a `gameConfig` field, a service name in `componentDependencies`, a form
+  `control`, a wasm-ABI method, a port number, a snapshot block key — exists
+  forever. Retiring one means an alias plus an adapter, never a deletion.
+- **I2. Nothing new is mandatory.** Every read of plugin data goes through an
+  accessor with a default, every new core method through a feature detect. A
+  plugin of any age = all defaults = valid.
+- **I3. The shape of data never changes — a new one is added beside it.** An
+  ABI signature, a byte layout, an object shape stay as they are; a different
+  shape is a new name.
+- **I4. Engine changes do not reject a plugin that loaded before.** Such a
+  change would be `⚠️ Breaking` + `Migration` in the changelog, and for the
+  plugin surface it is a design error rather than a release level.
+- **I5. Rust traits grow only by methods with a default implementation.** A
+  required method in `GameSim`/`GameClientDef` stops the game crate from
+  compiling.
+- **I6. Source compatibility and binary compatibility are separate.** The
+  source API of the `vimp-engine-core` crate may still break — that only
+  concerns games that chose to rebuild. The binary compatibility of already
+  published `.wasm` is untouchable.
+
+The snapshot is a committed JSON file: `npm run surface:update` regenerates
+it, and `npm test` fails when a name disappears from it or an ABI signature
+changes, quoting the invariant. Adding to the surface is not a failure — it
+passes with a hint that the snapshot is stale.
+
+**Registries.** Every vocabulary the engine offers a game to pick from is an
+append-only registry (`src/lib/registry.js`): form controls
+(`src/lib/formControls.js`), the client service pool
+(`src/config/clientServices.js`) and the port numbers
+(`src/config/wsports.js`). A row is never deleted or renumbered; retiring one
+means `{ alias: '<active name>' }` plus a changelog line, and the retired row
+stays in the surface snapshot next to the active ones — retiring is not
+deleting.
+
+**The snapshot schema is the model case of the contract.** `gameConfig.snapshot`
+comes from the game and travels to every client in CONFIG_DATA
+([network.md](network.md)), so a room is self-describing: the engine never
+holds a list of block keys the game must match, and adding a block is a
+property of the game's own build, not of the engine's version. Nothing here
+can age. `SNAPSHOT_FORMAT_VERSION` (`src/config/opcodes.js`) is the framing of
+the bytes, an **engine** value: no plugin reads it, and host and client always
+run the same engine bundle inside one room. It is recorded in the surface
+snapshot all the same, so that changing it shows up in the diff and is a
+deliberate decision rather than a silent one.
+
+## `requires` and engine capabilities
+
+`GameManifest.requires` is an **optional** array of engine capability names
+the game cannot run without:
+
+```jsonc
+{
+  "id": "tanks",
+  "requires": ["accolades"]      // optional; absent = nothing beyond the base contract
+}
+```
+
+The engine answers with a verdict, not with a version comparison
+(`checkPluginCompatibility`, `src/lib/gamePlugin.js`): every name is looked up
+in the append-only capability registry `src/lib/capabilities.js`, and a name
+the registry does not know means the game is newer than the engine. Currently
+registered: `stat.leaderboard` (rank-period leaderboard), `accolades`
+(`ACCOLADES_DATA` port and the client service) and `dispatch` (`dispatch` /
+`abi_describe` in the core). A registered name is supported forever — a
+published game may have written it, and its `dist/` will never be touched
+again.
+
+Declare a capability only when the game breaks without it. A game that
+degrades gracefully — does not ask for the service, is not subscribed to the
+port — needs no `requires`: engine defaults (`gameConfigView`) and the
+append-only vocabularies accept it as is.
+
+Where the verdict lands:
+
+| Entry point | On a missing capability |
+| --- | --- |
+| master catalog (`GameCatalog`) | the game **stays** in `manifestList` with `compat: {ok: false, missing, text}`; the lobby shows it disabled with the reason, and no room can be created for it |
+| `loadGamePackage` (dedicated, `vimp-sim`, inline host) | throws — there is only one game and nothing to fall back to |
+| `loadClientPlugin` (browser) | throws before the plugin bundle is imported |
+| standalone SDK | throws for either plugin half |
+
+Every message names the side to update: *"game "x" needs engine capabilities
+this build does not have: … — update the engine"*.
+
 ## Versions and compatibility
 
 | Constant | Owner | Policy |
 | --- | --- | --- |
-| `ENGINE_API_VERSION` (=4) | engine | checked at plugin import (host worker and client); breaking Plugin API / Wasm ABI changes → +1. v2: the [Form schema](#form-schema) contract (`roomForm`, `authSchema.params[].options`) replaced type-based control inference. v3: the `control` set was cut down to plain native elements (`select`/`text`/`checkbox`/`radio`, dropping `range`/`number`/`toggle`/`segmented`) — a required update for external game repos (e.g. `vimp-tanks`). v4 (snakes-v3): a new `ACCOLADES_DATA` port in `wsports.js` and a fifth service in the dependency pool — `accolades`, the entity's place in the game's global top — plus the `leaderboard` mode of the `stat` module. **A game built against an older version silently disappears from the lobby**: `GameCatalog` skips a manifest whose `engineApi` does not match, so every game plugin must be rebuilt (`npm run build`) after this bump, and the missing game looks like an empty lobby rather than an error |
+| `ENGINE_API_VERSION` (=4) | engine | **frozen at 4 and never bumped again**; a generation label carried by every manifest and plugin half, not a compatibility gate. Its history: v2 introduced the explicit [Form schema](#form-schema) (`roomForm`, `authSchema.params[].options`) in place of type-based control inference; v3 cut the `control` set down to native elements (`range`/`number`/`toggle`/`segmented` are back as permanent aliases); v4 added the `ACCOLADES_DATA` port, the `accolades` service and the `leaderboard` mode of the `stat` module. The engine keeps every retired name working (`plan/plugin-forward-compat`), so a game built against v2 runs on today's build unchanged. Contract rule `B2` only requires that the manifest and both plugin halves agree with each other and that the value is imported, not hardcoded |
 | `SNAPSHOT_FORMAT_VERSION` (=3) | engine (framing) | the block schema travels in CONFIG_DATA → always consistent within a room |
 | `HANDOFF_VERSION` (→3) | engine | v2: +`gameId`, `gameVersion` in the handoff meta; v3: the `bots` field renamed to `scripted`; mismatch → the regular `resume` |
 | `codeVersion` | master | composite: `{ engine: hash(host.worker-*.js), game: {id, version} }`; a mismatch of either part → Worker handoff (the new Worker gets a fresh `entries.host`) |

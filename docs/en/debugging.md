@@ -74,7 +74,7 @@ will actually see, not a parse of the source.
 | Group | Catches |
 | --- | --- |
 | A1–A7 | packaging: `type`/`files`, `pixi.js` and `vimp-engine` in the wrong dependency section, the standard scripts, entry paths, the required Vite options, `crate-type`/`enhanced-determinism`/a stale `vimp-engine-core` pin, the built manifest, and a declared `repository` (warning — without it the entry form shows no project link) |
-| B1–B10 | host: plugin shape, the `engineApi` triple, the nine `gameConfig` paths, teams and spectators, `roomForm` fields the host silently drops and a `regExp` that does not compile, the reserved panel key `t`, chat commands shadowing engine ones, system-message codes overwriting engine texts, reserved vote names, respawn capacity vs `maxPlayers` |
+| B1–B10 | host: plugin shape, the `engineApi` triple, the four required `gameConfig` paths (plus a warning per field left to an engine default), teams and spectators, `roomForm` fields the host silently drops and a `regExp` that does not compile, the reserved panel key `t`, chat commands shadowing engine ones, system-message codes overwriting engine texts, reserved vote names, respawn capacity vs `maxPlayers` |
 | C1–C10 | client: plugin shape and the three hooks, parts registered in `entitiesOnCanvas`, `gameSets` covering every snapshot key and map `setId`, services the engine or the plugin's `hooks.services()` provides (a warning when the hook exists — the checker cannot call it), the `t`/`time` panel field, stat columns past the engine layout being styled by the plugin (warning), spectator and player keysets, bakers, message texts, the auth schema (`fieldsId`, no nickname, the `model` field) |
 | D1–D3 | snapshot schema: unique ids, `hot`/`event` classes vs block kinds, `interp` only on hot `f32` |
 | E1–E3 | assets in `dist/`: the `webm` + `mp3` pair per sound, map images, an empty sound registry (warning) |
@@ -83,6 +83,33 @@ Run it before `npm run sim`: it is faster, needs no core build, and its
 findings are the ones the runner would report as a black canvas ten minutes
 later. Together they cover the checklist in `docs/ai/10-pitfalls.md` — the
 static half here, the runtime half in the invariants below.
+
+## Plugin surface snapshot (`vimp-surface`)
+
+`vimp-contract` judges one game against the engine; this tool judges the
+engine against every game ever published. `packages/engine/contract/surface.json`
+is a committed snapshot of the plugin surface — required `gameConfig` paths
+and the defaulted ones,
+the client service pool, form controls, port numbers, the `GameManifest`
+fields the engine reads, the members it dereferences on the two plugin halves,
+and the normalized signature of every wasm-ABI method in `core/src/abi.rs`.
+
+```bash
+node packages/engine/bin/vimp-surface.js   # print the difference, exit 1 on a violation
+npm run surface:update                     # rewrite the snapshot
+```
+
+The snapshot is collected from the engine's own modules, never restated by
+hand, so it cannot quietly go stale. `npm test` compares it on every run
+(`tests/devtools/surface.test.js`): a name that disappeared, was renamed, or
+changed shape fails the build quoting the broken invariant
+([Plugin API](plugin-api.md#compatibility-invariants)); a name that was added
+passes with a hint to run `npm run surface:update`. Alongside it,
+`tests/devtools/conformance.test.js` runs a headless match on every frozen
+plugin generation in `packages/engine/tests/fixtures/generations/`, which
+catches an engine that kept all the names and still stopped running an older
+game. Those generations are frozen on purpose: wanting to edit one to get a
+green run is exactly the breakage they exist to report.
 
 ## The loop in one command
 

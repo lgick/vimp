@@ -252,6 +252,39 @@ Do not hand-write them.
 `cycle_item`. They are called only from `ClientPlugin.hooks` — the engine
 never calls them.
 
+## The export table is frozen
+
+Both macros also generate `abi_describe()` and `dispatch(op, payload)`, and
+that pair is the *only* way the ABI grows from now on. Your `.wasm` fixes its
+export table at build time: a symbol the engine adds next year will not
+appear in a core you published this year, and no engine-side shim can
+synthesize it. So the engine never adds a method — it adds an **opcode**, a
+string your core either understands or does not.
+
+- `abi_describe() -> String` returns
+  `{"abi":1,"core":"<vimp-engine-core version>","ops":[…]}`. The engine reads
+  it once, when it loads your core, and uses it to decide in advance what
+  your core can do. You write nothing: the macro fills it in, listing the
+  engine opcodes it knows plus whatever `dispatch_ops()` returns.
+- `dispatch(op, payload) -> Vec<u8>` routes an opcode: engine opcodes first,
+  then your `GameSim::dispatch_op` (`GameClientDef::dispatch_op` on the
+  client). Return an empty vector for "not handled" — the engine then takes
+  its fallback path — and `[0x00]` for "handled, no answer".
+
+Both trait methods have defaults, so a game that needs no opcodes of its own
+implements nothing:
+
+```rust
+fn dispatch_op(&mut self, _op: &str, _payload: &[u8]) -> Option<Vec<u8>> { None }
+fn dispatch_ops(&self) -> &'static [&'static str] { &[] }
+```
+
+Practical consequence for you: **never expect the engine to call a new method
+on your core**, and never assume an older core is rejected for lacking one.
+Rebuild against a newer `vimp-engine-core` whenever you like — the macro then
+hands you every opcode that engine knows, without a line of change in your
+source. Not rebuilding is equally fine: your published `.wasm` keeps running.
+
 ## Init JSON
 
 Both cores receive one JSON string of shape `{ engine, game }`.

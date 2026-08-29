@@ -1,0 +1,17 @@
+{
+  "id": "gen-api4",
+  "engineApi": 4,
+  "assetsBase": "",
+  "entries": {
+    "host": "host/index.js",
+    "client": "client/index.js",
+    "wasm": "core/pkg-web/core_bg.wasm",
+    "wasmNode": "core/pkg-node/core.js"
+  },
+  "roomDefaults": {
+    "maxPlayers": 4
+  },
+  "maps": [
+    "arena"
+  ]
+}

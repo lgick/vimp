@@ -3,8 +3,17 @@
 // живут в Rust-ядре: packages/engine/core/src/snapshot.rs (pack) и packages/engine/core/src/client/unpack.rs.
 
 // версия контракта движок ↔ игра-плагин (GameManifest, HostPlugin,
-// ClientPlugin, Wasm Host ABI — docs/{en,ru}/plugin-api.md);
-// проверяется при загрузке плагинов; ломающие изменения контрактов → +1.
+// ClientPlugin, Wasm Host ABI — docs/{en,ru}/plugin-api.md).
+//
+// ЗАМОРОЖЕНО на 4. Больше не гейт совместимости и больше не бампается:
+// после этапов 1-4 плана plugin-forward-compat плагинная поверхность
+// append-only, и отвергать плагин за возраст стало не за что. Остаётся как
+// метка поколения контракта в манифестах и диагностике; удалять нельзя —
+// константу импортируют скрипты сборки всех уже существующих игр
+// (build-game-manifest.js) и правило контракта B2. Совместимость решается
+// переговорами о возможностях, см. lib/capabilities.js.
+//
+// История поколений (для чтения манифестов постарше):
 // v2: явная схема форм (roomForm/authSchema.params[].options — Form schema
 // в plugin-api.md), движок больше не выводит контролы из типа значения
 // v3: набор control сокращён до нативных элементов — 'select'|'text'|

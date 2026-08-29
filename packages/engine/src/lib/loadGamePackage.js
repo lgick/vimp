@@ -1,7 +1,7 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertEngineApiCompatible } from './gamePlugin.js';
+import { checkPluginCompatibility } from './gamePlugin.js';
 
 // Загрузка пакета игры в Node по его собранному dist/ (Этап 4 плана
 // standalone-sdk). В браузере плагин грузится по URL из GameManifest мастера;
@@ -32,7 +32,14 @@ export async function loadGamePackage(distDir, { core = null } = {}) {
   const baseDir = path.dirname(manifestPath);
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 
-  assertEngineApiCompatible(manifest);
+  // игра одна и подменить её нечем — вердикт несовместимости здесь
+  // терминальный (в отличие от каталога мастера, который помечает игру
+  // недоступной и продолжает раздавать остальные)
+  const compat = checkPluginCompatibility(manifest);
+
+  if (!compat.ok) {
+    throw new Error(`${manifestPath}: ${compat.text}`);
+  }
 
   const { assetsBase } = manifest;
   const hostPlugin = await importDefault(

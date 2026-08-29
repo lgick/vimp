@@ -2,9 +2,21 @@
 // пользовательские настройки комнаты. Используется host.worker.js; вынесено
 // в lib для тестируемости (worker вешает self.onmessage при импорте)
 import hostDefaults from '../config/hostDefaults.js';
+import { createGameConfigView } from './gameConfigView.js';
 
-export function applyRoomOverrides(room = {}, plugin) {
-  const game = structuredClone({ ...hostDefaults, ...plugin.gameConfig });
+/**
+ * @param {Object} [room] - Переопределения комнаты.
+ * @param {Object} plugin - HostPlugin игры.
+ * @param {Object} [view] - Готовая gameConfig-view (createHostRuntime строит
+ *   её один раз на прогон); без неё собирается своя.
+ * @returns {Object} Конфиг матча: движковые дефолты + игровая половина.
+ */
+export function applyRoomOverrides(
+  room = {},
+  plugin,
+  view = createGameConfigView(plugin.gameConfig, plugin.id),
+) {
+  const game = structuredClone({ ...hostDefaults, ...view });
 
   // Этап 5.1: актуальные карты мастера (фетчит главный поток) вместо бандла
   if (room.maps && Object.keys(room.maps).length) {

@@ -145,15 +145,28 @@ export default class FakeGameCore {
     return actor ? [actor.x, actor.y] : [];
   }
 
+  // FIRST_SHOT_DATA: полный снапшот игроков в раскладке снапшот-схемы
+  // (ключ схемы -> id -> поля), а не плоским списком: ровно её разбирает
+  // клиент (applyShot браузера и VirtualClient._applyGameData). Плоский
+  // список доезжал до клиента ключами '0', '1' — сущность первого кадра
+  // не появлялась на холсте, и видно это только со второго участника
   players_data() {
-    return JSON.stringify(
-      [...this._actors.entries()].map(([id, a]) => ({
-        id: Number(id),
-        x: a.x,
-        y: a.y,
-        team: a.team,
-      })),
-    );
+    const entry = Object.entries(
+      this._config.engine?.snapshot?.keys ?? {},
+    ).find(([, spec]) => spec.class === 'hot' && spec.kind === 'indexed8');
+
+    if (!entry) {
+      return '{}';
+    }
+
+    const [key, spec] = entry;
+    const rows = {};
+
+    for (const [id, actor] of this._actors) {
+      rows[id] = spec.fields.map(field => Number(actor[field.name] ?? 0));
+    }
+
+    return JSON.stringify({ [key]: rows });
   }
 
   // ***** игровой тик ***** //
@@ -246,5 +259,22 @@ export default class FakeGameCore {
     const entries = JSON.parse(new TextDecoder().decode(bytes));
 
     this._actors = new Map(entries);
+  }
+
+  // ***** расширение (этап 4 плана plugin-forward-compat) ***** //
+
+  // самоописание: фикстура представляет ядро текущего поколения, поэтому
+  // отвечает так же, как раскрытие движкового макроса
+  abi_describe() {
+    return JSON.stringify({ abi: 1, core: 'fixture', ops: ['debug.json'] });
+  }
+
+  // опкод вместо нового символа: пустой ответ — «не обработан»
+  dispatch(op) {
+    if (op === 'debug.json') {
+      return new TextEncoder().encode(this.debug_json());
+    }
+
+    return new Uint8Array(0);
   }
 }

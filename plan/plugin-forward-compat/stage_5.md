@@ -1,4 +1,4 @@
-# Этап 5 — Удаление гейта `ENGINE_API_VERSION`
+# Этап 5 — Удаление гейта `ENGINE_API_VERSION` ✅ выполнен
 
 **Идёт строго после этапов 1–4.** Снимать гейт до того, как поверхность
 заморожена (1), поля получили умолчания (2), словари стали append-only (3) и
@@ -167,6 +167,9 @@ manifest: { ...withPackage, compat: { ok: false, missing, text } }
 - `packages/engine/src/devtools/contract/rules/b2-engine-api.js`
 - `tests/devtools/conformance.test.js` — снятие `todo`
 - `packages/engine/contract/surface.json`
+- `packages/engine/src/devtools/surface/collect.js` + `tests/devtools/surface.test.js`
+  — раздел `engineCapabilities` в слепке (имя из реестра игра пишет в
+  `requires`, значит И1 действует и на него)
 
 ## Проверка этапа
 

@@ -13,6 +13,27 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `export_game_core_abi!` / `export_client_core_abi!` now also emit
+  `abi_describe()` and `dispatch(op, payload)` (stage 4 of
+  `plan/plugin-forward-compat`). `abi_describe()` returns
+  `{ abi, core, ops }` — the self-description format version, the version of
+  *this* crate the core was built against (`abi::CORE_VERSION`, not the game
+  crate's) and the dispatch opcodes the core understands: the engine learns a
+  core's capabilities when it loads it, not in the middle of a match.
+  `dispatch` returns an empty vector for "opcode not handled" and the single
+  byte `[0x00]` for "handled, no answer".
+- `GameSim::dispatch_op` / `dispatch_ops` and their `GameClientDef` mirrors,
+  both with default implementations — a game that needs neither writes no
+  code, and a game crate that only bumps the dependency keeps compiling.
+- The exported symbol set of both macros is **frozen** (see the header of
+  `src/abi.rs`): future core capabilities arrive as `dispatch` opcodes, not
+  as new exports. A symbol that is missing from an already published `.wasm`
+  can never appear there, so growing the export table is what ages a game.
+  The first engine opcode is `debug.json`, mirroring the frozen `debug_json`
+  method, which stays in place.
+
 ## [0.8.3] — 2026-08-21
 
 Released without journal entries: the only change is a test — the

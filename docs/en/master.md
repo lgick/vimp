@@ -124,6 +124,21 @@ by `npm run build` in the game repository), one entry per game plugin. A game wh
 static mount builds paths from the id); a map file with broken JSON is
 skipped with a warning instead of crashing the master.
 
+A game is **never** dropped for its `engineApi`: the version gate is gone
+(`plan/plugin-forward-compat`). A game whose manifest asks — via
+[`requires`](plugin-api.md#requires-and-engine-capabilities) — for a
+capability this engine build does not have stays in `manifestList` too, with
+an extra field:
+
+```jsonc
+"compat": { "ok": false, "reason": "engine-too-old",
+            "missing": ["telemetry"], "text": "… — update the engine" }
+```
+
+The field is absent for every game that runs (an older client simply does not
+see it); the lobby renders a game that carries it disabled, with `text` as the
+tooltip, so an unavailable game reads as an error instead of an empty lobby.
+
 Each served manifest is additionally given two fields the build does not
 write: `packageVersion` and `packageUrl`, read off the resolved package's own
 `package.json` (`repository`, else `homepage`) and normalised to https by

@@ -149,7 +149,10 @@ componentDependencies: {
 }
 ```
 
-The available service pool is fixed, and it has five entries:
+The engine's service pool is an append-only registry with five entries (a
+game adds its own through `hooks.services(core)`, below). A name never
+disappears from it, and the pool hands out only what a part asked for, so a
+service added by a later engine demands nothing of an older game:
 
 | Service | Value | Used for |
 | --- | --- | --- |

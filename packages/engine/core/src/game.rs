@@ -371,6 +371,25 @@ impl<G: GameDef> EngineSim<G> {
     /// Сериализует состояние симуляции для эстафетной передачи между
     /// инстансами WASM. Накопители снапшота должны быть дренированы
     /// (pack_body) перед вызовом.
+    /// Самоописание игрового ядра: версия формата, версия движкового
+    /// крейта, опкоды `dispatch` (движковые + объявленные игрой).
+    pub fn abi_describe(&self) -> String {
+        crate::abi::describe_json(crate::abi::ENGINE_GAME_OPS, self.sim.dispatch_ops())
+    }
+
+    /// Опкод движка, иначе игровой опкод, иначе «не обработан» (пустой
+    /// вектор). Единая точка роста ABI: новая возможность приезжает
+    /// опкодом, а не новым символом — в dist уже опубликованной игры
+    /// символ не появится никогда.
+    pub fn dispatch(&mut self, op: &str, payload: &[u8]) -> Vec<u8> {
+        let out = match op {
+            "debug.json" => Some(self.debug_json().into_bytes()),
+            _ => self.sim.dispatch_op(op, payload),
+        };
+
+        crate::abi::dispatch_result(out)
+    }
+
     pub fn serialize_state(&self) -> Result<Vec<u8>, String> {
         let dump = EngineDump {
             world: WorldDump {

@@ -33,6 +33,7 @@
     "build": "npm run build:app",
     "build:app": "npm -w vimp-engine run build",
     "core:test": "cargo test --workspace",
+    "surface:update": "node packages/engine/bin/vimp-surface.js --write",
     "sim": "node packages/engine/bin/vimp-sim.js",
     "sim:replay": "node packages/engine/bin/vimp-sim.js --scenario",
     "sim:check": "node packages/engine/bin/vimp-sim.js --no-write",

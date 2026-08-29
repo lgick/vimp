@@ -112,6 +112,19 @@ pub trait GameSim<G: GameDef>: Sized {
     fn remove_players_and_shots(&mut self, world: &mut PhysicsWorld) -> Vec<String>;
     fn clear(&mut self);
 
+    /// Игровые опкоды `dispatch` (см. `abi::describe_json`). Реализация по
+    /// умолчанию — «не обработано»: игре, которой это не нужно, писать
+    /// нечего. Возврат `Some(vec![])` означает «обработан, ответа нет».
+    fn dispatch_op(&mut self, _op: &str, _payload: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Имена опкодов, которые обрабатывает эта игра — уезжают в
+    /// `abi_describe`, чтобы движок узнал о них до первого вызова.
+    fn dispatch_ops(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn serialize(&self) -> serde_json::Value;
     fn deserialize(&mut self, value: serde_json::Value) -> Result<(), String>;
     fn rebuild_spatial_grid(&self, world: &PhysicsWorld, spatial: &mut SpatialGrid);

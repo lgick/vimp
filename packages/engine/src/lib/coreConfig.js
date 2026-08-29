@@ -11,9 +11,9 @@ import wsports from '../config/wsports.js';
 
 /**
  * Собирает объект конфигурации ядра.
- * @param {Object} gameConfig - HostPlugin.gameConfig игры, загруженной
- *   динамически по GameManifest (Этап 6.4) — движок больше не знает игру
- *   статически.
+ * @param {Object} gameConfig - Представление HostPlugin.gameConfig
+ *   (lib/gameConfigView.js): поля игры плюс движковые умолчания. Прямой
+ *   gameConfig сюда не передаётся — он обходит умолчания (И2).
  * @param {Object} [overrides] - Переопределения плоским объектом (например,
  *   seed для воспроизводимых прогонов или friendlyFire) — распределяются
  *   по движковой/игровой половине автоматически.

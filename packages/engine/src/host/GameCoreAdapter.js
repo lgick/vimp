@@ -9,6 +9,10 @@
 // scripted-участник создаётся как танк + ИИ-контроллер внутри ядра
 // (spawn_scripted_actor/remove_scripted_actor), человек — только танк
 // (spawn_actor/remove_actor).
+
+// пустая нагрузка опкода: ядро ждёт байты всегда, даже когда их нет
+const EMPTY_PAYLOAD = new Uint8Array(0);
+
 export default class GameCoreAdapter {
   /**
    * @param {GameCore} core - экземпляр WASM-ядра.
@@ -23,6 +27,24 @@ export default class GameCoreAdapter {
     this._participants = participants;
     this._onCoreEvent = onCoreEvent;
     this._services = {}; // { vimp, panel } — инъекция как у Game.js
+
+    // Метода нет — ядро собрано до появления самоописания. Это не ошибка:
+    // поколение 0, ни одного опционального опкода (И2). Читается один раз
+    // здесь, а не при вызове: ветку упаковки, поле формы или ответ лобби
+    // движок выбирает заранее, а не посреди матча.
+    this._abi =
+      typeof core.abi_describe === 'function'
+        ? JSON.parse(core.abi_describe())
+        : { abi: 0, core: null, ops: [] };
+  }
+
+  /**
+   * Возможности загруженного ядра: { abi, core, ops }. `abi: 0` — ядро
+   * старше самоописания.
+   * @returns {Object}
+   */
+  get abi() {
+    return this._abi;
   }
 
   // получает сервисы (аналог Game.injectServices): { vimp, panel }
@@ -215,11 +237,38 @@ export default class GameCoreAdapter {
    * @returns {Object|null}
    */
   debugJson() {
+    const out = this._op('debug.json');
+
+    if (out !== null) {
+      return JSON.parse(new TextDecoder().decode(out));
+    }
+
+    // ядро старше опкода, но с замороженным методом — метод не удаляется
+    // никогда (И1), поэтому запасной путь остаётся навсегда
     if (typeof this._core.debug_json !== 'function') {
       return null;
     }
 
     return JSON.parse(this._core.debug_json());
+  }
+
+  /**
+   * Единственный разрешённый способ позвать необязательную возможность
+   * ядра: прямой вызов нового метода на `this._core` запрещён (И2) — у
+   * ядра, собранного год назад, его нет и не будет. ESLint стережёт это
+   * правилом no-restricted-syntax.
+   * @param {string} op - Опкод из config/abiOps.js.
+   * @param {Uint8Array} [payload] - Полезная нагрузка опкода.
+   * @returns {Uint8Array|null} null — ядро опкод не умеет либо не обработало.
+   */
+  _op(op, payload = EMPTY_PAYLOAD) {
+    if (!this._abi.ops.includes(op)) {
+      return null;
+    }
+
+    const out = this._core.dispatch(op, payload);
+
+    return out.length === 0 ? null : out;
   }
 
   // бот ли участник (спавн/удаление в ядре различаются)
