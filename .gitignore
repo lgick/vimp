@@ -23,3 +23,7 @@ packages/engine/public/vendor/pixi/
 
 # отчёты headless-прогонов (npm run sim)
 .debug/
+
+# хранилище игровых пакетов мастера (master:gameStore:dir по умолчанию) —
+# скачанные из npm registry dist/ игр, в проде это смонтированный том
+.games/

@@ -4,6 +4,16 @@ import { fileURLToPath } from 'url';
 // корень репозитория — якорь от расположения файла, не от cwd
 const rootDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..', '..', '..');
 
+// Разбор VIMP_ADMIN_NICKS (направление master-game-registry, этап 1).
+// Отдельная экспортируемая функция, а не выражение внутри объекта: так её
+// поведение (регистр, пробелы, пустая строка, хвостовая запятая) покрывается
+// юнит-тестом без импорта всего конфига
+export const parseAdminNicks = raw =>
+  String(raw || '')
+    .split(',')
+    .map(nick => nick.trim().toLowerCase())
+    .filter(Boolean);
+
 export default {
   name: 'VIMP Auth Service',
   protocol: 'http:',
@@ -107,6 +117,29 @@ export default {
   // (формат на усмотрение игры), только общий объём
   state: {
     maxBytes: 8192,
+  },
+
+  // Админы платформы (направление master-game-registry). Список ников задаёт
+  // деплой: VIMP_ADMIN_NICKS="lgick,Admin". Ник глобально уникален и
+  // регистронезависим, поэтому список провайдеронезависим — работает и для
+  // github, и для будущих google/apple. Пустая строка — законное состояние
+  // (админов нет), падать нельзя
+  admin: {
+    nicks: parseAdminNicks(process.env.VIMP_ADMIN_NICKS),
+  },
+
+  // реестр игр платформы (миграция 009_games.sql): ограничения полей заявки
+  // разработчика и модерации
+  games: {
+    // сегмент URL: строчная латиница, цифры и дефис
+    idPattern: /^[a-z][a-z0-9-]{1,30}$/,
+    // имя npm-пакета, в т.ч. scoped
+    packagePattern: /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
+    versionPattern: /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/,
+    maxPerUser: 20,
+    maxNoteLength: 1000,
+    maxTitleLength: 60,
+    maxUrlLength: 200,
   },
 
   // server-rating этап 2 (plan/server-rating/stage_2.md, 2.4): диапазон

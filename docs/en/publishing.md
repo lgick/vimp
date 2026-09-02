@@ -155,9 +155,9 @@ The script handles that itself, and the rule it follows is:
   checkout's is **skipped**, with the reason printed — this is the check being
   impossible, not failing;
 - on the **prod** step the same mismatch is a **hard error**. By then the game
-  has been republished and re-pinned (`npm i game@target`), so a mismatch means
-  it was released without rebuilding against the new API — exactly the manifest
-  that `GameCatalog` rejects at load time.
+  has been republished, so a mismatch means it was released without rebuilding
+  against the new API. (The sim runs against the local checkout — the root
+  `package.json` pins no games any more.)
 
 Coverage is not lost by the skip: the prod step sims the same games, against
 the copies that were actually published.
@@ -175,7 +175,7 @@ not push to `main` until the games are out — see the warning in step A2.
 | `packages/engine/core/` (Rust) | ✅ | — | **required** (pins) | ✅ (rebuild against the new crate) | ✅ |
 | Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | when convenient | ✅ |
 | `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | **required** | ✅ strictly last |
-| Game only (rules, maps, assets, game core) | — | — | — | ✅ | ✅ (re-pin + push) |
+| Game only (rules, maps, assets, game core) | — | — | — | ✅ | — (raise the version from the lobby, no deploy) |
 | `packages/create-vimp-game/{bin,src,templates,scripts}` | — | — | ✅ | — | — |
 | `packages/auth/` | — | — | — | — | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
 
@@ -475,23 +475,23 @@ ships.
 ```bash
 cd vimp
 
-# 1. Pin the new plugin — production installs it with npm ci from the lockfile
-npm i @vimp-games/tanks@X.Y.Z
-
-# 2. Prove the pair works together before it ships
+# 1. Prove the pair works together before it ships (against the LOCAL checkout)
 npm test
 npm run sim -- --game node_modules/@vimp-games/tanks
 
-# 3. Push to main — this is the deploy
-git add package.json package-lock.json
-git commit -m "chore: bump @vimp-games/tanks to X.Y.Z"
+# 2. Push to main — this is the deploy
 git push
 ```
 
-> A **new** game (not yet in the catalog) additionally needs the
-> `GAMES_MATRIX` repository variable set — `npm i` alone does not add it to
-> `master:games` in production. See
-> [deployment.md → Adding a second game](deployment.md#adding-a-second-game-to-the-catalog).
+> **The root `package.json` no longer pins games.** Games are not
+> dependencies of this repository and not part of the image: production reads
+> its catalog from the game registry of the central auth service and the
+> master downloads the package from npm itself. So publishing a new version
+> of a game needs **no** engine release and no deploy at all — the developer
+> raises it from the lobby ("My games" → "Update"), an admin confirms it in
+> "Moderation", and every master picks it up on its next sync pass. A game
+> that is not in the catalog yet is submitted the same way. See
+> [deployment.md → Adding a game](deployment.md#adding-a-game-to-the-catalog).
 
 CI then builds the master image, pushes it to GHCR, and SSHes into every
 server in `SERVERS_MATRIX` to `docker compose pull && up -d`; the auth

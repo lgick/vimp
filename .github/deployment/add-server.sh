@@ -24,6 +24,7 @@ AUTH_STATE_SECRET=""
 AUTH_ALLOWED_ORIGINS=""
 AUTH_GITHUB_CLIENT_ID=""
 AUTH_GITHUB_CLIENT_SECRET=""
+AUTH_ADMIN_NICKS=""
 GHCR_IMAGE=""
 GHCR_USER=""
 GHCR_TOKEN=""
@@ -261,6 +262,12 @@ read_auth_stack_inputs() {
     done
 
     echo ""
+    info "👑 Админы платформы (модерация игр в лобби), ники через запятую."
+    echo "   Можно оставить пустым: список задаётся переменной VIMP_ADMIN_NICKS"
+    echo "   в GitHub Variables и переписывается при каждом деплое."
+    read -r -p "   Ники админов (Enter — пропустить): " AUTH_ADMIN_NICKS
+
+    echo ""
     read -r -p "🐳 Docker-образ auth [по умолчанию: $GHCR_IMAGE_DEFAULT]: " GHCR_IMAGE_INPUT
     GHCR_IMAGE="${GHCR_IMAGE_INPUT:-$GHCR_IMAGE_DEFAULT}"
   fi
@@ -306,6 +313,7 @@ VIMP_AUTH_ALLOWED_ORIGINS=$AUTH_ALLOWED_ORIGINS
 VIMP_AUTH_STATE_SECRET=$AUTH_STATE_SECRET
 VIMP_AUTH_GITHUB_CLIENT_ID=$AUTH_GITHUB_CLIENT_ID
 VIMP_AUTH_GITHUB_CLIENT_SECRET=$AUTH_GITHUB_CLIENT_SECRET
+VIMP_ADMIN_NICKS=$AUTH_ADMIN_NICKS
 VIMP_AUTH_DATABASE_URL=postgres://vimp:$AUTH_DB_PASSWORD@postgres:5432/vimp_auth
 EOF
     chmod 600 .env.prod
@@ -512,6 +520,7 @@ if [[ "$IS_AUTH_SERVICE" == "y" ]]; then
   if [[ "$AUTH_RECONFIGURE_MODE" != "update" ]]; then
     echo "    Образ:         $GHCR_IMAGE"
     echo "    Allowed origins: $AUTH_ALLOWED_ORIGINS"
+    echo "    Админы:        ${AUTH_ADMIN_NICKS:-(не заданы)}"
   fi
   if [[ -n "$GHCR_USER" ]]; then
     echo "    Вход в GHCR:   да ($GHCR_USER)"

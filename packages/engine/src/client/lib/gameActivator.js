@@ -8,8 +8,14 @@
 // Вынесено из main.js (бутстрап, тестами не покрывается) отдельным модулем,
 // чтобы кеш и обработка отказа проверялись юнит-тестом.
 export function createGameActivator({ gamesById, loadClientPlugin }) {
-  // gameId -> промис загрузки: кешируется именно промис, иначе два быстрых
-  // клика подряд запустили бы импорт дважды
+  // `${gameId}@${manifest.version}` -> промис загрузки: кешируется именно
+  // промис, иначе два быстрых клика подряд запустили бы импорт дважды.
+  //
+  // Версия в ключе обязательна (master-game-registry, этап 3): в каталоге
+  // мастера две версии одной игры живут одновременно (админ стейджит новую,
+  // игроки играют в одобренную), и ключ по одному gameId вернул бы уже
+  // выполненный import() НЕ ТОГО кода. manifest.version — хеш бандла, то
+  // есть идентификатор самого кода
   const plugins = new Map();
 
   return async function activateGame(gameId) {
@@ -19,18 +25,20 @@ export function createGameActivator({ gamesById, loadClientPlugin }) {
       throw new Error(`unknown game "${gameId}"`);
     }
 
-    let pending = plugins.get(gameId);
+    const key = `${gameId}@${manifest.version}`;
+
+    let pending = plugins.get(key);
 
     if (!pending) {
       pending = loadClientPlugin(manifest).catch(e => {
         // отказ не кешируем: сеть могла моргнуть, повторный клик обязан
         // попробовать снова, а не переигрывать ту же ошибку вечно
-        plugins.delete(gameId);
+        plugins.delete(key);
 
         throw e;
       });
 
-      plugins.set(gameId, pending);
+      plugins.set(key, pending);
     }
 
     return { manifest, plugin: await pending };

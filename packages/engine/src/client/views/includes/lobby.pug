@@ -14,7 +14,13 @@ div#lobby(style='display:none')
           div
             span= 'Signed in as '
             b#lobby-user-nick
-          input#lobby-user-logout(type='button', value='Sign out')
+          //- вход в панель реестра игр (master-game-registry, этап 4):
+          //- «Мои игры» видит любой авторизованный, «Модерация» — только
+          //- админская роль (main.js по LobbyAuthModel.getRole())
+          div.lobby-user-actions
+            input#games-open-mine(type='button', value='Мои игры')
+            input#games-open-moderation(type='button', value='Модерация', style='display:none')
+            input#lobby-user-logout(type='button', value='Sign out')
         hr.lobby-divider
         h3.lobby-section-title= 'HOST A GAME'
         div#lobby-create

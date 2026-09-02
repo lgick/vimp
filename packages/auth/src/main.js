@@ -10,6 +10,10 @@ import { startRatingsJob } from './db/ratingsJob.js';
 import UserRepository, {
   NickTakenError,
   NickAlreadySetError,
+  GameExistsError,
+  GameNotFoundError,
+  GameForbiddenError,
+  GameLimitError,
   RANK_PERIODS,
 } from './UserRepository.js';
 import {
@@ -19,6 +23,12 @@ import {
   isValidVoteValue,
   isValidVoteReason,
   clampLimit,
+  isValidGameId,
+  isValidPackageName,
+  isValidGameVersion,
+  isValidGameTitle,
+  isValidRepoUrl,
+  isValidModeratorNote,
 } from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
 import rateLimit from './lib/rateLimit.js';
@@ -94,6 +104,9 @@ function isAllowedReturnUrl(returnUrl) {
 // (тот же паттерн, что и мастеровый RateLimiter, см. lib/rateLimiter.js)
 const nickLimiter = new RateLimiter({ limit: 5, windowMs: 60000 });
 const oauthStartLimiter = new RateLimiter({ limit: 20, windowMs: 60000 });
+// заявки разработчика (master-game-registry): регистрация игры и запрос
+// версии — редкие действия, частота здесь только против скриптового спама
+const gamesLimiter = new RateLimiter({ limit: 5, windowMs: 60000 });
 
 // ключ лимита — адрес клиента за реверс-прокси (Nginx в проде, см.
 // deployment.md); разбор и обоснование — в lib/rateLimit.js
@@ -122,6 +135,45 @@ function requireAuth(req, res, next) {
   } catch {
     res.status(401).json({ error: 'invalidToken' });
   }
+}
+
+// Выпуск identity-токена (обе точки выпуска — OAuth-колбэк и POST /nick).
+// Роль синхронизируется с VIMP_ADMIN_NICKS на каждом входе: список из
+// окружения — источник истины этапа 1, и разжалование должно доезжать до БД
+// без ручного SQL
+async function issueIdentityToken(user) {
+  const isEnvAdmin = config.admin.nicks.includes(user.nick.toLowerCase());
+  const role = await userRepo.syncRole(user.id, isEnvAdmin);
+
+  return jwtLib.signIdentityToken({ sub: user.id, nick: user.nick, role });
+}
+
+// Роль берётся из БД, а не из клейма токена: identity-токен живёт 4 часа, и
+// разжалование обязано действовать немедленно. Клейм в токене нужен только
+// клиенту — показать вкладку «Модерация»
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, async () => {
+    try {
+      const role = await userRepo.getRole(req.user.id);
+
+      if (role !== 'admin' && role !== 'superadmin') {
+        res.status(403).json({ error: 'forbidden' });
+        return;
+      }
+
+      req.user.role = role;
+      next();
+    } catch (err) {
+      next(err); // отказ БД — 500 общим обработчиком, не «доступ разрешён»
+    }
+  });
+}
+
+// админ вправе делать то же, что автор игры (запросить версию за него)
+async function isAdminUser(userId) {
+  const role = await userRepo.getRole(userId);
+
+  return role === 'admin' || role === 'superadmin';
 }
 
 const app = express();
@@ -155,7 +207,7 @@ app.use('/nick', (req, res, next) => {
 if (!isProduction) {
   app.get(
     '/dev/login',
-    createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick }),
+    createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick }),
   );
 }
 
@@ -215,10 +267,7 @@ app.get('/oauth/:provider/callback', async (req, res) => {
     const redirectUrl = new URL(decodedState.returnUrl);
 
     if (user.nick) {
-      redirectUrl.searchParams.set(
-        'token',
-        jwtLib.signIdentityToken({ sub: user.id, nick: user.nick }),
-      );
+      redirectUrl.searchParams.set('token', await issueIdentityToken(user));
     } else {
       redirectUrl.searchParams.set('pendingToken', jwtLib.signPendingToken({ sub: user.id }));
     }
@@ -267,7 +316,7 @@ app.post('/nick', byIp(nickLimiter), async (req, res) => {
   try {
     const user = await userRepo.setNick(Number(payload.sub), nick);
 
-    res.json({ token: jwtLib.signIdentityToken({ sub: user.id, nick: user.nick }) });
+    res.json({ token: await issueIdentityToken(user) });
   } catch (err) {
     if (err instanceof NickTakenError) {
       res.status(409).json({ error: 'nickTaken' });
@@ -281,6 +330,175 @@ app.post('/nick', byIp(nickLimiter), async (req, res) => {
 
     throw err;
   }
+});
+
+// ***** РЕЕСТР ИГР (master-game-registry, этап 1) *****
+//
+// CORS этим ручкам не нужен: браузер лобби ходит в них через прокси мастера,
+// как и в rank/state/jwks (прямой fetch из браузера есть только у /nick)
+
+// GET /games — каталог для мастеров: одобренные игры с раздаваемой версией.
+// Публичный, как и /leaderboard: список игр платформы и так виден в лобби
+app.get('/games', async (req, res) => {
+  res.json({ games: await userRepo.listApprovedGames() });
+});
+
+// GET /games/mine — заявки вызывающего со статусами и замечаниями модератора
+app.get('/games/mine', requireAuth, async (req, res) => {
+  res.json({ games: await userRepo.listGamesByAuthor(req.user.id) });
+});
+
+// проверяет поля заявки и отвечает своим кодом на каждое; null — всё чисто
+function gameInputError({ id, packageName, version, title, repoUrl }) {
+  if (id !== undefined && !isValidGameId(id, config.games)) {
+    return 'invalidGameId';
+  }
+
+  if (packageName !== undefined && !isValidPackageName(packageName, config.games)) {
+    return 'invalidPackageName';
+  }
+
+  if (version !== undefined && !isValidGameVersion(version, config.games)) {
+    return 'invalidVersion';
+  }
+
+  if (!isValidGameTitle(title, config.games)) {
+    return 'invalidTitle';
+  }
+
+  if (!isValidRepoUrl(repoUrl, config.games)) {
+    return 'invalidRepoUrl';
+  }
+
+  return null;
+}
+
+// POST /games — заявка разработчика на новую игру платформы
+app.post('/games', requireAuth, byIp(gamesLimiter), async (req, res) => {
+  const { id, packageName, title = null, repoUrl = null, version } = req.body || {};
+  const error = gameInputError({ id, packageName, version, title, repoUrl });
+
+  if (error) {
+    res.status(400).json({ error });
+    return;
+  }
+
+  try {
+    const game = await userRepo.createGame({
+      id,
+      packageName,
+      title,
+      repoUrl,
+      version,
+      authorUserId: req.user.id,
+    });
+
+    res.status(201).json({ game });
+  } catch (err) {
+    if (err instanceof GameExistsError) {
+      res.status(409).json({ error: 'gameExists' });
+      return;
+    }
+
+    if (err instanceof GameLimitError) {
+      res.status(403).json({ error: 'tooManyGames' });
+      return;
+    }
+
+    throw err;
+  }
+});
+
+// POST /games/:id/version — заявка на новую версию уже заведённой игры
+app.post('/games/:id/version', requireAuth, byIp(gamesLimiter), async (req, res) => {
+  const { version } = req.body || {};
+
+  if (!isValidGameVersion(version, config.games)) {
+    res.status(400).json({ error: 'invalidVersion' });
+    return;
+  }
+
+  try {
+    const game = await userRepo.requestGameVersion(req.params.id, version, {
+      userId: req.user.id,
+      isAdmin: await isAdminUser(req.user.id),
+    });
+
+    res.json({ game });
+  } catch (err) {
+    if (err instanceof GameNotFoundError) {
+      res.status(404).json({ error: 'unknownGame' });
+      return;
+    }
+
+    if (err instanceof GameForbiddenError) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+
+    throw err;
+  }
+});
+
+// статусы игры в реестре; отдельного 'testing' нет намеренно — «игра на
+// тесте» это наличие pending_version при любой из этих отметок
+const GAME_STATUSES = ['pending', 'approved', 'rejected', 'disabled'];
+
+// GET /admin/games — очередь модерации целиком
+app.get('/admin/games', requireAdmin, async (req, res) => {
+  res.json({ games: await userRepo.listAllGames() });
+});
+
+// PATCH /admin/games/:id — решение модератора
+app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
+  const { status, version, pendingVersion, note, maxGameScore } = req.body || {};
+
+  if (status !== undefined && !GAME_STATUSES.includes(status)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  if (version !== undefined && version !== null && !isValidGameVersion(version, config.games)) {
+    res.status(400).json({ error: 'invalidVersion' });
+    return;
+  }
+
+  if (
+    pendingVersion !== undefined && pendingVersion !== null &&
+    !isValidGameVersion(pendingVersion, config.games)
+  ) {
+    res.status(400).json({ error: 'invalidVersion' });
+    return;
+  }
+
+  if (!isValidModeratorNote(note, config.games)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  if (maxGameScore !== undefined && maxGameScore !== null && !Number.isInteger(maxGameScore)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  const game = await userRepo.getGame(req.params.id);
+
+  if (!game) {
+    res.status(404).json({ error: 'unknownGame' });
+    return;
+  }
+
+  const patch = { status, version, pendingVersion, note, maxGameScore };
+
+  // самый частый путь одобрения: админ шлёт только status='approved', а
+  // поднять версию на раздачу и очистить очередь — работа сервиса, не
+  // клиента (иначе одобрение требовало бы двух полей и умело бы разъехаться)
+  if (status === 'approved' && version === undefined) {
+    patch.version = game.pendingVersion ?? game.version;
+    patch.pendingVersion = null;
+  }
+
+  res.json({ game: await userRepo.moderateGame(req.params.id, patch, req.user.id) });
 });
 
 // GET /jwks — публичный ключ для верификации identity-токена хостом

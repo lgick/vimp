@@ -30,6 +30,14 @@ by an ESLint rule.
 For day-to-day development link a local checkout of the game instead of
 installing it from the registry — see the next section.
 
+Games are **not** dependencies of this repository: in production the catalog
+comes from the game registry of the central auth service and the master
+downloads approved packages itself (see
+[master.md](master.md#get-gamesmanifestjson-get-gamesid-get-gamesidversion)).
+Locally the registry is not in the way — a game linked into `node_modules`
+always wins over the registry entry with the same id, which is what keeps HMR
+of the game's own sources working.
+
 ## Linking a local game plugin
 
 A registry install is not enough to develop against: the published tarball

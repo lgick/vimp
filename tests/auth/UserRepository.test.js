@@ -1,4 +1,11 @@
-import UserRepository, { NickTakenError, NickAlreadySetError } from '../../packages/auth/src/UserRepository.js';
+import UserRepository, {
+  NickTakenError,
+  NickAlreadySetError,
+  GameExistsError,
+  GameNotFoundError,
+  GameForbiddenError,
+  GameLimitError,
+} from '../../packages/auth/src/UserRepository.js';
 import config from '../../packages/auth/src/config/auth.js';
 import { refreshRatings, msUntilNextRun } from '../../packages/auth/src/db/ratingsJob.js';
 import RankDistribution from '../../packages/auth/src/db/RankDistribution.js';
@@ -919,5 +926,258 @@ describe('ratingsJob', () => {
 
     expect(msUntilNextRun(beforeRun)).toBe(5 * 60 * 1000);
     expect(afterRun + msUntilNextRun(afterRun)).toBe(Date.UTC(2026, 0, 11, 0, 5, 0));
+  });
+});
+
+// ***** РЕЕСТР ИГР И РОЛИ (master-game-registry, этап 1) *****
+
+describe('UserRepository: роли', () => {
+  it('syncRole назначает superadmin по списку окружения', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/UPDATE users/);
+      expect(text).toMatch(/CASE WHEN \$2 THEN 'superadmin'/);
+      expect(values).toEqual([7, true]);
+      return { rows: [{ role: 'superadmin' }] };
+    });
+
+    expect(await new UserRepository(db).syncRole(7, true)).toBe('superadmin');
+  });
+
+  it('syncRole понижает выбывшего из списка и не трогает чужую роль', async () => {
+    const db = createDbStub(text => {
+      // обе ветки понижения/сохранения живут в одном CASE: superadmin,
+      // которого больше нет в списке, становится user, остальные роли
+      // (будущий moderator из админки) остаются как есть
+      expect(text).toMatch(/WHEN role = 'superadmin' THEN 'user'/);
+      expect(text).toMatch(/ELSE role END/);
+      return { rows: [{ role: 'user' }] };
+    });
+
+    expect(await new UserRepository(db).syncRole(7, false)).toBe('user');
+  });
+
+  it('syncRole и getRole отдают user, если строки нет', async () => {
+    const db = createDbStub(() => ({ rows: [] }));
+    const repo = new UserRepository(db);
+
+    expect(await repo.syncRole(1, false)).toBe('user');
+    expect(await repo.getRole(1)).toBe('user');
+  });
+
+  it('getRole читает роль из БД', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/SELECT role FROM users WHERE id = \$1/);
+      expect(values).toEqual([3]);
+      return { rows: [{ role: 'admin' }] };
+    });
+
+    expect(await new UserRepository(db).getRole(3)).toBe('admin');
+  });
+});
+
+describe('UserRepository: реестр игр', () => {
+  const gameRow = {
+    id: 'tanks',
+    'package_name': '@vimp-games/tanks',
+    title: 'VIMP Tanks',
+    'repo_url': 'https://github.com/lgick/vimp-tanks',
+    'author_user_id': null,
+    'author_nick': null,
+    status: 'approved',
+    version: '0.16.1',
+    'pending_version': null,
+    'max_game_score': null,
+    'moderator_note': null,
+    'created_at': 'now',
+    'updated_at': 'now',
+  };
+
+  it('listApprovedGames отдаёт только раздаваемые игры в детерминированном порядке', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/status = 'approved' AND g\.version IS NOT NULL/);
+      expect(text).toMatch(/ORDER BY g\.id/);
+      return { rows: [gameRow] };
+    });
+
+    const games = await new UserRepository(db).listApprovedGames();
+
+    expect(games[0].packageName).toBe('@vimp-games/tanks');
+    expect(games[0].pendingVersion).toBeNull();
+  });
+
+  it('listAllGames добавляет ник модератора и сортирует по свежести', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/m\.nick AS moderator_nick/);
+      expect(text).toMatch(/ORDER BY g\.updated_at DESC/);
+      return { rows: [{ ...gameRow, 'moderator_nick': 'Admin' }] };
+    });
+
+    expect((await new UserRepository(db).listAllGames())[0].moderatorNick).toBe('Admin');
+  });
+
+  it('listGamesByAuthor фильтрует по автору', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/g\.author_user_id = \$1/);
+      expect(values).toEqual([42]);
+      return { rows: [gameRow] };
+    });
+
+    expect(await new UserRepository(db).listGamesByAuthor(42)).toHaveLength(1);
+  });
+
+  it('getGame отдаёт одну игру или null', async () => {
+    const found = createDbStub((text, values) => {
+      expect(values).toEqual(['tanks']);
+      return { rows: [gameRow] };
+    });
+    const missing = createDbStub(() => ({ rows: [] }));
+
+    expect((await new UserRepository(found).getGame('tanks')).id).toBe('tanks');
+    expect(await new UserRepository(missing).getGame('nope')).toBeNull();
+  });
+
+  it('createGame вставляет заявку в pending с запрошенной версией', async () => {
+    const db = createDbStub((text, values) => {
+      if (text.startsWith('SELECT COUNT')) {
+        return { rows: [{ total: 0 }] };
+      }
+
+      expect(text).toMatch(/INSERT INTO games/);
+      expect(text).toMatch(/'pending'/);
+      expect(values).toEqual(['pong', '@dev/pong', 'Pong', null, 42, '1.0.0']);
+
+      return { rows: [{ ...gameRow, id: 'pong', status: 'pending', 'pending_version': '1.0.0' }] };
+    });
+
+    const game = await new UserRepository(db).createGame({
+      id: 'pong',
+      packageName: '@dev/pong',
+      title: 'Pong',
+      version: '1.0.0',
+      authorUserId: 42,
+    });
+
+    expect(game.status).toBe('pending');
+    expect(game.pendingVersion).toBe('1.0.0');
+  });
+
+  it('createGame превращает 23505 в GameExistsError', async () => {
+    const db = createDbStub(text => {
+      if (text.startsWith('SELECT COUNT')) {
+        return { rows: [{ total: 1 }] };
+      }
+
+      const err = new Error('duplicate key');
+      err.code = '23505';
+      throw err;
+    });
+
+    await expect(
+      new UserRepository(db).createGame({
+        id: 'tanks',
+        packageName: '@vimp-games/tanks',
+        version: '1.0.0',
+        authorUserId: 42,
+      }),
+    ).rejects.toThrow(GameExistsError);
+  });
+
+  it('createGame не вставляет ничего сверх лимита заявок', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/^SELECT COUNT/);
+      return { rows: [{ total: config.games.maxPerUser }] };
+    });
+
+    await expect(
+      new UserRepository(db).createGame({
+        id: 'pong',
+        packageName: '@dev/pong',
+        version: '1.0.0',
+        authorUserId: 42,
+      }),
+    ).rejects.toThrow(GameLimitError);
+
+    expect(db.query).toHaveBeenCalledTimes(1); // INSERT не выполнялся
+  });
+
+  it('requestGameVersion обновляет pending_version автора и снимает rejected', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/pending_version = \$2/);
+      expect(text).toMatch(/WHEN status = 'rejected' THEN 'pending'/);
+      expect(text).toMatch(/moderator_note = NULL/);
+      expect(values).toEqual(['pong', '1.1.0', false, 42]);
+
+      return { rows: [{ ...gameRow, id: 'pong', status: 'pending', 'pending_version': '1.1.0' }] };
+    });
+
+    const game = await new UserRepository(db).requestGameVersion('pong', '1.1.0', {
+      userId: 42,
+      isAdmin: false,
+    });
+
+    expect(game.pendingVersion).toBe('1.1.0');
+  });
+
+  it('requestGameVersion пропускает админа мимо проверки автора', async () => {
+    const db = createDbStub((text, values) => {
+      expect(values).toEqual(['pong', '1.1.0', true, 1]);
+      return { rows: [gameRow] };
+    });
+
+    await new UserRepository(db).requestGameVersion('pong', '1.1.0', {
+      userId: 1,
+      isAdmin: true,
+    });
+  });
+
+  it('requestGameVersion различает чужую и несуществующую игру', async () => {
+    const foreign = createDbStub(text =>
+      text.startsWith('UPDATE') ? { rows: [] } : { rows: [gameRow] },
+    );
+    const missing = createDbStub(() => ({ rows: [] }));
+
+    await expect(
+      new UserRepository(foreign).requestGameVersion('tanks', '1.0.0', { userId: 42 }),
+    ).rejects.toThrow(GameForbiddenError);
+
+    await expect(
+      new UserRepository(missing).requestGameVersion('nope', '1.0.0', { userId: 42 }),
+    ).rejects.toThrow(GameNotFoundError);
+  });
+
+  it('moderateGame собирает SET только из переданных ключей и только через плейсхолдеры', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/SET moderator_user_id = \$2, updated_at = now\(\), status = \$3, version = \$4/);
+      expect(text).not.toMatch(/pending_version/);
+      expect(text).not.toMatch(/moderator_note/);
+      expect(text).not.toMatch(/approved/); // значения не попадают в текст SQL
+      expect(values).toEqual(['pong', 1, 'approved', '1.1.0']);
+
+      return { rows: [{ ...gameRow, id: 'pong', version: '1.1.0' }] };
+    });
+
+    const game = await new UserRepository(db).moderateGame(
+      'pong',
+      { status: 'approved', version: '1.1.0' },
+      1,
+    );
+
+    expect(game.version).toBe('1.1.0');
+  });
+
+  it('moderateGame принимает null (снятие замечания) и бросает на неизвестной игре', async () => {
+    const withNull = createDbStub((text, values) => {
+      expect(text).toMatch(/moderator_note = \$3/);
+      expect(values).toEqual(['pong', 1, null]);
+      return { rows: [gameRow] };
+    });
+
+    await new UserRepository(withNull).moderateGame('pong', { note: null }, 1);
+
+    const missing = createDbStub(() => ({ rows: [] }));
+
+    await expect(
+      new UserRepository(missing).moderateGame('nope', { status: 'disabled' }, 1),
+    ).rejects.toThrow(GameNotFoundError);
   });
 });

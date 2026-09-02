@@ -250,3 +250,33 @@ describe('LobbyAuthModel: loginUrl', () => {
     );
   });
 });
+
+// роль из payload (master-game-registry, этап 4): подсказка интерфейсу —
+// показывать ли кнопку «Модерация». Право проверяют мастер и auth-сервис
+describe('LobbyAuthModel: getRole', () => {
+  it('отдаёт роль из токена', () => {
+    model.boot(`?token=${makeToken({ sub: 'u1', nick: 'Vanya', role: 'admin' })}`);
+
+    expect(model.getRole()).toBe('admin');
+  });
+
+  it('токен без роли — обычный игрок', () => {
+    model.boot(`?token=${makeToken({ sub: 'u1', nick: 'Vanya' })}`);
+
+    expect(model.getRole()).toBe('user');
+  });
+
+  it('протухший токен роли не даёт (сессии нет вовсе)', () => {
+    model.boot(
+      `?token=${makeToken({
+        sub: 'u1',
+        nick: 'Vanya',
+        role: 'admin',
+        exp: Math.floor(Date.now() / 1000) - 10,
+      })}`,
+    );
+
+    expect(model.getToken()).toBeNull();
+    expect(model.getRole()).toBe('user');
+  });
+});

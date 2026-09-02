@@ -19,9 +19,12 @@ function loadKeys() {
 }
 
 // полноценный токен личности: sub (user id) + nick, короткоживущий —
-// хост проверяет подпись по /jwks и берёт ник из токена (не свободный ввод)
-function signIdentityToken({ sub, nick }) {
-  return jwt.sign({ nick }, loadKeys().privateKey, {
+// хост проверяет подпись по /jwks и берёт ник из токена (не свободный ввод).
+// role (master-game-registry, этап 1) — подсказка КЛИЕНТУ, показывать ли
+// вкладку модерации; сами админские ручки перечитывают роль из БД. Поле
+// аддитивно: уже выданные токены без него читаются как 'user'
+function signIdentityToken({ sub, nick, role }) {
+  return jwt.sign({ nick, role: role ?? 'user' }, loadKeys().privateKey, {
     subject: String(sub),
     algorithm: 'RS256',
     keyid: config.jwt.keyId,

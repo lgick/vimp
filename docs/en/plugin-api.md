@@ -149,6 +149,25 @@ name is resolved against the plugin's package, not against the engine's
 bundle. The base reaches a part through the `assetsBase` service — declare
 it in `componentDependencies` (see [client.md](client.md), "Providers").
 
+**The master rewrites these URLs in the manifest it serves.** A game build
+knows nothing about the address its version will be served from, while the
+master keeps several versions of one game on disk at once and serves them
+under `/games/<id>/<version>/`. So `rebaseManifest` moves `assetsBase` and
+`entries.client`/`host`/`wasm` onto that versioned base and **adds
+`mapsBase`** (`/games/<id>/<version>/maps`) — the lobby reads map URLs from
+that field and falls back to `/games/<id>/maps` when it is absent (dev,
+standalone, dedicated on the `node_modules` path). It is the same trick that
+already points entries at Vite `/@fs/` sources in dev.
+
+Two consequences for a game author:
+
+- **`entries.wasmNode` is never rewritten** — it is a path inside `dist/`
+  for Node, not a URL.
+- an entry that does **not** sit under the manifest's own `assetsBase` (an
+  absolute URL to your own CDN, say) is left exactly as written rather than
+  "fixed" — and a package whose manifest is malformed is refused at intake by
+  the master's structural check, which never executes plugin code.
+
 ## Form schema
 
 A single field-descriptor contract, shared by the room-creation form

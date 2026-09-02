@@ -572,6 +572,48 @@ describe('register_host', () => {
     expect(reply.codeVersion.game).toEqual({ id: 'tanks', version: 'tanks-v3' });
   });
 
+  it('комната на застейдженной версии регистрируется скрытой (этап 3.5)', async () => {
+    const staged = new SignalingServer(registry, {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      heartbeatTimeout: 1000,
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      mapsVersion: 'fallback-version',
+      codeVersion: 'code-test',
+      jwksProxy,
+      hostRatingProxy,
+      issuer: ISSUER,
+      gameCatalog: {
+        getManifest: () => ({ version: 'tanks-v3', maps: { version: 'm1' } }),
+        isStaged: (id, version) => id === 'tanks' && version === 'tanks-v4',
+      },
+    });
+
+    const ws = new FakeWs();
+
+    staged.handleConnection(ws, {
+      headers: { origin: 'https://localhost:3001', 'x-region': 'EU' },
+      socket: { remoteAddress: '4.4.4.4' },
+    });
+    await nextTick();
+
+    ws.message({
+      type: 'register_host',
+      name: 'Test room',
+      gameId: 'tanks',
+      gameVersion: 'tanks-v4',
+      token: signToken(1),
+    });
+    await staged.idle();
+
+    const hostId = ws.lastSent().hostId;
+
+    expect(registry.get(hostId).hidden).toBe(true);
+    expect(registry.getList().servers).toEqual([]);
+    expect(registry.getList({ includeHidden: true }).servers).toHaveLength(1);
+  });
+
   it('без gameId или для неизвестной игры — fallback на статичный mapsVersion', async () => {
     const { ws } = await connectHost();
 

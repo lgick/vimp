@@ -101,13 +101,17 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
+          # ники админов платформы (модерация игр): роль пишется в БД при
+          # каждом выпуске токена, поэтому список правится переменной, а не
+          # руками в базе
+          VIMP_ADMIN_NICKS: ${{ vars.VIMP_ADMIN_NICKS }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ vars.AUTH_SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: AUTH_SERVICE_URL,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: AUTH_SERVICE_URL,VIMP_ADMIN_NICKS,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             set -e
 
@@ -129,8 +133,24 @@ jobs:
             echo "🔐 Logging into GHCR..."
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
+            # Список админов приезжает каждым деплоем: .env.prod auth-стека
+            # пишется один раз при провижининге (add-server.sh), а env_file
+            # читается только при СОЗДАНИИ контейнера — поэтому строку
+            # переписываем идемпотентно и пересоздаём контейнер ниже. Та же
+            # ловушка описана для VIMP_AUTH_ALLOWED_ORIGINS в
+            # docs/en/deployment.md
+            echo "🔑 Updating VIMP_ADMIN_NICKS..."
+            touch .env.prod
+            grep -v '^VIMP_ADMIN_NICKS=' .env.prod > .env.prod.next || true
+            echo "VIMP_ADMIN_NICKS=${VIMP_ADMIN_NICKS}" >> .env.prod.next
+            mv .env.prod.next .env.prod
+            chmod 600 .env.prod
+
             echo "🚀 Pulling and Restarting..."
             docker compose pull
+            # --force-recreate: без пересоздания изменённый env_file
+            # контейнер не перечитает
+            docker compose up -d --force-recreate auth
             docker compose up -d
 
             # миграции идемпотентны (CREATE TABLE/INDEX IF NOT EXISTS), поэтому
@@ -155,27 +175,22 @@ jobs:
             echo "✅ Auth service deployed for ${AUTH_DOMAIN}"
 
   # ====================================================
-  # 2. ПОДГОТОВКА СПИСКА СЕРВЕРОВ И ИГР
+  # 2. ПОДГОТОВКА СПИСКА СЕРВЕРОВ
   # ====================================================
   prepare-matrix:
     runs-on: ubuntu-latest
     outputs:
       servers: ${{ steps.set-matrix.outputs.matrix }}
-      games: ${{ steps.set-matrix.outputs.games }}
     steps:
       - uses: actions/checkout@v6.0.2
       - id: set-matrix
         env:
           # Конфигурации из GitHub Repository Variables
           SERVERS_JSON: ${{ vars.SERVERS_MATRIX }}
-          GAMES_JSON:  ${{ vars.GAMES_MATRIX }}
         run: |
           # Формат JSON в одну строку
           JSON=$(echo "$SERVERS_JSON" | jq -c .)
           echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
-
-          G_JSON=$(echo "$GAMES_JSON" | jq -c .)
-          echo "games=$G_JSON" >> "$GITHUB_OUTPUT"
 
   # ====================================================
   # 3. ДЕПЛОЙ НА КАЖДЫЙ СЕРВЕР
@@ -205,8 +220,10 @@ jobs:
           # общий для всех мастеров central auth-сервис (Этап B6); задаётся
           # один раз в Settings → Variables, см. docs/en/deployment.md
           VIMP_AUTH_SERVICE_URL: ${{ vars.AUTH_SERVICE_URL }}
-          # Берем уже подготовленный, очищенный от переносов JSON игр из предыдущего джоба
-          GAMES_MATRIX: ${{ needs.prepare-matrix.outputs.games }}
+          # корень хранилища игровых пакетов: мастер качает одобренные игры
+          # из npm registry сам, поэтому путь должен переживать пересоздание
+          # контейнера — это смонтированный том (см. volumes ниже)
+          VIMP_GAMES_DIR: /var/vimp/games
           # необязательное поле матрицы: задано — бокс поднимается
           # dedicated-сервером одной игры (без лобби и OAuth), пусто —
           # обычным лобби-мастером, см. docs/en/deployment.md
@@ -220,7 +237,7 @@ jobs:
           # Передача переменных окружения внутрь скрипта SSH.
           # Имя, не перечисленное здесь, ssh-action не пробрасывает — пропуск
           # VIMP_DEDICATED_GAME означает молчаливый старт в лобби-режиме
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GAMES_MATRIX,VIMP_DEDICATED_GAME,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,VIMP_GAMES_DIR,VIMP_DEDICATED_GAME,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             # Остановка выполнения при любой критической ошибке
             set -e
@@ -255,9 +272,7 @@ jobs:
               if [ -n "$VIMP_AUTH_SERVICE_URL" ]; then
                 echo "VIMP_AUTH_SERVICE_URL=$VIMP_AUTH_SERVICE_URL"
               fi
-              if [ -n "$GAMES_MATRIX" ]; then
-                echo "GAMES_MATRIX=$GAMES_MATRIX"
-              fi
+              echo "VIMP_GAMES_DIR=$VIMP_GAMES_DIR"
               if [ -n "$VIMP_DEDICATED_GAME" ]; then
                 echo "VIMP_DEDICATED_GAME=$VIMP_DEDICATED_GAME"
               fi
@@ -279,6 +294,13 @@ jobs:
               # СЛЕВА: Порт на сервере (уникальный из JSON, например 3005)
               # СПРАВА: Порт мастера внутри контейнера (всегда 3002)
               echo "      - \"127.0.0.1:${VIMP_PORT}:3002\""
+              # хранилище скачанных игровых пакетов переживает пересоздание
+              # контейнера: иначе каждый деплой заново тянул бы из npm все
+              # игры каталога
+              echo "    volumes:"
+              echo "      - \"vimp-games:${VIMP_GAMES_DIR}\""
+              echo "volumes:"
+              echo "  vimp-games:"
             } > docker-compose.yml
 
             echo "🚀 Pulling and Restarting..."

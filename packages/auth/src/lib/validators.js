@@ -37,3 +37,50 @@ export const clampLimit = (value, fallback, max) => {
 
   return Number.isInteger(num) ? Math.min(Math.max(num, 1), max) : fallback;
 };
+
+// ***** РЕЕСТР ИГР (master-game-registry, этап 1) *****
+//
+// Пределы и шаблоны приходят аргументом (config.games), а не импортом
+// конфига: файл остаётся набором чистых функций, проверяемых без окружения.
+// Отдельная функция на поле — чтобы роут отвечал своим кодом ошибки на
+// каждое поле, а не общим badRequest
+
+// сегмент URL раздачи /games/<id>/<version>/ — обязан совпадать с
+// manifest.id пакета
+export const isValidGameId = (id, { idPattern }) =>
+  typeof id === 'string' && idPattern.test(id);
+
+export const isValidPackageName = (name, { packagePattern }) =>
+  typeof name === 'string' && packagePattern.test(name);
+
+// строгий semver-триплет: версия становится сегментом URL и именем каталога
+// на диске мастера (этап 2), диапазоны и теги здесь недопустимы
+export const isValidGameVersion = (version, { versionPattern }) =>
+  typeof version === 'string' && versionPattern.test(version);
+
+// title и repoUrl необязательны: пустое значение — это отсутствие значения
+export const isValidGameTitle = (title, { maxTitleLength }) =>
+  title === undefined || title === null ||
+  (typeof title === 'string' && title.trim().length > 0 && title.length <= maxTitleLength);
+
+// только http(s): ссылка показывается в лобби, javascript:/data: там не место
+export const isValidRepoUrl = (url, { maxUrlLength }) => {
+  if (url === undefined || url === null) {
+    return true;
+  }
+
+  if (typeof url !== 'string' || url.length > maxUrlLength) {
+    return false;
+  }
+
+  try {
+    return ['http:', 'https:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+};
+
+// замечание модератора: пустое считается снятием замечания (null)
+export const isValidModeratorNote = (note, { maxNoteLength }) =>
+  note === undefined || note === null ||
+  (typeof note === 'string' && note.length <= maxNoteLength);

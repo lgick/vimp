@@ -1,0 +1,35 @@
+//- Реестр игр в лобби (master-game-registry, этап 4): разработчик подаёт
+//- заявку и следит за её статусом, админ модерирует и играет в черновик.
+//- Панель скрыта по умолчанию — открывается кнопками бейджа пользователя
+//- (#lobby-user в lobby.pug); id элементов перечислены в config/lobby.js
+div#games-panel(style='display:none')
+  div.lobby-column
+    div.card#games-mine
+      div.games-head
+        h3.lobby-section-title= 'Мои игры'
+        input#games-close(type='button', value='Назад в лобби')
+      ul#games-mine-list.games-list
+      form#games-submit-form
+        div.form-row
+          label.form-label(for='games-field-id')= 'Идентификатор игры'
+          input#games-field-id.field-text(type='text', name='id', maxlength='32', autocomplete='off')
+        div.form-row
+          label.form-label(for='games-field-package')= 'npm-пакет'
+          input#games-field-package.field-text(type='text', name='packageName', maxlength='214', autocomplete='off')
+        div.form-row
+          label.form-label(for='games-field-version')= 'Версия'
+          input#games-field-version.field-text(type='text', name='version', maxlength='64', autocomplete='off')
+        div.form-row
+          label.form-label(for='games-field-repo')= 'Ссылка на репозиторий'
+          input#games-field-repo.field-text(type='text', name='repoUrl', maxlength='256', autocomplete='off')
+        div.form-row
+          label.form-label(for='games-field-title')= 'Название'
+          input#games-field-title.field-text(type='text', name='title', maxlength='64', autocomplete='off')
+        div#games-submit-error.form-error
+        input#games-submit(type='submit', value='Отправить на модерацию')
+
+    div.card#games-moderation(style='display:none')
+      h3.lobby-section-title= 'Модерация'
+      div#games-filters.games-filters
+      ul#games-admin-list.games-list
+      div#games-admin-error.form-error

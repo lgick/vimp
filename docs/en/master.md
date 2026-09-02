@@ -36,12 +36,20 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/main.js` | entry point: the fork between the lobby master and the [dedicated server](dedicated.md) (`VIMP_DEDICATED_GAME`) |
 | `packages/engine/src/master/lobby.js` | the lobby master itself: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
 | `packages/engine/src/master/httpSecurity.js` | baseline security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP in production), shared with the dedicated server |
-| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; applied by the lobby and the dedicated server alike |
+| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; applied by the lobby and the dedicated server alike |
 | `packages/engine/src/master/HostRegistry.js` | room registry `Map<hostId, HostSession>`: registration (max 1 room per IP), heartbeat/`lastSeen`, cached `rating`, selection for `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | signaling WebSocket: connection lifecycle, WebRTC message routing, ping rate limiting |
 | `packages/engine/src/master/MapCatalog.js` | map catalog: an in-memory JSON representation of the game plugin's `src/data/maps` (e.g. `vimp-tanks`'s) plus a content version hash; served to hosts without a rebuild |
 | `packages/engine/src/master/WorkerCatalog.js` | worker bundle catalog: a content version hash of `dist/assets/host.worker-*.js` plus its URL; hosts use it to detect a new code version and swap the Worker via a handoff |
-| `packages/engine/src/master/GameCatalog.js` | game-plugin catalog: resolves the `master:games` config list (`{id, package}[]`) to packages under `node_modules/` and reads `<package>/dist/manifest.json` (built by `npm run build` in the game repository) plus a per-game `MapCatalog` from `<package>/dist/maps/*.json`; in dev, `entries.client/host/wasm` are swapped for Vite `/@fs/` source URLs (HMR) — see [plugin-api.md](plugin-api.md#gamemanifest) |
+| `packages/engine/src/master/GameCatalog.js` | game-plugin catalog, **mutable**: `upsert`/`setActive`/`remove` are the single entry point for both sources — the `master:games` config list (`{id, package}[]` resolved under `node_modules/`) and `GameSync`. An entry is addressed by `id` + npm version, so two versions of one game live in it at once (players on the approved one, an admin testing another); in dev, `entries.client/host/wasm` are swapped for Vite `/@fs/` source URLs (HMR) — see [plugin-api.md](plugin-api.md#gamemanifest) |
+| `packages/engine/src/master/GameRegistryProxy.js` | client of the auth service's game registry (`/games`, `/games/mine`, `/admin/games`) — like `PlayerDataProxy` it caches nothing and interprets nothing, returning `{status, json}` |
+| `packages/engine/src/master/GameStore.js` | game package store on disk (`VIMP_GAMES_DIR`, `<dir>/<id>/<npmVersion>/`): downloads an approved version from the npm registry, verifies its `integrity`, unpacks `package/dist` and validates it structurally. `ensure`/`inspect` never throw — a network failure, a 404, a broken archive and a failed check all return `{ok: false, errors}` |
+| `packages/engine/src/master/npmRegistry.js` | the npm registry half of the store: packument fetch, version resolution, tarball download with an `integrity`/`shasum` check, `tar` extraction with size and file-count ceilings |
+| `packages/engine/src/master/gamePackageCheck.js` | structural validation of a downloaded package **without executing its code** (manifest shape, `id` match, entries under `assetsBase`, maps): the master never imports a plugin half — see [publishing.md](publishing.md) for the full `vimp-contract`, which is the developer's tool |
+| `packages/engine/src/master/rebaseManifest.js` | rewrites `assetsBase`/`entries` of a served manifest onto the versioned base `/games/<id>/<version>/` and adds `mapsBase`; `entries.wasmNode` is deliberately left alone (a filesystem path, not a URL) |
+| `packages/engine/src/master/GameSync.js` | keeps the catalog in step with the registry: one pass asks the registry, downloads what is missing, updates the catalog and prunes the disk; polled on a timer (`master:gameStore:refreshInterval`). A registry outage never empties the catalog — a stale catalog beats an empty one |
+| `packages/engine/src/master/adminAuth.js` | authorization of the master's REST routes: the same JWKS signature and issuer policy as the signaling path, plus the `role` claim for `/admin/*` |
+| `packages/engine/src/master/gameRoutes.js` | handlers of the registry routes: a developer's submission and its status, the moderation panel, and staging (`Test`) a version into the catalog |
 | `packages/engine/src/master/JwksProxy.js` | proxies `GET /jwks` of the central auth service under the master's own origin, cached (TTL) — see [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | proxies per-user `GET`/`PUT /rank` and `/state` of the central auth service, **not cached** (Stage B4) — see [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); also the public `GET /leaderboard` and the per-user `GET /placement` (lobby page plan) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/LeaderboardCache.js` | keyed TTL cache (`game:limit:period`) in front of `PlayerDataProxy.getLeaderboard` (code review L2) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
@@ -108,21 +116,37 @@ freshly registered room until the first `register_host`/vote/periodic-poll
 round trip sets it; a blocked hoster can't register a room at all, so a
 `blocked` flag isn't part of this response.
 
-### GET /games/manifest.json, GET /games/:id/manifest.json, GET /games/:id/maps/\*
+### GET /games/manifest.json, GET /games/:id/…, GET /games/:id/:version/…
 
-The `GameManifest` catalog (`GameCatalog`, Stage A2 — see
-[plugin-api.md](plugin-api.md#gamemanifest)):
-at master startup, resolves the `master:games` config list (`{id, package}[]`,
-see [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
-overridable via the `GAMES_MATRIX` env var, and outside production extended
-with the built `@vimp-games/*` packages found in `node_modules`,
-`src/master/localGames.js`) to packages under
-`node_modules/` (a workspace symlink onto `games/<id>` until the repos split,
-an ordinary dependency after) and reads `<package>/dist/manifest.json` (built
-by `npm run build` in the game repository), one entry per game plugin. A game whose
-`manifest.id` differs from its configured id is skipped with a warning (the
-static mount builds paths from the id); a map file with broken JSON is
-skipped with a warning instead of crashing the master.
+The `GameManifest` catalog (`GameCatalog` — see
+[plugin-api.md](plugin-api.md#gamemanifest)). It has **two sources**, and the
+regular one is the registry:
+
+1. **The game registry of the central auth service** (`GameSync` +
+   `GameStore`). Every `master:gameStore:refreshInterval` the master asks
+   `GET /games` of the auth service for the approved games and the version to
+   serve, downloads what it does not have yet from the npm registry into
+   `VIMP_GAMES_DIR` (`<dir>/<id>/<npmVersion>/`), validates the package
+   structurally **without executing its code** (`gamePackageCheck.js`) and
+   upserts it into the catalog. Adding a game or raising its version needs
+   neither an image rebuild nor a restart. A registry outage, a broken archive
+   or a failed check leave what already works in place: a stale catalog beats
+   an empty one, and the reason is kept per game (`GameSync.lastError`) for the
+   moderation panel.
+2. **`master:games`** (`{id, package, maxGameScore?}[]`, see
+   [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
+   overridable via the `GAMES_MATRIX` env var, and outside production extended
+   with the built `@vimp-games/*` packages found in `node_modules`,
+   `src/master/localGames.js`) — resolved to packages under `node_modules/`
+   and read from `<package>/dist/manifest.json`. This is the local
+   development path (`npm link` plus HMR) and the self-hosted master without a
+   registry. **A locally linked game always wins**: `GameSync` skips a
+   registry entry whose id is linked, so nobody is quietly sent to edit files
+   that go nowhere.
+
+A game whose `manifest.id` differs from its configured id is skipped with a
+warning (the static mount builds paths from the id); a map file with broken
+JSON is skipped with a warning instead of crashing the master.
 
 A game is **never** dropped for its `engineApi`: the version gate is gone
 (`plan/plugin-forward-compat`). A game whose manifest asks — via
@@ -140,9 +164,11 @@ see it); the lobby renders a game that carries it disabled, with `text` as the
 tooltip, so an unavailable game reads as an error instead of an empty lobby.
 
 Each served manifest is additionally given two fields the build does not
-write: `packageVersion` and `packageUrl`, read off the resolved package's own
-`package.json` (`repository`, else `homepage`) and normalised to https by
-`resolveProjectUrl` (`src/lib/packageLink.js`). The client shows them in the
+write: `packageVersion` and `packageUrl`. On the `node_modules` path they are
+read off the resolved package's own `package.json` (`repository`, else
+`homepage`) and normalised to https by `resolveProjectUrl`
+(`src/lib/packageLink.js`); for a game from the registry they come from the
+registry row instead, because a published tarball carries only `dist/`. The client shows them in the
 entry form's footer (see [client.md](client.md)). They are supplied here
 rather than by the game's build because a new manifest field only reaches
 players once every game repo patches its `build-game-manifest.js`, rebuilds
@@ -153,7 +179,8 @@ only the footer goes blank, and contract rule `A7` warns about the missing
 field. The dedicated server reuses the same `GameCatalog`, so its `#auth`
 footer is filled the same way.
 
-- `GET /games/manifest.json` → a JSON array of every known game's manifest.
+- `GET /games/manifest.json` → a JSON array of the manifests the catalog
+  **serves** (the active version of each game), ordered by id.
 - `GET /games/:id/manifest.json` → one game's manifest; unknown id →
   `404 { "error": "unknownGame" }`.
 - `GET /games/:id/maps/manifest.json` / `GET /games/:id/maps/:name` —
@@ -164,7 +191,64 @@ footer is filled the same way.
   consumes the catalog — see [host.md](host.md#dynamic-maps).
 - `GET /games/:id/*` — the game's built assets (`dist/`: hashed client/host
   bundles, the shared hashed `.wasm`, sounds) are served as static files
-  under `assetsBase` (`/games/<id>/`), mounted from `GameCatalog.getDistDir(id)`.
+  under `assetsBase`, mounted from `GameCatalog.getDistDir(id)`.
+
+#### Versioned URL space
+
+A game downloaded from the registry is addressed by **id + npm version**:
+`/games/<id>/<version>/manifest.json`, `/games/<id>/<version>/maps/*` and
+`/games/<id>/<version>/*` for its assets. That is what lets an admin play a
+staged version while everybody else plays the approved one — the same master
+serves both at once. The version segment must look like a version
+(`1.2.3`, optionally with a `-`/`+` suffix), otherwise the path is handed on
+to the static middleware, so `/games/tanks/assets/…` still resolves.
+
+The master **rewrites the manifest it serves**: `rebaseManifest` moves
+`assetsBase` and `entries.client/host/wasm` onto `/games/<id>/<version>/` and
+adds `mapsBase` (`/games/<id>/<version>/maps`), which is where the lobby reads
+map URLs from (`src/config/lobby.js`). `entries.wasmNode` is left untouched —
+it is a filesystem path for the dedicated server, not a URL. This is the same
+trick the catalog already uses in dev to point entries at Vite `/@fs/`
+sources. An entry that does not sit under the manifest's own `assetsBase` is
+left alone rather than "fixed".
+
+The unversioned aliases above stay, and resolve to the version currently
+served. Three consumers need them: tabs opened before a version change, the
+dev / standalone / dedicated paths where a manifest carries no `mapsBase` at
+all, and hosts running older builds.
+
+#### Registry routes (submission and moderation)
+
+Handlers live in `gameRoutes.js`, authorization in `adminAuth.js`; **every
+write goes to the auth service**, which re-reads the caller's role from the
+database — the master validates and serves packages, it never decides who may
+publish.
+
+| Route | Access | What it does |
+| --- | --- | --- |
+| `GET /games/mine` | any logged-in user | the caller's own submissions with their status and the moderator's note |
+| `POST /games/submit` | any logged-in user | a new game submission: the package is downloaded and checked **before** the row is written, so the developer gets the list of problems at once and the registry does not fill up with unusable entries |
+| `POST /games/mine/:id/version` | the game's owner | a new version of an already registered game, checked the same way |
+| `GET /admin/games` | `role=admin` | the whole moderation queue plus this master's local state per game (`downloaded`, `stagedVersion`, `lastError`) |
+| `GET /admin/games/manifest.json` | `role=admin` | manifests of the staged (not served) versions — the admin's tab puts them into its own catalog and opens a room on one |
+| `POST /admin/games/:id/stage` | `role=admin` | "Test": download a version and put it into the catalog **inactive** |
+| `PATCH /admin/games/:id` | `role=admin` | the moderator's decision (status, served version, note, `maxGameScore`); on success the master runs a sync pass at once, so the admin sees the result immediately while other masters pick it up within `refreshInterval` |
+| `GET /admin/games/:id/versions` | `role=admin` | what the npm registry has published for the package — the "there is a newer version" indicator |
+
+An auth-service failure is `502 { "error": "authServiceUnavailable" }` on
+every one of them.
+
+A room opened on a staged version is **hidden**: `register_host` marks the
+session `hidden` when `GameCatalog.isStaged(gameId, gameVersion)` holds, and
+`GET /servers` never lists it — a test room is reachable only by its link, so
+players do not walk into an unapproved build. The check is done on
+`manifest.version` (the bundle hash the host reports), because the host knows
+nothing of npm versions.
+
+The per-game score ceiling (`maxGameScore`, clamped onto `PUT /auth/rank`)
+comes from the **registry row an admin filled in**, not from the manifest —
+otherwise a game would raise its own ceiling. `master:games` may carry it as
+the fallback for the self-hosted path.
 
 In dev, `entries.client`/`entries.host`/`entries.wasm` are rewritten to Vite
 `/@fs/` absolute source paths (the resolved package's `src/client/index.js`
@@ -412,9 +496,9 @@ the very host being checked.
 
 **Observability**: a blocked hoster is logged to the master's console
 (`[rating] hoster ... blocked (score ...)`) — this is the only place it's
-visible from the master side (there's no admin UI; vote reasons are never
-exposed, they only exist as an audit trail in the auth service's
-`host_votes.reason` column).
+visible from the master side (the lobby's admin panel covers game moderation
+only; vote reasons are never exposed, they only exist as an audit trail in the
+auth service's `host_votes.reason` column).
 
 ## Protection
 
@@ -427,7 +511,7 @@ exposed, they only exist as an audit trail in the auth service's
 
 ## Tests
 
-`tests/master/` (a node Vitest project): `HostRegistry.test.js` (registration and `hosterUserId` attribution, per-IP limit, heartbeat/cleanup, all `GET /servers` selection logic including `gameId/name` search — lobby page plan, `gameId`/`gameVersion` storage, cached `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — stage 3), `SignalingServer.test.js` (connection lifecycle, routing of every signaling message on fake ws sockets, identity-token verification against a real RSA-signed JWKS, rate limiting, rating-vote membership checks and blocking, stale-host cleanup, `mapsVersion`/`codeVersion` in `host_registered`, per-game `mapsVersion` via a `gameCatalog` stub, `rating` cached on register/vote and `refreshRatings()`'s periodic poll — stage 3), `MapCatalog.test.js` (manifest, map serving, version stability), `WorkerCatalog.test.js` (bundle version hash and URL, empty catalog in dev, picking the newest of several), `GameCatalog.test.js` (resolving configured `{id, package}` entries to `node_modules/<package>/dist/manifest.json`, per-game map catalogs, unbuilt/unknown games, dev `/@fs/` entry rewriting), `JwksProxy.test.js` (proxying, TTL caching/expiry, upstream failure — injected `fetchImpl`), `PlayerDataProxy.test.js` (proxying GET/PUT `/rank`+`/state`, the public `getLeaderboard` (no `Authorization` header, `limit` in the query) and the per-user `getPlacement` — lobby page plan, no caching, upstream failure — injected `fetchImpl`), `LeaderboardCache.test.js` (miss calls the proxy, hit within TTL doesn't, refetch after TTL expiry, non-200 responses aren't cached, `game`/`limit` are separate cache keys — injected `now`, code review L2), `HostRatingProxy.test.js` (proxying GET `/host-rating` + PUT `/host-rating/:hosterUserId` with a Bearer token, `getPublic`'s unauthenticated `GET /host-rating/:hosterUserId`, no caching, upstream failure — injected `fetchImpl`). Rate limiter — `tests/lib/rateLimiter.test.js`.
+`tests/master/` (a node Vitest project): `HostRegistry.test.js` (registration and `hosterUserId` attribution, per-IP limit, heartbeat/cleanup, all `GET /servers` selection logic including `gameId/name` search — lobby page plan, `gameId`/`gameVersion` storage, cached `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — stage 3), `SignalingServer.test.js` (connection lifecycle, routing of every signaling message on fake ws sockets, identity-token verification against a real RSA-signed JWKS, rate limiting, rating-vote membership checks and blocking, stale-host cleanup, `mapsVersion`/`codeVersion` in `host_registered`, per-game `mapsVersion` via a `gameCatalog` stub, `rating` cached on register/vote and `refreshRatings()`'s periodic poll — stage 3), `MapCatalog.test.js` (manifest, map serving, version stability), `WorkerCatalog.test.js` (bundle version hash and URL, empty catalog in dev, picking the newest of several), `GameCatalog.test.js` (resolving configured `{id, package}` entries to `node_modules/<package>/dist/manifest.json`, per-game map catalogs, unbuilt/unknown games, dev `/@fs/` entry rewriting), `JwksProxy.test.js` (proxying, TTL caching/expiry, upstream failure — injected `fetchImpl`), `PlayerDataProxy.test.js` (proxying GET/PUT `/rank`+`/state`, the public `getLeaderboard` (no `Authorization` header, `limit` in the query) and the per-user `getPlacement` — lobby page plan, no caching, upstream failure — injected `fetchImpl`), `LeaderboardCache.test.js` (miss calls the proxy, hit within TTL doesn't, refetch after TTL expiry, non-200 responses aren't cached, `game`/`limit` are separate cache keys — injected `now`, code review L2), `HostRatingProxy.test.js` (proxying GET `/host-rating` + PUT `/host-rating/:hosterUserId` with a Bearer token, `getPublic`'s unauthenticated `GET /host-rating/:hosterUserId`, no caching, upstream failure — injected `fetchImpl`). The registry direction adds `GameRegistryProxy.test.js` (every registry call, token pass-through), `npmRegistry.test.js` (packument, version resolution, `integrity`/`shasum` mismatch, size and file-count ceilings), `gamePackageCheck.test.js` (the structural rules, no code executed), `GameStore.test.js` (download, idempotent `ensure`, staging never reaching the served tree, `prune`), `GameSync.test.js` (a pass, a registry outage leaving the catalog alone, a locally linked game winning, per-game `lastError`), `rebaseManifest.test.js` (versioned base, `wasmNode` untouched), `adminAuth.test.js` (signature, issuer, the `role` claim) and `lobbyGamesRoutes.test.js` (the submission and moderation handlers on stub dependencies). Rate limiter — `tests/lib/rateLimiter.test.js`.
 
 ---
 

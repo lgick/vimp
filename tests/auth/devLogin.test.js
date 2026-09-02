@@ -11,17 +11,15 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
 
 const ORIGIN = 'https://localhost:3002';
 
-// подписывает тем же способом, что lib/jwt.js, но одноразовым ключом —
-// тест не зависит от .keys/ на диске (как tests/auth/jwt.test.js)
-const jwtLib = {
-  signIdentityToken: ({ sub, nick }) =>
-    jwt.sign({ nick }, privateKey, {
-      subject: String(sub),
-      algorithm: 'RS256',
-      issuer: 'vimp-auth',
-      expiresIn: '4h',
-    }),
-};
+// подписывает тем же способом, что main.js issueIdentityToken, но одноразовым
+// ключом — тест не зависит от .keys/ на диске (как tests/auth/jwt.test.js)
+const issueIdentityToken = ({ id, nick }) =>
+  jwt.sign({ nick, role: 'user' }, privateKey, {
+    subject: String(id),
+    algorithm: 'RS256',
+    issuer: 'vimp-auth',
+    expiresIn: '4h',
+  });
 
 const isAllowedReturnUrl = returnUrl => {
   try {
@@ -42,7 +40,7 @@ function createRes() {
 }
 
 function createHandler(userRepo) {
-  return createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick });
+  return createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick });
 }
 
 describe('devLogin', () => {

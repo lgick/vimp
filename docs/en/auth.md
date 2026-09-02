@@ -65,10 +65,21 @@ these are set (`src/main.js`):
 In dev, `VIMP_AUTH_ALLOWED_ORIGINS` defaults to the dev master's origin
 (`https://localhost:3002`).
 
+`VIMP_ADMIN_NICKS` is optional in every mode (master-game-registry stage 1):
+a CSV of nicks that are granted `role = 'superadmin'` on every login and
+demoted back to `'user'` once they leave the list (`parseAdminNicks` in
+`src/config/auth.js`, matched case-insensitively — a nick is globally unique
+and case-insensitive, so the list is provider-independent). An empty value
+means "no admins" and must not fail: in production that is the legitimate
+state until the first setup.
+
 ## Schema
 
 ```
-users:           id, provider, provider_uid, nick(UNIQUE), created_at
+users:           id, provider, provider_uid, nick(UNIQUE), role, created_at
+games:           id, package_name, title, repo_url, author_user_id, status,
+                 version, pending_version, max_game_score, moderator_note,
+                 moderator_user_id, created_at, updated_at    ← game registry
 ratings:         user_id, game_id, rank, updated_at            ← denormalized cache
 rank_events:     id, user_id, game_id, hoster_user_id, session_id,
                  delta, best, voided, created_at               ← append-only ledger
@@ -91,6 +102,25 @@ case-insensitively (`002_nick_case_insensitive.sql`, a `UNIQUE INDEX` on
 `lower(nick)` on top of the plain `UNIQUE(nick)`) so `"Admin"` and `"admin"`
 can't coexist. `packages/auth/src/UserRepository.js` is the only module
 touching these tables.
+
+**The game registry** (master-game-registry stage 1, `009_games.sql`) lives
+here rather than on a master because moderation must be one per platform, not
+one per master (`SERVERS_MATRIX`). `status` is `pending` | `approved` |
+`rejected` | `disabled`; `version` is the approved version masters serve
+(`NULL` until the first approval) and `pending_version` the one under review —
+there is deliberately no `testing` status, because "a game under test" is
+simply a game that has a `pending_version` while players keep playing
+`version`. `max_game_score` caps a single match's result for that game
+(`NULL` — the engine default). `lower(package_name)` is unique: two rows for
+one npm package would mean the same code served under two ids. Like every
+migration here it is idempotent and re-runnable, and it seeds the two games
+that already exist (`ON CONFLICT DO NOTHING`) so the lobby never empties.
+
+`users.role` is `'user'` by default. At stage 1 the source of truth is
+`VIMP_ADMIN_NICKS`: `syncRole` writes it on every token issue in one
+statement, and its `CASE` only ever demotes a `superadmin` that dropped out of
+the list — a role assigned in the database (a moderator appointed from the
+admin UI later) is left alone.
 
 **The ledger of game results** (server-rating stage 1, `003_rank_ledger.sql`;
 snakes-v3, `007_game_results.sql`): `ratings.rank` is a cache, not the source
@@ -227,6 +257,12 @@ also reverted by the snapshot restore.
 | `GET /oauth/:provider/callback` | exchanges `code`, finds/creates the user by `(provider, providerUid)`, re-checks the decoded `returnUrl` origin, then redirects to it with either `?token=` (nick already set — full identity JWT) or `?pendingToken=` (first login — nick not chosen yet) |
 | `GET /dev/login?nick=&returnUrl=` **(dev only)** | skips OAuth entirely: finds/creates the user as `('dev', nick)`, sets the nick on first login (`setNick`'s `nick IS NULL` guard makes repeats a no-op) and redirects to `returnUrl` with `?token=` — exactly the shape `/oauth/:provider/callback` produces, so the client path is unchanged. The nick goes through the same `isValidNick`, the return URL through the same allow-list check as OAuth (no open redirect with a valid token). Registered **only** when `NODE_ENV !== 'production'`; in production the route does not exist (`404`). Handler — `src/devLogin.js`, see [getting-started.md](getting-started.md#central-auth-service-needed-to-reach-the-lobby) |
 | `POST /nick` (Bearer pending token, `{ nick }`) | CORS-enabled for `VIMP_AUTH_ALLOWED_ORIGINS` origins (preflight `OPTIONS` too — the only endpoint called directly from the browser lobby, not proxied by a master), rate-limited per IP; rejects an identity token (`403 nickAlreadySet` — a pending token is required, so `/nick` can't rename an existing user); validates the nick against `NAME_REGEXP` (case-insensitively unique — see Schema) and sets it, returns `{ token }` (full identity JWT). `409 { error: 'nickTaken' }` on a race |
+| `GET /games` (no auth — master-game-registry) | `{ games: [...] }` — the catalog a master builds from: approved games that have a servable `version`, ordered by `id` (a deterministic order matters — the first game becomes the active one in the lobby). Unauthenticated for the same reason as `/leaderboard`: the platform's game list is public lobby data |
+| `GET /games/mine` (Bearer identity token) | the caller's own submissions with `status`, `pendingVersion` and `moderatorNote` |
+| `POST /games` (Bearer, `{ id, packageName, title?, repoUrl?, version }`) | a developer's submission: `201 { game }`, created as `pending` with `pendingVersion = version`. Rate-limited per IP (5/60s). Each field answers with its own code — `400 invalidGameId` \| `invalidPackageName` \| `invalidVersion` \| `invalidTitle` \| `invalidRepoUrl` — `409 gameExists` for a taken `id` or an already registered package (both are the same `23505`), `403 tooManyGames` above `config.games.maxPerUser` |
+| `POST /games/:id/version` (Bearer — author or admin) | `{ version }` → `{ game }`: stages a new version for review without touching the served `version`, clears `moderatorNote` and lifts `rejected` back to `pending`. `404 unknownGame`, `403 forbidden` for someone else's game |
+| `GET /admin/games` (Bearer, admin) | the whole moderation queue, freshest first, with author and moderator nicks |
+| `PATCH /admin/games/:id` (Bearer, admin, `{ status?, version?, pendingVersion?, note?, maxGameScore? }`) | a moderator's decision — only the keys present are written. `status: 'approved'` without an explicit `version` promotes `pendingVersion` to `version` and clears it (the common path must not need two fields). `404 unknownGame` |
 | `GET /jwks` | RS256 public key as a JWK — a host verifies `token`'s signature against this before trusting its `nick` |
 | `GET /rank?game=` (Bearer identity token) | `{ rank }` — the `ratings` cache for that game: the clamped all-time sum of the caller's non-voided `rank_events` **as of the last daily job**, not as of now |
 | `PUT /rank?game=` (Bearer, `{ points, best, hosterUserId?, sessionId? }`) | appends one GAME-RESULT ledger row attributed to the reporting server/session and answers `{ ok: true }` — nothing is recomputed on the hot path, so returning a rank here would be a lie (`all` is a daily snapshot). Both numbers must be non-negative integers with `best <= config.rank.maxGameScore`, `points <= config.rank.maxPoints` and `best <= points`, else `400 invalidRank`. `delta` is still accepted as an alias of `points` for one version (an older host has no `best`, and its `points` is read as a single game). `hosterUserId`/`sessionId` are meant to be stamped by the caller's *master*, not the browser host itself — see [master.md](master.md#getput-authrank-getput-authstate) |
@@ -258,7 +294,8 @@ same convention (`SignalingServer.handleConnection`), and a proxy that fails to
 set `X-Real-IP` collapses every client into one bucket — see
 [deployment.md](deployment.md#required-proxy-header-x-real-ip).
 
-The identity JWT (`src/lib/jwt.js`) carries `sub` (user id) and `nick`,
+The identity JWT (`src/lib/jwt.js`) carries `sub` (user id), `nick` and
+`role`,
 signed RS256, short-lived (`config.jwt.expiresIn`, 4 hours by default — long
 enough to outlast a match; the client also checks `exp` when restoring a
 persisted token, see Lobby login below) and verified with
@@ -266,6 +303,14 @@ persisted token, see Lobby login below) and verified with
 `POST /nick`) instead carries `pending: true` and no nick — `requireAuth` in
 `src/main.js` rejects it on every other endpoint, and `/nick` itself rejects
 the opposite case (an identity token, i.e. `pending` missing).
+
+`role` (master-game-registry stage 1) is additive: tokens already in players'
+`localStorage` carry no `role` and are read as `'user'`, and the engine's
+verifier (`packages/engine/src/lib/jwt.js`) checks `alg`/`iss`/`exp`/`nick`
+and the signature only. The claim exists **for the client** — to show the
+moderation tab. `requireAdmin` in `src/main.js` re-reads the role from the
+database on every admin request instead of trusting the claim: the token
+lives four hours, and a demotion has to take effect immediately.
 
 ## Modules
 
@@ -275,9 +320,9 @@ the opposite case (an identity token, i.e. `pending` missing).
 | `src/config/auth.js` | port/domain, JWT key paths, DB connection string, OAuth provider config |
 | `src/lib/jwt.js` | RS256 sign/verify (identity + pending tokens), JWKS export |
 | `src/lib/oauthState.js` | signed stateless OAuth `state` param (return URL + CSRF nonce) |
-| `src/devLogin.js` | dev-only login handler factory (`createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick })`) — dependencies injected so it is unit-testable without Express or a live database; wired in `main.js` behind `if (!isProduction)` |
-| `src/lib/validators.js` | nick regexp, duplicated from `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — the two workspaces don't share a runtime dependency |
-| `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions, read the leaderboard/placement for a game (lobby page plan) |
+| `src/devLogin.js` | dev-only login handler factory (`createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick })`) — dependencies injected so it is unit-testable without Express or a live database; wired in `main.js` behind `if (!isProduction)` |
+| `src/lib/validators.js` | nick regexp, game-submission field checks (id/package/version/title/repo URL, taking `config.games` as an argument so the file stays a set of pure functions), duplicated from `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — the two workspaces don't share a runtime dependency |
+| `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions, read the leaderboard/placement for a game (lobby page plan), sync/read a user's role and the whole game registry — list/get/create a game, request a version, apply a moderator's partial patch (master-game-registry) |
 | `src/oauth/github.js`, `src/oauth/index.js` | provider registry; `getAuthorizationUrl`/`exchangeCode` shape, extensible for Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, a minimal idempotent migration runner (`CREATE TABLE IF NOT EXISTS`, no version table yet) |
 
@@ -431,7 +476,13 @@ needed for unit tests, incl. the `nick IS NULL` rename guard, and the
 `voteHost`/`getHostRating` cases: first vote, unchanged repeat vote as a
 no-op, an opinion flip, clamping into `config.rating` and setting `blocked`;
 `getLeaderboard`/`getPlacement` — single-query SQL shape, tied-`rank`
-competition ranking, an empty game), `devLogin.test.js` (redirect carries a
+competition ranking, an empty game; the game registry and roles — all three
+`CASE` branches of `syncRole`, the catalog/queue/author queries, `createGame`
+with a duplicate and over the per-author limit (no `INSERT` at all in that
+case), `requestGameVersion` as author/admin/stranger and its `rejected` →
+`pending` lift, and `moderateGame` building its `SET` from the passed keys
+only, with every value a placeholder), `adminNicks.test.js` (`VIMP_ADMIN_NICKS`
+parsing — case, spaces, a trailing comma, an empty value), `devLogin.test.js` (redirect carries a
 token that verifies against a throwaway RSA key pair, the nick is set only on
 the first login, an invalid nick and a foreign-origin `returnUrl` are both
 rejected before any write).

@@ -466,7 +466,8 @@
     "entries.wasm",
     "entries.wasmNode",
     "id",
-    "requires"
+    "requires",
+    "version"
   ],
   "ports": {
     "client": {

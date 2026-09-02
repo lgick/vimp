@@ -62,6 +62,47 @@ describe('gameActivator.createGameActivator', () => {
     expect(loadClientPlugin).toHaveBeenCalledTimes(1);
   });
 
+  it('две версии одной игры дают два разных плагина (master-game-registry)', async () => {
+    const v1 = { parts: { a: 1 } };
+    const v2 = { parts: { a: 2 } };
+    const loadClientPlugin = vi.fn().mockResolvedValueOnce(v1).mockResolvedValueOnce(v2);
+    const gamesById = new Map([['tanks', { id: 'tanks', version: 'hash-1' }]]);
+    const activate = createGameActivator({ gamesById, loadClientPlugin });
+
+    await expect(activate('tanks')).resolves.toMatchObject({ plugin: v1 });
+
+    // админ переключился на застейдженную версию: манифест той же игры, но
+    // другой хеш бандла — кеш обязан промахнуться
+    gamesById.set('tanks', { id: 'tanks', version: 'hash-2' });
+
+    await expect(activate('tanks')).resolves.toMatchObject({ plugin: v2 });
+    expect(loadClientPlugin).toHaveBeenCalledTimes(2);
+  });
+
+  it('повторный вызов с той же версией не грузит второй раз', async () => {
+    const loadClientPlugin = vi.fn().mockResolvedValue({});
+    const gamesById = new Map([['tanks', { id: 'tanks', version: 'hash-1' }]]);
+    const activate = createGameActivator({ gamesById, loadClientPlugin });
+
+    await activate('tanks');
+    await activate('tanks');
+
+    expect(loadClientPlugin).toHaveBeenCalledTimes(1);
+  });
+
+  it('отказ вычищается по версионному ключу', async () => {
+    const loadClientPlugin = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValue({ parts: {} });
+    const gamesById = new Map([['tanks', { id: 'tanks', version: 'hash-1' }]]);
+    const activate = createGameActivator({ gamesById, loadClientPlugin });
+
+    await expect(activate('tanks')).rejects.toThrow('network');
+    await expect(activate('tanks')).resolves.toMatchObject({ manifest: { version: 'hash-1' } });
+    expect(loadClientPlugin).toHaveBeenCalledTimes(2);
+  });
+
   it('не кеширует отказ — следующий вызов пробует снова', async () => {
     const plugin = { parts: {} };
     const loadClientPlugin = vi

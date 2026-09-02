@@ -48,18 +48,43 @@ VIMP_DEDICATED_GAME=tanks npm start          # production (HTTP behind Nginx)
 list — here the host runs in this very process, so a change to it must
 restart the server.
 
-The game package must be installed (or `npm link`-ed) and **built**, its node
-core included: the process imports the host plugin as a normal ES module and
-loads `entries.wasmNode` (`core/pkg-node`, `npm run core:build:node` in the
-game repository). Without it the server refuses to start with a named error
+### Resolving the game
+
+`VIMP_DEDICATED_GAME` is read as `<id>` or `<id>@<version>` — an exact
+version is a pin, without one the server takes the version the registry
+serves. The resolution order is:
+
+1. **The package is in `master:games` / `node_modules`** (an ordinary
+   dependency or `npm link`) — the local path, nothing is downloaded. This is
+   the development path and the one that keeps HMR of the game itself
+   working.
+2. **Otherwise, with `VIMP_AUTH_SERVICE_URL` set** — the server asks the
+   registry (`GET /games`) for the row with that id and downloads the package
+   into its own store (`VIMP_GAMES_DIR`, `GameStore`), validating it
+   structurally without executing its code, exactly as a lobby master does.
+   **A production dedicated box therefore needs the store volume mounted**,
+   see [deployment.md](deployment.md#dedicated-game-box-dedicatedgame).
+3. **Neither** — the process exits with a named error listing both ways:
+
+   ```
+   dedicated: game "<id>" is not available — link it into node_modules or
+   set VIMP_AUTH_SERVICE_URL so the server can fetch it from the registry
+   ```
+
+Whichever path supplied it, the package must be **built** with its node core:
+the process imports the host plugin as a normal ES module and loads
+`entries.wasmNode` (`core/pkg-node`, `npm run core:build:node` in the game
+repository). Without it the server refuses to start with a named error
 instead of a raw resolver failure.
 
 | Variable | Meaning |
 | --- | --- |
-| `VIMP_DEDICATED_GAME` | game id from `master:games`; also the switch that selects this role |
+| `VIMP_DEDICATED_GAME` | the game: `<id>` or `<id>@<version>`; also the switch that selects this role |
 | `VIMP_MASTER_PORT` | HTTP + WebSocket port (default `3002`) |
 | `VIMP_DOMAIN` | production domain — used for `Origin` validation |
-| `GAMES_MATRIX` | JSON `[{id, package}]`, the game catalog (same format as the master's) |
+| `VIMP_AUTH_SERVICE_URL` | the central auth service — the registry the game is fetched from when it is not linked locally |
+| `VIMP_GAMES_DIR` | root of the downloaded-package store (a mounted volume in production) |
+| `GAMES_MATRIX` | JSON `[{id, package}]`, the static game catalog (same format as the master's) |
 | `VIMP_DEDICATED_ROOM` | JSON room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
 
 Unlike the lobby master, the dedicated server reads these **in development
@@ -93,6 +118,13 @@ The same URLs the master serves, but always for exactly one game:
 - `GET /games/:id/manifest.json`;
 - `GET /games/:id/maps/manifest.json`, `GET /games/:id/maps/:name`;
 - `/games/:id/*` → static files from the package's `dist/`.
+
+A game fetched from the registry is additionally served under its versioned
+addresses — `/games/:id/:version/manifest.json`, `…/maps/*` and `…/*` — the
+same space the lobby master uses, because those are exactly the URLs the
+rebased manifest points at (see
+[master.md](master.md#versioned-url-space)). On the `node_modules` path there
+is no version segment and only the unversioned aliases exist.
 
 The client half of the game and its `.wasm` are loaded by the browser from
 those URLs exactly as in the lobby contour, so `GameCatalog` is reused

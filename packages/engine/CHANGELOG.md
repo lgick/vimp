@@ -9,6 +9,38 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- The engine's game catalog is empty by default: the list of games comes from
+  the registry of the central auth service, not from `master:games` /
+  `GAMES_MATRIX`. The master downloads an approved package from the npm
+  registry, validates it structurally without executing its code, and serves
+  it from disk — adding a game no longer rebuilds or redeploys anything.
+- Game asset URLs are versioned (`/games/<id>/<version>/…`). The master
+  rewrites `assetsBase` and `entries` of the manifest it serves and adds
+  `mapsBase`, so two versions of one game can be served side by side.
+- `maps.manifestUrl` / `maps.baseUrl` of the lobby config take a manifest, not
+  a `gameId`.
+
+### Migration
+
+- Run migration `009_games.sql` on the auth service.
+- Set `VIMP_ADMIN_NICKS` (auth service) and `VIMP_GAMES_DIR` (every master),
+  and mount a volume for the package store.
+- Drop the `GAMES_MATRIX` variable — or keep it if the master runs without a
+  registry: the static config and the `node_modules` auto-discovery still work.
+
+### Added
+
+- User roles and a game moderation panel in the lobby.
+- A game registry in the auth service (`/games`, `/admin/games`).
+- A game package store on the master: download from the npm registry with an
+  integrity check, structural validation without executing game code, and
+  on-the-fly catalog synchronisation.
+- The dedicated server resolves its game itself: `VIMP_DEDICATED_GAME` takes
+  `<id>` or `<id>@<version>` and, when the game is not linked into
+  `node_modules`, fetches it from the registry into `VIMP_GAMES_DIR`.
+
 ## [0.24.2] — 2026-08-29
 
 ### Fixed

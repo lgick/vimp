@@ -3,6 +3,7 @@ import path from 'node:path';
 import { checkPluginCompatibility } from '../lib/gamePlugin.js';
 import { resolveProjectUrl } from '../lib/packageLink.js';
 import MapCatalog from './MapCatalog.js';
+import { rebaseManifest } from './rebaseManifest.js';
 
 // Каталог игр-плагинов мастера (Этап A2 плана разделения): по конфигу
 // `master:games` ({id, package}[]) резолвит директорию пакета в node_modules
@@ -11,6 +12,14 @@ import MapCatalog from './MapCatalog.js';
 // Мастер не исполняет код игры (только уже собранный манифест + статичные
 // JSON карт). Пакет игры — обычная npm-зависимость (`@vimp-games/tanks` и т.п.),
 // не workspace-член этого репозитория (Этап A3).
+//
+// Каталог ИЗМЕНЯЕМ (master-game-registry, этап 3): конструктор — только один
+// из источников (node_modules локальной разработки и dedicated-сервера),
+// а GameSync добавляет и снимает игры на лету по реестру auth-сервиса.
+// Запись адресуется парой id + npm-версия пакета, поэтому две версии одной
+// игры живут в каталоге одновременно: админ играет в застейдженную, игроки —
+// в одобренную. Индекс `_active` говорит, какая версия каждой игры считается
+// раздаваемой; всё, что не активно, — «на тесте» (см. isStaged).
 //
 // Гейта по `engineApi` здесь больше нет (этап 5 плана
 // plugin-forward-compat): игра любого возраста попадает в manifestList.
@@ -24,13 +33,15 @@ import MapCatalog from './MapCatalog.js';
 // уже собран/установлен один раз перед первым запуском (см. CLAUDE.md).
 export default class GameCatalog {
   /**
-   * @param {{id: string, package: string}[]} games - список игр из конфига (`master:games`)
+   * @param {{id: string, package: string, maxGameScore?: number}[]} games - список игр из конфига (`master:games`)
    * @param {string} nodeModulesDir - директория node_modules, где резолвятся пакеты игр
    * @param {{dev?: boolean}} [options]
    */
   constructor(games, nodeModulesDir, { dev = false } = {}) {
-    this._games = new Map(); // id -> { manifest, mapCatalog }
-    this._distDirs = new Map(); // id -> абсолютный путь к dist/ пакета
+    // `${id}@${version ?? ''}` -> { version, manifest, mapCatalog, distDir, maxGameScore }
+    this._entries = new Map();
+    this._active = new Map(); // id -> version активной записи (null у node_modules-пути)
+    this._manifestList = '[]';
 
     for (const game of games) {
       // Разбор ОДНОЙ игры целиком под try: инвариант «битая игра не уносит
@@ -44,15 +55,11 @@ export default class GameCatalog {
         console.warn(`GameCatalog: skip "${game.id}" — ${err.message}`);
       }
     }
-
-    this._manifestList = JSON.stringify(
-      [...this._games.values()].map(g => g.manifest),
-    );
   }
 
-  // одна игра каталога: манифест, метаданные пакета, вердикт совместимости,
-  // карты. Бросает — вызывающий пропускает игру и продолжает с остальными
-  _addGame({ id, package: pkg }, nodeModulesDir, dev) {
+  // одна игра каталога из node_modules: манифест, метаданные пакета, карты.
+  // Бросает — вызывающий пропускает игру и продолжает с остальными
+  _addGame({ id, package: pkg, maxGameScore }, nodeModulesDir, dev) {
     const gameDir = path.join(nodeModulesDir, pkg);
     const distDir = path.join(gameDir, 'dist');
     const manifestPath = path.join(distDir, 'manifest.json');
@@ -81,7 +88,55 @@ export default class GameCatalog {
     // доезжает до игроков только через правку скрипта сборки каждой игры и
     // её перепубликацию, тогда как package.json лежит рядом с уже
     // установленным пакетом и верен по определению
-    const withPackage = { ...manifest, ...this._readPackageMeta(gameDir) };
+    const meta = this._readPackageMeta(gameDir);
+
+    this.upsert({
+      id: manifest.id,
+      // без версии в ключе: node_modules-путь держит ровно одну сборку игры,
+      // и раздаётся она по неверсионному /games/<id>/ (ребейза нет)
+      version: null,
+      distDir,
+      manifest: dev ? this._toDevManifest(manifest, gameDir) : manifest,
+      packageVersion: meta.packageVersion,
+      packageUrl: meta.packageUrl,
+      maxGameScore,
+      active: true,
+    });
+  }
+
+  /**
+   * Добавляет или заменяет запись каталога. Единственный вход для обоих
+   * источников — node_modules (конструктор) и реестра auth (GameSync).
+   * @param {Object} entry - Описание версии игры.
+   * @param {string} entry.id - Идентификатор игры (сегмент URL).
+   * @param {string|null} [entry.version] - npm-версия пакета; null — node_modules-путь.
+   * @param {string} entry.distDir - Абсолютный путь к dist/ этой версии.
+   * @param {Object} entry.manifest - Манифест из dist/manifest.json.
+   * @param {string|null} [entry.packageVersion] - Версия пакета для футера.
+   * @param {string|null} [entry.packageUrl] - Адрес проекта игры для футера.
+   * @param {number|null} [entry.maxGameScore] - Потолок результата одной игры.
+   * @param {boolean} [entry.active] - Делать ли версию раздаваемой.
+   * @returns {void}
+   */
+  upsert({
+    id,
+    version = null,
+    distDir,
+    manifest,
+    packageVersion,
+    packageUrl,
+    maxGameScore = null,
+    active = false,
+  }) {
+    const withPackage = { ...manifest };
+
+    if (packageVersion !== undefined) {
+      withPackage.packageVersion = packageVersion ?? null;
+    }
+
+    if (packageUrl !== undefined) {
+      withPackage.packageUrl = packageUrl ?? null;
+    }
 
     // игра просит возможность, которой в этой сборке движка нет (этап 5
     // плана plugin-forward-compat): она ОСТАЁТСЯ в каталоге с пометкой
@@ -94,17 +149,129 @@ export default class GameCatalog {
       withPackage.compat = compat;
     }
 
-    this._games.set(manifest.id, {
-      manifest: dev ? this._toDevManifest(withPackage, gameDir) : withPackage,
+    this._entries.set(this._key(id, version), {
+      version,
+      // версионный URL раздачи: на диске рядом лежат несколько версий игры,
+      // и один assetsBase на всех адресовал бы их вперемешку. У
+      // node_modules-пути версии в ключе нет — там раздача неверсионная
+      manifest: version ? rebaseManifest(withPackage, `/games/${id}/${version}/`) : withPackage,
       mapCatalog: new MapCatalog(this._readMaps(path.join(distDir, 'maps'))),
+      distDir,
+      maxGameScore: Number.isInteger(maxGameScore) && maxGameScore > 0 ? maxGameScore : null,
     });
-    this._distDirs.set(manifest.id, distDir);
+
+    if (active) {
+      this._active.set(id, version);
+    }
+
+    this._rebuild();
+  }
+
+  /**
+   * Делает уже известную версию раздаваемой.
+   * @param {string} id - Идентификатор игры.
+   * @param {string|null} version - Версия из upsert.
+   * @returns {boolean} Была ли такая версия в каталоге.
+   */
+  setActive(id, version) {
+    if (!this._entries.has(this._key(id, version))) {
+      return false;
+    }
+
+    this._active.set(id, version);
+    this._rebuild();
+
+    return true;
+  }
+
+  /**
+   * Убирает версию игры (или игру целиком).
+   * @param {string} id - Идентификатор игры.
+   * @param {string|null} [version] - Версия; не задана — все версии игры.
+   * @returns {boolean} Удалено ли хоть что-нибудь.
+   */
+  remove(id, version) {
+    if (version === undefined) {
+      let removed = false;
+
+      for (const key of [...this._entries.keys()]) {
+        if (key.slice(0, key.lastIndexOf('@')) === id) {
+          this._entries.delete(key);
+          removed = true;
+        }
+      }
+
+      this._active.delete(id);
+      this._rebuild();
+
+      return removed;
+    }
+
+    const removed = this._entries.delete(this._key(id, version));
+
+    if (this._active.get(id) === version) {
+      this._active.delete(id);
+    }
+
+    this._rebuild();
+
+    return removed;
+  }
+
+  /**
+   * Комната поднята на версии, которая в каталоге есть, но не раздаётся, —
+   * то есть это тестовая комната админа (master-game-registry, этап 3.5).
+   * Сверка идёт по manifest.version (хеш бандла): именно его хост шлёт в
+   * register_host, npm-версии он не знает.
+   * @param {string} id - Идентификатор игры.
+   * @param {string} manifestVersion - `manifest.version` из register_host.
+   * @returns {boolean} Застейдженная ли это версия.
+   */
+  isStaged(id, manifestVersion) {
+    if (!manifestVersion) {
+      return false;
+    }
+
+    const activeVersion = this._active.get(id);
+
+    for (const [key, entry] of this._entries) {
+      if (key.slice(0, key.lastIndexOf('@')) !== id) {
+        continue;
+      }
+
+      if (entry.version !== activeVersion && entry.manifest.version === manifestVersion) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Все неактивные версии каталога — очередь «на тесте» админского роута.
+   * @returns {{id: string, version: string|null, manifest: Object}[]} Записи.
+   */
+  stagedManifests() {
+    const staged = [];
+
+    for (const [key, entry] of this._entries) {
+      const id = key.slice(0, key.lastIndexOf('@'));
+
+      if (entry.version !== this._active.get(id)) {
+        staged.push({ id, version: entry.version, manifest: entry.manifest });
+      }
+    }
+
+    return staged;
   }
 
   // package.json пакета игры: версия и адрес проекта (уже нормализованный —
   // клиенту остаётся только подпись). Пакета без манифеста здесь уже быть не
   // может, но битый/отсутствующий package.json — не повод выкидывать игру из
-  // каталога: без этих полей пустеет только футер
+  // каталога: без этих полей пустеет только футер.
+  //
+  // Для скачанных из реестра игр этот путь не работает и не нужен: в тарболле
+  // лежит только dist/, а версию и адрес проекта присылает сам реестр
   _readPackageMeta(gameDir) {
     let meta;
 
@@ -175,25 +342,61 @@ export default class GameCatalog {
     }
   }
 
-  get ids() {
-    return [...this._games.keys()];
+  _key(id, version) {
+    return `${id}@${version ?? ''}`;
   }
 
-  // манифесты всех известных игр — готовая JSON-строка (массив)
+  // активная запись игры, либо конкретная версия, если она названа
+  _resolve(id, version) {
+    if (version === undefined || version === null) {
+      return this._active.has(id)
+        ? this._entries.get(this._key(id, this._active.get(id)))
+        : undefined;
+    }
+
+    return this._entries.get(this._key(id, version));
+  }
+
+  // manifestList пересчитывается при каждом изменении каталога и содержит
+  // только активные манифесты в порядке по id: первая игра списка становится
+  // активной в лобби (client/main.js), и этот выбор не должен зависеть от
+  // порядка, в котором реестр или диск отдали игры
+  _rebuild() {
+    this._manifestList = JSON.stringify(
+      [...this._active.keys()]
+        .sort((a, b) => a.localeCompare(b))
+        .map(id => this._resolve(id)?.manifest)
+        .filter(Boolean),
+    );
+  }
+
+  // id игр, которые каталог раздаёт (активные записи)
+  get ids() {
+    return [...this._active.keys()].sort((a, b) => a.localeCompare(b));
+  }
+
+  // манифесты всех раздаваемых игр — готовая JSON-строка (массив)
   get manifestList() {
     return this._manifestList;
   }
 
-  getManifest(id) {
-    return this._games.get(id)?.manifest;
+  getManifest(id, version) {
+    return this._resolve(id, version)?.manifest;
   }
 
-  getMapCatalog(id) {
-    return this._games.get(id)?.mapCatalog;
+  getMapCatalog(id, version) {
+    return this._resolve(id, version)?.mapCatalog;
   }
 
-  // абсолютный путь к dist/ игры — под него мастер монтирует статику
-  getDistDir(id) {
-    return this._distDirs.get(id);
+  // абсолютный путь к dist/ игры — из него мастер раздаёт статику
+  getDistDir(id, version) {
+    return this._resolve(id, version)?.distDir;
+  }
+
+  // Потолок результата ОДНОЙ игры, объявленный АДМИНОМ в реестре (или
+  // конфигом мастера для node_modules-пути). Из манифеста его брать нельзя:
+  // игра завысила бы себе потолок сама
+  getMaxGameScore(id) {
+    return this._resolve(id)?.maxGameScore ?? null;
   }
 }

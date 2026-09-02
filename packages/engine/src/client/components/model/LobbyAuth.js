@@ -117,6 +117,14 @@ export default class LobbyAuthModel {
     return this._nick;
   }
 
+  // роль из payload уже проверенного на срок токена (master-game-registry,
+  // этап 4). Это ПОДСКАЗКА ИНТЕРФЕЙСУ — показывать ли кнопку модерации, — а
+  // не право: доступ к данным проверяет мастер по подписи, а запись —
+  // auth-сервис, перечитывая роль из БД
+  getRole() {
+    return decodeJwtPayload(this._identityToken)?.role ?? 'user';
+  }
+
   _restore(tokenStorageKey) {
     const token = localStorage[tokenStorageKey];
 

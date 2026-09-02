@@ -50,9 +50,5 @@
     "globals": "^16.2.0",
     "happy-dom": "^20.10.6",
     "vitest": "^4.1.9"
-  },
-  "dependencies": {
-    "@vimp-games/snakes": "^0.9.1",
-    "@vimp-games/tanks": "^0.16.1"
   }
 }

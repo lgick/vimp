@@ -625,10 +625,21 @@ export async function rollOutProduction({
   tags,
   engineApi = null,
 }) {
-  ui.log('прод: перепин плагинов и пуш в main');
+  ui.log('прод: пуш в main');
 
-  for (const game of games) {
-    await shell.write('npm', ['i', `${game.name}@${game.target}`], { cwd: root });
+  // Пинов игр в корневом package.json больше нет (master-game-registry,
+  // этап 5): каталог платформы приезжает из реестра auth-сервиса, а версию
+  // раздачи поднимает не релиз движка
+  if (games.length) {
+    ui.raw('');
+    ui.raw(
+      '  прод: игры больше не пинятся в package.json — новую версию поднимает',
+    );
+    ui.raw(
+      '  разработчик в лобби («Мои игры» → «Обновить»), админ подтверждает в',
+    );
+    ui.raw('  «Модерации»');
+    ui.raw('');
   }
 
   await writePinSnapshot(shell, root);
@@ -642,13 +653,15 @@ export async function rollOutProduction({
     await simGame(shell, root, game, { engineApi, strict: true });
   }
 
+  // коммитится только снимок пинов шаблона: package.json корня релиз больше
+  // не трогает — игр в его зависимостях нет
   await commit(
     shell,
     root,
     games.length
       ? `chore: bump ${games.map(game => `${game.name} to ${game.target}`).join(', ')}`
       : `chore: refresh ${SCAFFOLD_NAME} pins`,
-    ['package.json', 'package-lock.json', PIN_SNAPSHOT],
+    [PIN_SNAPSHOT],
   );
 
   const pending = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {

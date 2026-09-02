@@ -324,17 +324,36 @@ dist/
 
 ## How the master serves it
 
-The master resolves each configured game (`{ id, package }`) to
-`node_modules/<package>/dist`, reads `manifest.json`, loads every
-`dist/maps/*.json`, and mounts the directory:
+In production the master gets its catalog from the **game registry of the
+central auth service**: it asks for the approved games and the version to
+serve, downloads each package from the npm registry into its own store
+(`VIMP_GAMES_DIR/<id>/<npmVersion>/`), unpacks `package/dist` and validates it
+**structurally, without ever importing or executing plugin code**. Only the
+built `manifest.json` and `dist/maps/*.json` are read. Locally (and on a
+self-hosted master without a registry) the same catalog is filled from
+`{ id, package }` entries resolved to `node_modules/<package>/dist`, and a
+linked package always wins over the registry entry with the same id.
+
+`packageVersion` is the **npm version of your package** — the registry row
+carries it, and the master serves that version's files under a versioned
+prefix. Two versions of one game can therefore be served at once (players on
+the approved one, an admin testing a new one):
 
 | Route | Returns |
 | --- | --- |
-| `GET /games/manifest.json` | array of all compatible game manifests |
-| `GET /games/:id/manifest.json` | one manifest |
+| `GET /games/manifest.json` | array of the manifests currently served |
+| `GET /games/:id/manifest.json` | one manifest (the served version) |
 | `GET /games/:id/maps/manifest.json` | map catalog version + list |
 | `GET /games/:id/maps/:name` | one map JSON |
 | `GET /games/:id/*` | static mount of the package's `dist/` |
+| `GET /games/:id/:version/…` | the same four, for one exact npm version |
+
+The manifest the master returns is **rewritten**: `assetsBase` and
+`entries.client`/`host`/`wasm` are moved onto `/games/<id>/<version>/` and a
+`mapsBase` field is added. `entries.wasmNode` is left alone — it is a path
+inside `dist/` for Node, not a URL. Write `entries` under your own
+`assetsBase` and this is transparent to you; an entry pointing elsewhere is
+left exactly as written.
 
 A game is skipped (with a `console.warn`, not an exception) when
 `manifest.json` is missing or `manifest.id` ≠ the configured id. Skipped means

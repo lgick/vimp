@@ -255,3 +255,175 @@ describe('GameCatalog', () => {
     );
   });
 });
+
+
+// ***** ИЗМЕНЯЕМЫЙ ВЕРСИОННЫЙ КАТАЛОГ (master-game-registry, этап 3) *****
+//
+// Каталог перестал быть снимком стартового конфига: GameSync добавляет и
+// снимает игры на лету, а две версии одной игры живут в нём одновременно —
+// админ тестирует новую, пока игроки играют в одобренную.
+
+// dist/ скачанной версии на диске: манифест + карта
+const writeVersion = (id, version, manifest = { ...fixtureManifest, id }) => {
+  const distDir = path.join(nodeModulesDir, '.games', id, version);
+  const mapsDir = path.join(distDir, 'maps');
+
+  fs.mkdirSync(mapsDir, { recursive: true });
+  fs.writeFileSync(path.join(distDir, 'manifest.json'), JSON.stringify(manifest));
+  fs.writeFileSync(path.join(mapsDir, 'arena.json'), JSON.stringify({ setId: 'c1' }));
+
+  return { distDir, manifest };
+};
+
+const upsertVersion = (catalog, id, version, overrides = {}) => {
+  const { distDir, manifest } = writeVersion(id, version, overrides.manifest);
+
+  catalog.upsert({
+    id,
+    version,
+    distDir,
+    manifest,
+    packageVersion: version,
+    packageUrl: null,
+    ...overrides,
+  });
+
+  return distDir;
+};
+
+describe('GameCatalog: изменяемый версионный каталог', () => {
+  it('upsert добавляет игру и делает версию активной', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+
+    expect(catalog.ids).toEqual(['tanks']);
+    expect(catalog.getManifest('tanks').assetsBase).toBe('/games/tanks/0.16.1/');
+    expect(catalog.getMapCatalog('tanks').get('arena')).toBeTruthy();
+  });
+
+  it('ребейз применён к скачанной игре и не применён к node_modules-пути', () => {
+    writeManifest('tanks', fixtureManifest);
+
+    const catalog = new GameCatalog(tanksGames, nodeModulesDir);
+
+    // node_modules-путь раздаётся по неверсионному /games/<id>/
+    expect(catalog.getManifest('tanks').assetsBase).toBe('/games/tanks/');
+    expect(catalog.getManifest('tanks').mapsBase).toBeUndefined();
+
+    upsertVersion(catalog, 'snakes', '0.9.1', {
+      active: true,
+      manifest: { ...fixtureManifest, id: 'snakes', assetsBase: '/games/snakes/' },
+    });
+
+    const snakes = catalog.getManifest('snakes');
+
+    expect(snakes.assetsBase).toBe('/games/snakes/0.9.1/');
+    expect(snakes.mapsBase).toBe('/games/snakes/0.9.1/maps');
+  });
+
+  it('две версии одной игры сосуществуют, активна одна', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0', {
+      manifest: { ...fixtureManifest, version: 'next-hash' },
+    });
+
+    expect(catalog.getManifest('tanks').assetsBase).toBe('/games/tanks/0.16.1/');
+    expect(catalog.getManifest('tanks', '0.17.0').assetsBase).toBe('/games/tanks/0.17.0/');
+    expect(JSON.parse(catalog.manifestList)).toHaveLength(1);
+    expect(catalog.stagedManifests().map(({ version }) => version)).toEqual(['0.17.0']);
+  });
+
+  it('setActive переключает раздаваемую версию', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0');
+
+    expect(catalog.setActive('tanks', '0.17.0')).toBe(true);
+    expect(catalog.getManifest('tanks').assetsBase).toBe('/games/tanks/0.17.0/');
+    expect(catalog.setActive('tanks', '9.9.9')).toBe(false);
+  });
+
+  it('remove снимает версию, а без версии — игру целиком', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0');
+
+    expect(catalog.remove('tanks', '0.17.0')).toBe(true);
+    expect(catalog.getManifest('tanks', '0.17.0')).toBeUndefined();
+    expect(catalog.ids).toEqual(['tanks']);
+
+    expect(catalog.remove('tanks')).toBe(true);
+    expect(catalog.ids).toEqual([]);
+    expect(catalog.manifestList).toBe('[]');
+  });
+
+  it('manifestList содержит только активные манифесты в порядке по id', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0');
+    upsertVersion(catalog, 'snakes', '0.9.1', {
+      active: true,
+      manifest: { ...fixtureManifest, id: 'snakes', assetsBase: '/games/snakes/' },
+    });
+
+    expect(JSON.parse(catalog.manifestList).map(({ id }) => id)).toEqual([
+      'snakes',
+      'tanks',
+    ]);
+  });
+
+  it('isStaged отличает комнату застейдженной версии по manifest.version', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0', {
+      manifest: { ...fixtureManifest, version: 'next-hash' },
+    });
+
+    expect(catalog.isStaged('tanks', 'next-hash')).toBe(true);
+    expect(catalog.isStaged('tanks', fixtureManifest.version)).toBe(false);
+    expect(catalog.isStaged('tanks', undefined)).toBe(false);
+    expect(catalog.isStaged('snakes', 'next-hash')).toBe(false);
+  });
+
+  it('getMaxGameScore отдаёт потолок активной версии, иначе null', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true, maxGameScore: 5000 });
+    upsertVersion(catalog, 'snakes', '0.9.1', {
+      active: true,
+      manifest: { ...fixtureManifest, id: 'snakes' },
+    });
+
+    expect(catalog.getMaxGameScore('tanks')).toBe(5000);
+    expect(catalog.getMaxGameScore('snakes')).toBe(null);
+    expect(catalog.getMaxGameScore('chess')).toBe(null);
+  });
+
+  it('конфиг node_modules-пути отдаёт maxGameScore в каталог', () => {
+    writeManifest('tanks', fixtureManifest);
+
+    const catalog = new GameCatalog(
+      [{ id: 'tanks', package: 'tanks', maxGameScore: 777 }],
+      nodeModulesDir,
+    );
+
+    expect(catalog.getMaxGameScore('tanks')).toBe(777);
+  });
+
+  it('getDistDir отдаёт директорию названной версии', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+    const active = upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    const staged = upsertVersion(catalog, 'tanks', '0.17.0');
+
+    expect(catalog.getDistDir('tanks')).toBe(active);
+    expect(catalog.getDistDir('tanks', '0.17.0')).toBe(staged);
+    expect(catalog.getDistDir('tanks', '9.9.9')).toBeUndefined();
+  });
+});

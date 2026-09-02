@@ -12,8 +12,13 @@ import config from '../lib/config.js';
 import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import { clampGameResult, clampLimit } from '../lib/validators.js';
+import { createAdminAuth } from './adminAuth.js';
 import DebugReportStore from './DebugReportStore.js';
 import GameCatalog from './GameCatalog.js';
+import GameRegistryProxy from './GameRegistryProxy.js';
+import GameStore from './GameStore.js';
+import GameSync from './GameSync.js';
+import { createGameRoutes } from './gameRoutes.js';
 import { applyLocalGames } from './localGames.js';
 import { securityHeaders } from './httpSecurity.js';
 import HostRatingProxy from './HostRatingProxy.js';
@@ -35,6 +40,17 @@ const engineDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..')
 // (Этап A3) это npm workspace-симлинк на games/<id>, после — обычная
 // зависимость, установленная деплоем
 const nodeModulesDir = path.resolve(engineDir, '..', '..', 'node_modules');
+
+// корень хранилища скачанных игровых пакетов (master-game-registry, этап 2):
+// в проде задаётся VIMP_GAMES_DIR и монтируется томом, локально — <repoRoot>/
+// .games. Путь якорится от расположения файла, как engineDir: мастер можно
+// запускать из любой директории
+function resolveGamesDir() {
+  return (
+    config.get('master:gameStore:dir') ??
+    path.resolve(engineDir, '..', '..', '.games')
+  );
+}
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
@@ -112,6 +128,54 @@ const gameCatalog = new GameCatalog(config.get('master:games'), nodeModulesDir, 
   dev: !isProduction,
 });
 
+// хранилище игровых пакетов (master-game-registry, этап 2): одобренные игры
+// приезжают из npm registry на диск мастера, а не npm-зависимостью образа
+const gameStore = new GameStore({
+  dir: resolveGamesDir(),
+  registryUrl: config.get('master:gameStore:registryUrl'),
+  limits: {
+    maxTarballBytes: config.get('master:gameStore:maxTarballBytes'),
+    maxFiles: config.get('master:gameStore:maxFiles'),
+    timeout: config.get('master:gameStore:timeout'),
+  },
+});
+
+// реестр игр живёт в БД auth-сервиса; мастер ходит туда REST'ом, как за
+// rank/state/jwks
+const gameRegistry = new GameRegistryProxy(
+  config.get('master:security:authServiceUrl'),
+);
+
+// каталог перестал быть снимком стартового конфига: GameSync обновляет его
+// по реестру на лету — без пересборки образа и без рестарта мастера
+const gameSync = new GameSync({
+  registry: gameRegistry,
+  store: gameStore,
+  catalog: gameCatalog,
+  // локально прилинкованная игра важнее реестра: только так работает HMR
+  // разработки самой игры (localGames.js)
+  localGameIds: new Set(localGames.map(game => game.id)),
+  intervalMs: config.get('master:gameStore:refreshInterval'),
+  keepVersions: config.get('master:gameStore:keepVersions'),
+});
+
+// авторизация REST-роутов мастера (master-game-registry, этап 4): та же
+// проверка подписи по JWKS и та же политика issuer, что на сигнальном пути
+const adminAuth = createAdminAuth(jwksProxy, authClientConfig.issuer);
+
+// заявка разработчика, панель модерации и «Тест» новой версии
+const gameRoutes = createGameRoutes({
+  registry: gameRegistry,
+  store: gameStore,
+  catalog: gameCatalog,
+  sync: gameSync,
+});
+
+// первый проход до listen: мастер стартует уже с каталогом. Его отказ старту
+// не мешает — каталог тогда пуст (или остаётся локальным), а следующий цикл
+// таймера подхватит реестр, когда тот вернётся
+await gameSync.run();
+
 console.info('------------------------------------------');
 console.info('Master Server Settings:');
 console.info(`-> Domain: ${config.get('master:domain')}`);
@@ -124,20 +188,39 @@ console.info(
   `-> Host rating range: [${config.get('master:rating:min')}..${config.get('master:rating:max')}], blockAt: ${config.get('master:rating:blockAt')}`,
 );
 
+// источник каталога виден в логе: реестр auth (штатный прод), node_modules
+// (локальная разработка с `npm link`) или GAMES_MATRIX (self-hosted мастер
+// без реестра). Расхождение «правлю игру, а едет другая» ловится именно здесь
+const catalogSources = [
+  localGames.length > 0 ? 'node_modules' : null,
+  env.GAMES_MATRIX ? 'GAMES_MATRIX' : null,
+  'registry',
+].filter(Boolean);
+
 if (gameCatalog.ids.length > 0) {
-  console.info(`-> Games loaded: ${gameCatalog.ids.join(', ')}`);
+  console.info(`-> Games catalog source: ${catalogSources.join(' + ')}`);
+  console.info(
+    `-> Games loaded: ${gameCatalog.ids
+      .map(id => {
+        const version = gameCatalog.getManifest(id)?.packageVersion;
+
+        return version ? `${id}@${version}` : id;
+      })
+      .join(', ')}`,
+  );
 
   if (localGames.length > 0) {
     console.info(
-      `-> Games discovered in node_modules: ${localGames
+      `-> Games linked locally (registry entries ignored): ${localGames
         .map(game => game.id)
-        .join(', ')} (set GAMES_MATRIX to pin the catalog and its order)`,
+        .join(', ')}`,
     );
   }
 } else {
   console.warn(
-    '-> Games loaded: none (install/link the game package(s) listed in ' +
-      'master:games and build them in their own repository before starting the master)',
+    '-> Games loaded: none. Games are added in the moderation panel of the ' +
+      'lobby, not in the engine config; locally, link a built @vimp-games/* ' +
+      'package into node_modules',
   );
 }
 
@@ -225,9 +308,13 @@ if (!isProduction) {
 // нужен для тела PUT /auth/rank и /auth/state (Этап B4)
 app.use(express.json());
 
-// REST API: список серверов (пагинация, регионы, поиск)
-app.get('/servers', (req, res) => {
-  res.json(registry.getList(req.query));
+// REST API: список серверов (пагинация, регионы, поиск). Тестовые комнаты
+// застейдженных версий (master-game-registry, этап 3.5) скрыты от всех,
+// кроме админов, — поэтому токен здесь читается, но не требуется
+app.get('/servers', adminAuth.optional, (req, res) => {
+  res.json(
+    registry.getList({ ...req.query, includeHidden: adminAuth.isAdmin(req.user) }),
+  );
 });
 
 // REST API: JWKS central auth-сервиса, проксированный под origin мастера
@@ -306,10 +393,15 @@ function writeAllowed(req, attribution) {
   return playerDataLimiter.consume(key);
 }
 
-// потолок результата ОДНОЙ игры: объявляет сама игра
-// (master:games[].maxGameScore), дефолт — master:playerData:maxGameScore
+// Потолок результата ОДНОЙ игры. Источник — реестр игр (его выставляет
+// админ при модерации, GameCatalog.getMaxGameScore), а НЕ манифест игры:
+// это параметр доверия, и из манифеста игра завысила бы его себе сама.
+// master:games[].maxGameScore остаётся запасным путём для dev и
+// self-hosted мастера без реестра, дефолт — master:playerData:maxGameScore
 function maxGameScoreOf(game) {
-  const declared = config.get('master:games').find(({ id }) => id === game)?.maxGameScore;
+  const declared =
+    gameCatalog.getMaxGameScore(game) ??
+    config.get('master:games').find(({ id }) => id === game)?.maxGameScore;
 
   return Number.isInteger(declared) && declared > 0
     ? declared
@@ -465,6 +557,41 @@ app.get('/games/manifest.json', (req, res) => {
   res.type('application/json').send(gameCatalog.manifestList);
 });
 
+// ***** РЕЕСТР ИГР (master-game-registry, этап 4) *****
+//
+// Разработчик подаёт заявку и следит за её статусом, админ модерирует и
+// играет в черновик — всё из лобби. Обработчики живут в gameRoutes.js,
+// здесь — адресное пространство и доступ к нему.
+//
+// Порядок объявления: эти пути обязаны идти ДО версионных `/games/:id/...`
+// и до статики `/games` — иначе `mine` и `submit` уехали бы в `:id`
+app.get('/games/mine', adminAuth.authenticated, gameRoutes.mine);
+app.post('/games/submit', adminAuth.authenticated, gameRoutes.submit);
+app.post('/games/mine/:id/version', adminAuth.authenticated, gameRoutes.requestVersion);
+
+app.get('/admin/games', adminAuth.required, gameRoutes.adminList);
+// раньше `/admin/games/:id/versions`: сегментов столько же, и `manifest.json`
+// иначе уехал бы в `:id`
+app.get('/admin/games/manifest.json', adminAuth.required, gameRoutes.stagedManifests);
+app.get('/admin/games/:id/versions', adminAuth.required, gameRoutes.versions);
+app.post('/admin/games/:id/stage', adminAuth.required, gameRoutes.stage);
+app.patch('/admin/games/:id', adminAuth.required, gameRoutes.moderate);
+
+// Версионное URL-пространство игр (master-game-registry, этап 3):
+// /games/<id>/<version>/… адресует конкретную скачанную версию, а
+// неверсионные алиасы ниже — ту, что каталог раздаёт сейчас. Именно это
+// позволяет админу играть в новую версию, пока игроки играют в одобренную.
+//
+// ПОРЯДОК ОБЪЯВЛЕНИЯ КРИТИЧЕН: `/games/:id/maps/manifest.json` и
+// `/games/:id/:version/manifest.json` имеют одинаковое число сегментов, и
+// объявленный первым версионный роут съел бы сегмент `maps` в `:version`.
+// Поэтому фиксированные maps-алиасы идут раньше, а `:version` вдобавок
+// охраняется проверкой формы версии (та же, что у реестра в auth).
+const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
+
+// неверсионные алиасы нужны трём потребителям: вкладкам, открытым до смены
+// версии; dev/standalone/dedicated, где mapsBase в манифесте нет вовсе; и
+// хостам старых сборок
 app.get('/games/:id/manifest.json', (req, res) => {
   const manifest = gameCatalog.getManifest(req.params.id);
 
@@ -499,12 +626,110 @@ app.get('/games/:id/maps/:name', (req, res) => {
   res.type('application/json').send(json);
 });
 
-// статика игры (хешированные бандлы/wasm/звуки из GameManifest.assetsBase);
-// в dev entries манифеста указывают на Vite-исходники напрямую, но
-// assetsBase-содержимое (карты/звуки) всё равно раздаётся отсюда из dist
-for (const id of gameCatalog.ids) {
-  app.use(`/games/${id}`, express.static(gameCatalog.getDistDir(id)));
+// сегмент не похож на версию — это не версионный роут, пусть его разбирает
+// статика (иначе `/games/tanks/assets/manifest.json` ушёл бы в 404 отсюда)
+function isVersionSegment(req, next) {
+  if (!VERSION_PATTERN.test(req.params.version)) {
+    next();
+    return false;
+  }
+
+  return true;
 }
+
+app.get('/games/:id/:version/manifest.json', (req, res, next) => {
+  if (!isVersionSegment(req, next)) {
+    return;
+  }
+
+  const manifest = gameCatalog.getManifest(req.params.id, req.params.version);
+
+  if (!manifest) {
+    res.status(404).json({ error: 'unknownGame' });
+    return;
+  }
+
+  res.json(manifest);
+});
+
+app.get('/games/:id/:version/maps/manifest.json', (req, res, next) => {
+  if (!isVersionSegment(req, next)) {
+    return;
+  }
+
+  const catalog = gameCatalog.getMapCatalog(req.params.id, req.params.version);
+
+  if (!catalog) {
+    res.status(404).json({ error: 'unknownGame' });
+    return;
+  }
+
+  res.type('application/json').send(catalog.manifest);
+});
+
+app.get('/games/:id/:version/maps/:name', (req, res, next) => {
+  if (!isVersionSegment(req, next)) {
+    return;
+  }
+
+  const json = gameCatalog
+    .getMapCatalog(req.params.id, req.params.version)
+    ?.get(req.params.name);
+
+  if (!json) {
+    res.status(404).json({ error: 'unknownMap' });
+    return;
+  }
+
+  res.type('application/json').send(json);
+});
+
+// Статика игры (хешированные бандлы/wasm/звуки из GameManifest.assetsBase);
+// в dev entries манифеста указывают на Vite-исходники напрямую, но
+// assetsBase-содержимое (карты/звуки) всё равно раздаётся отсюда из dist.
+//
+// Один обработчик вместо цикла по каталогу: каталог теперь меняется на лету,
+// и статик-маунты, расставленные на старте, устарели бы уже к первому
+// gameSync.run(). Инстансы express.static кэшируются по директории —
+// создавать serve-static на каждый файл игры незачем
+const staticByDir = new Map();
+
+function staticFor(dir) {
+  let middleware = staticByDir.get(dir);
+
+  if (!middleware) {
+    middleware = express.static(dir);
+    staticByDir.set(dir, middleware);
+  }
+
+  return middleware;
+}
+
+app.use('/games', (req, res, next) => {
+  const original = req.url;
+  const queryAt = original.indexOf('?');
+  const pathname = queryAt === -1 ? original : original.slice(0, queryAt);
+  const query = queryAt === -1 ? '' : original.slice(queryAt);
+  const segments = pathname.split('/');
+  const id = decodeURIComponent(segments[1] ?? '');
+  const second = decodeURIComponent(segments[2] ?? '');
+  const versioned = VERSION_PATTERN.test(second);
+  const dir = gameCatalog.getDistDir(id, versioned ? second : undefined);
+
+  if (!dir) {
+    next();
+    return;
+  }
+
+  // остаток пути внутри dist/ игры; req.url восстанавливается, если файла
+  // там нет — дальше по цепочке (ViteExpress) должен прийти исходный URL
+  req.url = `/${segments.slice(versioned ? 3 : 2).join('/')}${query}`;
+
+  staticFor(dir)(req, res, err => {
+    req.url = original;
+    next(err);
+  });
+});
 
 // в продакшене обычный HTTP сервер, Nginx будет обрабатывать HTTPS
 // для разработки HTTPS сервер с локальными сертификатами
@@ -548,6 +773,9 @@ server.listen(port, host, () => {
     Listening on ${protocol}//${displayHost}:${port}
   `);
 });
+
+// периодический опрос реестра игр — каталог обновляется без рестарта мастера
+gameSync.start();
 
 // сигнальный WebSocket
 const wss = new WebSocketServer({ server });

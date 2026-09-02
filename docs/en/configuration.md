@@ -38,18 +38,25 @@ room settings have no other source.
 | `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
 | `VIMP_MASTER_PORT` | The master server's port | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
-| `VIMP_DEDICATED_GAME` | Game id from `master:games`; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
+| `VIMP_DEDICATED_GAME` | The dedicated server's game — `<id>` or `<id>@<version>`; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
 | `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure | `{}` |
-| `GAMES_MATRIX` | JSON array overriding `master:games` (game-plugin list resolved by `GameCatalog`, `{id, package}[]`), read in development too — see [master.md](master.md#get-gamesmanifestjson-get-gamesidmanifestjson-get-gamesidmaps) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
+| `VIMP_GAMES_DIR` | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate | `<repoRoot>/.games` |
+| `GAMES_MATRIX` | JSON array overriding `master:games` (the **static** game list, `{id, package}[]`), read in development too — see [master.md](master.md#get-gamesmanifestjson-get-gamesid-get-gamesidversion) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
+
+`GAMES_MATRIX` is no longer how a production catalog is set: games come from
+the registry of the central auth service, and the master downloads them
+itself. It stays an override for two cases — local development and a
+self-hosted master running without a registry.
 
 Outside production the catalog also **discovers itself**: with no
 `GAMES_MATRIX` set, every built `@vimp-games/*` package found in
 `node_modules` (an ordinary dependency or an `npm link` symlink) is added to
 `master:games`, sorted by id and ahead of the configured entries
 (`src/master/localGames.js`). So a linked game shows up in the lobby without
-editing the engine's published config. The first entry of the catalog is the
-lobby's active game — set `GAMES_MATRIX` locally when you need to pin which
-one that is.
+editing the engine's published config, and it **wins over the registry entry
+with the same id** — that is what makes HMR development of a game possible.
+The first entry of the catalog is the lobby's active game — set
+`GAMES_MATRIX` locally when you need to pin which one that is.
 
 Game parameters (map, player limit, timers, friendly fire) aren't set
 through environment variables in the lobby contour (there `VIMP_DEDICATED_ROOM`
@@ -274,17 +281,34 @@ The master server's config (see [master.md](master.md)); read by
 - `httpsOptions` — paths to local certificates
   `.certs/key.pem`/`cert.pem` (dev only; production HTTPS terminates at
   Nginx);
-- `games` — the game-plugin list resolved by `GameCatalog`:
-  `{id, package}[]` (default: `@vimp-games/tanks`). `package` is
-  resolved as an ordinary `node_modules/` dependency (the game plugin's own
-  repository, e.g. `vimp-tanks`, publishes it), so the plugin version comes
-  from the root `package.json` entry, not from this list.
-  Overridable in production via the `GAMES_MATRIX` env var (JSON).
+- `games` — the **static** game list, `{id, package}[]`, **empty by default**.
+  The regular source of the catalog is the game registry of the central auth
+  service, from which the master downloads approved packages itself
+  (`GameSync`); this array and `GAMES_MATRIX` remain the override for local
+  development (where it is also filled in from `node_modules`) and for a
+  self-hosted master without a registry. `package` is resolved as an ordinary
+  `node_modules/` dependency (the game plugin's own repository, e.g.
+  `vimp-tanks`, publishes it), so the plugin version comes from the installed
+  dependency, not from this list.
   An entry may also carry **`maxGameScore`** (snakes-v3) — the ceiling on the
   result of ONE game of that game, which the master clamps `best`/`points` of
-  `PUT /auth/rank` by. Omitted, `master:playerData:maxGameScore` applies: a
-  per-game number is the working limit, because one exact limit for hundreds
-  of games is wrong by construction;
+  `PUT /auth/rank` by. For registry games an admin sets it while moderating;
+  here it is only the fallback. Omitted, `master:playerData:maxGameScore`
+  applies: a per-game number is the working limit, because one exact limit for
+  hundreds of games is wrong by construction;
+- `gameStore` — the game package store (the master downloads approved games
+  from the npm registry and serves them from disk instead of receiving them as
+  an npm dependency at image build time):
+  - `dir: null` — the store's root; `null` means `<repoRoot>/.games`. In
+    production it is set by `VIMP_GAMES_DIR` and mounted as a volume;
+  - `registryUrl: 'https://registry.npmjs.org'` — the npm registry;
+  - `refreshInterval: 60000` — how often the auth registry is polled for
+    catalog changes, ms;
+  - `maxTarballBytes: 67108864`, `maxFiles: 5000` — unpacking ceilings for an
+    untrusted archive;
+  - `keepVersions: 2` — how many versions of one game to keep on disk (the
+    served one plus a staged one);
+  - `timeout: 30000` — registry response timeout, ms;
 - `servers` — `GET /servers` parameters: `regionThreshold: 15` (at or
   below this many rooms, the regional filter and pagination are disabled),
   `defaultLimit: 10`, `maxLimit: 50`;

@@ -18,6 +18,8 @@ import security from '../lib/security.js';
 import PortMachine from '../host/PortMachine.js';
 import { createGuestIdentity } from '../host/identity.js';
 import GameCatalog from '../master/GameCatalog.js';
+import GameRegistryProxy from '../master/GameRegistryProxy.js';
+import GameStore from '../master/GameStore.js';
 import { applyLocalGames } from '../master/localGames.js';
 import { securityHeaders } from '../master/httpSecurity.js';
 
@@ -36,6 +38,16 @@ config.set('master', (await import('../config/master.js')).default);
 // из любой директории
 const engineDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const nodeModulesDir = path.resolve(engineDir, '..', '..', 'node_modules');
+
+// корень хранилища скачанных игровых пакетов — тот же, что у лобби-мастера:
+// в проде задаётся VIMP_GAMES_DIR и монтируется томом, локально это
+// <repoRoot>/.games
+function resolveGamesDir() {
+  return (
+    config.get('master:gameStore:dir') ??
+    path.resolve(engineDir, '..', '..', '.games')
+  );
+}
 
 // путь игрового WebSocket: тот же, что умолчание клиента (client/boot.js)
 const WS_PATH = '/game';
@@ -79,14 +91,93 @@ const HANDSHAKE_TIMEOUT = 120000;
 const CONNECTION_LIMIT = { limit: 30, windowMs: 60000 };
 
 /**
+ * Разбирает VIMP_DEDICATED_GAME: `<id>` — раздаваемая реестром версия,
+ * `<id>@<version>` — пин на точную версию пакета.
+ * @param {string} [ref] - Значение переменной окружения.
+ * @returns {{id: string|null, version: string|null}} Идентификатор и пин.
+ */
+export function parseGameRef(ref) {
+  if (typeof ref !== 'string' || !ref) {
+    return { id: null, version: null };
+  }
+
+  // lastIndexOf, а не split: у скоупнутого имени '@' встречается и в начале
+  const at = ref.lastIndexOf('@');
+
+  if (at <= 0) {
+    return { id: ref, version: null };
+  }
+
+  return { id: ref.slice(0, at), version: ref.slice(at + 1) || null };
+}
+
+// Игра из реестра auth-сервиса (master-game-registry, этап 5): лобби-мастера
+// рядом нет, поэтому dedicated повторяет его путь сам — спрашивает каталог
+// реестра и качает пакет в собственное хранилище (VIMP_GAMES_DIR, в проде
+// это смонтированный том). Скачивание проверяется структурно тем же
+// gamePackageCheck, код игры при этом не исполняется.
+async function fetchRegistryGame(id, version, env = process.env) {
+  if (!env.VIMP_AUTH_SERVICE_URL) {
+    return null;
+  }
+
+  const registry = new GameRegistryProxy(
+    config.get('master:security:authServiceUrl'),
+  );
+  const { status, json } = await registry.list();
+
+  if (status !== 200 || !Array.isArray(json?.games)) {
+    throw new Error(
+      `dedicated: game registry answered ${status} — game "${id}" is not resolved`,
+    );
+  }
+
+  const game = json.games.find(item => item.id === id);
+
+  if (!game) {
+    throw new Error(`dedicated: game "${id}" is not in the registry catalog`);
+  }
+
+  const store = new GameStore({
+    dir: resolveGamesDir(),
+    registryUrl: config.get('master:gameStore:registryUrl'),
+    limits: {
+      maxTarballBytes: config.get('master:gameStore:maxTarballBytes'),
+      maxFiles: config.get('master:gameStore:maxFiles'),
+      timeout: config.get('master:gameStore:timeout'),
+    },
+  });
+  // пин из VIMP_DEDICATED_GAME важнее раздаваемой версии: так админ поднимает
+  // сервер на конкретной сборке, не трогая реестр
+  const result = await store.ensure(id, game.packageName, version ?? game.version);
+
+  if (!result.ok) {
+    throw new Error(
+      `dedicated: game "${id}"@${version ?? game.version} is not usable — ` +
+        result.errors.join('; '),
+    );
+  }
+
+  return {
+    version: result.version,
+    distDir: result.distDir,
+    manifest: result.manifest,
+    packageUrl: game.repoUrl ?? null,
+    maxGameScore: game.maxGameScore,
+  };
+}
+
+/**
  * Поднимает dedicated-сервер: пакет игры, симуляцию, HTTP и игровой WS.
  * @param {Object} [options]
- * @param {string} [options.gameId] - Игра из `master:games` (VIMP_DEDICATED_GAME).
+ * @param {string} [options.gameId] - Игра: `<id>` либо `<id>@<version>`
+ *   (VIMP_DEDICATED_GAME).
  * @param {number} [options.port] - Порт HTTP+WS (0 — свободный, для тестов).
  * @param {string} [options.host] - Интерфейс прослушивания ('0.0.0.0' в проде).
  * @param {Object} [options.room] - Переопределения комнаты (map, maxPlayers,
  *   roundTime, mapTime, friendlyFire, seed).
  * @param {Function} [options.loadGame] - Загрузчик пакета игры (инъекция тестов).
+ * @param {Function} [options.fetchGame] - Загрузчик игры из реестра (инъекция тестов).
  * @param {boolean} [options.serveClient] - Раздавать ли клиент движка
  *   (ViteExpress); тестам не нужен.
  * @returns {Promise<Object>} { id, port, app, server, runtime, portMachine, close }.
@@ -97,34 +188,74 @@ export async function startDedicatedServer({
   host,
   room = {},
   loadGame = loadGamePackage,
+  fetchGame = fetchRegistryGame,
   serveClient = true,
 } = {}) {
   const isProduction = process.env.NODE_ENV === 'production';
 
   // каталог мастера переиспользуется ради манифеста, карт и dist/ игры:
   // клиент движка читает их теми же URL-ами, что у лобби-мастера
+  const ref = parseGameRef(gameId);
   const games = config.get('master:games') ?? [];
-  const entry = games.find(game => game.id === gameId);
-
-  if (!entry && loadGame === loadGamePackage) {
-    throw new Error(
-      `dedicated: game "${gameId}" is not listed in master:games — set ` +
-        'VIMP_DEDICATED_GAME to a configured id (see GAMES_MATRIX)',
-    );
-  }
+  const entry = games.find(game => game.id === ref.id);
 
   const catalog = new GameCatalog(entry ? [entry] : [], nodeModulesDir, {
     dev: !isProduction,
   });
-  const pkg = await loadGame(
-    entry ? path.join(nodeModulesDir, entry.package, 'dist') : null,
-  );
 
-  const id = pkg.id ?? gameId;
+  // Порядок разрешения игры (master-game-registry, этап 5): прилинкованный
+  // пакет важнее реестра (это dev-путь и HMR разработки самой игры), а если
+  // его нет — игра приезжает из реестра тем же способом, что у лобби-мастера
+  let registryEntry = null;
+  let packageDir = entry
+    ? path.join(nodeModulesDir, entry.package, 'dist')
+    : null;
+
+  // Инъекция loadGame означает, что пакет игры тесту уже известен и
+  // директория ему не нужна; инъекция fetchGame — что тест проверяет как раз
+  // разрешение через реестр
+  const needsPackageDir =
+    loadGame === loadGamePackage || fetchGame !== fetchRegistryGame;
+
+  if (!entry && needsPackageDir) {
+    registryEntry = await fetchGame(ref.id, ref.version);
+
+    if (!registryEntry) {
+      throw new Error(
+        `dedicated: game "${ref.id}" is not available — link it into ` +
+          'node_modules or set VIMP_AUTH_SERVICE_URL so the server can fetch ' +
+          'it from the registry',
+      );
+    }
+
+    // та же запись каталога, что у лобби-мастера: манифест ребейзится на
+    // /games/<id>/<version>/, и версионные адреса работают одинаково
+    catalog.upsert({
+      id: ref.id,
+      version: registryEntry.version,
+      distDir: registryEntry.distDir,
+      manifest: registryEntry.manifest,
+      packageVersion: registryEntry.version,
+      packageUrl: registryEntry.packageUrl,
+      maxGameScore: registryEntry.maxGameScore,
+      active: true,
+    });
+
+    packageDir = registryEntry.distDir;
+  }
+
+  const pkg = await loadGame(packageDir);
+
+  const id = pkg.id ?? ref.id;
+  const packageVersion = registryEntry?.version ?? null;
   const manifest = catalog.getManifest(id) ?? pkg.manifest ?? null;
   const mapCatalog = catalog.getMapCatalog(id) ?? null;
   const distDir = catalog.getDistDir(id) ?? pkg.distDir ?? null;
-  const maps = mapCatalog ? readMaps(mapCatalog) : null;
+  // пустой каталог карт равнозначен его отсутствию: карты тогда берёт сам
+  // пакет игры из своего gameConfig (так работает фикстурный и dev-путь)
+  const catalogMaps = mapCatalog ? readMaps(mapCatalog) : null;
+  const maps =
+    catalogMaps && Object.keys(catalogMaps).length > 0 ? catalogMaps : null;
 
   // ***** симуляция ***** //
 
@@ -217,8 +348,44 @@ export async function startDedicatedServer({
     res.type('application/json').send(json);
   });
 
+  // Версионные адреса той же игры (master-game-registry, этап 5): пакет,
+  // приехавший из реестра, раздаётся по `/games/<id>/<version>/…` — ровно по
+  // тем адресам, что стоят в его манифесте после ребейза. Неверсионные
+  // алиасы выше остаются для node_modules-пути и старых вкладок
+  if (packageVersion) {
+    const prefix = `/games/${id}/${packageVersion}`;
+
+    app.get(`${prefix}/manifest.json`, (req, res) => {
+      res.json(manifest);
+    });
+
+    app.get(`${prefix}/maps/manifest.json`, (req, res) => {
+      if (!mapCatalog) {
+        res.status(404).json({ error: 'unknownGame' });
+        return;
+      }
+
+      res.type('application/json').send(mapCatalog.manifest);
+    });
+
+    app.get(`${prefix}/maps/:name`, (req, res) => {
+      const json = mapCatalog?.get(req.params.name);
+
+      if (!json) {
+        res.status(404).json({ error: 'unknownMap' });
+        return;
+      }
+
+      res.type('application/json').send(json);
+    });
+  }
+
   // статика игры (хешированные бандлы/wasm/звуки из GameManifest.assetsBase)
   if (distDir) {
+    if (packageVersion) {
+      app.use(`/games/${id}/${packageVersion}`, express.static(distDir));
+    }
+
     app.use(`/games/${id}`, express.static(distDir));
   }
 

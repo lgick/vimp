@@ -10,7 +10,7 @@
 // хендлер тестируется без Express и живой БД.
 export default function createDevLoginHandler({
   userRepo,
-  jwtLib,
+  issueIdentityToken,
   isAllowedReturnUrl,
   isValidNick,
 }) {
@@ -40,10 +40,10 @@ export default function createDevLoginHandler({
 
       const redirectUrl = new URL(returnUrl);
 
-      redirectUrl.searchParams.set(
-        'token',
-        jwtLib.signIdentityToken({ sub: user.id, nick }),
-      );
+      // тот же выпуск токена, что и у OAuth-колбэка: роль (master-game-registry)
+      // синхронизируется с VIMP_ADMIN_NICKS и здесь, иначе локальный вход
+      // никогда не дал бы админа
+      redirectUrl.searchParams.set('token', await issueIdentityToken({ id: user.id, nick }));
 
       res.redirect(redirectUrl.toString());
     } catch (err) {

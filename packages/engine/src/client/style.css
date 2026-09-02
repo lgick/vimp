@@ -1053,3 +1053,96 @@ body.hide-cursor {
   color: #f56;
   margin: 8px 0;
 }
+
+/*games*/
+
+/* панель реестра игр (master-game-registry, этап 4): открывается вместо
+   #lobby теми же кнопками бейджа пользователя. Каркас — тот же, что у
+   лобби (.card, .form-row, .lobby-column), собственных цветовых переменных
+   секция не заводит */
+#games-panel {
+  background-color: #222;
+  position: absolute;
+  width: 100%;
+  min-height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+#games-mine,
+#games-moderation {
+  width: 700px;
+  padding: 10px;
+  text-align: left;
+}
+
+/* заголовок панели и кнопка возврата в одной строке */
+.games-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.games-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.games-item {
+  border-bottom: 1px solid #444;
+  padding: 8px;
+}
+
+.games-item-title {
+  font-weight: bold;
+}
+
+/* поля прямо в карточке заявки: версия и причина отклонения относятся к
+   конкретной строке списка, а не к форме панели */
+.games-version-input,
+.games-note-input {
+  width: 200px;
+  text-align: left;
+  margin-right: 8px;
+}
+
+.games-filters {
+  display: flex;
+  gap: 12px;
+  border-bottom: 1px solid #444;
+  margin-bottom: 12px;
+}
+
+.games-filter-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-weight: bold;
+  padding: 6px 4px 8px;
+  margin: 0;
+  text-shadow: none;
+}
+
+.games-filter-btn.active {
+  color: #eee;
+}
+
+/* кнопки входа в панель стоят рядом с Sign out в бейдже пользователя */
+.lobby-user-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  #games-mine,
+  #games-moderation {
+    width: 100%;
+  }
+}

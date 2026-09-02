@@ -11,11 +11,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json ./packages/engine/
 
-# установка зависимостей: npm ci ставит игровые пакеты-плагины (объявлены в
-# корневом package.json, по списку `master:games`/GAMES_MATRIX — не в
-# packages/engine, движок остаётся game-agnostic, кодревью Этапов A,
-# находка F1) из registry — приносит их уже собранный dist/ (манифест +
-# бандлы + карты + звуки), движок больше не собирает WASM игры сам
+# установка зависимостей движка. Игровых пакетов здесь больше нет вовсе
+# (master-game-registry, этап 5): каталог игр приезжает из реестра
+# auth-сервиса, а сами пакеты мастер качает из npm registry в рантайме и
+# кладёт на смонтированный том (VIMP_GAMES_DIR) — образ остаётся
+# game-agnostic и не пересобирается ради новой игры или её версии
 RUN npm ci
 
 # копирование проекта
@@ -34,22 +34,6 @@ ENV VITE_AUTH_SERVICE_URL=${VITE_AUTH_SERVICE_URL}
 
 # сборка движка (vite build → packages/engine/dist/)
 RUN npm run build:app
-
-# стейджинг dist/ всех установленных игровых пакетов-плагинов (любой
-# @vimp-games/* в node_modules — отдельный scope от движковых
-# workspace-пакетов @vimp/engine, @vimp/auth) — без хардкода конкретной игры,
-# чтобы деплой не переписывать при добавлении второй игры в master:games
-# (кодревью Этапов A, находка F6)
-RUN mkdir -p /app/game-dists && \
-    if [ -d node_modules/@vimp-games ]; then \
-      for pkg_dir in node_modules/@vimp-games/*/; do \
-        pkg_name=$(basename "$pkg_dir"); \
-        if [ -d "${pkg_dir}dist" ]; then \
-          mkdir -p "/app/game-dists/@vimp-games/${pkg_name}"; \
-          cp -r "${pkg_dir}dist" "/app/game-dists/@vimp-games/${pkg_name}/dist"; \
-        fi; \
-      done; \
-    fi
 
 # ============================================================
 # 2. RUNNER — Production Image
@@ -81,16 +65,10 @@ COPY --from=builder /app/packages/engine/src/master ./packages/engine/src/master
 COPY --from=builder /app/packages/engine/src/host ./packages/engine/src/host
 COPY --from=builder /app/packages/engine/src/dedicated ./packages/engine/src/dedicated
 
-# собранные бандлы игр-плагинов, поставленных как npm-зависимости (мастер
-# читает только dist/manifest.json + dist/maps/*.json через GameCatalog) —
-# все @vimp-games/* из /app/game-dists, без хардкода конкретной игры
-# (находка F6)
-COPY --from=builder /app/game-dists/@vimp-games ./node_modules/@vimp-games
-
 ENV NODE_ENV=production
 
-# запуск мастер-сервера (cwd — пакет движка: dist/assets для WorkerCatalog,
-# ../../node_modules/@vimp/<id> — для GameCatalog)
+# запуск мастер-сервера (cwd — пакет движка: dist/assets для WorkerCatalog).
+# Игры лежат не в образе, а в хранилище на томе (VIMP_GAMES_DIR)
 WORKDIR /app/packages/engine
 
 CMD ["node", "src/master/main.js"]

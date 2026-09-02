@@ -5,7 +5,14 @@ import {
   isValidVoteValue,
   isValidVoteReason,
   clampLimit,
+  isValidGameId,
+  isValidPackageName,
+  isValidGameVersion,
+  isValidGameTitle,
+  isValidRepoUrl,
+  isValidModeratorNote,
 } from '../../packages/auth/src/lib/validators.js';
+import config from '../../packages/auth/src/config/auth.js';
 
 describe('validators (auth)', () => {
   it('принимает корректный ник', () => {
@@ -114,5 +121,56 @@ describe('isValidGameResult', () => {
     expect(isValidGameResult(20000, 10001, limits)).toBe(false);
     expect(isValidGameResult(200001, 100, limits)).toBe(false);
     expect(isValidGameResult(200000, 10000, limits)).toBe(true);
+  });
+});
+
+// поля заявки на игру (master-game-registry, этап 1): id и version
+// становятся сегментами URL раздачи /games/<id>/<version>/
+describe('validators: реестр игр', () => {
+  it('id — строчная латиница, цифры и дефис, начиная с буквы', () => {
+    expect(isValidGameId('tanks', config.games)).toBe(true);
+    expect(isValidGameId('my-game-2', config.games)).toBe(true);
+    expect(isValidGameId('Tanks', config.games)).toBe(false);
+    expect(isValidGameId('2fast', config.games)).toBe(false);
+    expect(isValidGameId('a', config.games)).toBe(false);
+    expect(isValidGameId('../etc', config.games)).toBe(false);
+    expect(isValidGameId(undefined, config.games)).toBe(false);
+  });
+
+  it('имя пакета принимает scoped и отклоняет мусор', () => {
+    expect(isValidPackageName('@vimp-games/tanks', config.games)).toBe(true);
+    expect(isValidPackageName('pong', config.games)).toBe(true);
+    expect(isValidPackageName('@scope/../evil', config.games)).toBe(false);
+    expect(isValidPackageName('Tanks', config.games)).toBe(false);
+  });
+
+  it('версия — строгий semver-триплет, без диапазонов и тегов', () => {
+    expect(isValidGameVersion('0.16.1', config.games)).toBe(true);
+    expect(isValidGameVersion('1.0.0-rc.1', config.games)).toBe(true);
+    expect(isValidGameVersion('latest', config.games)).toBe(false);
+    expect(isValidGameVersion('^1.0.0', config.games)).toBe(false);
+    expect(isValidGameVersion('1.0', config.games)).toBe(false);
+  });
+
+  it('title и repoUrl необязательны, но ограничены', () => {
+    expect(isValidGameTitle(undefined, config.games)).toBe(true);
+    expect(isValidGameTitle(null, config.games)).toBe(true);
+    expect(isValidGameTitle('VIMP Tanks', config.games)).toBe(true);
+    expect(isValidGameTitle('   ', config.games)).toBe(false);
+    expect(isValidGameTitle('x'.repeat(config.games.maxTitleLength + 1), config.games)).toBe(false);
+
+    expect(isValidRepoUrl(undefined, config.games)).toBe(true);
+    expect(isValidRepoUrl('https://github.com/lgick/vimp-tanks', config.games)).toBe(true);
+    expect(isValidRepoUrl('javascript:alert(1)', config.games)).toBe(false);
+    expect(isValidRepoUrl('not a url', config.games)).toBe(false);
+    expect(isValidRepoUrl(`https://e.com/${'x'.repeat(config.games.maxUrlLength)}`, config.games))
+      .toBe(false);
+  });
+
+  it('замечание модератора ограничено по длине, пустое — снятие', () => {
+    expect(isValidModeratorNote(null, config.games)).toBe(true);
+    expect(isValidModeratorNote('версия падает на старте', config.games)).toBe(true);
+    expect(isValidModeratorNote('x'.repeat(config.games.maxNoteLength + 1), config.games))
+      .toBe(false);
   });
 });

@@ -73,6 +73,9 @@ import LobbyCtrl from './components/controller/Lobby.js';
 import LobbyAuthModel from './components/model/LobbyAuth.js';
 import LobbyAuthView from './components/view/LobbyAuth.js';
 import LobbyAuthCtrl from './components/controller/LobbyAuth.js';
+import GamesModel from './components/model/Games.js';
+import GamesView from './components/view/Games.js';
+import GamesCtrl from './components/controller/Games.js';
 import BakingProvider from './providers/BakingProvider.js';
 import DependencyProvider from './providers/DependencyProvider.js';
 import { HOT_FLAGS } from '../config/opcodes.js';
@@ -1718,8 +1721,7 @@ let hostRegistration = null;
 // Этап 5.1/6.4: скачивает каталог карт мастера активной игры (манифест +
 // все карты)
 async function fetchMasterMaps() {
-  const gameId = activeGameManifest.id;
-  const manifestRes = await fetch(lobbyConfig.maps.manifestUrl(gameId));
+  const manifestRes = await fetch(lobbyConfig.maps.manifestUrl(activeGameManifest));
 
   if (!manifestRes.ok) {
     throw new Error(`maps manifest: HTTP ${manifestRes.status}`);
@@ -1729,7 +1731,7 @@ async function fetchMasterMaps() {
 
   const entries = await Promise.all(
     manifest.maps.map(async name => {
-      const url = `${lobbyConfig.maps.baseUrl(gameId)}/${encodeURIComponent(name)}`;
+      const url = `${lobbyConfig.maps.baseUrl(activeGameManifest)}/${encodeURIComponent(name)}`;
       const res = await fetch(url);
 
       if (!res.ok) {
@@ -1840,8 +1842,16 @@ async function fetchServers({ offset, limit, search }) {
     params.set('limit', limit);
   }
 
+  // токен едет и сюда (master-game-registry, этап 4): список серверов
+  // публичный, но админу мастер отдаёт вместе с ним скрытые тестовые
+  // комнаты застейдженных версий
+  const token = lobbyAuthModel?.getToken();
+
   try {
-    const res = await fetch(`${lobbyConfig.serversUrl}?${params}`);
+    const res = await fetch(
+      `${lobbyConfig.serversUrl}?${params}`,
+      token ? { headers: { authorization: `Bearer ${token}` } } : undefined,
+    );
 
     return res.ok ? await res.json() : null;
   } catch (e) {
@@ -1939,6 +1949,11 @@ function populateRoomForm(manifest) {
   }
 }
 
+// роли, которым лобби показывает кнопку «Модерация» (master-game-registry,
+// этап 4). Это подсказка интерфейсу: доступ к данным проверяет мастер, а
+// запись — auth-сервис, перечитывая роль из БД
+const ADMIN_ROLES = ['admin', 'superadmin'];
+
 // каталог манифестов по id: форма и leaderboard селектора игр, а также
 // активация игры перед созданием комнаты и входом в чужую
 const gamesById = new Map(
@@ -1972,7 +1987,10 @@ function clearLobbyError() {
 // активирует игру и перепривязывает манифест/плагин/CSS; false — отказ уже
 // показан игроку, лобби остаётся рабочим
 async function selectActiveGame(gameId) {
-  if (gameId === activeGameManifest.id) {
+  // сверка идёт с самим манифестом, а не с его id: каталог вкладки может
+  // пополниться застейдженной версией той же игры (registerGameManifest), и
+  // сравнение по id оставило бы активной одобренную версию
+  if (gameId === activeGameManifest.id && gamesById.get(gameId) === activeGameManifest) {
     return true;
   }
 
@@ -1993,8 +2011,36 @@ async function selectActiveGame(gameId) {
   }
 }
 
+// id игр, чей манифест в каталоге вкладки подменён застейдженной версией
+// (master-game-registry, этап 4): в селекторе такая игра помечается, чтобы
+// админ видел, что поднимет комнату НЕ на одобренной версии
+const stagedGameIds = new Set();
+
+/**
+ * Кладёт манифест застейдженной (не одобренной) версии в каталог вкладки —
+ * так админ может поднять по нему комнату, не трогая каталог игроков.
+ * Дальше всё работает существующим путём: createGameActivator грузит
+ * ClientPlugin по entries.client (ключ кеша версионный, поэтому плагин
+ * черновика не подменит одобренный), connectAsHost поднимает комнату, а
+ * мастер помечает её скрытой по версии манифеста.
+ * @param {Object} manifest - Манифест застейдженной версии из /admin/games.
+ * @returns {void}
+ */
+function registerGameManifest(manifest) {
+  if (!manifest?.id) {
+    return;
+  }
+
+  gamesById.set(manifest.id, manifest);
+  stagedGameIds.add(manifest.id);
+  populateGameSelect();
+}
+
 // заполняет #lobby-game всем каталогом манифестов мастера — раньше туда
-// попадал только gamesManifest[0], теперь селектор рабочий
+// попадал только gamesManifest[0], теперь селектор рабочий.
+// Источник — gamesById, а не gamesManifest: каталог вкладки пополняется на
+// лету застейдженными версиями (registerGameManifest), и селектор
+// перерисовывается целиком
 function populateGameSelect() {
   const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
 
@@ -2002,7 +2048,13 @@ function populateGameSelect() {
     return;
   }
 
-  gamesManifest.forEach(manifest => {
+  // перерисовка не должна сбрасывать выбор игрока: селектор целиком
+  // пересобирается и при добавлении застейдженной версии
+  const selected = gameSelect.value;
+
+  gameSelect.textContent = '';
+
+  gamesById.forEach(manifest => {
     const option = document.createElement('option');
     const available = isGameAvailable(manifest);
 
@@ -2011,14 +2063,15 @@ function populateGameSelect() {
     // каталога, и игрок видел пустое лобби без причины), но выбрать её
     // нельзя: комнату по ней всё равно не поднять
     option.textContent = available
-      ? manifest.title
+      ? `${manifest.title}${stagedGameIds.has(manifest.id) ? lobbyConfig.games.stagedSuffix : ''}`
       : `${manifest.title} — unavailable`;
     option.disabled = !available;
     option.title = available ? '' : manifest.compat.text;
     gameSelect.appendChild(option);
   });
 
-  gameSelect.value = activeGameManifest.id;
+  gameSelect.value =
+    selected && gamesById.has(selected) ? selected : activeGameManifest.id;
 }
 
 // поднимает лобби после welcome от мастера (iceServers уже получены);
@@ -2113,6 +2166,22 @@ function initLobby() {
     document.getElementById(lobbyConfig.elems.errorId),
     () => ({ descriptors: roomFormDescriptors, fields: roomFormFields }),
   );
+
+  // реестр игр (master-game-registry, этап 4): заявка разработчика и панель
+  // модерации живут в том же лобби. Триплет поднимается вместе с лобби —
+  // панель доступна любому авторизованному, кнопку модерации показывает роль
+  const gamesModel = new GamesModel(lobbyConfig.games, () => lobbyAuthModel.getToken());
+  const gamesView = new GamesView(gamesModel, lobbyConfig.games);
+  const games = new GamesCtrl(gamesModel, gamesView);
+
+  games.setAdmin(ADMIN_ROLES.includes(lobbyAuthModel.getRole()));
+
+  // «Тест»: манифест застейдженной версии кладётся в каталог вкладки, и
+  // админ поднимает по нему комнату обычной кнопкой Create server
+  games.publisher.on('staged', ({ manifest }) => {
+    registerGameManifest(manifest);
+    gamesView.hide();
+  });
 
   // создание комнаты в этой же вкладке (хост-игрок через loopback)
   populateGameSelect();

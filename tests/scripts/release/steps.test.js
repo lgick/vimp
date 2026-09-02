@@ -535,5 +535,11 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
         engineApi: 4,
       }),
     ).rejects.toThrow(/engineApi=3, у движка 4/);
+
+    // игры больше не пинятся в корневом package.json
+    // (master-game-registry, этап 5): версию раздачи поднимает лобби
+    expect(
+      shell.calls.filter(call => call.includes('@vimp-games/stale@')),
+    ).toEqual([]);
   });
 });

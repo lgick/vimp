@@ -31,6 +31,12 @@ export function applyMasterEnv(config, env = process.env) {
   if (env.GAMES_MATRIX) {
     config.set('master:games', JSON.parse(env.GAMES_MATRIX));
   }
+
+  // корень хранилища игровых пакетов (направление master-game-registry) —
+  // в проде это смонтированный том, переживающий пересоздание контейнера
+  if (env.VIMP_GAMES_DIR) {
+    config.set('master:gameStore:dir', env.VIMP_GAMES_DIR);
+  }
 }
 
 /**

@@ -37,6 +37,16 @@ describe('jwt (auth)', () => {
     expect(payload.pending).toBeUndefined();
   });
 
+  it('кладёт роль в identity-токен, по умолчанию user', () => {
+    const admin = jwtLib.verifyToken(
+      jwtLib.signIdentityToken({ sub: 1, nick: 'Admin', role: 'superadmin' }),
+    );
+    const plain = jwtLib.verifyToken(jwtLib.signIdentityToken({ sub: 2, nick: 'Player1' }));
+
+    expect(admin.role).toBe('superadmin');
+    expect(plain.role).toBe('user');
+  });
+
   it('подписывает pending-токен без ника', () => {
     const token = jwtLib.signPendingToken({ sub: 7 });
     const payload = jwtLib.verifyToken(token);

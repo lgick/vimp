@@ -21,6 +21,43 @@ export class NickAlreadySetError extends Error {
   }
 }
 
+// ***** РЕЕСТР ИГР (направление master-game-registry, этап 1) *****
+
+// заявка на уже занятый id или уже зарегистрированный npm-пакет
+export class GameExistsError extends Error {
+  constructor(id) {
+    super(`game "${id}" already exists`);
+    this.name = 'GameExistsError';
+    this.id = id;
+  }
+}
+
+export class GameNotFoundError extends Error {
+  constructor(id) {
+    super(`game "${id}" not found`);
+    this.name = 'GameNotFoundError';
+    this.id = id;
+  }
+}
+
+// игра существует, но вызывающий ей не автор и не админ
+export class GameForbiddenError extends Error {
+  constructor(id) {
+    super(`game "${id}" belongs to another author`);
+    this.name = 'GameForbiddenError';
+    this.id = id;
+  }
+}
+
+// потолок заявок на одного разработчика (config.games.maxPerUser)
+export class GameLimitError extends Error {
+  constructor(userId) {
+    super(`user ${userId} reached the game limit`);
+    this.name = 'GameLimitError';
+    this.userId = userId;
+  }
+}
+
 // rank-periods: срезы лидерборда. 'all' — денормализованный кэш ratings,
 // остальные — окно по created_at в леджере rank_events. Границы
 // КАЛЕНДАРНЫЕ и в UTC (date_trunc), а не скользящие: «топ за сегодня»
@@ -57,6 +94,46 @@ function periodSlice(period) {
 
   return null;
 }
+
+// Строка games наружу: snake_case БД → camelCase REST. Ники автора и
+// модератора приходят из LEFT JOIN и равны null у игр платформы (автора нет)
+// и у неотмодерированных
+function mapGame(row) {
+  return row
+    ? {
+        id: row.id,
+        packageName: row.package_name,
+        title: row.title,
+        repoUrl: row.repo_url,
+        authorUserId: row.author_user_id,
+        authorNick: row.author_nick ?? null,
+        status: row.status,
+        version: row.version,
+        pendingVersion: row.pending_version,
+        maxGameScore: row.max_game_score,
+        moderatorNote: row.moderator_note,
+        moderatorNick: row.moderator_nick ?? null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    : null;
+}
+
+// колонки игры + ник автора одним списком: все выборки реестра отдают одну и
+// ту же форму строки, чтобы mapGame был один на всех
+const GAME_FIELDS = `g.*, a.nick AS author_nick`;
+const GAME_FROM = `FROM games g LEFT JOIN users a ON a.id = g.author_user_id`;
+
+// поля, которые вправе менять модератор: белый список ключей patch →
+// колонок. Ключ, которого здесь нет, в SET не попадает вовсе — так значение
+// из тела запроса не может стать куском SQL
+const MODERATABLE = {
+  status: 'status',
+  version: 'version',
+  pendingVersion: 'pending_version',
+  note: 'moderator_note',
+  maxGameScore: 'max_game_score',
+};
 
 export default class UserRepository {
   // `distribution` — кэш лестницы значений среза (db/RankDistribution.js), из
@@ -593,5 +670,171 @@ export default class UserRepository {
     );
 
     return { ...(await this._recomputeHostRating(hosterUserId)), counted: true };
+  }
+
+  // ***** РОЛИ (master-game-registry, этап 1) *****
+
+  // Синхронизация роли по списку из окружения. Одним запросом и через CASE —
+  // чтобы не гасить роль, назначенную из БД (будущее назначение модераторов
+  // из админки): понижаем только того, кто получил superadmin из этого же
+  // списка и в нём больше не значится.
+  async syncRole(userId, isEnvAdmin) {
+    const { rows } = await this._db.query(
+      `UPDATE users
+          SET role = CASE WHEN $2 THEN 'superadmin'
+                          WHEN role = 'superadmin' THEN 'user'
+                          ELSE role END
+        WHERE id = $1
+        RETURNING role`,
+      [userId, isEnvAdmin],
+    );
+
+    return rows[0]?.role ?? 'user';
+  }
+
+  // роль читается из БД на каждом админском запросе (не из клейма токена):
+  // identity-токен живёт 4 часа, а разжалование обязано действовать сразу
+  async getRole(userId) {
+    const result = await this._db.query('SELECT role FROM users WHERE id = $1', [userId]);
+
+    return result.rows[0]?.role ?? 'user';
+  }
+
+  // ***** РЕЕСТР ИГР (master-game-registry, этап 1) *****
+
+  // каталог для мастеров: только одобренные и только с раздаваемой версией.
+  // Сортировка по id, а не по updated_at: порядок каталога обязан быть
+  // детерминированным — первая игра становится активной в лобби
+  async listApprovedGames() {
+    const result = await this._db.query(
+      `SELECT ${GAME_FIELDS} ${GAME_FROM}
+        WHERE g.status = 'approved' AND g.version IS NOT NULL
+        ORDER BY g.id`,
+    );
+
+    return result.rows.map(mapGame);
+  }
+
+  // очередь модерации: всё, включая отклонённое и выключенное, свежее сверху
+  async listAllGames() {
+    const result = await this._db.query(
+      `SELECT ${GAME_FIELDS}, m.nick AS moderator_nick
+       ${GAME_FROM}
+       LEFT JOIN users m ON m.id = g.moderator_user_id
+        ORDER BY g.updated_at DESC`,
+    );
+
+    return result.rows.map(mapGame);
+  }
+
+  async listGamesByAuthor(userId) {
+    const result = await this._db.query(
+      `SELECT ${GAME_FIELDS} ${GAME_FROM}
+        WHERE g.author_user_id = $1
+        ORDER BY g.updated_at DESC`,
+      [userId],
+    );
+
+    return result.rows.map(mapGame);
+  }
+
+  async getGame(id) {
+    const result = await this._db.query(
+      `SELECT ${GAME_FIELDS} ${GAME_FROM} WHERE g.id = $1`,
+      [id],
+    );
+
+    return mapGame(result.rows[0]);
+  }
+
+  // Заявка разработчика. Игра появляется сразу в статусе pending, а
+  // запрошенная версия — в pending_version: одобрение переносит её в
+  // version, до тех пор мастера игру не раздают.
+  //
+  // Потолок заявок считается до вставки: 23505 отличить от него нельзя, а
+  // сообщение разработчику у них разное
+  async createGame({ id, packageName, title = null, repoUrl = null, version, authorUserId }) {
+    const counted = await this._db.query(
+      'SELECT COUNT(*)::int AS total FROM games WHERE author_user_id = $1',
+      [authorUserId],
+    );
+
+    if (Number(counted.rows[0]?.total ?? 0) >= config.games.maxPerUser) {
+      throw new GameLimitError(authorUserId);
+    }
+
+    try {
+      const result = await this._db.query(
+        `INSERT INTO games (id, package_name, title, repo_url, author_user_id,
+                            status, pending_version)
+         VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+         RETURNING *`,
+        [id, packageName, title, repoUrl, authorUserId, version],
+      );
+
+      return mapGame(result.rows[0]);
+    } catch (err) {
+      // 23505 — и первичный ключ id, и games_package_lower_idx: занят либо
+      // сегмент URL, либо сам npm-пакет
+      if (err.code === '23505') {
+        throw new GameExistsError(id);
+      }
+
+      throw err;
+    }
+  }
+
+  // Заявка на новую версию уже заведённой игры. Одобренная version не
+  // трогается — игроки продолжают играть в неё, пока админ смотрит новую.
+  // Отклонённая ранее игра возвращается в очередь (rejected → pending), а
+  // замечание модератора снимается: оно относилось к прошлой версии
+  async requestGameVersion(id, version, { userId = null, isAdmin = false } = {}) {
+    const result = await this._db.query(
+      `UPDATE games
+          SET pending_version = $2,
+              moderator_note = NULL,
+              status = CASE WHEN status = 'rejected' THEN 'pending' ELSE status END,
+              updated_at = now()
+        WHERE id = $1 AND ($3 OR author_user_id = $4)
+        RETURNING *`,
+      [id, version, isAdmin, userId],
+    );
+
+    if (result.rows[0]) {
+      return mapGame(result.rows[0]);
+    }
+
+    // ноль строк — либо игры нет, либо она чужая; различаем отдельным чтением
+    if (await this.getGame(id)) {
+      throw new GameForbiddenError(id);
+    }
+
+    throw new GameNotFoundError(id);
+  }
+
+  // Решение модератора: частичное обновление. SET собирается только из
+  // ключей белого списка MODERATABLE, значения — всегда через $n (в текст
+  // SQL из patch не попадает ничего)
+  async moderateGame(id, patch, moderatorUserId) {
+    const sets = ['moderator_user_id = $2', 'updated_at = now()'];
+    const values = [id, moderatorUserId];
+
+    for (const [key, column] of Object.entries(MODERATABLE)) {
+      if (patch[key] !== undefined) {
+        values.push(patch[key]);
+        sets.push(`${column} = $${values.length}`);
+      }
+    }
+
+    const result = await this._db.query(
+      `UPDATE games SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+      values,
+    );
+
+    if (!result.rows[0]) {
+      throw new GameNotFoundError(id);
+    }
+
+    return mapGame(result.rows[0]);
   }
 }

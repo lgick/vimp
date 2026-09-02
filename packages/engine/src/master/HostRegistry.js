@@ -40,7 +40,10 @@ export default class HostRegistry {
   // (server-rating этап 2): атрибуция голосов /like·/unlike и (этап 4)
   // аннулирования rank/skills; блокировку хостера по рейтингу проверяет
   // вызывающий (SignalingServer) до add(), т.к. это асинхронный запрос к auth
-  add({ name, maxPlayers, mapName, region, ip, gameId, gameVersion, hosterUserId }, now = Date.now()) {
+  add(
+    { name, maxPlayers, mapName, region, ip, gameId, gameVersion, hosterUserId, hidden },
+    now = Date.now(),
+  ) {
     if (this.getByIp(ip)) {
       return null;
     }
@@ -67,6 +70,11 @@ export default class HostRegistry {
       // композиция) их не присылают — null
       gameId: gameId ?? null,
       gameVersion: gameVersion ?? null,
+      // комната на застейдженной версии игры (master-game-registry, этап 3.5):
+      // админ тестирует новую версию, пока игроки играют в одобренную, и его
+      // комната не должна появляться в общем списке. Флаг считает
+      // SignalingServer по gameVersion (хеш бандла), сверяя его с каталогом
+      hidden: hidden === true,
       hosterUserId: hosterUserId ?? null,
       // рейтинг хостера, закэшированный из auth (server-rating этап 3):
       // выставляется SignalingServer сразу после add() и обновляется по
@@ -220,9 +228,13 @@ export default class HostRegistry {
   }
 
   // список серверов; приоритет: поиск > малый реестр целиком > регион + срез
-  getList({ offset, limit, region, search } = {}) {
+  // includeHidden показывает и тестовые комнаты застейдженных версий — его
+  // ставит только админский вызов. Сравнение строгое (=== true) намеренно:
+  // lobby.js передаёт сюда req.query как есть, а из строки запроса булев
+  // true не приходит никогда
+  getList({ offset, limit, region, search, includeHidden } = {}) {
     const online = [...this._hosts.values()].filter(
-      host => host.status === 'online',
+      host => host.status === 'online' && (includeHidden === true || !host.hidden),
     );
 
     // прямой поиск по имени (или "gameId/name" — lobby-page-plan, формат

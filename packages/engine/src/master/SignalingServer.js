@@ -223,6 +223,12 @@ export default class SignalingServer {
       gameId,
       gameVersion,
       hosterUserId,
+      // тестовая комната админа (master-game-registry, этап 3.5): хост уже
+      // присылает gameVersion (хеш бандла), поэтому мастер отличает комнату
+      // на застейдженной версии от комнаты на одобренной, не меняя протокол.
+      // Скрытая комната не показывается в общем списке — админ проверяет
+      // новую версию, пока игроки играют в раздаваемую
+      hidden: gameId ? this._gameCatalog?.isStaged?.(gameId, gameVersion) === true : false,
       region: session.region,
       ip: session.ip,
     });

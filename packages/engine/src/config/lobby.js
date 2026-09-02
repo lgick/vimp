@@ -11,10 +11,19 @@ export default {
 
   // каталог карт мастера, per-game (Этап 6.4): комната хоста стартует на
   // актуальных картах активной игры, недоступность каталога — fallback на
-  // карты из бандла
+  // карты из бандла.
+  //
+  // Аргумент — МАНИФЕСТ, а не gameId (master-game-registry, этап 3): карты
+  // клиент берёт не из assetsBase, а по отдельному URL, и версионность
+  // каталога обязана доехать и сюда, иначе комната на застейдженной версии
+  // играла бы на картах одобренной. `mapsBase` проставляет мастер при
+  // ребейзе версионного каталога; его отсутствие (dev, standalone,
+  // dedicated, старый мастер) — законный случай, тогда работает прежний
+  // путь по id
   maps: {
-    manifestUrl: gameId => `/games/${gameId}/maps/manifest.json`,
-    baseUrl: gameId => `/games/${gameId}/maps`,
+    manifestUrl: manifest =>
+      `${manifest.mapsBase ?? `/games/${manifest.id}/maps`}/manifest.json`,
+    baseUrl: manifest => manifest.mapsBase ?? `/games/${manifest.id}/maps`,
   },
 
   // манифест конкретной игры (Этап 6.5): эстафета Worker'ов перечитывает его
@@ -182,6 +191,76 @@ export default {
     // (client/lib/engineVersion.js), и ссылка на его страницу
     versionId: 'lobby-version',
     linkId: 'lobby-link',
+  },
+
+  // реестр игр (master-game-registry, этап 4): заявка разработчика и панель
+  // модерации живут в том же лобби, без правки конфигов и рестартов.
+  // Все URL и id элементов — здесь: правило репозитория, модули их не
+  // хардкодят (games.pug)
+  games: {
+    urls: {
+      // заявки вызывающего со статусами и замечаниями модератора
+      mine: '/games/mine',
+      // заявка на новую игру платформы (валидируется мастером до записи)
+      submit: '/games/submit',
+      // заявка на новую версию уже заведённой игры
+      version: id => `/games/mine/${encodeURIComponent(id)}/version`,
+      // очередь модерации целиком плюс локальное состояние на этом мастере
+      admin: '/admin/games',
+      // манифесты застейдженных версий — по ним админ поднимает тестовую
+      // комнату, не трогая каталог игроков
+      staged: '/admin/games/manifest.json',
+      // «Тест»: скачать версию и положить её в каталог не раздаваемой
+      stage: id => `/admin/games/${encodeURIComponent(id)}/stage`,
+      // решение модератора
+      moderate: id => `/admin/games/${encodeURIComponent(id)}`,
+      // что опубликовано в npm — индикатор «есть версия новее»
+      versions: id => `/admin/games/${encodeURIComponent(id)}/versions`,
+    },
+
+    // фильтры очереди модерации: id статуса реестра -> подпись кнопки.
+    // Значения обязаны совпадать со статусами auth-сервиса
+    statuses: [
+      { id: 'pending', title: 'Ожидают' },
+      { id: 'approved', title: 'Опубликованы' },
+      { id: 'rejected', title: 'Отклонены' },
+      { id: 'disabled', title: 'Отключены' },
+    ],
+    defaultStatus: 'pending',
+
+    // суффикс игры, поднятой из застейдженной версии: в селекторе она
+    // стоит рядом с одобренной, и различать их обязано быть видно
+    stagedSuffix: ' (тест)',
+
+    // DOM-элементы панели (из games.pug)
+    elems: {
+      panelId: 'games-panel',
+      // панель и лобби делят место: открытая панель прячет #lobby целиком
+      lobbyId: 'lobby',
+      // кнопки в бейдже пользователя (lobby.pug)
+      openMineBtnId: 'games-open-mine',
+      openModerationBtnId: 'games-open-moderation',
+      closeBtnId: 'games-close',
+
+      // «Мои игры»
+      mineListId: 'games-mine-list',
+      submitFormId: 'games-submit-form',
+      submitErrorId: 'games-submit-error',
+      submitBtnId: 'games-submit',
+      fieldIds: {
+        id: 'games-field-id',
+        packageName: 'games-field-package',
+        version: 'games-field-version',
+        repoUrl: 'games-field-repo',
+        title: 'games-field-title',
+      },
+
+      // модерация
+      moderationId: 'games-moderation',
+      adminListId: 'games-admin-list',
+      adminErrorId: 'games-admin-error',
+      filtersId: 'games-filters',
+    },
   },
 
   // создание комнаты (хост в этой же вкладке); лимит игроков/время

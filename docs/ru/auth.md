@@ -65,10 +65,22 @@ openssl rsa -in .keys/jwt.pem -pubout -out .keys/jwt.pub.pem
 В dev `VIMP_AUTH_ALLOWED_ORIGINS` по умолчанию — origin dev-мастера
 (`https://localhost:3002`).
 
+`VIMP_ADMIN_NICKS` необязательна в любом режиме (master-game-registry,
+этап 1): CSV-список ников, которым при каждом входе выдаётся
+`role = 'superadmin'` и которые понижаются обратно до `'user'`, как только
+из списка исчезают (`parseAdminNicks` в `src/config/auth.js`, сравнение
+регистронезависимое — ник глобально уникален и регистронезависим, поэтому
+список не зависит от провайдера). Пустое значение означает «админов нет» и
+не должно ронять сервис: в проде это законное состояние до первой
+настройки.
+
 ## Схема БД
 
 ```
-users:           id, provider, provider_uid, nick(UNIQUE), created_at
+users:           id, provider, provider_uid, nick(UNIQUE), role, created_at
+games:           id, package_name, title, repo_url, author_user_id, status,
+                 version, pending_version, max_game_score, moderator_note,
+                 moderator_user_id, created_at, updated_at    ← реестр игр
 ratings:         user_id, game_id, rank, updated_at            ← денормализованный кэш
 rank_events:     id, user_id, game_id, hoster_user_id, session_id,
                  delta, best, voided, created_at               ← append-only леджер
@@ -88,6 +100,25 @@ host_votes:      hoster_user_id, voter_user_id, value, reason,
 (`002_nick_case_insensitive.sql` — `UNIQUE INDEX` по `lower(nick)` поверх
 обычного `UNIQUE(nick)`), так что `"Admin"` и `"admin"` не могут сосуществовать.
 Единственный модуль, трогающий эти таблицы, — `packages/auth/src/UserRepository.js`.
+
+**Реестр игр** (master-game-registry, этап 1, `009_games.sql`) живёт здесь, а
+не на мастере, потому что модерация обязана быть одна на платформу, а не одна
+на мастер (`SERVERS_MATRIX`). `status` — `pending` | `approved` | `rejected` |
+`disabled`; `version` — одобренная версия, которую раздают мастера (`NULL` до
+первого одобрения), `pending_version` — версия на модерации. Отдельного
+статуса `testing` намеренно нет: «игра на тесте» — это игра с
+`pending_version`, пока игроки продолжают играть в `version`.
+`max_game_score` — потолок результата одного матча этой игры (`NULL` —
+дефолт движка). `lower(package_name)` уникален: две строки на один
+npm-пакет означали бы раздачу одного кода под двумя id. Как и все миграции
+здесь, она идемпотентна и переносит уже живущие игры seed'ом
+(`ON CONFLICT DO NOTHING`), чтобы лобби не опустело ни на минуту.
+
+`users.role` по умолчанию `'user'`. На этапе 1 источник истины —
+`VIMP_ADMIN_NICKS`: `syncRole` записывает роль при каждом выпуске токена
+одним запросом, и его `CASE` понижает только того `superadmin`, который
+выбыл из списка, — роль, назначенную в БД (будущий модератор из админки),
+он не трогает.
 
 **Леджер результатов игр** (server-rating этап 1, `003_rank_ledger.sql`;
 snakes-v3, `007_game_results.sql`): `ratings.rank` — кэш, а не источник
@@ -226,6 +257,12 @@ voter)`**: мнение гостя о хостере может меняться
 | `GET /oauth/:provider/callback` | обменивает `code`, находит/создаёт пользователя по `(provider, providerUid)`, повторно проверяет origin декодированного `returnUrl`, редиректит на него с `?token=` (ник уже есть — полноценный identity JWT) либо `?pendingToken=` (первый вход, ник не выбран) |
 | `GET /dev/login?nick=&returnUrl=` **(только dev)** | вход мимо OAuth: находит/создаёт пользователя как `('dev', nick)`, при первом входе задаёт ник (`setNick` с guard'ом `nick IS NULL` делает повтор no-op) и редиректит на `returnUrl` с `?token=` — ровно в той форме, что выдаёт `/oauth/:provider/callback`, поэтому клиентский путь не меняется. Ник проходит через тот же `isValidNick`, return URL — через ту же проверку allowlist, что и OAuth (открытого редиректа с валидным токеном не появляется). Регистрируется **только** при `NODE_ENV !== 'production'`; в проде маршрута не существует (`404`). Хендлер — `src/devLogin.js`, см. [getting-started.md](getting-started.md#центральный-auth-сервис-нужен-для-входа-в-лобби) |
 | `POST /nick` (Bearer pending-токен, `{ nick }`) | CORS для origin'ов из `VIMP_AUTH_ALLOWED_ORIGINS` (включая preflight `OPTIONS` — единственный эндпоинт, вызываемый напрямую браузером лобби, не проксируется мастером), rate-limit по IP; отклоняет identity-токен (`403 nickAlreadySet` — нужен именно pending-токен, иначе `/nick` мог бы переименовывать существующего пользователя); проверяет ник по `NAME_REGEXP` (уникальность регистронезависимая — см. «Схема БД») и сохраняет, возвращает `{ token }` (полный identity JWT). `409 { error: 'nickTaken' }` при гонке |
+| `GET /games` (без авторизации — master-game-registry) | `{ games: [...] }` — каталог, из которого мастер строит свой список: одобренные игры с раздаваемой `version`, сортировка по `id` (порядок обязан быть детерминированным — первая игра становится активной в лобби). Публичный по той же причине, что и `/leaderboard`: список игр платформы и так виден в лобби |
+| `GET /games/mine` (Bearer identity-токен) | собственные заявки вызывающего со `status`, `pendingVersion` и `moderatorNote` |
+| `POST /games` (Bearer, `{ id, packageName, title?, repoUrl?, version }`) | заявка разработчика: `201 { game }`, создаётся в `pending` с `pendingVersion = version`. Rate-limit по IP (5/60с). Каждое поле отвечает своим кодом — `400 invalidGameId` \| `invalidPackageName` \| `invalidVersion` \| `invalidTitle` \| `invalidRepoUrl`; `409 gameExists` на занятый `id` или уже зарегистрированный пакет (и то и другое — один `23505`), `403 tooManyGames` сверх `config.games.maxPerUser` |
+| `POST /games/:id/version` (Bearer — автор или админ) | `{ version }` → `{ game }`: ставит новую версию на модерацию, не трогая раздаваемую `version`, снимает `moderatorNote` и возвращает `rejected` в `pending`. `404 unknownGame`, `403 forbidden` на чужую игру |
+| `GET /admin/games` (Bearer, админ) | вся очередь модерации, свежее сверху, с никами автора и модератора |
+| `PATCH /admin/games/:id` (Bearer, админ, `{ status?, version?, pendingVersion?, note?, maxGameScore? }`) | решение модератора — записываются только переданные ключи. `status: 'approved'` без явного `version` поднимает `pendingVersion` в `version` и обнуляет его (самый частый путь не должен требовать двух полей). `404 unknownGame` |
 | `GET /jwks` | публичный RS256-ключ в формате JWK — хост проверяет подпись `token` перед тем, как довериться его `nick` |
 | `GET /rank?game=` (Bearer identity-токен) | `{ rank }` — кэш `ratings` по игре: клампленная сумма непогашенных `rank_events` вызывающего **на момент последнего прогона суточной задачи**, а не на сейчас |
 | `PUT /rank?game=` (Bearer, `{ points, best, hosterUserId?, sessionId? }`) | дописывает одну строку леджера с РЕЗУЛЬТАТОМ ИГРЫ, атрибутированную к серверу/сессии-репортёру, и отвечает `{ ok: true }` — на горячем пути ничего не пересчитывается, и вернуть отсюда ранг было бы ложью (`all` — суточный снимок). Оба числа — неотрицательные целые, требуется `best <= config.rank.maxGameScore`, `points <= config.rank.maxPoints` и `best <= points`, иначе `400 invalidRank`. `delta` ещё принимается как алиас `points` ровно на одну версию (у старого хоста нет `best`, и его `points` читается как одна игра). `hosterUserId`/`sessionId` должен проставлять *мастер* вызывающего, не сам браузерный хост — см. [master.md](master.md#getput-authrank-getput-authstate) |
@@ -256,7 +293,8 @@ Rate limiting — одна middleware (`src/lib/rateLimit.js`: `main.js` при 
 `X-Real-IP`, схлопывает всех клиентов в один бакет — см.
 [deployment.md](deployment.md#обязательный-заголовок-прокси-x-real-ip).
 
-Identity JWT (`src/lib/jwt.js`) несёт `sub` (id пользователя) и `nick`,
+Identity JWT (`src/lib/jwt.js`) несёт `sub` (id пользователя), `nick` и
+`role`,
 подписан RS256, короткоживущий (`config.jwt.expiresIn`, 4 часа по
 умолчанию — с запасом покрывает длительность матча; клиент также проверяет
 `exp` при восстановлении сохранённого токена, см. «Вход в лобби» ниже),
@@ -266,6 +304,14 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 эндпоинтах, а `/nick` отклоняет обратный случай (identity-токен, т.е.
 `pending` отсутствует).
 
+`role` (master-game-registry, этап 1) аддитивна: уже выданные токены в
+`localStorage` игроков её не содержат и читаются как `'user'`, а движковый
+верификатор (`packages/engine/src/lib/jwt.js`) проверяет только
+`alg`/`iss`/`exp`/`nick` и подпись. Клейм нужен **клиенту** — показать
+вкладку модерации. `requireAdmin` в `src/main.js` на каждом админском
+запросе перечитывает роль из БД, а не доверяет клейму: токен живёт четыре
+часа, и разжалование обязано действовать немедленно.
+
 ## Модули
 
 | Модуль | Ответственность |
@@ -274,9 +320,9 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 | `src/config/auth.js` | порт/домен, пути к ключам JWT, строка подключения к БД, конфиг OAuth-провайдеров |
 | `src/lib/jwt.js` | подпись/проверка RS256 (identity + pending), экспорт JWKS |
 | `src/lib/oauthState.js` | подписанный stateless `state` OAuth (return URL + CSRF-nonce) |
-| `src/devLogin.js` | фабрика хендлера dev-входа (`createDevLoginHandler({ userRepo, jwtLib, isAllowedReturnUrl, isValidNick })`) — зависимости инжектируются, поэтому тестируется без Express и живой БД; подключается в `main.js` под `if (!isProduction)` |
-| `src/lib/validators.js` | regexp ника, продублирован из `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — воркспейсы не делят рантайм-зависимость |
-| `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state, чтение рейтинга/позиции игрока для лобби (lobby-page-plan) |
+| `src/devLogin.js` | фабрика хендлера dev-входа (`createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick })`) — зависимости инжектируются, поэтому тестируется без Express и живой БД; подключается в `main.js` под `if (!isProduction)` |
+| `src/lib/validators.js` | regexp ника, проверки полей заявки на игру (id/пакет/версия/title/repo URL — пределы приходят аргументом `config.games`, файл остаётся набором чистых функций), продублирован из `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — воркспейсы не делят рантайм-зависимость |
+| `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state, чтение рейтинга/позиции игрока для лобби (lobby-page-plan), синхронизация и чтение роли пользователя и весь реестр игр — списки/чтение/создание игры, заявка на версию, частичный патч модератора (master-game-registry) |
 | `src/oauth/github.js`, `src/oauth/index.js` | реестр провайдеров; форма `getAuthorizationUrl`/`exchangeCode`, расширяема под Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, минимальный идемпотентный раннер миграций (`CREATE TABLE IF NOT EXISTS`, без таблицы версий пока) |
 
@@ -430,7 +476,14 @@ RSA-парой, мокает `config/auth.js`), `github.test.js` (мокает `
 `getHostRating`: первый голос, повторный неизменный голос как no-op, смена
 мнения, клампинг в `config.rating` и выставление `blocked`;
 `getLeaderboard`/`getPlacement` — форма SQL одним запросом, competition
-ranking при равном `rank`, пустая игра), `devLogin.test.js` (редирект несёт
+ranking при равном `rank`, пустая игра; реестр игр и роли — все три ветки
+`CASE` в `syncRole`, запросы каталога/очереди/автора, `createGame` с дублем
+и сверх лимита на автора (в этом случае `INSERT` не выполняется вовсе),
+`requestGameVersion` от автора/админа/чужого и снятие `rejected` →
+`pending`, `moderateGame` со `SET` только из переданных ключей и всеми
+значениями через плейсхолдеры), `adminNicks.test.js` (разбор
+`VIMP_ADMIN_NICKS` — регистр, пробелы, хвостовая запятая, пустое значение),
+`devLogin.test.js` (редирект несёт
 токен, проверяемый одноразовой парой RSA-ключей; ник задаётся только при
 первом входе; невалидный ник и `returnUrl` с чужого origin отклоняются до
 любой записи).

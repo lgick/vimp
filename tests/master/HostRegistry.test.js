@@ -199,6 +199,47 @@ describe('HostRegistry.sweepStale', () => {
   });
 });
 
+describe('HostRegistry hidden (тестовые комнаты застейдженных версий)', () => {
+  it('комната с hidden не попадает в общий список', () => {
+    registry.add({ name: 'public', mapName: 'arena', region: 'EU', ip: '10.1.0.1' });
+    registry.add({
+      name: 'staged',
+      mapName: 'arena',
+      region: 'EU',
+      ip: '10.1.0.2',
+      gameId: 'tanks',
+      gameVersion: 'v-next',
+      hidden: true,
+    });
+
+    const list = registry.getList();
+
+    expect(list.total).toBe(1);
+    expect(list.servers.map(s => s.name)).toEqual(['public']);
+  });
+
+  it('includeHidden отдаёт и скрытые — для админского запроса', () => {
+    registry.add({ name: 'public', mapName: 'arena', region: 'EU', ip: '10.1.0.1' });
+    registry.add({ name: 'staged', mapName: 'arena', region: 'EU', ip: '10.1.0.2', hidden: true });
+
+    const list = registry.getList({ includeHidden: true });
+
+    expect(list.total).toBe(2);
+  });
+
+  it('includeHidden из строки запроса не открывает скрытые комнаты', () => {
+    registry.add({ name: 'staged', mapName: 'arena', region: 'EU', ip: '10.1.0.2', hidden: true });
+
+    expect(registry.getList({ includeHidden: 'true' }).total).toBe(0);
+  });
+
+  it('по умолчанию комната не скрыта', () => {
+    const host = registry.add({ name: 'room', mapName: 'arena', region: 'EU', ip: '10.1.0.3' });
+
+    expect(host.hidden).toBe(false);
+  });
+});
+
 describe('HostRegistry.getList', () => {
   it('поиск по подстроке имени игнорирует регион и пагинацию', () => {
     addHosts(4, 'EU');

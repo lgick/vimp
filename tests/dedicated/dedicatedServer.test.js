@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
-import { startDedicatedServer } from '../../packages/engine/src/dedicated/main.js';
+import {
+  parseGameRef,
+  startDedicatedServer,
+} from '../../packages/engine/src/dedicated/main.js';
 import { resetHostSingletons } from '../../packages/engine/src/devtools/resetHostSingletons.js';
 import { ENGINE_API_VERSION } from '../../packages/engine/src/config/opcodes.js';
 import wsports from '../../packages/engine/src/config/wsports.js';
@@ -109,6 +112,19 @@ const waitFor = async (check, timeout = 3000) => {
 
   throw new Error('waitFor: timed out');
 };
+
+describe('parseGameRef', () => {
+  it('разбирает id и пин версии', () => {
+    expect(parseGameRef('tanks')).toEqual({ id: 'tanks', version: null });
+    expect(parseGameRef('tanks@1.2.3')).toEqual({
+      id: 'tanks',
+      version: '1.2.3',
+    });
+    expect(parseGameRef('tanks@')).toEqual({ id: 'tanks', version: null });
+    expect(parseGameRef('')).toEqual({ id: null, version: null });
+    expect(parseGameRef(undefined)).toEqual({ id: null, version: null });
+  });
+});
 
 describe('dedicated-сервер', () => {
   let server;
@@ -357,5 +373,65 @@ describe('dedicated-сервер', () => {
     });
 
     expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  // ***** разрешение игры (master-game-registry, этап 5) ***** //
+
+  it('игра не найдена ни локально, ни в реестре — именованная ошибка', async () => {
+    await expect(
+      startDedicatedServer({
+        gameId: 'tanks',
+        port: 0,
+        loadGame: loadFixtureGame,
+        fetchGame: async () => null,
+        serveClient: false,
+      }),
+    ).rejects.toThrow(/game "tanks" is not available/);
+  });
+
+  it('игра приезжает из реестра и раздаётся по версионным адресам', async () => {
+    const fetched = [];
+
+    server = await startDedicatedServer({
+      gameId: 'miniGame@9.9.9',
+      port: 0,
+      loadGame: loadFixtureGame,
+      fetchGame: async (id, version) => {
+        fetched.push([id, version]);
+
+        return {
+          version: '9.9.9',
+          distDir: '/nonexistent/miniGame/9.9.9',
+          manifest: {
+            id: 'miniGame',
+            engineApi: ENGINE_API_VERSION,
+            version: '0.0.0-fixture',
+            assetsBase: '/games/miniGame/',
+            entries: {},
+          },
+          packageUrl: null,
+          maxGameScore: null,
+        };
+      },
+      serveClient: false,
+    });
+
+    // пин `<id>@<version>` доехал до загрузчика разобранным
+    expect(fetched).toEqual([['miniGame', '9.9.9']]);
+
+    const versioned = await (
+      await fetch(
+        `http://localhost:${server.port}/games/miniGame/9.9.9/manifest.json`,
+      )
+    ).json();
+
+    // манифест отдаётся ребейзнутым на версионный префикс — как у мастера
+    expect(versioned.assetsBase).toBe('/games/miniGame/9.9.9/');
+
+    const list = await (
+      await fetch(`http://localhost:${server.port}/games/manifest.json`)
+    ).json();
+
+    expect(list.map(manifest => manifest.id)).toEqual(['miniGame']);
   });
 });

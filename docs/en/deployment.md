@@ -12,20 +12,17 @@ Docker image and publishes it to GHCR → SSHes into every server in
 container. On the VPS, Nginx terminates HTTPS and proxies to the app port
 (the master listens on `3002` inside the container).
 
-> **No Rust toolchain needed.** Since the game plugin (`@vimp-games/tanks`) moved
-> to its own repository (Stage A3), [Dockerfile](../../Dockerfile) no
-> longer builds any WASM core — the game repo's own CI does that and
-> publishes the package. The node stage just runs `npm ci` (installs
-> `@vimp-games/tanks` from the registry, which brings its already-built `dist/` —
-> client/host entries, the WASM asset, maps, sounds, `manifest.json`)
-> followed by `npm run build:app` (engine Vite build). The runner stage
-> copies `packages/engine/dist/` and the `dist/` of every installed
-> `@vimp-games/*` package (staged via `/app/game-dists`, with no game
-> hardcoded — a second game in `master:games`/`GAMES_MATRIX` needs no
-> Dockerfile change); the master reads each plugin only through `GameCatalog`
-> (`dist/manifest.json` + `dist/maps/*.json`) and rejects it at load time if
-> its `engineApi` doesn't match this engine build's `ENGINE_API_VERSION`
-> — it never imports game source.
+> **No games in the image, no Rust toolchain.** [Dockerfile](../../Dockerfile)
+> builds the engine and nothing else: the node stage runs `npm ci` (engine
+> dependencies only — game packages are not dependencies of this repository)
+> followed by `npm run build:app` (engine Vite build), and the runner stage
+> copies `packages/engine/dist/` plus the server sources. Games arrive **at
+> runtime**: the master reads the catalog from the registry of the central
+> auth service, downloads each approved package from the npm registry into
+> `VIMP_GAMES_DIR` (a mounted volume) and serves it from there, reading only
+> `dist/manifest.json` + `dist/maps/*.json` and never importing game source.
+> Adding a game or raising its version therefore rebuilds and redeploys
+> nothing — see "Adding a game to the catalog" below.
 
 This page is about infrastructure: preparing a server and how the rollout
 works. The release order itself — publishing `vimp-engine` and the game
@@ -181,16 +178,22 @@ regular domain with its own port), then one extra field in
 ]
 ```
 
-- `dedicatedGame` is a game id from `GAMES_MATRIX`/`master:games`. With the
-  field present, `deploy.yml` writes `VIMP_DEDICATED_GAME` into that
-  server's `.env.prod` and `src/master/main.js` starts the dedicated server
-  instead of the lobby; without it the box stays a lobby master. Nothing
-  else in the matrix changes.
-- The game package must be installed in the image (a root dependency, as in
-  "Adding a second game to the catalog" below) **and** publish
-  `dist/core-node/` — the dedicated server loads the Node build of the
-  core, like `npm run sim` does. A game whose `dist/` lacks it fails at
-  startup with a named error, see [plugin-api.md](plugin-api.md).
+- `dedicatedGame` is a game id, optionally pinned to an exact package
+  version (`"tanks"` or `"tanks@0.16.1"`). With the field present,
+  `deploy.yml` writes `VIMP_DEDICATED_GAME` into that server's `.env.prod`
+  and `src/master/main.js` starts the dedicated server instead of the lobby;
+  without it the box stays a lobby master. Nothing else in the matrix
+  changes.
+- The game is resolved the same way the lobby master resolves its catalog:
+  a package linked into `node_modules` wins, otherwise the server asks the
+  registry (`VIMP_AUTH_SERVICE_URL`) and downloads the package into
+  `VIMP_GAMES_DIR` itself — so **a dedicated box needs the same volume**.
+  With neither available the process exits with a named error naming both
+  ways, see [dedicated.md](dedicated.md).
+- The package must publish `dist/core-node/` — the dedicated server loads
+  the Node build of the core, like `npm run sim` does. A game whose `dist/`
+  lacks it fails at startup with a named error, see
+  [plugin-api.md](plugin-api.md).
 - The game's age is **not** a deployment concern. `ENGINE_API_VERSION` is
   frozen and no longer a gate: the lobby catalog accepts a `dist/` built
   against any older engine, and `engineApi` is only a generation stamp. The
@@ -433,23 +436,43 @@ client↔host protocol must stay compatible across a deploy (the client
 drops an incompatible binary frame by format version). Details —
 [host.md](host.md#worker-handoff).
 
-### Adding a second game to the catalog
+### Adding a game to the catalog
 
-The default catalog (`packages/engine/src/config/master.js`'s `games`) ships
-only `tanks`. Production needs two changes, both before the push that
-triggers the deploy:
+**Nothing is deployed for this.** The catalog lives in the game registry of
+the central auth service, and a master picks changes up within
+`master:gameStore:refreshInterval` (60 s by default):
 
-1. Add the new plugin as a root dependency (`npm i @vimp-games/<id>@X.Y.Z`
-   at the repo root — see [publishing.md](publishing.md)) so the Docker
-   build's `npm ci` installs it and stages its `dist/`.
-2. Set the `GAMES_MATRIX` repository variable (Settings → Secrets and
-   variables → Actions → Variables) to the full JSON array, e.g.
-   `[{"id":"tanks","package":"@vimp-games/tanks"},{"id":"<id>","package":"@vimp-games/<id>"}]`
-   — the plugin version is pinned by the root `package.json`, the variable
-   only lists which packages the catalog exposes
-   — it **replaces** the default array, so `tanks` must be listed too if it
-   should stay. Every master reads the same variable (one catalog for all
-   domains in `SERVERS_MATRIX`); there is no per-server override.
+1. The developer publishes the package to npm and submits it from the lobby
+   ("My games" → the submission form). The master downloads and validates the
+   package before the row is written, so a broken package is refused with a
+   list of problems instead of entering the queue.
+2. An admin opens "Moderation", optionally presses "Test" (the version is
+   downloaded and staged — the admin can open a room on it, hidden from
+   `GET /servers`), and approves it. The approved version reaches every
+   master on its next sync pass.
+3. A new version of an already approved game goes the same way ("My games" →
+   "Update" → moderation), and again deploys nothing.
+
+`master:games` / `GAMES_MATRIX` stays as the static override for local
+development and for a self-hosted master running without a registry — see
+[configuration.md](configuration.md#packagesenginesrcconfigmasterjs).
+
+**Who is an admin** is set by the `VIMP_ADMIN_NICKS` repository variable
+(Settings → Secrets and variables → Actions → Variables): a CSV of nicks the
+auth service grants `role = 'admin'` to on every token issue, and demotes back
+to `'user'` as soon as they leave the list. `deploy_auth` rewrites the line in
+the auth stack's `.env.prod` on every deploy and recreates the container with
+`--force-recreate` — `env_file` is only read when a container is created, so a
+plain restart would keep the old list (the same trap as
+`VIMP_AUTH_ALLOWED_ORIGINS` above).
+
+**The package store.** Every master's `.env.prod` gets
+`VIMP_GAMES_DIR=/var/vimp/games`, and the generated `docker-compose.yml`
+mounts the named volume `vimp-games` there, so downloaded packages survive a
+container recreate — otherwise every deploy would re-fetch the whole catalog
+from npm. The volume is created root-owned and the image runs as root, which
+is enough to write; the master still checks the directory at startup and exits
+with a named error naming the path and `VIMP_GAMES_DIR` if it cannot.
 
 ### Removing a server
 
