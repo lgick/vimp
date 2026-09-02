@@ -37,7 +37,7 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/rebaseManifest.js` | переписывает `assetsBase`/`entries` отдаваемого манифеста на версионную базу `/games/<id>/<version>/` и добавляет `mapsBase`; `entries.wasmNode` намеренно не трогается (это путь в ФС, а не URL) |
 | `packages/engine/src/master/GameSync.js` | держит каталог в согласии с реестром: один проход спрашивает реестр, докачивает недостающее, обновляет каталог и подметает диск; опрашивается по таймеру (`master:gameStore:refreshInterval`). Отказ реестра каталог не опустошает — протухший каталог лучше пустого |
 | `packages/engine/src/master/adminAuth.js` | авторизация REST-роутов мастера: та же проверка подписи по JWKS и та же политика issuer, что на сигнальном пути, плюс клейм `role` для `/admin/*` |
-| `packages/engine/src/master/gameRoutes.js` | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Тест» версии в каталоге |
+| `packages/engine/src/master/gameRoutes.js` | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Test» версии в каталоге |
 | `packages/engine/src/master/JwksProxy.js` | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | проксирует per-user `GET`/`PUT /rank` и `/state` центрального auth-сервиса, **без кэша** (Этап B4) — см. [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); также публичный `GET /leaderboard` и per-user `GET /placement` (lobby-page-plan) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/LeaderboardCache.js` | keyed-TTL кэш (`game:limit:period`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
@@ -217,7 +217,7 @@ Dedicated-сервер переиспользует тот же `GameCatalog`, �
 | `POST /games/mine/:id/version` | владелец игры (и админ — по любой игре) | новая версия уже заведённой игры, проверяется так же |
 | `GET /admin/games` | `role=admin` | вся очередь модерации плюс локальное состояние каждой игры на этом мастере (`downloaded`, `stagedVersion`, `lastError`) |
 | `GET /admin/games/manifest.json` | `role=admin` | манифесты застейдженных (не раздаваемых) версий — вкладка админа кладёт их в свой каталог и поднимает по ним комнату |
-| `POST /admin/games/:id/stage` | `role=admin` | «Тест»: скачать версию и положить её в каталог **неактивной** |
+| `POST /admin/games/:id/stage` | `role=admin` | «Test»: скачать версию и положить её в каталог **неактивной**. Черновик на игру один — новый «Test» снимает предыдущий, а черновик, чью версию реестр уже раздаёт, снимается ближайшим проходом синхронизации; больше снять его некому, а пока он в каталоге, его версия держится на диске |
 | `PATCH /admin/games/:id` | `role=admin` | решение модератора (статус, раздаваемая версия, замечание, `maxGameScore`); при успехе мастер тут же гоняет проход синхронизации, поэтому админ видит результат немедленно, а остальные мастера подхватывают его в течение `refreshInterval` |
 | `GET /admin/games/:id/versions` | `role=admin` | что опубликовано в npm для пакета — индикатор «есть версия новее» |
 

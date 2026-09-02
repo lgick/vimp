@@ -210,7 +210,7 @@ export default {
       // манифесты застейдженных версий — по ним админ поднимает тестовую
       // комнату, не трогая каталог игроков
       staged: '/admin/games/manifest.json',
-      // «Тест»: скачать версию и положить её в каталог не раздаваемой
+      // «Test»: скачать версию и положить её в каталог не раздаваемой
       stage: id => `/admin/games/${encodeURIComponent(id)}/stage`,
       // решение модератора
       moderate: id => `/admin/games/${encodeURIComponent(id)}`,
@@ -221,16 +221,16 @@ export default {
     // фильтры очереди модерации: id статуса реестра -> подпись кнопки.
     // Значения обязаны совпадать со статусами auth-сервиса
     statuses: [
-      { id: 'pending', title: 'Ожидают' },
-      { id: 'approved', title: 'Опубликованы' },
-      { id: 'rejected', title: 'Отклонены' },
-      { id: 'disabled', title: 'Отключены' },
+      { id: 'pending', title: 'Pending' },
+      { id: 'approved', title: 'Published' },
+      { id: 'rejected', title: 'Rejected' },
+      { id: 'disabled', title: 'Disabled' },
     ],
     defaultStatus: 'pending',
 
     // суффикс игры, поднятой из застейдженной версии: в селекторе она
     // стоит рядом с одобренной, и различать их обязано быть видно
-    stagedSuffix: ' (тест)',
+    stagedSuffix: ' (test)',
 
     // DOM-элементы панели (из games.pug)
     elems: {
@@ -242,7 +242,7 @@ export default {
       openModerationBtnId: 'games-open-moderation',
       closeBtnId: 'games-close',
 
-      // «Мои игры»
+      // «My games»
       mineListId: 'games-mine-list',
       submitFormId: 'games-submit-form',
       submitErrorId: 'games-submit-error',

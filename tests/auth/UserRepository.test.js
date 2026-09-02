@@ -1136,8 +1136,10 @@ describe('UserRepository: реестр игр', () => {
   });
 
   it('requestGameVersion различает чужую и несуществующую игру', async () => {
+    // пишущий запрос завёрнут в CTE ради общей проекции строки, поэтому
+    // различать его от последующего getGame приходится по имени CTE
     const foreign = createDbStub(text =>
-      text.startsWith('UPDATE') ? { rows: [] } : { rows: [gameRow] },
+      text.startsWith('WITH updated') ? { rows: [] } : { rows: [gameRow] },
     );
     const missing = createDbStub(() => ({ rows: [] }));
 
@@ -1168,6 +1170,80 @@ describe('UserRepository: реестр игр', () => {
     );
 
     expect(game.version).toBe('1.1.0');
+  });
+
+  it('moderateGame отдаёт ники автора и модератора — та же проекция, что в списках', async () => {
+    const db = createDbStub(text => {
+      // джойны идут по результату UPDATE (CTE), а не по таблице games.
+      // Модератор здесь важнее прочих: его id проставляет ровно этот запрос,
+      // и ответ, отдающий moderatorNick: null, врал бы о собственной работе
+      expect(text).toMatch(/LEFT JOIN users a ON a\.id = g\.author_user_id/);
+      expect(text).toMatch(/LEFT JOIN users m ON m\.id = g\.moderator_user_id/);
+      expect(text).toMatch(/FROM updated g/);
+
+      return {
+        rows: [
+          {
+            ...gameRow,
+            'author_user_id': 2,
+            'author_nick': 'Player1',
+            'moderator_nick': 'Admin',
+          },
+        ],
+      };
+    });
+
+    const game = await new UserRepository(db).moderateGame('pong', { status: 'approved' }, 1);
+
+    expect(game.authorNick).toBe('Player1');
+    expect(game.authorUserId).toBe(2);
+    expect(game.moderatorNick).toBe('Admin');
+  });
+
+  it('createGame отдаёт ник автора: INSERT завёрнут в ту же проекцию', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/WITH created AS/);
+      expect(text).toMatch(/FROM created g/);
+
+      return { rows: [{ ...gameRow, 'author_user_id': 2, 'author_nick': 'Player1' }] };
+    });
+
+    const game = await new UserRepository(db).createGame({
+      id: 'tanks',
+      packageName: '@vimp-games/tanks',
+      version: '0.16.1',
+      authorUserId: 2,
+    });
+
+    expect(game.authorNick).toBe('Player1');
+  });
+
+  it('requestGameVersion отдаёт ник автора: UPDATE завёрнут в ту же проекцию', async () => {
+    const db = createDbStub(text => {
+      expect(text).toMatch(/WITH updated AS/);
+      expect(text).toMatch(/FROM updated g/);
+
+      return { rows: [{ ...gameRow, 'author_user_id': 2, 'author_nick': 'Player1' }] };
+    });
+
+    const game = await new UserRepository(db).requestGameVersion('tanks', '0.17.0', {
+      userId: 2,
+    });
+
+    expect(game.authorNick).toBe('Player1');
+  });
+
+  it('публичный каталог ник модератора не выбирает вовсе', async () => {
+    // внутренняя переписка модерации наружу не едет — её незачем и читать
+    const db = createDbStub(text => {
+      expect(text).not.toMatch(/moderator_nick/);
+
+      return { rows: [gameRow] };
+    });
+
+    await new UserRepository(db).listApprovedGames();
+
+    expect(db.query).toHaveBeenCalledTimes(1);
   });
 
   it('moderateGame принимает null (снятие замечания) и бросает на неизвестной игре', async () => {

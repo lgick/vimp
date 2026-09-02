@@ -75,14 +75,30 @@ describe('GamesModel: заявки вызывающего', () => {
     expect(errors[0].errors).toEqual([{ name: 'request', error: 'gameExists' }]);
   });
 
-  it('успешная заявка перезапрашивает свой список', async () => {
+  it('успешная заявка перезапрашивает свой список и объявляет об успехе', async () => {
+    const submitted = [];
+
     fetchMock
       .mockResolvedValueOnce(answer({ game: { id: 'tanks' } }))
       .mockResolvedValueOnce(answer({ games: [{ id: 'tanks' }] }));
+    model.publisher.on('submitted', () => submitted.push(true));
 
     await model.submit({ id: 'tanks', packageName: '@vimp-games/tanks' });
 
     expect(fetchMock.mock.calls[1][0]).toBe('/games/mine');
+    expect(submitted).toHaveLength(1);
+  });
+
+  it('отказ по заявке события об успехе не даёт', async () => {
+    const submitted = [];
+
+    fetchMock.mockResolvedValue(answer({ error: 'gameExists' }, false));
+    model.publisher.on('submitted', () => submitted.push(true));
+    model.publisher.on('error', () => {});
+
+    await model.submit({ id: 'tanks', packageName: '@vimp-games/tanks' });
+
+    expect(submitted).toHaveLength(0);
   });
 
   it('без токена запрос не уходит вовсе', async () => {

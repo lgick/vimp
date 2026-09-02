@@ -196,7 +196,7 @@ describe('GameSync', () => {
     expect(info.mock.calls.filter(([text]) => text.includes('linked locally'))).toHaveLength(1);
   });
 
-  it('prune получает активные версии и застейдженные в пределах keepVersions', async () => {
+  it('prune получает раздаваемые версии в пределах keepVersions и все черновики', async () => {
     const catalog = makeCatalog();
 
     catalog.stagedManifests.mockReturnValue([
@@ -214,12 +214,78 @@ describe('GameSync', () => {
 
     await sync.run();
 
+    // потолок тратят раздаваемые версии; черновики идут сверх него — они
+    // существуют только на диске, перекачать их из npm нельзя
     expect(store.prune).toHaveBeenCalledWith(
       new Map([
-        ['tanks', new Set(['0.16.1', '0.17.0'])],
+        ['tanks', new Set(['0.16.1', '0.17.0', '0.18.0'])],
         ['snakes', new Set(['0.9.1'])],
       ]),
     );
+  });
+
+  it('застейдженная версия локально прилинкованной игры остаётся в keep', async () => {
+    // dev-контур: игра прилинкована в node_modules, но «Тест» админа кладёт
+    // скачанную версию на диск — она не из node_modules, и запрет на
+    // локальные id её не касается
+    const catalog = makeCatalog();
+
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '0.16.1', manifest: manifestOf('tanks') },
+    ]);
+
+    const store = makeStore();
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store,
+      catalog,
+      localGameIds: new Set(['tanks']),
+    });
+
+    await sync.run();
+
+    expect(store.ensure).not.toHaveBeenCalled();
+    expect(store.prune).toHaveBeenCalledWith(new Map([['tanks', new Set(['0.16.1'])]]));
+  });
+
+  it('черновик локальной игры снимается, когда реестр раздаёт ту же версию', async () => {
+    // «Тест» одобрен: тестировать больше нечего, а снять запись больше
+    // некому — локальная игра выходит из цикла до _owned
+    const catalog = makeCatalog();
+
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '0.16.1', manifest: manifestOf('tanks') },
+    ]);
+
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store: makeStore(),
+      catalog,
+      localGameIds: new Set(['tanks']),
+    });
+
+    await sync.run();
+
+    expect(catalog.remove).toHaveBeenCalledWith('tanks', '0.16.1');
+  });
+
+  it('черновик локальной игры с другой версией остаётся: он ещё на тесте', async () => {
+    const catalog = makeCatalog();
+
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '0.17.0', manifest: manifestOf('tanks') },
+    ]);
+
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store: makeStore(),
+      catalog,
+      localGameIds: new Set(['tanks']),
+    });
+
+    await sync.run();
+
+    expect(catalog.remove).not.toHaveBeenCalled();
   });
 
   it('локальная игра не попадает в keep — её пакета в хранилище нет', async () => {

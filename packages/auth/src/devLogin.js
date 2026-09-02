@@ -8,6 +8,8 @@
 //
 // Зависимости инжектируются (как fetchImpl в движковых прокси мастера) —
 // хендлер тестируется без Express и живой БД.
+import { NickTakenError } from './UserRepository.js';
+
 export default function createDevLoginHandler({
   userRepo,
   issueIdentityToken,
@@ -29,10 +31,14 @@ export default function createDevLoginHandler({
       return;
     }
 
+    // объявлен снаружи try: при отказе catch должен убрать за собой
+    // созданную строку пользователя
+    let user;
+
     try {
       // provider_uid = ник: повторный вход тем же ником — тот же пользователь
       // (и тот же sub, значит накопленные rank/state сохраняются)
-      const user = await userRepo.findOrCreateByProvider('dev', nick);
+      user = await userRepo.findOrCreateByProvider('dev', nick);
 
       if (!user.nick) {
         await userRepo.setNick(user.id, nick);
@@ -47,6 +53,21 @@ export default function createDevLoginHandler({
 
       res.redirect(redirectUrl.toString());
     } catch (err) {
+      // ник занят другой личностью (в т.ч. тем же ником в другом регистре:
+      // индекс уникальности стоит на lower(nick)). Это отказ входа, а не
+      // сбой сервиса, и незаполненная строка пользователя после него
+      // остаться не должна — иначе повторный вход тем же ником даёт 500
+      if (err instanceof NickTakenError) {
+        // отказ уборки ответ клиенту не меняет (вход всё равно отклонён), но
+        // молчать о нём нельзя: незаполненная строка останется, и следующий
+        // вход тем же ником снова даст 500 — ровно то, что здесь и чинится
+        await userRepo
+          .deleteIfAnonymous(user?.id)
+          .catch(cleanupErr => console.error('[dev login] cleanup', cleanupErr));
+        res.status(409).json({ error: 'nickTaken' });
+        return;
+      }
+
       console.error('[dev login]', err);
       res.status(500).json({ error: 'devLoginFailed' });
     }

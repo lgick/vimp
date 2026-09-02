@@ -306,8 +306,9 @@ The master server's config (see [master.md](master.md)); read by
     catalog changes, ms;
   - `maxTarballBytes: 67108864`, `maxFiles: 5000` — unpacking ceilings for an
     untrusted archive;
-  - `keepVersions: 2` — how many versions of one game to keep on disk (the
-    served one plus a staged one);
+  - `keepVersions: 2` — how many **served** versions of one game to keep on
+    disk. An admin's staged draft is kept on top of this ceiling: it exists
+    on disk only, while a served version can always be re-fetched from npm;
   - `timeout: 30000` — registry response timeout, ms;
 - `servers` — `GET /servers` parameters: `regionThreshold: 15` (at or
   below this many rooms, the regional filter and pagination are disabled),

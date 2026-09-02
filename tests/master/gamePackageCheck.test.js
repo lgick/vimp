@@ -69,7 +69,7 @@ describe('checkGamePackage', () => {
   });
 
   it('ловит расхождение manifest.id с запрошенным', () => {
-    expect(errorsOf({ id: 'snakes' })).toMatch(/не совпадает/);
+    expect(errorsOf({ id: 'snakes' })).toMatch(/does not match/);
   });
 
   it('ловит нецелый engineApi и пустые title/version', () => {
@@ -98,7 +98,7 @@ describe('checkGamePackage', () => {
 
     manifest.entries.client = '../../etc/passwd';
 
-    expect(errorsOf(manifest)).toMatch(/наружу dist/);
+    expect(errorsOf(manifest)).toMatch(/points outside dist/);
   });
 
   it('ловит entry, которого нет на диске', () => {
@@ -106,7 +106,7 @@ describe('checkGamePackage', () => {
 
     manifest.entries.wasm = '/games/tanks/assets/missing.wasm';
 
-    expect(errorsOf(manifest)).toMatch(/отсутствует в dist/);
+    expect(errorsOf(manifest)).toMatch(/is missing from dist/);
   });
 
   it('требует от wasmNode относительный путь, а не URL', () => {

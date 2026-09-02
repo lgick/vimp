@@ -114,6 +114,13 @@ export default class GameSync {
           );
         }
 
+        // черновик, который реестр уже раздаёт, свою работу отработал.
+        // Снять его больше некому: локальная игра выходит из цикла здесь,
+        // до _owned не доходит, а активной у неё остаётся запись из
+        // node_modules — оставленный черновик держал бы свою версию на диске
+        // и висел бы лишним пунктом «(test)» до перезапуска мастера
+        this._dropStaged(game.id, game.version);
+
         continue;
       }
 
@@ -179,6 +186,19 @@ export default class GameSync {
     await this._prune(games);
   }
 
+  // черновик игры, чью версию реестр уже раздаёт: тестировать больше нечего
+  _dropStaged(id, version) {
+    if (!version) {
+      return;
+    }
+
+    for (const staged of this._catalog.stagedManifests()) {
+      if (staged.id === id && staged.version === version) {
+        this._catalog.remove(id, version);
+      }
+    }
+  }
+
   // каталог и диск не расходятся ни в одну сторону: запись, чьей директории
   // на диске уже нет (ручная чистка тома, прошлый prune), снимается — иначе
   // /games/<id>/<version>/* отдаёт 404 посреди матча
@@ -192,12 +212,16 @@ export default class GameSync {
   }
 
   // диск чистится по тому же списку, по которому собран каталог: активная
-  // версия каждой игры плюс застейдженные (админский «Тест», этап 4), не
+  // версия каждой игры плюс застейдженные (админский «Test», этап 4), не
   // больше keepVersions на игру
   async _prune(games) {
     const keep = new Map();
-    const add = (id, version) => {
-      if (!version || this._localGameIds.has(id)) {
+    // черновик админа живёт ТОЛЬКО на диске, даже когда сама игра
+    // прилинкована в node_modules. Запрет на локальные id относится к
+    // раздаваемой версии из реестра (её на диске держать незачем), а не к
+    // «Test» — иначе первый же тик таймера сносит его посреди прогона
+    const add = (id, version, { staged = false } = {}) => {
+      if (!version || (!staged && this._localGameIds.has(id))) {
         return;
       }
 
@@ -205,23 +229,27 @@ export default class GameSync {
         keep.set(id, new Set());
       }
 
-      if (keep.get(id).size < this._keepVersions) {
+      // потолок keepVersions — про раздаваемые версии: любую из них всегда
+      // можно перекачать из npm. Черновик «Test» существует ТОЛЬКО на диске,
+      // и вытеснить его посреди тестового матча значит вернуть тот самый
+      // отказ import(), ради которого черновик и выведен из-под запрета
+      if (staged || keep.get(id).size < this._keepVersions) {
         keep.get(id).add(version);
       }
     };
 
-    // раздаваемая версия каждой игры реестра — первым приоритетом: место в
-    // пределах keepVersions она занимает раньше черновиков
+    // раздаваемая версия каждой игры реестра — первой: потолок keepVersions
+    // тратится на них, черновики идут сверх него
     for (const game of games) {
       add(game.id, game.version);
     }
 
     // застейдженные версии — включая игры, которых в одобренном каталоге нет
     // вовсе (заявка на новую игру, которую админ прямо сейчас тестирует).
-    // Раньше здесь стояло условие keep.has(id), и «Тест» новой игры сносило
+    // Раньше здесь стояло условие keep.has(id), и «Test» новой игры сносило
     // с диска первым же тиком таймера прямо посреди тестового матча
     for (const { id, version } of this._catalog.stagedManifests()) {
-      add(id, version);
+      add(id, version, { staged: true });
     }
 
     try {

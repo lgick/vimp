@@ -41,6 +41,18 @@ bumps the minor version).
   `<id>` or `<id>@<version>` and, when the game is not linked into
   `node_modules`, fetches it from the registry into `VIMP_GAMES_DIR`.
 
+### Changed
+
+- The game registry panel of the lobby speaks English, like the rest of the
+  lobby: its labels, buttons, status names and moderation filters, plus the
+  package-validation messages the master sends back to it (`gamePackageCheck`,
+  `npmRegistry`, `GameStore` verdicts).
+- The panel names the master's own rate limit: a refused submission used to
+  print the raw `tooManyRequests` code, because the limiter counts requests
+  rejected on format too and its code had no message of its own.
+- A game with no author — every row seeded by the registry migration — is
+  listed with a dash instead of a literal `null` in the moderation queue.
+
 ### Fixed
 
 - A staged version is no longer pruned off disk while an admin is testing it.
@@ -63,6 +75,30 @@ bumps the minor version).
   its bundle hash happens to match a staged version's (a republish that
   touched only `package.json` leaves the code identical).
 - `/games/%ZZ/x.js` answers `404` instead of `500`.
+- A staged version of a game that is also linked locally (the standard dev
+  setup) is no longer pruned off disk: the local-package rule applies to the
+  version served from the registry, not to an admin's draft, which lives on
+  disk only. Testing a linked game used to lose its files on the first sync
+  tick.
+- A miss under `/games/<id>/<version>/…` answers `404` instead of the lobby's
+  HTML fallback with `200`, so a missing bundle surfaces as "not found"
+  instead of an opaque dynamic-import failure. Non-versioned paths still fall
+  through to the dev sources.
+- The game submission form is cleared after a successful submission, and its
+  text fields are no longer 50 px wide (a rule meant for the room form's
+  counters).
+- A staged draft is no longer evicted from disk by the `keepVersions` ceiling:
+  the ceiling now applies to served versions, which can always be re-fetched
+  from npm, while a draft exists on disk only. Two "Test" runs in a row used
+  to leave the newer draft unreferenced and prune it mid-match.
+- Staging a game now retires that game's previous draft, and a draft whose
+  version the registry already serves is dropped from the catalog. Nothing
+  used to retire a draft of a locally linked game, so every "Test" left its
+  version on disk and an extra `(test)` entry in the admin's game selector
+  until the master restarted.
+- A non-`GET`/`HEAD` request under `/games/<id>/<version>/…` falls through
+  instead of answering `404`: `serve-static` skips such a request without
+  looking at the disk, so "not found" was not a fact the master knew.
 - A moderator's change to `maxGameScore` or `repoUrl` reaches the catalog
   without a version bump: a sync pass now compares the registry-sourced fields
   too, not the served version alone.

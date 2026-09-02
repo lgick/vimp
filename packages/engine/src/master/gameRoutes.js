@@ -1,5 +1,5 @@
 // Роуты реестра игр (master-game-registry, этап 4): заявка разработчика,
-// панель модерации и «Тест» новой версии. Модуль отдаёт голые обработчики,
+// панель модерации и «Test» новой версии. Модуль отдаёт голые обработчики,
 // а URL-таблицу и middleware расставляет lobby.js — так адресное
 // пространство мастера видно в одном месте, а обработчики проверяются
 // юнит-тестом (lobby.js поднимает сервер и импортироваться из теста не
@@ -36,7 +36,7 @@ function unavailable(res, err) {
  * @returns {Object} Обработчики express.
  */
 export function createGameRoutes({ registry, store, catalog, sync, isAdmin = () => false }) {
-  // застейдженные версии по id — панель модерации и «Тест» показывают, что
+  // застейдженные версии по id — панель модерации и «Test» показывают, что
   // именно сейчас лежит на диске рядом с одобренной версией
   function stagedVersionOf(id) {
     return catalog.stagedManifests().find(entry => entry.id === id)?.version ?? null;
@@ -207,6 +207,18 @@ export function createGameRoutes({ registry, store, catalog, sync, isAdmin = () 
       if (!verdict.ok) {
         res.status(400).json({ errors: verdict.errors });
         return;
+      }
+
+      // один черновик на игру. Снять прошлый обязан именно этот роут:
+      // застейдженную запись не убирает больше никто (у локально
+      // прилинкованной игры цикл синхронизации до неё вовсе не доходит), а
+      // оставленная она навсегда держит свою версию на диске, висит лишним
+      // пунктом «(test)» в селекторе админской вкладки и занимает место
+      // в keepVersions
+      for (const staged of catalog.stagedManifests()) {
+        if (staged.id === id && staged.version !== verdict.version) {
+          catalog.remove(id, staged.version);
+        }
       }
 
       catalog.upsert({

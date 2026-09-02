@@ -54,8 +54,8 @@ export default class GameStore {
       fs.accessSync(dir, fs.constants.W_OK);
     } catch (err) {
       throw new Error(
-        `GameStore: нет доступа на запись в "${dir}" (${err.code ?? err.message}) — ` +
-          'проверьте VIMP_GAMES_DIR и права смонтированного тома',
+        `GameStore: no write access to "${dir}" (${err.code ?? err.message}) — ` +
+          'check VIMP_GAMES_DIR and the permissions of the mounted volume',
       );
     }
   }
@@ -114,7 +114,7 @@ export default class GameStore {
           distDir: null,
           manifest: null,
           compat: null,
-          errors: [`версия не переехала в раздачу: ${err.message}`],
+          errors: [`the version was not moved into service: ${err.message}`],
         };
       }
 
@@ -156,7 +156,7 @@ export default class GameStore {
   }
 
   /**
-   * Скачать и проверить версию, НЕ делая её доступной. Для заявки и «Теста».
+   * Скачать и проверить версию, НЕ делая её доступной. Для заявки и «Test».
    * @param {string} gameId - Идентификатор игры в каталоге.
    * @param {string} packageName - Имя npm-пакета игры.
    * @param {string} [version] - Точная версия либо 'latest'.
@@ -213,8 +213,8 @@ export default class GameStore {
    * @returns {string} Путь к dist/ этой версии (существующей или нет).
    */
   distDir(gameId, version) {
-    assertSegment(gameId, 'идентификатор игры');
-    assertSegment(version, 'версия');
+    assertSegment(gameId, 'game id');
+    assertSegment(version, 'version');
 
     return path.join(this._dir, gameId, version);
   }
@@ -224,7 +224,7 @@ export default class GameStore {
    * @returns {string[]} Версии игры, лежащие на диске.
    */
   listLocalVersions(gameId) {
-    assertSegment(gameId, 'идентификатор игры');
+    assertSegment(gameId, 'game id');
 
     return readDirNames(path.join(this._dir, gameId)).filter(
       name => name !== STAGING,
@@ -294,7 +294,7 @@ export default class GameStore {
   // скачивание, распаковка и проверка в <gameId>/.staging/<rand>. Каталог
   // остаётся на диске: вызывающий либо переносит его в раздачу, либо удаляет
   async _stage(gameId, packageName, version) {
-    assertSegment(gameId, 'идентификатор игры');
+    assertSegment(gameId, 'game id');
 
     const stagingDir = path.join(
       this._dir,
@@ -312,7 +312,7 @@ export default class GameStore {
       });
 
       if (!packument) {
-        return fail(stagingDir, null, `пакета "${packageName}" нет в реестре`);
+        return fail(stagingDir, null, `package "${packageName}" is not in the registry`);
       }
 
       const resolved = resolveVersion(packument, version);
@@ -321,7 +321,7 @@ export default class GameStore {
         return fail(
           stagingDir,
           null,
-          `у пакета "${packageName}" нет версии "${version ?? 'latest'}"`,
+          `package "${packageName}" has no version "${version ?? 'latest'}"`,
         );
       }
 
@@ -329,7 +329,7 @@ export default class GameStore {
       // из недоверенного реестра, и проверить его надо здесь — под общим
       // try/catch и ДО скачивания, — иначе бросок уедет из ensure вопреки
       // её контракту «никогда не бросать»
-      assertSegment(resolved.version, 'версия');
+      assertSegment(resolved.version, 'version');
 
       const tarball = await downloadTarball(resolved.tarball, {
         integrity: resolved.integrity,
@@ -360,7 +360,7 @@ export default class GameStore {
 // обязана независимо от того, кто и откуда позвал
 function assertSegment(value, what) {
   if (!isSegment(value)) {
-    throw new Error(`GameStore: недопустимый ${what} "${value}"`);
+    throw new Error(`GameStore: invalid ${what} "${value}"`);
   }
 }
 
@@ -381,11 +381,11 @@ function isSegment(value) {
 // страховка на случай прямого вызова distDir/_stage, а не путь ответа
 function refError(gameId, version) {
   if (!isSegment(gameId)) {
-    return `недопустимый идентификатор игры "${gameId}"`;
+    return `invalid game id "${gameId}"`;
   }
 
   if (version !== undefined && version !== null && version !== 'latest' && !isSegment(version)) {
-    return `недопустимая версия "${version}"`;
+    return `invalid version "${version}"`;
   }
 
   return null;

@@ -19,6 +19,7 @@ import GameRegistryProxy from './GameRegistryProxy.js';
 import GameStore from './GameStore.js';
 import GameSync from './GameSync.js';
 import { GAME_VERSION_PATTERN } from './gameRefs.js';
+import { createGameStatic } from './gameStatic.js';
 import { createGameRoutes } from './gameRoutes.js';
 import { applyLocalGames } from './localGames.js';
 import { securityHeaders } from './httpSecurity.js';
@@ -162,10 +163,10 @@ const gameRegistry = new GameRegistryProxy(
   config.get('master:security:authServiceUrl'),
 );
 
-// статик-маунты игр по директории версии: наполняет staticFor() ниже, а
-// чистит onPruned — объявление стоит здесь, потому что первый проход
-// синхронизации идёт до конца модуля
-const staticByDir = new Map();
+// статик-маунты игр по директории версии: их держит gameStatic, а чистит
+// onPruned — объявление стоит здесь, потому что первый проход синхронизации
+// идёт до конца модуля
+const gameStatic = createGameStatic({ catalog: gameCatalog });
 
 // каталог перестал быть снимком стартового конфига: GameSync обновляет его
 // по реестру на лету — без пересборки образа и без рестарта мастера
@@ -180,14 +181,14 @@ const gameSync = new GameSync({
   keepVersions: config.get('master:gameStore:keepVersions'),
   // снятая с диска версия уносит и свой статик-маунт: иначе Map растёт на
   // каждую скачанную за время жизни процесса версию и никогда не убывает
-  onPruned: paths => paths.forEach(dir => staticByDir.delete(dir)),
+  onPruned: paths => paths.forEach(dir => gameStatic.drop(dir)),
 });
 
 // авторизация REST-роутов мастера (master-game-registry, этап 4): та же
 // проверка подписи по JWKS и та же политика issuer, что на сигнальном пути
 const adminAuth = createAdminAuth(jwksProxy, authClientConfig.issuer);
 
-// заявка разработчика, панель модерации и «Тест» новой версии
+// заявка разработчика, панель модерации и «Test» новой версии
 const gameRoutes = createGameRoutes({
   registry: gameRegistry,
   store: gameStore,
@@ -730,58 +731,12 @@ app.get('/games/:id/:version/maps/:name', (req, res, next) => {
 // в dev entries манифеста указывают на Vite-исходники напрямую, но
 // assetsBase-содержимое (карты/звуки) всё равно раздаётся отсюда из dist.
 //
-// Один обработчик вместо цикла по каталогу: каталог теперь меняется на лету,
-// и статик-маунты, расставленные на старте, устарели бы уже к первому
-// gameSync.run(). Инстансы express.static кэшируются по директории —
-// создавать serve-static на каждый файл игры незачем (объявление Map — выше,
-// рядом с GameSync: снятая с диска версия уносит и свой маунт)
-function staticFor(dir) {
-  let middleware = staticByDir.get(dir);
-
-  if (!middleware) {
-    middleware = express.static(dir);
-    staticByDir.set(dir, middleware);
-  }
-
-  return middleware;
-}
-
-app.use('/games', (req, res, next) => {
-  const original = req.url;
-  const queryAt = original.indexOf('?');
-  const pathname = queryAt === -1 ? original : original.slice(0, queryAt);
-  const query = queryAt === -1 ? '' : original.slice(queryAt);
-  const segments = pathname.split('/');
-  let id;
-  let second;
-
-  try {
-    id = decodeURIComponent(segments[1] ?? '');
-    second = decodeURIComponent(segments[2] ?? '');
-  } catch {
-    // битая процентная последовательность (`/games/%ZZ/x.js`) — это 404
-    // дальше по цепочке, а не 500 из дефолтного обработчика Express
-    next();
-    return;
-  }
-
-  const versioned = GAME_VERSION_PATTERN.test(second);
-  const dir = gameCatalog.getDistDir(id, versioned ? second : undefined);
-
-  if (!dir) {
-    next();
-    return;
-  }
-
-  // остаток пути внутри dist/ игры; req.url восстанавливается, если файла
-  // там нет — дальше по цепочке (ViteExpress) должен прийти исходный URL
-  req.url = `/${segments.slice(versioned ? 3 : 2).join('/')}${query}`;
-
-  staticFor(dir)(req, res, err => {
-    req.url = original;
-    next(err);
-  });
-});
+// Один обработчик вместо цикла по каталогу (gameStatic.js): каталог меняется
+// на лету, и статик-маунты, расставленные на старте, устарели бы уже к
+// первому gameSync.run(). Версионный путь адресует хранилище пакетов,
+// неверсионный — прилинкованную локально игру, у которой в dev остаток пути
+// обязан уйти next() на исходники Vite
+app.use('/games', gameStatic.handler);
 
 // в продакшене обычный HTTP сервер, Nginx будет обрабатывать HTTPS
 // для разработки HTTPS сервер с локальными сертификатами

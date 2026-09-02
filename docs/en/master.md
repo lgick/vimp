@@ -232,7 +232,7 @@ publish.
 | `POST /games/mine/:id/version` | the game's owner (an admin — any game) | a new version of an already registered game, checked the same way |
 | `GET /admin/games` | `role=admin` | the whole moderation queue plus this master's local state per game (`downloaded`, `stagedVersion`, `lastError`) |
 | `GET /admin/games/manifest.json` | `role=admin` | manifests of the staged (not served) versions — the admin's tab puts them into its own catalog and opens a room on one |
-| `POST /admin/games/:id/stage` | `role=admin` | "Test": download a version and put it into the catalog **inactive** |
+| `POST /admin/games/:id/stage` | `role=admin` | "Test": download a version and put it into the catalog **inactive**. One draft per game — a new "Test" retires the previous one, and a draft the registry already serves is dropped on the next sync pass; nothing else would ever retire it, and its version stays pinned on disk for as long as it is in the catalog |
 | `PATCH /admin/games/:id` | `role=admin` | the moderator's decision (status, served version, note, `maxGameScore`); on success the master runs a sync pass at once, so the admin sees the result immediately while other masters pick it up within `refreshInterval` |
 | `GET /admin/games/:id/versions` | `role=admin` | what the npm registry has published for the package — the "there is a newer version" indicator |
 

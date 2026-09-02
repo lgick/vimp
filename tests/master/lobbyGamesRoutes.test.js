@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import jwt from 'jsonwebtoken';
 import { createAdminAuth } from '../../packages/engine/src/master/adminAuth.js';
 import { createGameRoutes } from '../../packages/engine/src/master/gameRoutes.js';
+import { createGameStatic } from '../../packages/engine/src/master/gameStatic.js';
 import HostRegistry from '../../packages/engine/src/master/HostRegistry.js';
 
 // Роуты реестра игр мастера (master-game-registry, этап 4). lobby.js
@@ -84,6 +85,7 @@ beforeEach(() => {
   catalog = {
     stagedManifests: vi.fn(() => [{ id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } }]),
     upsert: vi.fn(),
+    remove: vi.fn(),
     getManifest: vi.fn(() => ({ id: 'tanks', version: 'hash' })),
   };
 
@@ -229,6 +231,36 @@ describe('POST /admin/games/:id/stage', () => {
     expect(res.body.manifest).toEqual({ id: 'tanks', version: 'hash' });
   });
 
+  it('новый «Тест» снимает прошлый черновик той же игры', async () => {
+    // застейдженную запись не убирает больше никто: у локально прилинкованной
+    // игры цикл синхронизации до неё не доходит, а оставленная она навсегда
+    // держит свою версию на диске и висит лишним пунктом «(test)»
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '1.0.5', manifest: { id: 'tanks' } },
+      { id: 'snakes', version: '0.9.1', manifest: { id: 'snakes' } },
+    ]);
+
+    const res = fakeRes();
+
+    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+
+    expect(catalog.remove).toHaveBeenCalledWith('tanks', '1.0.5');
+    expect(catalog.remove).toHaveBeenCalledTimes(1);
+    expect(catalog.upsert).toHaveBeenCalledWith(expect.objectContaining({ version: '1.1.0' }));
+  });
+
+  it('повторный «Тест» той же версии сам себя не снимает', async () => {
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } },
+    ]);
+
+    const res = fakeRes();
+
+    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+
+    expect(catalog.remove).not.toHaveBeenCalled();
+  });
+
   it('битый пакет — 400, каталог не трогается', async () => {
     store.ensure.mockResolvedValue({ ok: false, version: null, errors: ['нет manifest.json'] });
 
@@ -316,5 +348,134 @@ describe('GET /servers', () => {
     const { servers } = await list(signToken('admin'));
 
     expect(servers.map(({ name }) => name).sort()).toEqual(['public', 'staged']);
+  });
+});
+
+// Раздача /games/<id>[/<version>]/… — тот же обработчик, что app.use('/games')
+// в lobby.js. Версионный путь адресует хранилище пакетов: промах по нему
+// обязан быть 404, иначе html-фолбэк ViteExpress отвечает 200 на
+// отсутствующий бандл и import() падает невнятной ошибкой
+describe('/games/… (статика игр)', () => {
+  const make = ({ dirs = {}, files = [] } = {}) => {
+    const served = [];
+    const mounted = [];
+    const gameStatic = createGameStatic({
+      catalog: { getDistDir: (id, version) => dirs[version ? `${id}@${version}` : id] ?? null },
+      staticImpl: dir => {
+        mounted.push(dir);
+
+        return (req, res, next) => {
+          served.push({ dir, url: req.url });
+
+          if (files.includes(`${dir}${req.url.split('?')[0]}`)) {
+            res.code = 200;
+            res.body = 'file';
+            return;
+          }
+
+          next();
+        };
+      },
+    });
+
+    return { gameStatic, served, mounted };
+  };
+
+  it('версионный путь неизвестной игры — 404 JSON, а не html-фолбэк', () => {
+    const { gameStatic } = make();
+    const res = fakeRes();
+    const next = vi.fn();
+
+    gameStatic.handler({ method: 'GET', url: '/tanks/9.9.9/client.js' }, res, next);
+
+    expect(res.code).toBe(404);
+    expect(res.body).toEqual({ error: 'unknownGame' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('отсутствующий файл живой версии — 404, req.url восстановлен', () => {
+    const { gameStatic } = make({ dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' } });
+    const res = fakeRes();
+    const next = vi.fn();
+    const req = { method: 'GET', url: '/tanks/0.16.1/nope.js' };
+
+    gameStatic.handler(req, res, next);
+
+    expect(res.code).toBe(404);
+    expect(res.body).toEqual({ error: 'notFound' });
+    expect(next).not.toHaveBeenCalled();
+    expect(req.url).toBe('/tanks/0.16.1/nope.js');
+  });
+
+  it('существующий файл версии отдаётся статикой с путём внутри dist/', () => {
+    const { gameStatic, served } = make({
+      dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' },
+      files: ['/games-dir/tanks/0.16.1/client.js'],
+    });
+    const res = fakeRes();
+    const next = vi.fn();
+
+    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js?import' }, res, next);
+
+    expect(served).toEqual([{ dir: '/games-dir/tanks/0.16.1', url: '/client.js?import' }]);
+    expect(res.code).toBe(200);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('не-GET по версионному пути уходит next(): «файла нет» тут неизвестно', () => {
+    // serve-static пропускает всё, кроме GET/HEAD, не заглядывая в диск —
+    // отвечать на такой запрос 404 значило бы выдумать результат
+    const { gameStatic } = make({ dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' } });
+    const res = fakeRes();
+    const next = vi.fn();
+
+    gameStatic.handler({ method: 'POST', url: '/tanks/0.16.1/client.js' }, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.body).toBeNull();
+  });
+
+  it('неверсионный путь уходит next() — в dev это исходники Vite', () => {
+    const { gameStatic } = make();
+    const res = fakeRes();
+    const next = vi.fn();
+    const req = { method: 'GET', url: '/tanks/anything.js' };
+
+    gameStatic.handler(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.code).toBe(200);
+    expect(res.body).toBeNull();
+  });
+
+  it('промах по неверсионному пути локальной игры тоже уходит next()', () => {
+    const { gameStatic } = make({ dirs: { tanks: '/local/tanks/dist' } });
+    const res = fakeRes();
+    const next = vi.fn();
+    const req = { method: 'GET', url: '/tanks/nope.js' };
+
+    gameStatic.handler(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(req.url).toBe('/tanks/nope.js');
+    expect(res.body).toBeNull();
+  });
+
+  it('снятая с диска версия уносит свой статик-маунт', () => {
+    const { gameStatic, mounted } = make({
+      dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' },
+      files: ['/games-dir/tanks/0.16.1/client.js'],
+    });
+
+    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js' }, fakeRes(), vi.fn());
+    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js' }, fakeRes(), vi.fn());
+    // второй запрос берёт маунт из кэша
+    expect(mounted).toHaveLength(1);
+
+    expect(gameStatic.drop('/games-dir/tanks/0.16.1')).toBe(true);
+    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js' }, fakeRes(), vi.fn());
+
+    // маунт создан заново — иначе Map росла бы на каждую скачанную версию
+    expect(mounted).toHaveLength(2);
   });
 });

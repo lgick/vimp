@@ -6,11 +6,11 @@ let GamesView;
 
 const config = {
   statuses: [
-    { id: 'pending', title: 'Ожидают' },
-    { id: 'approved', title: 'Опубликованы' },
+    { id: 'pending', title: 'Pending' },
+    { id: 'approved', title: 'Published' },
   ],
   defaultStatus: 'pending',
-  stagedSuffix: ' (тест)',
+  stagedSuffix: ' (test)',
   elems: {
     panelId: 'games-panel',
     lobbyId: 'lobby',
@@ -130,6 +130,18 @@ describe('GamesView: формы и списки', () => {
     expect(seen[0]).toMatchObject({ id: 'tanks', packageName: '@vimp-games/tanks' });
   });
 
+  it('успешная заявка очищает поля формы', () => {
+    $('games-field-id').value = 'tanks';
+    $('games-field-package').value = '@vimp-games/tanks';
+    $('games-field-version').value = '1.0.0';
+
+    model.publisher.emit('submitted');
+
+    Object.values(config.elems.fieldIds).forEach(id => {
+      expect($(id).value).toBe('');
+    });
+  });
+
   it('рисует свои заявки со статусом и замечанием модератора', () => {
     model.publisher.emit('mine-changed', [
       { id: 'tanks', packageName: '@vimp-games/tanks', version: '1.0.0', status: 'rejected', moderatorNote: 'нет карт' },
@@ -138,7 +150,7 @@ describe('GamesView: формы и списки', () => {
     const text = $('games-mine-list').textContent;
 
     expect(text).toContain('tanks');
-    expect(text).toContain('отклонена');
+    expect(text).toContain('rejected');
     expect(text).toContain('нет карт');
   });
 
@@ -176,8 +188,8 @@ describe('GamesView: формы и списки', () => {
     const text = $('games-admin-list').textContent;
 
     expect(text).toContain('dev');
-    expect(text).toContain('в npm: 1.1.0');
-    expect(text).toContain('на тесте 1.1.0');
+    expect(text).toContain('in npm: 1.1.0');
+    expect(text).toContain('staged 1.1.0');
   });
 
   it('кнопки модерации публикуют свои события', () => {
@@ -229,7 +241,7 @@ describe('GamesView: формы и списки', () => {
   it('ошибки рисуются в блоке своей области', () => {
     model.publisher.emit('error', { scope: 'mine', errors: [{ name: 'request', error: 'gameExists' }] });
 
-    expect($('games-submit-error').textContent).toContain('уже есть');
+    expect($('games-submit-error').textContent).toContain('already exists');
 
     model.publisher.emit('error', { scope: 'admin', errors: [{ name: 'package', error: 'нет manifest.json' }] });
 

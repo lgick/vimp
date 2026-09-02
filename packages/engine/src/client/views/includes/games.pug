@@ -1,35 +1,36 @@
 //- Реестр игр в лобби (master-game-registry, этап 4): разработчик подаёт
 //- заявку и следит за её статусом, админ модерирует и играет в черновик.
 //- Панель скрыта по умолчанию — открывается кнопками бейджа пользователя
-//- (#lobby-user в lobby.pug); id элементов перечислены в config/lobby.js
+//- (#lobby-user в lobby.pug); id элементов перечислены в config/lobby.js.
+//- Подписи — по-английски, как и остальное лобби
 div#games-panel(style='display:none')
   div.lobby-column
     div.card#games-mine
       div.games-head
-        h3.lobby-section-title= 'Мои игры'
-        input#games-close(type='button', value='Назад в лобби')
+        h3.lobby-section-title= 'My games'
+        input#games-close(type='button', value='Back to lobby')
       ul#games-mine-list.games-list
       form#games-submit-form
         div.form-row
-          label.form-label(for='games-field-id')= 'Идентификатор игры'
+          label.form-label(for='games-field-id')= 'Game id'
           input#games-field-id.field-text(type='text', name='id', maxlength='32', autocomplete='off')
         div.form-row
-          label.form-label(for='games-field-package')= 'npm-пакет'
+          label.form-label(for='games-field-package')= 'npm package'
           input#games-field-package.field-text(type='text', name='packageName', maxlength='214', autocomplete='off')
         div.form-row
-          label.form-label(for='games-field-version')= 'Версия'
+          label.form-label(for='games-field-version')= 'Version'
           input#games-field-version.field-text(type='text', name='version', maxlength='64', autocomplete='off')
         div.form-row
-          label.form-label(for='games-field-repo')= 'Ссылка на репозиторий'
+          label.form-label(for='games-field-repo')= 'Repository URL'
           input#games-field-repo.field-text(type='text', name='repoUrl', maxlength='256', autocomplete='off')
         div.form-row
-          label.form-label(for='games-field-title')= 'Название'
+          label.form-label(for='games-field-title')= 'Title'
           input#games-field-title.field-text(type='text', name='title', maxlength='64', autocomplete='off')
         div#games-submit-error.form-error
-        input#games-submit(type='submit', value='Отправить на модерацию')
+        input#games-submit(type='submit', value='Submit for review')
 
     div.card#games-moderation(style='display:none')
-      h3.lobby-section-title= 'Модерация'
+      h3.lobby-section-title= 'Moderation'
       div#games-filters.games-filters
       ul#games-admin-list.games-list
       div#games-admin-error.form-error

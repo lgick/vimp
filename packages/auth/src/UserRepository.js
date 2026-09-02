@@ -136,10 +136,25 @@ function mapPublicGame(row) {
   };
 }
 
-// колонки игры + ник автора одним списком: все выборки реестра отдают одну и
-// ту же форму строки, чтобы mapGame был один на всех
-const GAME_FIELDS = `g.*, a.nick AS author_nick`;
-const GAME_FROM = `FROM games g LEFT JOIN users a ON a.id = g.author_user_id`;
+// колонки игры + ники автора и модератора одним списком: все запросы реестра,
+// отдающие полную строку (mapGame), — и выборки, и пишущие — обязаны отдавать
+// ОДНУ форму, иначе ответ POST/PATCH расходится со списком того же ресурса
+const GAME_JOINS = `LEFT JOIN users a ON a.id = g.author_user_id
+       LEFT JOIN users m ON m.id = g.moderator_user_id`;
+const GAME_FIELDS = `g.*, a.nick AS author_nick, m.nick AS moderator_nick`;
+const GAME_FROM = `FROM games g ${GAME_JOINS}`;
+
+// публичная выборка (mapPublicGame) джойнит только автора: ник модератора —
+// внутренняя переписка модерации, и выбирать его в строку, которая едет
+// наружу, незачем даже с последующим отбрасыванием
+const PUBLIC_GAME_FIELDS = `g.*, a.nick AS author_nick`;
+const PUBLIC_GAME_FROM = `FROM games g LEFT JOIN users a ON a.id = g.author_user_id`;
+
+// та же проекция поверх результата INSERT/UPDATE: пишущий запрос заворачивается
+// в CTE, джойны идут по нему, а не по games. Без этого ответ на запись отдавал
+// бы authorNick/moderatorNick: null там, где список отдаёт ники, и первый же
+// потребитель, поверивший ответу, напечатал бы внутренний id
+const gameProject = cte => `SELECT ${GAME_FIELDS} FROM ${cte} g ${GAME_JOINS}`;
 
 // поля, которые вправе менять модератор: белый список ключей patch →
 // колонок. Ключ, которого здесь нет, в SET не попадает вовсе — так значение
@@ -214,6 +229,26 @@ export default class UserRepository {
 
       throw err;
     }
+  }
+
+  /**
+   * Удаляет строку пользователя, у которой так и не появился ник.
+   *
+   * ВНИМАНИЕ: `nick IS NULL` — легальное состояние OAuth-входа между
+   * `/oauth/:provider/callback` и `POST /nick`, и такая строка принадлежит
+   * живому пользователю. Метод рассчитан на dev-логин, где ник ставится
+   * сразу за созданием: звать его можно только по id, который вызывающий
+   * создал сам и вход по которому только что провалился.
+   * @param {number} userId - Идентификатор пользователя.
+   * @returns {Promise<boolean>} Была ли строка удалена.
+   */
+  async deleteIfAnonymous(userId) {
+    const result = await this._db.query(
+      'DELETE FROM users WHERE id = $1 AND nick IS NULL RETURNING id',
+      [userId],
+    );
+
+    return Boolean(result.rows[0]);
   }
 
   async getRank(userId, gameId) {
@@ -724,7 +759,7 @@ export default class UserRepository {
   // детерминированным — первая игра становится активной в лобби
   async listApprovedGames() {
     const result = await this._db.query(
-      `SELECT ${GAME_FIELDS} ${GAME_FROM}
+      `SELECT ${PUBLIC_GAME_FIELDS} ${PUBLIC_GAME_FROM}
         WHERE g.status = 'approved' AND g.version IS NOT NULL
         ORDER BY g.id`,
     );
@@ -735,9 +770,7 @@ export default class UserRepository {
   // очередь модерации: всё, включая отклонённое и выключенное, свежее сверху
   async listAllGames() {
     const result = await this._db.query(
-      `SELECT ${GAME_FIELDS}, m.nick AS moderator_nick
-       ${GAME_FROM}
-       LEFT JOIN users m ON m.id = g.moderator_user_id
+      `SELECT ${GAME_FIELDS} ${GAME_FROM}
         ORDER BY g.updated_at DESC`,
     );
 
@@ -777,11 +810,14 @@ export default class UserRepository {
       // Пустой RETURNING (условие не выполнилось) и есть «лимит исчерпан»:
       // 23505 от него по-прежнему отличается, а сообщения у них разные
       const result = await this._db.query(
-        `INSERT INTO games (id, package_name, title, repo_url, author_user_id,
-                            status, pending_version)
-         SELECT $1, $2, $3, $4, $5, 'pending', $6
-          WHERE (SELECT COUNT(*) FROM games WHERE author_user_id = $5) < $7
-         RETURNING *`,
+        `WITH created AS (
+           INSERT INTO games (id, package_name, title, repo_url, author_user_id,
+                              status, pending_version)
+           SELECT $1, $2, $3, $4, $5, 'pending', $6
+            WHERE (SELECT COUNT(*) FROM games WHERE author_user_id = $5) < $7
+           RETURNING *
+         )
+         ${gameProject('created')}`,
         [id, packageName, title, repoUrl, authorUserId, version, config.games.maxPerUser],
       );
 
@@ -807,13 +843,16 @@ export default class UserRepository {
   // замечание модератора снимается: оно относилось к прошлой версии
   async requestGameVersion(id, version, { userId = null, isAdmin = false } = {}) {
     const result = await this._db.query(
-      `UPDATE games
-          SET pending_version = $2,
-              moderator_note = NULL,
-              status = CASE WHEN status = 'rejected' THEN 'pending' ELSE status END,
-              updated_at = now()
-        WHERE id = $1 AND ($3 OR author_user_id = $4)
-        RETURNING *`,
+      `WITH updated AS (
+         UPDATE games
+            SET pending_version = $2,
+                moderator_note = NULL,
+                status = CASE WHEN status = 'rejected' THEN 'pending' ELSE status END,
+                updated_at = now()
+          WHERE id = $1 AND ($3 OR author_user_id = $4)
+          RETURNING *
+       )
+       ${gameProject('updated')}`,
       [id, version, isAdmin, userId],
     );
 
@@ -843,8 +882,15 @@ export default class UserRepository {
       }
     }
 
+    // ники дописываются теми же джойнами, что и в выборках: ответ PATCH —
+    // проекция той же строки, и потребитель, доверившийся ему, не должен
+    // получить null там, где список отдаёт ник. Модератора это касается
+    // сильнее прочих: его id проставляет ровно этот запрос
     const result = await this._db.query(
-      `UPDATE games SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+      `WITH updated AS (
+         UPDATE games SET ${sets.join(', ')} WHERE id = $1 RETURNING *
+       )
+       ${gameProject('updated')}`,
       values,
     );
 

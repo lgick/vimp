@@ -52,7 +52,7 @@ export async function fetchPackument(
     });
   } catch (err) {
     throw new Error(
-      `npm registry не ответил (${packageName}): ${err.message}`,
+      `npm registry did not answer (${packageName}): ${err.message}`,
     );
   }
 
@@ -62,7 +62,7 @@ export async function fetchPackument(
 
   if (!res.ok) {
     throw new Error(
-      `npm registry не ответил (${packageName}): HTTP ${res.status}`,
+      `npm registry did not answer (${packageName}): HTTP ${res.status}`,
     );
   }
 
@@ -70,7 +70,7 @@ export async function fetchPackument(
     return await res.json();
   } catch (err) {
     throw new Error(
-      `npm registry не ответил (${packageName}): битый JSON — ${err.message}`,
+      `npm registry did not answer (${packageName}): malformed JSON — ${err.message}`,
     );
   }
 }
@@ -138,11 +138,11 @@ export async function downloadTarball(
       signal: timeout ? AbortSignal.timeout(timeout) : undefined,
     });
   } catch (err) {
-    throw new Error(`тарболл не скачался (${url}): ${err.message}`);
+    throw new Error(`tarball download failed (${url}): ${err.message}`);
   }
 
   if (!res.ok) {
-    throw new Error(`тарболл не скачался (${url}): HTTP ${res.status}`);
+    throw new Error(`tarball download failed (${url}): HTTP ${res.status}`);
   }
 
   const buffer = await readBody(res, maxBytes, url);
@@ -189,7 +189,7 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) 
     // симлинки, хардлинки, устройства: их разбор — это доверие к путям
     // внутри недоверенного архива
     if (entry.type !== 'File' && entry.type !== 'Directory') {
-      warnings.push(`отброшена запись ${entry.type}: ${entryPath}`);
+      warnings.push(`dropped ${entry.type} entry: ${entryPath}`);
 
       return false;
     }
@@ -202,14 +202,14 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) 
     bytes += entry.size ?? 0;
 
     if (maxFiles && files > maxFiles) {
-      limitError = `в архиве больше ${maxFiles} файлов`;
+      limitError = `the archive holds more than ${maxFiles} files`;
       source.destroy();
 
       return false;
     }
 
     if (maxBytes && bytes > maxBytes) {
-      limitError = `распакованное содержимое больше ${maxBytes} байт`;
+      limitError = `unpacked contents exceed ${maxBytes} bytes`;
       source.destroy();
 
       return false;
@@ -239,7 +239,7 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) 
   }
 
   if (limitError) {
-    throw new Error(`архив не распакован: ${limitError}`);
+    throw new Error(`archive not unpacked: ${limitError}`);
   }
 
   return { files, bytes, warnings };
@@ -252,7 +252,7 @@ async function readBody(res, maxBytes, url) {
     const whole = Buffer.from(await res.arrayBuffer());
 
     if (maxBytes && whole.length > maxBytes) {
-      throw new Error(`тарболл больше ${maxBytes} байт (${url})`);
+      throw new Error(`tarball exceeds ${maxBytes} bytes (${url})`);
     }
 
     return whole;
@@ -267,7 +267,7 @@ async function readBody(res, maxBytes, url) {
     size += buf.length;
 
     if (maxBytes && size > maxBytes) {
-      throw new Error(`тарболл больше ${maxBytes} байт (${url})`);
+      throw new Error(`tarball exceeds ${maxBytes} bytes (${url})`);
     }
 
     chunks.push(buf);
@@ -285,8 +285,8 @@ function verifyDigest(buffer, { integrity, shasum }) {
 
     if (actual !== expected) {
       throw new Error(
-        `целостность тарболла не сошлась: ожидался ${algorithm}-${expected}, ` +
-          `получен ${algorithm}-${actual}`,
+        `tarball integrity mismatch: expected ${algorithm}-${expected}, ` +
+          `got ${algorithm}-${actual}`,
       );
     }
 
@@ -298,15 +298,15 @@ function verifyDigest(buffer, { integrity, shasum }) {
 
     if (actual !== shasum) {
       throw new Error(
-        `целостность тарболла не сошлась: ожидался shasum ${shasum}, ` +
-          `получен ${actual}`,
+        `tarball integrity mismatch: expected shasum ${shasum}, ` +
+          `got ${actual}`,
       );
     }
 
     return;
   }
 
-  throw new Error('реестр не отдал ни integrity, ни shasum — проверить нечем');
+  throw new Error('the registry gave neither integrity nor shasum — nothing to verify');
 }
 
 function splitIntegrity(integrity) {
@@ -315,13 +315,13 @@ function splitIntegrity(integrity) {
   const dash = first.indexOf('-');
 
   if (dash === -1) {
-    throw new Error(`битое поле integrity: "${integrity}"`);
+    throw new Error(`malformed integrity field: "${integrity}"`);
   }
 
   const algorithm = first.slice(0, dash);
 
   if (!['sha512', 'sha384', 'sha256', 'sha1'].includes(algorithm)) {
-    throw new Error(`неизвестный алгоритм integrity: "${algorithm}"`);
+    throw new Error(`unknown integrity algorithm: "${algorithm}"`);
   }
 
   return [algorithm, first.slice(dash + 1)];

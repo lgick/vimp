@@ -86,7 +86,7 @@ describe('fetchPackument', () => {
 
     await expect(
       fetchPackument('@vimp-games/tanks', { registryUrl, fetchImpl }),
-    ).rejects.toThrow(/не ответил.*500/);
+    ).rejects.toThrow(/did not answer.*500/);
   });
 
   it('сетевой отказ отличается от «версии не существует»', async () => {
@@ -96,7 +96,7 @@ describe('fetchPackument', () => {
 
     await expect(
       fetchPackument('@vimp-games/tanks', { registryUrl, fetchImpl }),
-    ).rejects.toThrow(/не ответил.*ECONNREFUSED/);
+    ).rejects.toThrow(/did not answer.*ECONNREFUSED/);
   });
 });
 
@@ -173,7 +173,7 @@ describe('downloadTarball', () => {
         integrity: integrityOf(Buffer.from('tarball')),
         fetchImpl,
       }),
-    ).rejects.toThrow(/целостность/);
+    ).rejects.toThrow(/integrity mismatch/);
   });
 
   it('проверяет shasum, когда integrity нет', async () => {
@@ -187,7 +187,7 @@ describe('downloadTarball', () => {
 
     await expect(
       downloadTarball('https://cdn/x.tgz', { shasum: 'deadbeef', fetchImpl }),
-    ).rejects.toThrow(/целостность/);
+    ).rejects.toThrow(/integrity mismatch/);
   });
 
   it('обрывает чтение на превышении maxBytes', async () => {
@@ -200,7 +200,7 @@ describe('downloadTarball', () => {
         maxBytes: 16,
         fetchImpl,
       }),
-    ).rejects.toThrow(/больше 16 байт/);
+    ).rejects.toThrow(/exceeds 16 bytes/);
   });
 
   it('не-200 — именованный отказ', async () => {
@@ -239,7 +239,7 @@ describe('extractDist', () => {
 
     await expect(
       extractDist(await tarballOf('tooManyFiles'), dir, { maxFiles: 10 }),
-    ).rejects.toThrow(/больше 10 файлов/);
+    ).rejects.toThrow(/more than 10 files/);
   });
 
   it('отказывает при превышении maxBytes', async () => {
@@ -247,6 +247,6 @@ describe('extractDist', () => {
 
     await expect(
       extractDist(await tarballOf('valid'), dir, { maxBytes: 4 }),
-    ).rejects.toThrow(/больше 4 байт/);
+    ).rejects.toThrow(/exceed 4 bytes/);
   });
 });

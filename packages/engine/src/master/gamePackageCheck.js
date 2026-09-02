@@ -41,7 +41,7 @@ export function checkGamePackage(distDir, { id }) {
       ok: false,
       manifest: null,
       compat: null,
-      errors: [`dist/manifest.json не читается: ${err.message}`],
+      errors: [`dist/manifest.json is unreadable: ${err.message}`],
     };
   }
 
@@ -50,7 +50,7 @@ export function checkGamePackage(distDir, { id }) {
       ok: false,
       manifest: null,
       compat: null,
-      errors: ['dist/manifest.json: ожидался объект'],
+      errors: ['dist/manifest.json: expected an object'],
     };
   }
 
@@ -58,24 +58,24 @@ export function checkGamePackage(distDir, { id }) {
   // manifest.id он бьёт мимо (тот же инвариант, что в GameCatalog)
   if (manifest.id !== id) {
     errors.push(
-      `manifest.id "${manifest.id}" не совпадает с запрошенным "${id}"`,
+      `manifest.id "${manifest.id}" does not match the requested "${id}"`,
     );
   }
 
   if (!Number.isInteger(manifest.engineApi)) {
-    errors.push('manifest.engineApi: ожидалось целое число');
+    errors.push('manifest.engineApi: expected an integer');
   }
 
   for (const field of ['title', 'version']) {
     if (typeof manifest[field] !== 'string' || manifest[field] === '') {
-      errors.push(`manifest.${field}: ожидалась непустая строка`);
+      errors.push(`manifest.${field}: expected a non-empty string`);
     }
   }
 
   const { assetsBase } = manifest;
 
   if (typeof assetsBase !== 'string' || !assetsBase.endsWith('/')) {
-    errors.push('manifest.assetsBase: ожидалась строка, оканчивающаяся на "/"');
+    errors.push('manifest.assetsBase: expected a string ending with "/"');
   }
 
   checkEntries(manifest, distDir, errors);
@@ -95,7 +95,7 @@ function checkEntries(manifest, distDir, errors) {
 
   for (const name of ENTRIES) {
     if (typeof entries[name] !== 'string' || entries[name] === '') {
-      errors.push(`manifest.entries.${name}: не объявлен`);
+      errors.push(`manifest.entries.${name}: not declared`);
     }
   }
 
@@ -108,8 +108,8 @@ function checkEntries(manifest, distDir, errors) {
     // относительный путь внутрь dist/, а не адрес на origin мастера
     if (name === 'wasmNode' && /^[a-z][a-z\d+.-]*:|^\/\//i.test(entry)) {
       errors.push(
-        `manifest.entries.wasmNode ("${entry}"): ожидался относительный ` +
-          'путь внутри dist/, а не URL',
+        `manifest.entries.wasmNode ("${entry}"): expected a relative path ` +
+          'inside dist/, not a URL',
       );
       continue;
     }
@@ -123,14 +123,14 @@ function checkEntries(manifest, distDir, errors) {
 
     if (inside.startsWith('../') || path.isAbsolute(inside)) {
       errors.push(
-        `manifest.entries.${name} ("${entry}") указывает наружу dist/ — ` +
-          'публикуется только dist/',
+        `manifest.entries.${name} ("${entry}") points outside dist/ — ` +
+          'only dist/ is published',
       );
       continue;
     }
 
     if (!fs.existsSync(path.join(distDir, inside))) {
-      errors.push(`manifest.entries.${name} ("${entry}") отсутствует в dist/`);
+      errors.push(`manifest.entries.${name} ("${entry}") is missing from dist/`);
     }
   }
 }
@@ -139,19 +139,19 @@ function checkMaps(manifest, distDir, errors) {
   const list = manifest.maps?.list;
 
   if (!Array.isArray(list) || list.length === 0) {
-    errors.push('manifest.maps.list: ожидался непустой массив имён карт');
+    errors.push('manifest.maps.list: expected a non-empty array of map names');
 
     return;
   }
 
   for (const name of list) {
     if (typeof name !== 'string' || name === '') {
-      errors.push('manifest.maps.list: имя карты — непустая строка');
+      errors.push('manifest.maps.list: a map name must be a non-empty string');
       continue;
     }
 
     if (!fs.existsSync(path.join(distDir, 'maps', `${name}.json`))) {
-      errors.push(`карта "${name}" объявлена, но dist/maps/${name}.json нет`);
+      errors.push(`map "${name}" is declared, but dist/maps/${name}.json is missing`);
     }
   }
 }
@@ -161,7 +161,7 @@ function checkRoomForm(manifest, errors) {
   const defaults = manifest.roomDefaults ?? {};
 
   if (!Array.isArray(roomForm)) {
-    errors.push('manifest.roomForm: ожидался массив полей');
+    errors.push('manifest.roomForm: expected an array of fields');
 
     return;
   }
@@ -171,7 +171,7 @@ function checkRoomForm(manifest, errors) {
     // засеивается списком карт манифеста
     if (defaults[field?.name] === undefined && field?.source !== 'maps') {
       errors.push(
-        `roomForm-поле "${field?.name}" не имеет значения в roomDefaults`,
+        `roomForm field "${field?.name}" has no value in roomDefaults`,
       );
     }
   }

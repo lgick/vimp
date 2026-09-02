@@ -6,28 +6,33 @@ import { renderFormErrors } from '../../lib/formBuilder.js';
 let gamesView;
 
 // коды отказов мастера/auth — человеческая формулировка живёт здесь, как в
-// LobbyAuthView: модель кодов не переводит, view не ходит в сеть
+// LobbyAuthView: модель кодов не переводит, view не ходит в сеть.
+// Язык интерфейса — английский, как и в остальном лобби
 const ERROR_MESSAGES = {
-  unauthorized: 'Нужно войти заново',
-  forbidden: 'Недостаточно прав',
-  network: 'Сеть недоступна, попробуйте ещё раз',
-  requestFailed: 'Запрос не прошёл',
-  gameExists: 'Игра с таким идентификатором уже есть',
-  tooManyGames: 'Слишком много заявок от одного автора',
-  unknownGame: 'Игра не найдена в реестре',
-  invalidGameId: 'Неверный идентификатор игры',
-  invalidPackageName: 'Неверное имя npm-пакета',
-  invalidVersion: 'Неверная версия',
-  invalidTitle: 'Неверное название',
-  invalidRepoUrl: 'Неверная ссылка на репозиторий',
-  authServiceUnavailable: 'Сервис реестра недоступен',
+  unauthorized: 'Please sign in again',
+  forbidden: 'Not enough rights',
+  network: 'Network unavailable, try again',
+  requestFailed: 'Request failed',
+  // лимитер мастера (5 заявок в минуту на пользователя) считает и заявки,
+  // отклонённые по формату, — без своей строки код уезжал бы в интерфейс сырым
+  tooManyRequests: 'Too many requests, try again in a minute',
+  gameExists: 'A game with this id already exists',
+  tooManyGames: 'Too many submissions from one author',
+  unknownGame: 'Game is not in the registry',
+  invalidGameId: 'Invalid game id',
+  invalidPackageName: 'Invalid npm package name',
+  invalidVersion: 'Invalid version',
+  invalidTitle: 'Invalid title',
+  invalidRepoUrl: 'Invalid repository URL',
+  invalidMaxGameScore: 'Invalid score cap',
+  authServiceUnavailable: 'Registry service unavailable',
 };
 
 const STATUS_TITLES = {
-  pending: 'на модерации',
-  approved: 'опубликована',
-  rejected: 'отклонена',
-  disabled: 'отключена',
+  pending: 'in review',
+  approved: 'published',
+  rejected: 'rejected',
+  disabled: 'disabled',
 };
 
 // Представление реестра игр: списки заявок и очереди модерации, фильтры,
@@ -87,6 +92,7 @@ export default class GamesView {
 
     const mp = model.publisher;
 
+    mp.on('submitted', 'clearForm', this);
     mp.on('mine-changed', 'renderMine', this);
     mp.on('admin-changed', 'renderAdmin', this);
     mp.on('error', 'renderError', this);
@@ -106,7 +112,7 @@ export default class GamesView {
 
   hide() {
     // закрытой панели закрывать нечего: возврат черновиков после
-    // перезагрузки идёт тем же событием 'staged', что и «Тест», и не должен
+    // перезагрузки идёт тем же событием 'staged', что и «Test», и не должен
     // трогать разметку лобби
     if (this._panel.style.display === 'none') {
       return;
@@ -114,6 +120,13 @@ export default class GamesView {
 
     this._panel.style.display = 'none';
     this._lobby.style.display = 'flex';
+  }
+
+  // заявка ушла — поля пустые: следующая отправка начинается с чистой формы
+  clearForm() {
+    this._fields.forEach(field => {
+      field.value = '';
+    });
   }
 
   renderMine(games) {
@@ -135,7 +148,7 @@ export default class GamesView {
       this._appendRepo(item, game.repoUrl);
 
       if (game.moderatorNote) {
-        item.appendChild(this._line(`Замечание: ${game.moderatorNote}`));
+        item.appendChild(this._line(`Note: ${game.moderatorNote}`));
       }
 
       // заявка на новую версию своей игры: поле рядом со строкой, а не
@@ -145,9 +158,9 @@ export default class GamesView {
 
       version.type = 'text';
       version.className = 'field-text games-version-input';
-      version.placeholder = 'Новая версия';
+      version.placeholder = 'New version';
       send.type = 'button';
-      send.value = 'Обновить версию';
+      send.value = 'Update version';
       send.onclick = () =>
         this.publisher.emit('update-version', { id: game.id, version: version.value.trim() });
 
@@ -192,12 +205,14 @@ export default class GamesView {
         'games-item-title',
       ),
     );
-    item.appendChild(this._line(`Автор: ${game.authorNick ?? game.authorUserId}`));
+    // у игр, засеянных миграцией, автора нет вовсе: без запасного прочерка
+    // в строке печаталось бы литеральное "null"
+    item.appendChild(this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`));
     this._appendRepo(item, game.repoUrl);
     item.appendChild(
       this._line(
-        `Раздаётся: ${game.version ?? '—'}; заявлена: ${game.pendingVersion ?? '—'}` +
-          (latest ? `; в npm: ${latest}` : ''),
+        `Served: ${game.version ?? '—'}; requested: ${game.pendingVersion ?? '—'}` +
+          (latest ? `; in npm: ${latest}` : ''),
       ),
     );
     item.appendChild(this._line(this._statusLine(game)));
@@ -205,9 +220,9 @@ export default class GamesView {
     if (game.local) {
       item.appendChild(
         this._line(
-          `На этом мастере: ${game.local.downloaded ? 'скачана' : 'не скачана'}` +
-            (game.local.stagedVersion ? `; на тесте ${game.local.stagedVersion}` : '') +
-            (game.local.lastError ? `; ошибка: ${game.local.lastError}` : ''),
+          `On this master: ${game.local.downloaded ? 'downloaded' : 'not downloaded'}` +
+            (game.local.stagedVersion ? `; staged ${game.local.stagedVersion}` : '') +
+            (game.local.lastError ? `; error: ${game.local.lastError}` : ''),
         ),
       );
     }
@@ -216,11 +231,11 @@ export default class GamesView {
 
     note.type = 'text';
     note.className = 'field-text games-note-input';
-    note.placeholder = 'Причина отклонения';
+    note.placeholder = 'Rejection reason';
 
     item.appendChild(note);
     item.appendChild(
-      this._button('Тест', () =>
+      this._button('Test', () =>
         this.publisher.emit('stage', {
           id: game.id,
           version: game.pendingVersion ?? game.version,
@@ -228,18 +243,18 @@ export default class GamesView {
       ),
     );
     item.appendChild(
-      this._button('Одобрить', () => this.publisher.emit('approve', { id: game.id })),
+      this._button('Approve', () => this.publisher.emit('approve', { id: game.id })),
     );
     item.appendChild(
-      this._button('Отклонить', () =>
+      this._button('Reject', () =>
         this.publisher.emit('reject', { id: game.id, note: note.value.trim() }),
       ),
     );
     item.appendChild(
-      this._button('Отключить', () => this.publisher.emit('disable', { id: game.id })),
+      this._button('Disable', () => this.publisher.emit('disable', { id: game.id })),
     );
     item.appendChild(
-      this._button('Версии в npm', () =>
+      this._button('npm versions', () =>
         this.publisher.emit('load-versions', { id: game.id }),
       ),
     );
@@ -271,7 +286,7 @@ export default class GamesView {
     const status = STATUS_TITLES[game.status] ?? game.status;
     const date = game.createdAt ? new Date(game.createdAt).toLocaleDateString() : '';
 
-    return date ? `Статус: ${status} (заявка от ${date})` : `Статус: ${status}`;
+    return date ? `Status: ${status} (submitted ${date})` : `Status: ${status}`;
   }
 
   _renderFilters() {

@@ -152,7 +152,7 @@ async function issueIdentityToken(user) {
 
 // Роль берётся из БД, а не из клейма токена: identity-токен живёт 4 часа, и
 // разжалование обязано действовать немедленно. Клейм в токене нужен только
-// клиенту — показать вкладку «Модерация»
+// клиенту — показать вкладку «Moderation»
 function requireAdmin(req, res, next) {
   requireAuth(req, res, async () => {
     try {
@@ -759,9 +759,25 @@ server.listen(config.port, () => {
   `);
 
   if (!isProduction) {
+    // Ссылки на обе роли сразу: роль даёт VIMP_ADMIN_NICKS, и без готовой
+    // ссылки «а под кем я сейчас зашёл» выясняется только по 403 из панели
+    // модерации. Ник админа берётся из самого списка, поэтому баннер не
+    // может разойтись с конфигом
+    const devLoginUrl = nick =>
+      `http://localhost:${config.port}/dev/login` +
+      `?nick=${encodeURIComponent(nick)}&returnUrl=${config.allowedOrigins[0]}/`;
+    // Написание берётся из САМОЙ переменной, а не из config.admin.nicks:
+    // те приведены к нижнему регистру для сравнения, а dev-логин заводит
+    // личность по provider_uid = ник, и регистр там значим. Ссылка с чужим
+    // написанием создала бы вторую личность и упёрлась в занятый ник
+    const adminNick = String(env.VIMP_ADMIN_NICKS || '').split(',')[0].trim();
+
     console.warn(
-      `    DEV login enabled: http://localhost:${config.port}` +
-        `/dev/login?nick=Player1&returnUrl=${config.allowedOrigins[0]}/\n`,
+      `    DEV login enabled (role comes from VIMP_ADMIN_NICKS):\n` +
+        `      user:  ${devLoginUrl('Player1')}\n` +
+        (adminNick
+          ? `      admin: ${devLoginUrl(adminNick)}\n`
+          : '      admin: set VIMP_ADMIN_NICKS=<nick> to get one\n'),
     );
   }
 });

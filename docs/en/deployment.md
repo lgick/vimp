@@ -451,7 +451,7 @@ the central auth service, and a master picks changes up within
    `GET /servers`), and approves it. The approved version reaches every
    master on its next sync pass.
 3. A new version of an already approved game goes the same way ("My games" →
-   "Update" → moderation), and again deploys nothing.
+   "Update version" → moderation), and again deploys nothing.
 
 `master:games` / `GAMES_MATRIX` stays as the static override for local
 development and for a self-hosted master running without a registry — see

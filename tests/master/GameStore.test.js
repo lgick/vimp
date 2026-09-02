@@ -143,7 +143,7 @@ describe('GameStore', () => {
 
     expect(result.ok).toBe(false);
     expect(result.distDir).toBeNull();
-    expect(result.errors.join('\n')).toMatch(/не совпадает/);
+    expect(result.errors.join('\n')).toMatch(/does not match/);
     expect(store.has('tanks', '1.2.3')).toBe(false);
     expect(stagingEntries(dir, 'tanks')).toEqual([]);
   });
@@ -156,7 +156,7 @@ describe('GameStore', () => {
     const result = await store.ensure('tanks', '@vimp-games/tanks', '9.9.9');
 
     expect(result.ok).toBe(false);
-    expect(result.errors.join('\n')).toMatch(/нет версии "9\.9\.9"/);
+    expect(result.errors.join('\n')).toMatch(/no version "9\.9\.9"/);
     expect(stagingEntries(dir, 'tanks')).toEqual([]);
   });
 
@@ -220,7 +220,7 @@ describe('GameStore', () => {
     // отказ вердиктом, а не броском: контракт ensure/inspect не меняется
     expect(ensured.ok).toBe(false);
     expect(inspected.ok).toBe(false);
-    expect(ensured.errors[0]).toMatch(/идентификатор игры/);
+    expect(ensured.errors[0]).toMatch(/invalid game id/);
     // до сети и диска дело не дошло вовсе
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(fs.readdirSync(dir)).toEqual([]);
@@ -235,7 +235,7 @@ describe('GameStore', () => {
     const result = await store.ensure('tanks', '@vimp-games/tanks', '../../etc');
 
     expect(result.ok).toBe(false);
-    expect(result.errors[0]).toMatch(/версия/);
+    expect(result.errors[0]).toMatch(/invalid version/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -263,16 +263,16 @@ describe('GameStore', () => {
     const result = await store.ensure('tanks', '@vimp-games/tanks', 'latest');
 
     expect(result.ok).toBe(false);
-    expect(result.errors[0]).toMatch(/недопустимая версия|недопустимый/i);
+    expect(result.errors[0]).toMatch(/invalid version|invalid game id/i);
     expect(fs.existsSync(path.join(dir, '..', 'pwn'))).toBe(false);
   });
 
   it('distDir бросает на сегменте с разделителем — прямой вызов тоже защищён', () => {
     const store = new GameStore({ dir: tempDir(), registryUrl, limits });
 
-    expect(() => store.distDir('../evil', '1.0.0')).toThrow(/недопустимый/);
-    expect(() => store.distDir('tanks', '../evil')).toThrow(/недопустимый/);
-    expect(() => store.listLocalVersions('../evil')).toThrow(/недопустимый/);
+    expect(() => store.distDir('../evil', '1.0.0')).toThrow(/invalid/);
+    expect(() => store.distDir('tanks', '../evil')).toThrow(/invalid/);
+    expect(() => store.listLocalVersions('../evil')).toThrow(/invalid/);
   });
 
   it('prune не трогает свежий .staging', async () => {

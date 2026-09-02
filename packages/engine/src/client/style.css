@@ -1112,6 +1112,14 @@ body.hide-cursor {
   margin-right: 8px;
 }
 
+/* поля заявки — текстовые, а не счётчики: правило .form-row
+   input[type='text'] рассчитано на «max players» room-формы */
+#games-submit-form .form-row input[type='text'] {
+  width: 260px;
+  max-width: 100%;
+  text-align: left;
+}
+
 .games-filters {
   display: flex;
   gap: 12px;

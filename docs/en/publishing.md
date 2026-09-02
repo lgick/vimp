@@ -488,7 +488,7 @@ git push
 > its catalog from the game registry of the central auth service and the
 > master downloads the package from npm itself. So publishing a new version
 > of a game needs **no** engine release and no deploy at all — the developer
-> raises it from the lobby ("My games" → "Update"), an admin confirms it in
+> raises it from the lobby ("My games" → "Update version"), an admin confirms it in
 > "Moderation", and every master picks it up on its next sync pass. A game
 > that is not in the catalog yet is submitted the same way. See
 > [deployment.md → Adding a game](deployment.md#adding-a-game-to-the-catalog).

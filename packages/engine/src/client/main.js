@@ -1949,7 +1949,7 @@ function populateRoomForm(manifest) {
   }
 }
 
-// роли, которым лобби показывает кнопку «Модерация» (master-game-registry,
+// роли, которым лобби показывает кнопку «Moderation» (master-game-registry,
 // этап 4). Это подсказка интерфейсу: доступ к данным проверяет мастер, а
 // запись — auth-сервис, перечитывая роль из БД
 const ADMIN_ROLES = ['admin', 'superadmin'];
@@ -2176,7 +2176,7 @@ function initLobby() {
 
   games.setAdmin(ADMIN_ROLES.includes(lobbyAuthModel.getRole()));
 
-  // «Тест»: манифест застейдженной версии кладётся в каталог вкладки, и
+  // «Test»: манифест застейдженной версии кладётся в каталог вкладки, и
   // админ поднимает по нему комнату обычной кнопкой Create server
   games.publisher.on('staged', ({ manifest }) => {
     registerGameManifest(manifest);
