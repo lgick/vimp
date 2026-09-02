@@ -239,6 +239,34 @@ describe('GameStore', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('кривая версия из пакумента — вердикт, а не бросок из ensure', async () => {
+    // ключ versions приходит из недоверенного реестра и становится именем
+    // каталога: проверка обязана срабатывать ДО distDir, иначе бросок уедет
+    // из ensure наружу — а её зовут await'ом на верхнем уровне lobby.js
+    const dir = tempDir();
+    const fetchImpl = vi.fn(async url => {
+      if (url.endsWith('%2Ftanks')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            'dist-tags': { latest: '1.0.0/../../pwn' },
+            versions: { '1.0.0/../../pwn': { dist: { tarball: 'https://cdn/x.tgz' } } },
+          }),
+        };
+      }
+
+      return { ok: false, status: 404 };
+    });
+    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+
+    const result = await store.ensure('tanks', '@vimp-games/tanks', 'latest');
+
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]).toMatch(/недопустимая версия|недопустимый/i);
+    expect(fs.existsSync(path.join(dir, '..', 'pwn'))).toBe(false);
+  });
+
   it('distDir бросает на сегменте с разделителем — прямой вызов тоже защищён', () => {
     const store = new GameStore({ dir: tempDir(), registryUrl, limits });
 

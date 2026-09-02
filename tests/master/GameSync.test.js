@@ -273,6 +273,36 @@ describe('GameSync', () => {
     expect(catalog.upsert).toHaveBeenCalledTimes(1);
   });
 
+  it('смена maxGameScore без смены версии доезжает до каталога', async () => {
+    // потолок счёта и адрес проекта живут в СТРОКЕ РЕЕСТРА, а не в пакете:
+    // админ правит их PATCH'ем, не трогая версию, и пропуск upsert по одной
+    // только версии заморозил бы старое значение навсегда
+    const catalog = makeCatalog();
+    const store = makeStore();
+    const registry = makeRegistry([tanks]);
+    const sync = new GameSync({ registry, store, catalog });
+
+    await sync.run();
+
+    catalog.hasActive.mockReturnValue(true);
+    registry.list.mockResolvedValue({
+      status: 200,
+      json: { games: [{ ...tanks, maxGameScore: 9000 }] },
+    });
+
+    await sync.run();
+
+    expect(catalog.upsert).toHaveBeenCalledTimes(2);
+    expect(catalog.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ version: '0.16.1', maxGameScore: 9000 }),
+    );
+
+    // строка реестра не изменилась — третий проход каталог не трогает
+    await sync.run();
+
+    expect(catalog.upsert).toHaveBeenCalledTimes(2);
+  });
+
   it('запись каталога, чьей директории на диске нет, снимается', async () => {
     const catalog = makeCatalog();
 

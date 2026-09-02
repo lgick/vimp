@@ -44,6 +44,10 @@ export default class GameSync {
     this._timer = null;
     // идущий проход: см. run()
     this._running = null;
+    // id -> отпечаток полей, взятых из СТРОКИ РЕЕСТРА (а не из пакета):
+    // версия может не меняться, а потолок счёта или адрес проекта админ
+    // правит отдельным PATCH — см. stampOf
+    this._stamps = new Map();
     // id игр, поставленных в каталог именно этой синхронизацией: снимать с
     // раздачи мы вправе только их, но не игры из node_modules и не игры
     // из статического конфига self-hosted мастера
@@ -128,13 +132,21 @@ export default class GameSync {
       }
 
       // каталог уже описывает ровно это состояние: пересобирать запись
-      // (перечитывание всех карт игры + JSON.stringify каталога) незачем
-      if (this._catalog.hasActive(game.id, result.version)) {
+      // (перечитывание всех карт игры + JSON.stringify каталога) незачем.
+      // Одной версии для этого мало: maxGameScore и repoUrl приходят из
+      // строки реестра, и админ правит их PATCH'ем, не трогая версию
+      const stamp = stampOf(game, result.version);
+
+      if (
+        this._catalog.hasActive(game.id, result.version) &&
+        this._stamps.get(game.id) === stamp
+      ) {
         this._owned.add(game.id);
         this._errors.delete(game.id);
         continue;
       }
 
+      this._stamps.set(game.id, stamp);
       this._catalog.upsert({
         id: game.id,
         version: result.version,
@@ -158,6 +170,7 @@ export default class GameSync {
       if (!seen.has(id)) {
         this._catalog.remove(id);
         this._owned.delete(id);
+        this._stamps.delete(id);
       }
     }
 
@@ -255,8 +268,12 @@ export default class GameSync {
     if (this._timer) {
       clearInterval(this._timer);
       this._timer = null;
-    // идущий проход: см. run()
-    this._running = null;
     }
   }
+}
+
+// Отпечаток полей игры, источник которых — строка реестра, а не пакет:
+// совпадение версии не означает, что запись каталога актуальна
+function stampOf(game, version) {
+  return `${version}|${game.maxGameScore ?? ''}|${game.repoUrl ?? ''}`;
 }

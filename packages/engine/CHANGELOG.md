@@ -63,6 +63,9 @@ bumps the minor version).
   its bundle hash happens to match a staged version's (a republish that
   touched only `package.json` leaves the code identical).
 - `/games/%ZZ/x.js` answers `404` instead of `500`.
+- A moderator's change to `maxGameScore` or `repoUrl` reaches the catalog
+  without a version bump: a sync pass now compares the registry-sourced fields
+  too, not the served version alone.
 - The master's first sync pass no longer delays `listen` indefinitely: a slow
   npm registry used to hold the port closed for minutes. The startup pass now
   has a deadline and the catalog fills in on the next tick.
@@ -80,6 +83,9 @@ bumps the minor version).
   the auth service's limiter sits behind them and only saw successful checks.
 - Tarball extraction aborts the stream as soon as a limit is exceeded instead
   of decompressing the rest of the archive.
+- A version key served by the npm registry is validated before it becomes a
+  directory name, and inside `GameStore._stage`, so `ensure` keeps its
+  never-throws contract.
 - The public `GET /games` no longer returns the moderator's note, the author's
   internal id or the pending version.
 - The submission cap per author is enforced inside the `INSERT` instead of by
