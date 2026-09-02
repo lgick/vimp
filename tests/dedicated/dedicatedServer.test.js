@@ -1,9 +1,14 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import {
   parseGameRef,
+  resolveLocalRef,
   startDedicatedServer,
 } from '../../packages/engine/src/dedicated/main.js';
+import engineConfig from '../../packages/engine/src/lib/config.js';
 import { resetHostSingletons } from '../../packages/engine/src/devtools/resetHostSingletons.js';
 import { ENGINE_API_VERSION } from '../../packages/engine/src/config/opcodes.js';
 import wsports from '../../packages/engine/src/config/wsports.js';
@@ -123,6 +128,101 @@ describe('parseGameRef', () => {
     expect(parseGameRef('tanks@')).toEqual({ id: 'tanks', version: null });
     expect(parseGameRef('')).toEqual({ id: null, version: null });
     expect(parseGameRef(undefined)).toEqual({ id: null, version: null });
+  });
+
+  it('имя пакета не путается с пином: @ в начале — часть скоупа', () => {
+    // SERVERS_MATRIX называет игру пакетом, и разбор обязан отличать скоуп
+    // от версии — иначе '@vimp-games/tanks' распалось бы на пустой id
+    expect(parseGameRef('@vimp-games/tanks')).toEqual({
+      id: '@vimp-games/tanks',
+      version: null,
+    });
+    expect(parseGameRef('@vimp-games/tanks@0.16.1')).toEqual({
+      id: '@vimp-games/tanks',
+      version: '0.16.1',
+    });
+  });
+});
+
+describe('resolveLocalRef', () => {
+  const games = [
+    { id: 'tanks', package: '@vimp-games/tanks' },
+    { id: 'snakes', package: '@vimp-games/snakes' },
+  ];
+
+  let nodeModulesDir;
+
+  beforeEach(() => {
+    nodeModulesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-ref-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(nodeModulesDir, { recursive: true, force: true });
+  });
+
+  const installGame = (pkg, manifest) => {
+    const distDir = path.join(nodeModulesDir, pkg, 'dist');
+
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(distDir, 'manifest.json'),
+      JSON.stringify(manifest),
+    );
+  };
+
+  it('разрешает и id игры, и имя пакета из master:games', () => {
+    expect(resolveLocalRef('tanks', { games, nodeModulesDir })).toEqual(games[0]);
+    expect(
+      resolveLocalRef('@vimp-games/snakes', { games, nodeModulesDir }),
+    ).toEqual(games[1]);
+  });
+
+  it('id важнее пакета: `tanks` остаётся игрой tanks', () => {
+    // безскоупный пакет с именем чужой игры не должен перехватывать ссылку
+    const shadowed = [
+      { id: 'snakes', package: 'tanks' },
+      { id: 'tanks', package: '@vimp-games/tanks' },
+    ];
+
+    expect(resolveLocalRef('tanks', { games: shadowed, nodeModulesDir })).toEqual(
+      shadowed[1],
+    );
+  });
+
+  it('пакета нет в master:games — id читается из его манифеста', () => {
+    // путь прода: обнаружение туда не ходит, master:games пуст, а пакет в
+    // node_modules лежит. Работает и со сторонним скоупом
+    installGame('@acme/arena-game', { id: 'arena' });
+
+    expect(resolveLocalRef('@acme/arena-game', { games: [], nodeModulesDir })).toEqual(
+      { id: 'arena', package: '@acme/arena-game' },
+    );
+  });
+
+  it('безскоупное имя пакета тоже читается с диска', () => {
+    // 'vimp-tanks' по виду неотличим от id игры, и отсекать его по форме
+    // значило бы объявить установленный и собранный пакет ненайденным
+    installGame('vimp-tanks', { id: 'tanks' });
+
+    expect(resolveLocalRef('vimp-tanks', { games: [], nodeModulesDir })).toEqual({
+      id: 'tanks',
+      package: 'vimp-tanks',
+    });
+  });
+
+  it('неизвестная ссылка и несобранный пакет — null', () => {
+    expect(resolveLocalRef('@acme/missing', { games, nodeModulesDir })).toBeNull();
+    expect(resolveLocalRef('pong', { games, nodeModulesDir })).toBeNull();
+    expect(resolveLocalRef('', { games, nodeModulesDir })).toBeNull();
+    expect(resolveLocalRef(null, { games, nodeModulesDir })).toBeNull();
+  });
+
+  it('без nodeModulesDir отдаёт null, а не бросает', () => {
+    // функция экспортирована, и её контракт — «запись либо null»: путь до
+    // node_modules нужен только последнему шагу, и его отсутствие не должно
+    // превращаться в TypeError из path.join
+    expect(resolveLocalRef('@acme/game')).toBeNull();
+    expect(resolveLocalRef('tanks', { games })).toEqual(games[0]);
   });
 });
 
@@ -389,6 +489,23 @@ describe('dedicated-сервер', () => {
     ).rejects.toThrow(/game "tanks" is not available/);
   });
 
+  // ответ реестра: id игры приходит из НАЙДЕННОЙ строки, а не из того, как
+  // игру назвали в VIMP_DEDICATED_GAME
+  const registryAnswer = () => ({
+    id: 'miniGame',
+    version: '9.9.9',
+    distDir: '/nonexistent/miniGame/9.9.9',
+    manifest: {
+      id: 'miniGame',
+      engineApi: ENGINE_API_VERSION,
+      version: '0.0.0-fixture',
+      assetsBase: '/games/miniGame/',
+      entries: {},
+    },
+    packageUrl: null,
+    maxGameScore: null,
+  });
+
   it('игра приезжает из реестра и раздаётся по версионным адресам', async () => {
     const fetched = [];
 
@@ -396,27 +513,15 @@ describe('dedicated-сервер', () => {
       gameId: 'miniGame@9.9.9',
       port: 0,
       loadGame: loadFixtureGame,
-      fetchGame: async (id, version) => {
-        fetched.push([id, version]);
+      fetchGame: async (ref, version) => {
+        fetched.push([ref, version]);
 
-        return {
-          version: '9.9.9',
-          distDir: '/nonexistent/miniGame/9.9.9',
-          manifest: {
-            id: 'miniGame',
-            engineApi: ENGINE_API_VERSION,
-            version: '0.0.0-fixture',
-            assetsBase: '/games/miniGame/',
-            entries: {},
-          },
-          packageUrl: null,
-          maxGameScore: null,
-        };
+        return registryAnswer();
       },
       serveClient: false,
     });
 
-    // пин `<id>@<version>` доехал до загрузчика разобранным
+    // пин `<ref>@<version>` доехал до загрузчика разобранным
     expect(fetched).toEqual([['miniGame', '9.9.9']]);
 
     const versioned = await (
@@ -433,5 +538,66 @@ describe('dedicated-сервер', () => {
     ).json();
 
     expect(list.map(manifest => manifest.id)).toEqual(['miniGame']);
+  });
+
+  it('пин, разошедшийся с установленной версией, уводит игру в реестр', async () => {
+    // раздаётся то, что установлено, и подменить его нечем: оператор написал
+    // в SERVERS_MATRIX точную версию, и молча отдать другую сборку нельзя
+    const games = engineConfig.get('master:games');
+    const fetched = [];
+
+    engineConfig.set('master:games', [
+      { id: 'miniGame', package: '@vimp-games/not-installed' },
+    ]);
+
+    try {
+      server = await startDedicatedServer({
+        gameId: 'miniGame@9.9.9',
+        port: 0,
+        loadGame: loadFixtureGame,
+        fetchGame: async (ref, version) => {
+          fetched.push([ref, version]);
+
+          return registryAnswer();
+        },
+        serveClient: false,
+      });
+    } finally {
+      engineConfig.set('master:games', games);
+    }
+
+    // локальная запись есть, но её версии не видно — значит пин не выполнен,
+    // и разрешение обязано уйти туда, где пин умеют
+    expect(fetched).toEqual([['miniGame', '9.9.9']]);
+  });
+
+  it('ссылкой на игру может быть имя пакета — в URL едет id из ответа', async () => {
+    // dedicatedGame в SERVERS_MATRIX называет игру пакетом. Имя пакета несёт
+    // слеш, и попади оно в каталог сегментом URL — раздача была бы битой
+    const fetched = [];
+
+    server = await startDedicatedServer({
+      gameId: '@vimp-games/mini@9.9.9',
+      port: 0,
+      loadGame: loadFixtureGame,
+      fetchGame: async (ref, version) => {
+        fetched.push([ref, version]);
+
+        return registryAnswer();
+      },
+      serveClient: false,
+    });
+
+    // в реестр уехала строка пакета целиком, скоуп не принят за пин версии
+    expect(fetched).toEqual([['@vimp-games/mini', '9.9.9']]);
+    expect(server.id).toBe('miniGame');
+
+    const versioned = await (
+      await fetch(
+        `http://localhost:${server.port}/games/miniGame/9.9.9/manifest.json`,
+      )
+    ).json();
+
+    expect(versioned.assetsBase).toBe('/games/miniGame/9.9.9/');
   });
 });

@@ -26,12 +26,6 @@ export function applyMasterEnv(config, env = process.env) {
     config.set('master:security:authServiceUrl', env.VIMP_AUTH_SERVICE_URL);
   }
 
-  // список игр-плагинов мастера (Этап A2), по образцу остальных *_MATRIX
-  // env-переопределений — JSON-массив {id, package}
-  if (env.GAMES_MATRIX) {
-    config.set('master:games', JSON.parse(env.GAMES_MATRIX));
-  }
-
   // корень хранилища игровых пакетов (направление master-game-registry) —
   // в проде это смонтированный том, переживающий пересоздание контейнера
   if (env.VIMP_GAMES_DIR) {

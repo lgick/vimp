@@ -23,7 +23,7 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/main.js` | точка входа: развилка между лобби-мастером и [dedicated-сервером](dedicated.md) (`VIMP_DEDICATED_GAME`) |
 | `packages/engine/src/master/lobby.js` | сам лобби-мастер: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат |
 | `packages/engine/src/master/httpSecurity.js` | базовые security-заголовки (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP в проде), общие с dedicated-сервером |
-| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`, `GAMES_MATRIX`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated |
+| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated |
 | `packages/engine/src/master/HostRegistry.js` | реестр комнат `Map<hostId, HostSession>`: регистрация (не более 1 комнаты с IP), heartbeat/`lastSeen`, закэшированный `rating`, выборка для `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | сигнальный WebSocket: жизненный цикл соединений, маршрутизация WebRTC-сообщений, rate limiting пингов |
 | `packages/engine/src/master/MapCatalog.js` | каталог карт: JSON-представление `src/data/maps` игры-плагина (например, в `vimp-tanks`) в памяти + версия-хеш содержимого; раздача хостам без пересборки |
@@ -121,11 +121,11 @@ IP хоста и служебные поля наружу не отдаются.
    причина хранится по игре (`GameSync.lastError`) для панели модерации.
 2. **`master:games`** (`{id, package, maxGameScore?}[]`, см.
    [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
-   переопределяется переменной окружения `GAMES_MATRIX`, а вне прода
-   дополняется собранными пакетами `@vimp-games/*` из `node_modules` —
+   env-переопределения у него нет, а вне прода он дополняется собранными
+   пакетами `@vimp-games/*` из `node_modules` —
    `src/master/localGames.js`) — резолвится в пакеты `node_modules/` и
    читается из `<package>/dist/manifest.json`. Это путь локальной разработки
-   (`npm link` плюс HMR) и self-hosted мастера без реестра. **Локально
+   (`npm link` плюс HMR) и собственного резолва dedicated-сервера. **Локально
    прилинкованная игра всегда важнее**: `GameSync` пропускает запись реестра,
    чей id прилинкован, — иначе разработчика молча увели бы править файлы,
    которые никуда не едут.

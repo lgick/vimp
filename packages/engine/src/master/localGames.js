@@ -1,26 +1,72 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Каталог игр для локальной разработки: то, что в проде задаёт переменная
-// окружения GAMES_MATRIX (её ставит CI/деплой), локально собирается из того,
-// что лежит в node_modules — обычной зависимостью или симлинком `npm link`.
+// Каталог игр для локальной разработки: собирается из того, что лежит в
+// node_modules — обычной зависимостью или симлинком `npm link`.
 //
 // Зачем: `master:games` в config/master.js — опубликованный код пакета
 // vimp-engine, и правка этого массива под свою машину уезжает в релиз.
 // Разработчик, прилинковавший игру, ожидает увидеть её в лобби, а не
 // редактировать конфиг движка.
 //
-// Обнаружение НЕ подменяет явно заданный GAMES_MATRIX и не работает в
-// проде — там каталог задаётся деплоем целиком (см. applyLocalGames).
+// Обнаружение не работает в проде: там каталог платформы приходит из реестра
+// игр auth-сервиса, и локальная подмена скрыла бы одобренную версию
+// (см. applyLocalGames).
 export const GAMES_SCOPE = '@vimp-games';
 
 /**
- * Игры-плагины, физически присутствующие в node_modules.
+ * id игры, объявленный сборкой пакета.
  *
- * Признак игры — собранный `dist/manifest.json`: несобранный пакет мастеру
- * бесполезен (GameCatalog всё равно его пропустит), а id берётся из самого
- * манифеста, потому что каталог сверяет его с настроенным и молча
- * выбрасывает игру при расхождении.
+ * Единственный источник, которому можно верить: каталог всё равно сверяет с
+ * ним настроенный id и молча выбрасывает игру при расхождении
+ * (GameCatalog._addGame). Собранный `dist/manifest.json` он же и признак
+ * игры: несобранный пакет мастеру бесполезен.
+ *
+ * @param {string} nodeModulesDir - директория node_modules, где резолвятся пакеты игр
+ * @param {string} pkg - имя npm-пакета игры
+ * @returns {string|null} id игры либо null (пакет не установлен, не собран
+ *   или его манифест не читается)
+ */
+export function readGameId(nodeModulesDir, pkg) {
+  const manifestPath = path.join(nodeModulesDir, pkg, 'dist', 'manifest.json');
+
+  let manifest;
+
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return null; // пакет не собран (npm run build в репозитории игры)
+  }
+
+  return typeof manifest.id === 'string' && manifest.id ? manifest.id : null;
+}
+
+/**
+ * npm-версия установленного пакета игры.
+ *
+ * Берётся из package.json, а не из манифеста: `manifest.version` — хеш
+ * сборки, а не версия пакета (см. GameCatalog).
+ *
+ * @param {string} nodeModulesDir - директория node_modules, где резолвятся пакеты игр
+ * @param {string} pkg - имя npm-пакета игры
+ * @returns {string|null} версия либо null (пакета нет, package.json битый)
+ */
+export function readPackageVersion(nodeModulesDir, pkg) {
+  let meta;
+
+  try {
+    meta = JSON.parse(
+      fs.readFileSync(path.join(nodeModulesDir, pkg, 'package.json'), 'utf8'),
+    );
+  } catch {
+    return null;
+  }
+
+  return typeof meta.version === 'string' && meta.version ? meta.version : null;
+}
+
+/**
+ * Игры-плагины, физически присутствующие в node_modules.
  *
  * @param {string} nodeModulesDir - директория node_modules, где резолвятся пакеты игр
  * @param {{scope?: string}} [options]
@@ -31,7 +77,7 @@ export function discoverLocalGames(nodeModulesDir, { scope = GAMES_SCOPE } = {})
 
   try {
     entries = fs.readdirSync(path.join(nodeModulesDir, scope));
-  } catch (err) {
+  } catch {
     return []; // скоупа нет вовсе — ни одной игры не установлено
   }
 
@@ -44,18 +90,10 @@ export function discoverLocalGames(nodeModulesDir, { scope = GAMES_SCOPE } = {})
     }
 
     const pkg = `${scope}/${name}`;
-    const manifestPath = path.join(nodeModulesDir, pkg, 'dist', 'manifest.json');
+    const id = readGameId(nodeModulesDir, pkg);
 
-    let manifest;
-
-    try {
-      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    } catch (err) {
-      continue; // пакет не собран (npm run build в репозитории игры)
-    }
-
-    if (typeof manifest.id === 'string' && manifest.id) {
-      games.push({ id: manifest.id, package: pkg });
+    if (id) {
+      games.push({ id, package: pkg });
     }
   }
 
@@ -80,8 +118,7 @@ export function mergeGames(discovered, configured = []) {
 }
 
 /**
- * Достраивает `master:games` играми из node_modules — только локально и
- * только когда каталог не задан окружением явно.
+ * Достраивает `master:games` играми из node_modules — только локально.
  *
  * @param {Object} config - синглтон lib/config.js
  * @param {string} nodeModulesDir
@@ -89,9 +126,10 @@ export function mergeGames(discovered, configured = []) {
  * @returns {{id: string, package: string}[]} что добавлено (пусто — ничего не меняли)
  */
 export function applyLocalGames(config, nodeModulesDir, env = process.env) {
-  // прод получает каталог от деплоя; GAMES_MATRIX — явное слово разработчика
-  // и о нём же способ переопределить порядок игр локально
-  if (env.NODE_ENV === 'production' || env.GAMES_MATRIX) {
+  // прод получает каталог из реестра игр auth-сервиса: игра, случайно
+  // оказавшаяся в образе, не должна перекрывать одобренную версию — в лобби
+  // поехало бы не то, что прошло модерацию
+  if (env.NODE_ENV === 'production') {
     return [];
   }
 

@@ -38,25 +38,26 @@ room settings have no other source.
 | `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
 | `VIMP_MASTER_PORT` | The master server's port | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
-| `VIMP_DEDICATED_GAME` | The dedicated server's game — `<id>` or `<id>@<version>`; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
+| `VIMP_DEDICATED_GAME` | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
 | `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure | `{}` |
 | `VIMP_GAMES_DIR` | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate | `<repoRoot>/.games` |
-| `GAMES_MATRIX` | JSON array overriding `master:games` (the **static** game list, `{id, package}[]`), read in development too — see [master.md](master.md#get-gamesmanifestjson-get-gamesid-get-gamesidversion) | `[{"id":"tanks","package":"@vimp-games/tanks"}]` |
 
-`GAMES_MATRIX` is no longer how a production catalog is set: games come from
-the registry of the central auth service, and the master downloads them
-itself. It stays an override for two cases — local development and a
-self-hosted master running without a registry.
+**There is no environment variable for the game catalog.** The lobby master's
+catalog comes from the game registry of the central auth service and from
+nowhere else: games are submitted and moderated in the lobby, they live in the
+auth service's Postgres, and the master downloads the approved packages
+itself. An empty registry means an empty lobby — that is a legitimate state,
+not a misconfiguration.
 
-Outside production the catalog also **discovers itself**: with no
-`GAMES_MATRIX` set, every built `@vimp-games/*` package found in
-`node_modules` (an ordinary dependency or an `npm link` symlink) is added to
-`master:games`, sorted by id and ahead of the configured entries
-(`src/master/localGames.js`). So a linked game shows up in the lobby without
-editing the engine's published config, and it **wins over the registry entry
-with the same id** — that is what makes HMR development of a game possible.
-The first entry of the catalog is the lobby's active game — set
-`GAMES_MATRIX` locally when you need to pin which one that is.
+Outside production the catalog additionally **discovers itself**: every built
+`@vimp-games/*` package found in `node_modules` (an ordinary dependency or an
+`npm link` symlink) is added to `master:games`, sorted by id and ahead of the
+configured entries (`src/master/localGames.js`). So a linked game shows up in
+the lobby without editing the engine's published config, and it **wins over
+the registry entry with the same id** — that is what makes HMR development of
+a game possible. The first entry of the catalog is the lobby's active game.
+In production this discovery is off: a package that happened to end up in the
+image must not shadow the version that passed moderation.
 
 Game parameters (map, player limit, timers, friendly fire) aren't set
 through environment variables in the lobby contour (there `VIMP_DEDICATED_ROOM`
@@ -284,9 +285,10 @@ The master server's config (see [master.md](master.md)); read by
 - `games` — the **static** game list, `{id, package}[]`, **empty by default**.
   The regular source of the catalog is the game registry of the central auth
   service, from which the master downloads approved packages itself
-  (`GameSync`); this array and `GAMES_MATRIX` remain the override for local
-  development (where it is also filled in from `node_modules`) and for a
-  self-hosted master without a registry. `package` is resolved as an ordinary
+  (`GameSync`). The array has no environment override and is left to two
+  consumers: local development, where it is filled in from `node_modules`,
+  and the [dedicated server](dedicated.md), which looks its game up here
+  before going to the registry. `package` is resolved as an ordinary
   `node_modules/` dependency (the game plugin's own repository, e.g.
   `vimp-tanks`, publishes it), so the plugin version comes from the installed
   dependency, not from this list.

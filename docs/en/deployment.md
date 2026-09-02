@@ -173,23 +173,26 @@ regular domain with its own port), then one extra field in
     "ip": "YOUR_SERVER_IP",
     "domain": "duel.example.com",
     "port": 3006,
-    "dedicatedGame": "tanks"
+    "dedicatedGame": "@vimp-games/tanks"
   }
 ]
 ```
 
-- `dedicatedGame` is a game id, optionally pinned to an exact package
-  version (`"tanks"` or `"tanks@0.16.1"`). With the field present,
-  `deploy.yml` writes `VIMP_DEDICATED_GAME` into that server's `.env.prod`
-  and `src/master/main.js` starts the dedicated server instead of the lobby;
+- `dedicatedGame` names the game by its **npm package** or by its **registry
+  id**, optionally pinned to an exact version (`"@vimp-games/tanks"`,
+  `"tanks"`, `"@vimp-games/tanks@0.16.1"`). Prefer the package name: it is
+  the same string npm and the registry use, and it resolves even on a box
+  that has no registry to ask. With the field present, `deploy.yml` writes
+  `VIMP_DEDICATED_GAME` into that server's `.env.prod` and
+  `src/master/main.js` starts the dedicated server instead of the lobby;
   without it the box stays a lobby master. Nothing else in the matrix
   changes.
 - The game is resolved the same way the lobby master resolves its catalog:
-  a package linked into `node_modules` wins, otherwise the server asks the
+  a package installed into `node_modules` wins, otherwise the server asks the
   registry (`VIMP_AUTH_SERVICE_URL`) and downloads the package into
   `VIMP_GAMES_DIR` itself — so **a dedicated box needs the same volume**.
-  With neither available the process exits with a named error naming both
-  ways, see [dedicated.md](dedicated.md).
+  With neither available the process exits with a named error naming every
+  way, see [dedicated.md](dedicated.md).
 - The package must publish `dist/core-node/` — the dedicated server loads
   the Node build of the core, like `npm run sim` does. A game whose `dist/`
   lacks it fails at startup with a named error, see
@@ -453,8 +456,9 @@ the central auth service, and a master picks changes up within
 3. A new version of an already approved game goes the same way ("My games" →
    "Update version" → moderation), and again deploys nothing.
 
-`master:games` / `GAMES_MATRIX` stays as the static override for local
-development and for a self-hosted master running without a registry — see
+There is no deploy variable for the catalog: the registry is its only source,
+and an empty registry means an empty lobby. `master:games` stays a config
+array for local development and for the dedicated server — see
 [configuration.md](configuration.md#packagesenginesrcconfigmasterjs).
 
 **Who is an admin** is set by the `VIMP_ADMIN_NICKS` repository variable

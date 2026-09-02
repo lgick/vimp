@@ -9,6 +9,44 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- The `GAMES_MATRIX` environment variable is gone. The lobby master's catalog
+  comes from the game registry of the central auth service and from nowhere
+  else: games are submitted and moderated in the lobby and live in the auth
+  service's database. An empty registry now means an empty lobby, which is a
+  legitimate state rather than a misconfiguration. `master:games` remains as a
+  config array — filled in from `node_modules` outside production, and read by
+  the dedicated server — but it has no environment override any more.
+
+### Migration
+
+- Remove `GAMES_MATRIX` from the deploy (`deploy.yml` already stopped passing
+  it in 0.25.0). Setting it now has no effect at all; in particular it no
+  longer switches off the `node_modules` auto-discovery, which used to make a
+  linked game silently invisible.
+- A dedicated box that runs without a registry names its game by package:
+  `VIMP_DEDICATED_GAME=@vimp-games/tanks`, with that package installed in
+  `node_modules`.
+
+### Added
+
+- `VIMP_DEDICATED_GAME` (the `dedicatedGame` field of `SERVERS_MATRIX`) takes
+  an npm package name as well as a game id — `@vimp-games/tanks`,
+  `@vimp-games/tanks@0.16.1` and `tanks` all resolve, since the deploy often
+  knows only the package name. The registry is matched by either name, an
+  unlisted package is resolved by reading its own `dist/manifest.json` (any
+  scope, no registry needed), and the game **id** is what reaches the catalog
+  and the serving URLs — a package name can no longer end up as a URL segment.
+
+### Fixed
+
+- The `@<version>` pin of `VIMP_DEDICATED_GAME` is no longer ignored when the
+  game resolves out of `node_modules`. A locally installed package is served
+  as it is, so a pin it cannot satisfy now sends the game on to the registry
+  instead of quietly starting a different build; with no registry to fetch
+  from, the server exits naming the version it found.
+
 ## [0.25.0] — 2026-09-02
 
 ### ⚠️ Breaking

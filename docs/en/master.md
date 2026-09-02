@@ -36,7 +36,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/main.js` | entry point: the fork between the lobby master and the [dedicated server](dedicated.md) (`VIMP_DEDICATED_GAME`) |
 | `packages/engine/src/master/lobby.js` | the lobby master itself: Express + REST, HTTPS/HTTP server, signaling `WebSocketServer`, periodic cleanup of stale rooms |
 | `packages/engine/src/master/httpSecurity.js` | baseline security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP in production), shared with the dedicated server |
-| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`, `GAMES_MATRIX`) plus `VIMP_DEDICATED_ROOM` parsing; applied by the lobby and the dedicated server alike |
+| `packages/engine/src/config/env.js` | environment overrides of the server config (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`) plus `VIMP_DEDICATED_ROOM` parsing; applied by the lobby and the dedicated server alike |
 | `packages/engine/src/master/HostRegistry.js` | room registry `Map<hostId, HostSession>`: registration (max 1 room per IP), heartbeat/`lastSeen`, cached `rating`, selection for `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | signaling WebSocket: connection lifecycle, WebRTC message routing, ping rate limiting |
 | `packages/engine/src/master/MapCatalog.js` | map catalog: an in-memory JSON representation of the game plugin's `src/data/maps` (e.g. `vimp-tanks`'s) plus a content version hash; served to hosts without a rebuild |
@@ -136,12 +136,12 @@ regular one is the registry:
    moderation panel.
 2. **`master:games`** (`{id, package, maxGameScore?}[]`, see
    [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
-   overridable via the `GAMES_MATRIX` env var, and outside production extended
-   with the built `@vimp-games/*` packages found in `node_modules`,
+   with no env override, and outside production extended with the built
+   `@vimp-games/*` packages found in `node_modules`,
    `src/master/localGames.js`) — resolved to packages under `node_modules/`
    and read from `<package>/dist/manifest.json`. This is the local
-   development path (`npm link` plus HMR) and the self-hosted master without a
-   registry. **A locally linked game always wins**: `GameSync` skips a
+   development path (`npm link` plus HMR) and the dedicated server's own
+   lookup. **A locally linked game always wins**: `GameSync` skips a
    registry entry whose id is linked, so nobody is quietly sent to edit files
    that go nowhere.
 

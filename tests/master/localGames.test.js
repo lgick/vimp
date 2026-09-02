@@ -6,11 +6,13 @@ import {
   discoverLocalGames,
   mergeGames,
   applyLocalGames,
+  readGameId,
+  readPackageVersion,
 } from '../../packages/engine/src/master/localGames.js';
 
-// Локальный каталог игр: в проде master:games задаёт GAMES_MATRIX от деплоя,
-// на машине разработчика игры просто лежат в node_modules/@vimp-games/*
-// (зависимостью или симлинком npm link).
+// Локальный каталог игр: в проде каталог платформы приходит из реестра
+// auth-сервиса, на машине разработчика игры просто лежат в
+// node_modules/@vimp-games/* (зависимостью или симлинком npm link).
 
 let nodeModulesDir;
 
@@ -45,6 +47,50 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(nodeModulesDir, { recursive: true, force: true });
+});
+
+describe('readGameId', () => {
+  it('отдаёт id, объявленный сборкой пакета', () => {
+    installGame('tanks-dev', { id: 'tanks' });
+
+    expect(readGameId(nodeModulesDir, '@vimp-games/tanks-dev')).toBe('tanks');
+  });
+
+  it('пакет не установлен, не собран или без id — null, а не бросок', () => {
+    installGame('unbuilt', null);
+    installGame('nameless', { engineApi: 5 });
+    fs.writeFileSync(
+      path.join(nodeModulesDir, '@vimp-games', 'unbuilt', 'dist', 'manifest.json'),
+      'not json',
+    );
+
+    // отсутствующий пакет, битый JSON и манифест без id одинаково означают
+    // «игры здесь нет»: вызывающий пойдёт другим путём разрешения ссылки
+    expect(readGameId(nodeModulesDir, '@vimp-games/missing')).toBeNull();
+    expect(readGameId(nodeModulesDir, '@vimp-games/unbuilt')).toBeNull();
+    expect(readGameId(nodeModulesDir, '@vimp-games/nameless')).toBeNull();
+  });
+});
+
+describe('readPackageVersion', () => {
+  it('версия берётся из package.json, а не из манифеста', () => {
+    // manifest.version — хеш сборки, а не npm-версия: сверять пин по нему
+    // значило бы сверять несравнимое
+    installGame('tanks', { id: 'tanks', version: 'bundle-hash' });
+    fs.writeFileSync(
+      path.join(nodeModulesDir, '@vimp-games', 'tanks', 'package.json'),
+      JSON.stringify({ name: '@vimp-games/tanks', version: '0.16.1' }),
+    );
+
+    expect(readPackageVersion(nodeModulesDir, '@vimp-games/tanks')).toBe('0.16.1');
+  });
+
+  it('пакета нет или package.json без версии — null', () => {
+    installGame('nometa', { id: 'nometa' });
+
+    expect(readPackageVersion(nodeModulesDir, '@vimp-games/missing')).toBeNull();
+    expect(readPackageVersion(nodeModulesDir, '@vimp-games/nometa')).toBeNull();
+  });
 });
 
 describe('discoverLocalGames', () => {
@@ -134,21 +180,14 @@ describe('applyLocalGames', () => {
     ]);
   });
 
-  it('не трогает каталог в проде и при заданном GAMES_MATRIX', () => {
+  it('не трогает каталог в проде: там источник — реестр auth-сервиса', () => {
     installGame('snakes', { id: 'snakes' });
 
     const configured = [{ id: 'tanks', package: '@vimp-games/tanks' }];
     const prod = fakeConfig(configured);
-    const pinned = fakeConfig(configured);
 
     expect(applyLocalGames(prod, nodeModulesDir, { NODE_ENV: 'production' })).toEqual([]);
     expect(prod.get('master:games')).toEqual(configured);
-
-    // явный каталог — слово разработчика, в том числе о порядке игр
-    expect(
-      applyLocalGames(pinned, nodeModulesDir, { GAMES_MATRIX: '[]' }),
-    ).toEqual([]);
-    expect(pinned.get('master:games')).toEqual(configured);
   });
 
   it('без единой найденной игры оставляет конфиг как есть', () => {
