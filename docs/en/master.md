@@ -51,6 +51,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/GameSync.js` | keeps the catalog in step with the registry: one pass asks the registry, downloads what is missing, updates the catalog and prunes the disk; polled on a timer (`master:gameStore:refreshInterval`). A registry outage never empties the catalog — a stale catalog beats an empty one |
 | `packages/engine/src/master/adminAuth.js` | authorization of the master's REST routes: the same JWKS signature and issuer policy as the signaling path, plus the `role` claim for `/admin/*` |
 | `packages/engine/src/master/gameRoutes.js` | handlers of the registry routes: a developer's submission and its status, the moderation panel, and staging (`Test`) a version into the catalog |
+| `packages/engine/src/master/gameStatic.js` | serves the games' `dist/` under `/games/<id>[/<version>]/…`: a cache of `express.static` instances keyed by the version directory (a version pruned off disk takes its mount with it, via `GameSync.onPruned`), `404` on a miss inside a versioned path and `next()` on a non-versioned one. Its own module because `lobby.js` starts the server and is never imported from tests |
 | `packages/engine/src/master/JwksProxy.js` | proxies `GET /jwks` of the central auth service under the master's own origin, cached (TTL) — see [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | proxies per-user `GET`/`PUT /rank` and `/state` of the central auth service, **not cached** (Stage B4) — see [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); also the public `GET /leaderboard` and the per-user `GET /placement` (lobby page plan) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/LeaderboardCache.js` | keyed TTL cache (`game:limit:period`) in front of `PlayerDataProxy.getLeaderboard` (code review L2) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
@@ -217,6 +218,16 @@ The unversioned aliases above stay, and resolve to the version currently
 served. Three consumers need them: tabs opened before a version change, the
 dev / standalone / dedicated paths where a manifest carries no `mapsBase` at
 all, and hosts running older builds.
+
+A miss inside `/games/<id>/<version>/…` — unknown game, unknown version or a
+missing file — answers `404 {"error": "unknownGame"}` or
+`404 {"error": "notFound"}` (`gameStatic.js`). Such a path cannot fall through
+to the html fallback by construction: it addresses the package store and
+nothing else, and a `200 text/html` where a bundle should be turns "no such
+file" into an opaque `import()` rejection. A non-`GET`/`HEAD` request is
+handed on instead: `serve-static` never looks at it, so "the file is missing"
+is not known about it. A non-versioned path (`/games/<id>/…`) still goes
+`next()` — in dev that is the way out to the linked game's Vite sources.
 
 #### Registry routes (submission and moderation)
 

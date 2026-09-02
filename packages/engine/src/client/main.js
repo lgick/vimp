@@ -35,8 +35,13 @@ import { normalizeAuthParams } from './lib/authParams.js';
 import { renderProjectLink } from './lib/footerLink.js';
 import { createGameActivator } from './lib/gameActivator.js';
 import createAutostart from './lib/autostart.js';
+import { applyCatalogState } from './lib/catalogState.js';
 import { getBootConfig, resolveBootConfig } from './boot.js';
-import { ensureGameShell, ensureCanvas } from './views/gameShell.js';
+import {
+  ensureGameShell,
+  ensureCanvas,
+  showBootFailure,
+} from './views/gameShell.js';
 import { createContextTracker } from './lib/contextTracker.js';
 import { createLocalPlayer } from './lib/localPlayer.js';
 import { createAccolades } from './lib/accolades.js';
@@ -102,6 +107,10 @@ let activeGameManifest;
 let clientPlugin;
 let gamesManifest;
 
+// почему активной игры нет, если каталог непуст: строка отказа лобби вместо
+// общего «игр пока не опубликовано» (см. pickActiveGame)
+let catalogProblem = null;
+
 // узел игрового CSS: при переключении игры его текст заменяется, иначе стили
 // двух игр жили бы в head одновременно и конфликтовали селекторами
 let gameStyleNode = null;
@@ -157,20 +166,40 @@ try {
       throw gamesManifest;
     }
 
-    // недоступная игра активной быть не может (lib/pickActiveGame.js)
-    activeGameManifest = pickActiveGame(gamesManifest, boot.gameId);
+    try {
+      // недоступная игра активной быть не может (lib/pickActiveGame.js)
+      activeGameManifest = pickActiveGame(gamesManifest, boot.gameId);
+    } catch (e) {
+      // «каталог непустой, но играбельного в нём нет» (движок обновили, все
+      // опубликованные игры просят возможность, которой в нём уже нет) — для
+      // лобби это то же самое, что пустой каталог: играть не во что, но
+      // модерация и заявка на месте, и только они это чинят. Терять их из-за
+      // такого нельзя, поэтому причина едет строкой отказа лобби, а не
+      // терминальным оверлеем. В solo/dedicated отказ остаётся отказом
+      if (!isLobbyMode) {
+        throw e;
+      }
+
+      catalogProblem = e.message;
+    }
   }
 
-  if (!activeGameManifest) {
+  // пустой каталог — состояние лобби, а не отказ загрузки: модератор вправе
+  // отключить последнюю игру, реестр вправе ещё ничего не одобрить, и вернуть
+  // каталог к жизни можно только из панели, которая живёт в этой же вкладке.
+  // В solo/dedicated игры нет — это отказ: там весь смысл вкладки в матче
+  if (!activeGameManifest && !isLobbyMode) {
     throw new Error('master has no games in its catalog');
   }
 
-  bindActiveGame(
-    activeGameManifest,
-    boot.clientPlugin ?? (await loadClientPlugin(activeGameManifest)),
-  );
+  if (activeGameManifest) {
+    bindActiveGame(
+      activeGameManifest,
+      boot.clientPlugin ?? (await loadClientPlugin(activeGameManifest)),
+    );
+  }
 } catch (e) {
-  document.body.textContent = `Failed to load the game: ${e.message}`;
+  showBootFailure(`Failed to load the game: ${e.message}`, gameContainer);
   throw e;
 }
 
@@ -1990,7 +2019,12 @@ async function selectActiveGame(gameId) {
   // сверка идёт с самим манифестом, а не с его id: каталог вкладки может
   // пополниться застейдженной версией той же игры (registerGameManifest), и
   // сравнение по id оставило бы активной одобренную версию
-  if (gameId === activeGameManifest.id && gamesById.get(gameId) === activeGameManifest) {
+  // activeGameManifest?. — каталог платформы может быть пуст: активной игры
+  // у вкладки тогда нет вовсе, и первая же активация обязана состояться
+  if (
+    gameId === activeGameManifest?.id &&
+    gamesById.get(gameId) === activeGameManifest
+  ) {
     return true;
   }
 
@@ -2010,6 +2044,9 @@ async function selectActiveGame(gameId) {
     return false;
   }
 }
+
+// очередь активации черновиков (см. подписку на 'staged' в initLobby)
+let stagedActivation = Promise.resolve();
 
 // id игр, чей манифест в каталоге вкладки подменён застейдженной версией
 // (master-game-registry, этап 4): в селекторе такая игра помечается, чтобы
@@ -2070,8 +2107,29 @@ function populateGameSelect() {
     gameSelect.appendChild(option);
   });
 
-  gameSelect.value =
-    selected && gamesById.has(selected) ? selected : activeGameManifest.id;
+  if (selected && gamesById.has(selected)) {
+    gameSelect.value = selected;
+  } else if (activeGameManifest) {
+    gameSelect.value = activeGameManifest.id;
+  }
+  // без активной игры выбор не трогаем: каталог был пуст, и селектор только
+  // что получил первую строку — она и стоит выбранной по умолчанию.
+  // Присваивание `''` вместо этого сняло бы выбор совсем (selectedIndex = -1)
+}
+
+// форма комнаты, Leaderboard и «Create server» по активной игре; пустой
+// каталог — вторая законная ветка (client/lib/catalogState.js)
+function syncCatalogState() {
+  applyCatalogState(activeGameManifest, {
+    hostBtn: document.getElementById(lobbyConfig.elems.hostBtnId),
+    emptyText: catalogProblem ?? lobbyConfig.create.emptyCatalogText,
+    bindGame: manifest => {
+      populateRoomForm(manifest);
+      lobby.gameChanged(manifest.id, manifest.title);
+    },
+    showError: showLobbyError,
+    clearError: clearLobbyError,
+  });
 }
 
 // поднимает лобби после welcome от мастера (iceServers уже получены);
@@ -2117,7 +2175,15 @@ function initLobby() {
   // хостов старше 6.4 — тогда заходим на активной игре, как раньше: неизвестная
   // версия не повод запретить вход
   lobbyModel.publisher.on('join', async ({ hostId, gameId }) => {
-    if (gameId && gamesById.has(gameId) && !(await selectActiveGame(gameId))) {
+    if (gameId && gamesById.has(gameId)) {
+      if (!(await selectActiveGame(gameId))) {
+        return;
+      }
+    } else if (!activeGameManifest) {
+      // комната пережила свою игру: её сняли с раздачи, пока комната шла, и
+      // каталог вкладки пуст — заходить не на чем
+      showLobbyError('This room runs a game that is no longer published');
+
       return;
     }
 
@@ -2181,12 +2247,39 @@ function initLobby() {
   games.publisher.on('staged', ({ manifest }) => {
     registerGameManifest(manifest);
     gamesView.hide();
+
+    // каталог был пуст (первое развёртывание платформы либо снятая с раздачи
+    // последняя игра): черновик — единственная игра вкладки, и создание
+    // комнаты включается только после того, как её плагин привязан
+    if (activeGameManifest) {
+      return;
+    }
+
+    // строго по очереди: loadStaged() восстанавливает все черновики этого
+    // мастера синхронным циклом, и без очереди два черновика при пустом
+    // каталоге ушли бы активироваться одновременно — активной осталась бы
+    // одна игра, а форма комнаты собралась бы по другой
+    stagedActivation = stagedActivation.then(async () => {
+      if (activeGameManifest) {
+        return; // предыдущий черновик уже стал активным
+      }
+
+      // только на успехе: отказ активации уже написал в ту же строку СВОЮ
+      // причину («Failed to load X: …»), и общее «игр пока не опубликовано»
+      // затёрло бы её — админ увидел бы не то, что случилось
+      if (await selectActiveGame(manifest.id)) {
+        syncCatalogState();
+      }
+    }).catch(e => {
+      // отказ не должен заклинить очередь: следующий черновик обязан
+      // получить свой шанс стать активной игрой
+      console.error('[game] staged activation failed:', e);
+    });
   });
 
   // создание комнаты в этой же вкладке (хост-игрок через loopback)
   populateGameSelect();
-  populateRoomForm(activeGameManifest);
-  lobby.gameChanged(activeGameManifest.id, activeGameManifest.title);
+  syncCatalogState();
 
   // селектор игр: меняет форму создания комнаты и Leaderboard сразу
   // (синхронно, без сети); сама игра активируется уже по клику

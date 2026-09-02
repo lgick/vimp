@@ -28,6 +28,13 @@ const ERROR_MESSAGES = {
   authServiceUnavailable: 'Registry service unavailable',
 };
 
+// предупреждения: решение принято, отказа не было, но состояние платформы
+// стоит назвать вслух
+const WARNING_MESSAGES = {
+  catalogEmpty:
+    'No published games left — the lobby cannot create rooms until one is published',
+};
+
 const STATUS_TITLES = {
   pending: 'in review',
   approved: 'published',
@@ -71,10 +78,20 @@ export default class GamesView {
     this._filters = document.getElementById(elems.filtersId);
 
     this._fields = new Map(
-      Object.entries(elems.fieldIds).map(([name, id]) => [
-        name,
-        document.getElementById(id),
-      ]),
+      Object.entries(elems.fieldIds).map(([name, id]) => {
+        const field = document.getElementById(id);
+
+        // карта строится по конфигу, а используется из обработчиков событий:
+        // разъехавшийся с games.pug id дал бы здесь null, а упал бы позже —
+        // безымянным TypeError внутри clearForm или _readForm. Остальная
+        // разметка панели проверяется тем же способом, только неявно: первое
+        // же обращение к отсутствующему элементу бросает в конструкторе
+        if (!field) {
+          throw new Error(`GamesView: no element "#${id}" for field "${name}"`);
+        }
+
+        return [name, field];
+      }),
     );
 
     this.publisher = new Publisher();
@@ -96,6 +113,7 @@ export default class GamesView {
     mp.on('mine-changed', 'renderMine', this);
     mp.on('admin-changed', 'renderAdmin', this);
     mp.on('error', 'renderError', this);
+    mp.on('warning', 'renderWarning', this);
   }
 
   // кнопку модерации показывает не сама панель, а роль вызывающего
@@ -178,6 +196,12 @@ export default class GamesView {
     (games || []).forEach(game => {
       this._adminList.appendChild(this._adminItem(game, versions));
     });
+  }
+
+  renderWarning({ scope, code }) {
+    const container = scope === 'admin' ? this._adminError : this._submitError;
+
+    container.textContent = WARNING_MESSAGES[code] ?? code;
   }
 
   renderError({ scope, errors }) {

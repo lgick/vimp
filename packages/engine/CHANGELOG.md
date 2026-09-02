@@ -46,6 +46,29 @@ bumps the minor version).
   as it is, so a pin it cannot satisfy now sends the game on to the registry
   instead of quietly starting a different build; with no registry to fetch
   from, the server exits naming the version it found.
+- An empty game catalog no longer bricks the lobby. It used to throw out of
+  the bootstrap and wipe `document.body`, taking the sign-in form and the
+  moderation panel with it — so a moderator who disabled the last game locked
+  themselves out and could only get back in through the database. The lobby
+  now comes up without an active game (sign-in, "My games" and "Moderation"
+  never needed one), "Create server" is disabled with the reason shown, and
+  staging a version with "Test" activates it in place. A catalog with games in
+  it but none playable — an engine upgrade left every published game asking
+  for a capability it no longer has — is the same state, with `pickActiveGame`'s
+  reason in that line. A terminal load failure paints the `#tech-informer`
+  overlay instead of replacing the page markup.
+- A moderator's decision that leaves the platform with no servable game
+  answers with `warning: 'catalogEmpty'`, shown in the moderation panel.
+- The "Test" draft of a locally linked game is no longer dropped by the next
+  sync pass. `GameSync` compared npm version numbers, but a linked game is
+  served from `node_modules` while the registry's number describes the
+  published artifact — so comparing a locally linked build against the
+  published one, which is what "Test" is for in dev, was impossible. The
+  draft is now retired by build hash (`manifest.version`), the same identity
+  `GameCatalog.isStaged` already uses.
+- `GET /games/mine` and the author's own submission answers no longer carry
+  `moderatorNick`. Moderation is anonymous from the author's side: the note is
+  addressed to them, the person is not.
 
 ## [0.25.0] — 2026-09-02
 

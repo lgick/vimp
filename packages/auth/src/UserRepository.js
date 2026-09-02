@@ -767,6 +767,19 @@ export default class UserRepository {
     return result.rows.map(mapPublicGame);
   }
 
+  // сколько игр платформа сейчас раздаёт. Нужно ровно одному потребителю —
+  // решению модератора: снятая с раздачи последняя игра оставляет лобби без
+  // каталога (состояние законное, но неочевидное), и панель обязана сказать
+  // об этом в момент решения
+  async countApprovedGames() {
+    const result = await this._db.query(
+      `SELECT count(*)::int AS count FROM games
+        WHERE status = 'approved' AND version IS NOT NULL`,
+    );
+
+    return result.rows[0]?.count ?? 0;
+  }
+
   // очередь модерации: всё, включая отклонённое и выключенное, свежее сверху
   async listAllGames() {
     const result = await this._db.query(

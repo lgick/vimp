@@ -9,11 +9,10 @@
 исправлений на месте, у каждого есть тест, документация правлена в обеих
 ветках. Ниже — что осталось.
 
-**Статус**: находки 1–7 открыты, ни одна не закрыта. Из секции
-[«Вопросы»](#вопросы) выполнен вопрос 1 (`GAMES_MATRIX` удалена,
-`dedicatedGame` принимает имя пакета). Файл остаётся в `plan/` до закрытия
-находок; в `plan/done/` он переезжает целиком, когда все семь помечены
-«✅ выполнен».
+**Статус: ✅ выполнен целиком.** Закрыты все семь находок и вопрос 1 из
+секции [«Вопросы»](#вопросы) (`GAMES_MATRIX` удалена, `dedicatedGame`
+принимает имя пакета). Изменения лежат в рабочем дереве без коммита;
+`npx eslint .` чисто, `npm test` — 176 файлов / 2136 тестов зелено.
 
 ## Итог по заявленным исправлениям
 
@@ -49,7 +48,7 @@ auth-сервиса, код `tooManyRequests` в словаре ошибок п�
 ---
 
 <a id="1"></a>
-## 1. 🔴 Пустой каталог игр насмерть ломает лобби
+## 1. ✅ выполнен — 🔴 Пустой каталог игр насмерть ломает лобби
 
 **Где**: `packages/engine/src/client/main.js:161-174`,
 `packages/engine/src/client/lib/pickActiveGame.js:55`,
@@ -169,7 +168,7 @@ if (!activeGameManifest) {
 ---
 
 <a id="2"></a>
-## 2. 🟠 `npm pack --json` в npm 12 отдаёт объект — релиз игр падает
+## 2. ✅ выполнен — 🟠 `npm pack --json` в npm 12 отдаёт объект
 
 **Где**: `scripts/release/steps.js:469-484`, фикстура теста —
 `tests/scripts/release/steps.test.js:28-30`.
@@ -248,7 +247,7 @@ function packJson(files) {
 ---
 
 <a id="3"></a>
-## 3. 🟠 Публикация игры всё ещё тянет за собой пуш в прод
+## 3. ✅ выполнен — 🟠 Публикация игры всё ещё тянет за собой пуш в прод
 
 **Где**: `scripts/release/plan.js:145-151`, `scripts/release.js:643`,
 `scripts/release/steps.js:620-700` (`rollOutProduction`).
@@ -333,7 +332,7 @@ function packJson(files) {
 ---
 
 <a id="4"></a>
-## 4. 🟠 `moderatorNick` поехал автору игры
+## 4. ✅ выполнен — 🟠 `moderatorNick` поехал автору игры
 
 **Где**: `packages/auth/src/UserRepository.js:139-142` (`GAME_FIELDS`),
 `:780-789` (`listGamesByAuthor`), маршрут `GET /games/mine` —
@@ -399,7 +398,7 @@ app.get('/games/mine', requireAuth, async (req, res) => {
 ---
 
 <a id="5"></a>
-## 5. 🟡 «Test» раздаваемой версии локально прилинкованной игры сносится тем же тиком
+## 5. ✅ выполнен — 🟡 «Test» локально прилинкованной игры сносится тем же тиком
 
 **Где**: `packages/engine/src/master/GameSync.js:117-124` и `:189-200`
 (`_dropStaged`), `packages/engine/src/master/gameRoutes.js:204`.
@@ -483,7 +482,7 @@ npm-версии, а совпадение **артефакта**: раздава
 ---
 
 <a id="6"></a>
-## 6. 🟡 `gameStatic.js` не описан в документации
+## 6. ✅ выполнен — 🟡 `gameStatic.js` не описан в документации
 
 **Где**: `docs/en/master.md:47-53` и `docs/ru/master.md:34-40` (таблица
 модулей), `docs/en/master.md:185-206` (раздел про версионное URL-пространство)
@@ -530,7 +529,7 @@ pages in the same change») — то же, что находка 9 прошло�
 ---
 
 <a id="7"></a>
-## 7. 🟡 Мелочи
+## 7. ✅ выполнен — 🟡 Мелочи
 
 **7.1 `clearForm` падает на отсутствующем поле.**
 `packages/engine/src/client/components/view/Games.js:120-125`: `this._fields`
@@ -649,6 +648,36 @@ if (field) { field.value = ''; } })` — либо, честнее, провер�
 | Отсутствие дублирования | `GAME_JOINS`/`gameProject` — хорошее устранение дубля; `staticFor` больше не живёт в двух местах |
 | Документированность | обе ветки правлены синхронно, но пропущен `gameStatic.js` и контракт 404 ([6](#6)) |
 | Стандартизация | стиль выдержан; интерфейс и сообщения мастера переведены на английский **последовательно** — в `GameStore`, `gamePackageCheck` и `npmRegistry` не осталось русских строк, доезжающих до панели |
+
+## Что сделано по каждой находке
+
+| № | Код | Тесты |
+| --- | --- | --- |
+| 1 | `client/main.js` не бросает на пустом каталоге в lobby-режиме; решение вынесено в `client/lib/catalogState.js`; `showBootFailure` (`views/gameShell.js`) кроет страницу слоем `#tech-informer` вместо затирания `document.body`; «Test» из пустого каталога активирует игру на месте; `join` в комнату пережившей себя игры отвечает строкой отказа; `PATCH /admin/games/:id` отдаёт `warning: 'catalogEmpty'` (`UserRepository.countApprovedGames`), панель его показывает | `tests/client/lib/catalogState.test.js` (новый), `tests/client/gameShell.test.js`, `tests/client/GamesModel.test.js`, `tests/client/GamesView.test.js`, `tests/auth/UserRepository.test.js` |
+| 2 | `scripts/release/steps.js` → `checkTarball` принимает обе формы ответа и внятно отказывает на третьей | `tests/scripts/release/steps.test.js`: фикстура снята с живого вывода и подписана версией npm, четыре кейса гоняются `describe.each` по обеим формам, плюс `{}`/`[]`/`null`/пакет без `files` |
+| 3 | `plan.js` → `prod.push = engine.publish \|\| crate.publish`, новый `prod.verifyGames`; `release.js` зовёт шаг и ради одной проверки, таблица плана печатает «нет (только sim)»; `rollOutProduction({push:false})` гонит только `simGame(strict)` | `tests/scripts/release/plan.test.js`, `tests/scripts/release/steps.test.js` |
+| 4 | `packages/auth/src/lib/gameViews.js` → `forAuthor`, применён к `GET /games/mine`, `POST /games` и не-админскому `POST /games/:id/version` (вариант A) | `tests/auth/gameViews.test.js` (новый) |
+| 5 | `GameSync._dropStaged(id)` сверяет хеш сборки (`manifest.version`) с раздаваемой записью через `catalog.getManifest(id)` | `tests/master/GameSync.test.js`: четыре кейса, включая «номера совпали, сборки разные → черновик остаётся» |
+| 6 | `docs/{en,ru}/master.md`: строка `gameStatic.js` в таблице модулей + абзац про контракт 404 в «Версионном URL-пространстве» | — |
+| 7 | 7.1 — карта полей `GamesView` бросает в конструкторе, называя id и поле; 7.2 — в `_prune` назван источник инварианта «один черновик на игру» (роут `stage`); 7.3 — блок-цитата шага C переразбита в обеих ветках; 7.4 — фикстура `npm pack` подписана версией инструмента | `tests/client/GamesView.test.js` |
+
+Кодревью получившегося изменения добавило четыре правки: шаг C называет
+незапушенные коммиты и теги этого репозитория в «осталось» (их делает шаг
+скаффолдера, деплоем они не являются, но пуша ждут); активация черновиков
+идёт очередью (`loadStaged()` восстанавливает их синхронным циклом, и два
+черновика при пустом каталоге уходили активироваться одновременно); отказ
+активации больше не затирается общим «игр пока не опубликовано»; непустой
+каталог без единой играбельной строки в lobby-режиме идёт той же строкой
+отказа, а не терминальным оверлеем — тот кроет и `#games-panel`, и
+`#lobby-auth` (z-index 9 против 8), то есть давал ровно тот же запертый
+интерфейс, ради которого находка 1 и заводилась.
+
+Документация: `docs/{en,ru}/client.md` (пустой каталог как состояние лобби),
+`docs/{en,ru}/auth.md` (`moderatorNick` и `warning: 'catalogEmpty'`),
+`docs/{en,ru}/master.md` (находка 6), `docs/{en,ru}/publishing.md` (шаг C без
+деплоя + устаревшая схема «прод ставит игру через npm ci»). Журнал —
+`### Fixed` в `[Unreleased]` `packages/engine/CHANGELOG.md`; уровень релиза не
+меняется, `### ⚠️ Breaking` там уже стоит.
 
 ## Порядок исполнения
 

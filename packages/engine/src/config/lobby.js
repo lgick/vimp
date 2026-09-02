@@ -269,6 +269,12 @@ export default {
   create: {
     defaultName: 'My Server',
 
+    // каталог платформы пуст: реестр ещё ничего не одобрил либо модератор
+    // снял с раздачи последнюю игру. Комнату создавать не на чем, но лобби
+    // живо — и текст называет то единственное, что выводит его из этого
+    // состояния
+    emptyCatalogText: 'No games are published yet — see “My games”',
+
     // период heartbeat/актуализации комнаты у мастера (мс); должен быть
     // меньше master.host.heartbeatTimeout (30 c), иначе комнату выметет
     heartbeatInterval: 10000,

@@ -162,6 +162,12 @@ export default class GamesModel {
     }
 
     await this.loadAdmin();
+
+    // после loadAdmin, а не до: renderAdmin чистит строку отказа панели, и
+    // предупреждение, показанное раньше, стёрлось бы тем же тиком
+    if (json?.warning) {
+      this.publisher.emit('warning', { scope: 'admin', code: json.warning });
+    }
   }
 
   _emitAdmin() {

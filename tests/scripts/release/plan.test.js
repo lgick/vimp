@@ -118,6 +118,14 @@ describe('decide', () => {
   it('делает игру обязательной при бампе ENGINE_API_VERSION и требует пуш последним', () => {
     const plan = decide(
       input({
+        // бамп версии API без публикации самого движка невозможен: он
+        // приходит вместе с ⚠️ Breaking в журнале
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: true,
+          unreleased: breaking,
+        },
         engineApiChanged: true,
         games: [{ name: '@vimp-games/tanks', version: '0.4.2' }],
       }),
@@ -252,7 +260,11 @@ describe('decide', () => {
     expect(plan.games[0].publish).toBe(true);
     expect(plan.games[0].required).toBe(false);
     expect(plan.games[0].bump).toBe(false);
-    expect(plan.prod.push).toBe(true);
+    // релиз одной игры прод не деплоит: игры едут через реестр auth-сервиса,
+    // пинов игр в этом репозитории не осталось — пушить было бы нечего
+    expect(plan.prod.push).toBe(false);
+    expect(plan.prod.verifyGames).toBe(true);
+    expect(plan.prod.reason).not.toMatch(/перепин/);
   });
 
   it('публикует игру по её собственным коммитам после тега версии', () => {
@@ -272,7 +284,8 @@ describe('decide', () => {
     expect(plan.games[0].publish).toBe(true);
     expect(plan.games[0].bump).toBe(true);
     expect(plan.games[0].reason).toMatch(/коммиты после тега/);
-    expect(plan.prod.push).toBe(true);
+    expect(plan.prod.push).toBe(false);
+    expect(plan.prod.verifyGames).toBe(true);
   });
 
   it('публикует игру, которой ещё нет в npm', () => {

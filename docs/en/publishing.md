@@ -114,10 +114,11 @@ vimp-engine (npm)
       │                             the template pins them as
       │                             vimp-engine ^X.Y.Z and
       │                             vimp-engine-core "A.B.C"
-      │  production installs the game with npm ci — the version comes from
-      │  package-lock.json in this repo
+      │  production does NOT pin the game: the master downloads it from
+      │  npm itself, off the auth service's registry row — a game release
+      │  needs no deploy
       ▼
-production (push to main → deploy.yml)
+production (push to main → deploy.yml; for the engine and crate, not games)
 ```
 
 Three failure modes if the order is broken: the game's WASM core silently
@@ -488,10 +489,18 @@ git push
 > its catalog from the game registry of the central auth service and the
 > master downloads the package from npm itself. So publishing a new version
 > of a game needs **no** engine release and no deploy at all — the developer
-> raises it from the lobby ("My games" → "Update version"), an admin confirms it in
-> "Moderation", and every master picks it up on its next sync pass. A game
-> that is not in the catalog yet is submitted the same way. See
+> raises it from the lobby ("My games" → "Update version"), an admin confirms
+> it in "Moderation", and every master picks it up on its next sync pass. A
+> game that is not in the catalog yet is submitted the same way. See
 > [deployment.md → Adding a game](deployment.md#adding-a-game-to-the-catalog).
+>
+> This is where `npm run release` gets its behaviour: on a run that publishes
+> games only, the plan's "прод" row reads **"нет (только sim)"**. The step
+> still runs, but does exactly one thing — a strict `sim` pass over every
+> released game, proving the published version works against the current
+> engine. No `npm test`, no pin snapshot, no `git push` and no "this is a
+> PRODUCTION DEPLOY" prompt: a game release changes no file in this
+> repository.
 
 CI then builds the master image, pushes it to GHCR, and SSHes into every
 server in `SERVERS_MATRIX` to `docker compose pull && up -d`; the auth

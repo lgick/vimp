@@ -114,12 +114,12 @@ export default class GameSync {
           );
         }
 
-        // черновик, который реестр уже раздаёт, свою работу отработал.
+        // черновик, чья сборка совпала с раздаваемой, свою работу отработал.
         // Снять его больше некому: локальная игра выходит из цикла здесь,
         // до _owned не доходит, а активной у неё остаётся запись из
         // node_modules — оставленный черновик держал бы свою версию на диске
         // и висел бы лишним пунктом «(test)» до перезапуска мастера
-        this._dropStaged(game.id, game.version);
+        this._dropStaged(game.id);
 
         continue;
       }
@@ -186,15 +186,26 @@ export default class GameSync {
     await this._prune(games);
   }
 
-  // черновик игры, чью версию реестр уже раздаёт: тестировать больше нечего
-  _dropStaged(id, version) {
-    if (!version) {
+  // Черновик снимается, только когда раздаваемая запись — ТОТ ЖЕ АРТЕФАКТ:
+  // сверка по manifest.version (хеш сборки), а не по номеру npm-версии.
+  // У локально прилинкованной игры раздаётся сборка из node_modules, и
+  // совпадение номеров о ней не говорит ничего — сравнение этих двух сборок
+  // и есть весь смысл «Теста» в dev. По той же причине сверяет хеш и
+  // GameCatalog.isStaged: одна сборка бывает опубликована под двумя
+  // npm-версиями.
+  //
+  // rebaseManifest поле version не трогает, а _toDevManifest подменяет только
+  // entries — хеш сравним между записью из node_modules и скачанной из npm
+  _dropStaged(id) {
+    const activeHash = this._catalog.getManifest(id)?.version;
+
+    if (!activeHash) {
       return;
     }
 
     for (const staged of this._catalog.stagedManifests()) {
-      if (staged.id === id && staged.version === version) {
-        this._catalog.remove(id, version);
+      if (staged.id === id && staged.manifest.version === activeHash) {
+        this._catalog.remove(id, staged.version);
       }
     }
   }
@@ -232,7 +243,13 @@ export default class GameSync {
       // потолок keepVersions — про раздаваемые версии: любую из них всегда
       // можно перекачать из npm. Черновик «Test» существует ТОЛЬКО на диске,
       // и вытеснить его посреди тестового матча значит вернуть тот самый
-      // отказ import(), ради которого черновик и выведен из-под запрета
+      // отказ import(), ради которого черновик и выведен из-под запрета.
+      //
+      // Верхней границы у черновиков здесь нет намеренно, и держит её не этот
+      // модуль: роут `POST /admin/games/:id/stage` (gameRoutes.js) снимает
+      // прошлый черновик игры перед тем, как положить новый, — «один черновик
+      // на игру» это его инвариант. Правка роута, снявшая это ограничение,
+      // молча снимет потолок и с диска
       if (staged || keep.get(id).size < this._keepVersions) {
         keep.get(id).add(version);
       }

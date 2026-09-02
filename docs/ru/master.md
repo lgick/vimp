@@ -38,6 +38,7 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/GameSync.js` | держит каталог в согласии с реестром: один проход спрашивает реестр, докачивает недостающее, обновляет каталог и подметает диск; опрашивается по таймеру (`master:gameStore:refreshInterval`). Отказ реестра каталог не опустошает — протухший каталог лучше пустого |
 | `packages/engine/src/master/adminAuth.js` | авторизация REST-роутов мастера: та же проверка подписи по JWKS и та же политика issuer, что на сигнальном пути, плюс клейм `role` для `/admin/*` |
 | `packages/engine/src/master/gameRoutes.js` | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Test» версии в каталоге |
+| `packages/engine/src/master/gameStatic.js` | раздача `dist/` игр по `/games/<id>[/<version>]/…`: кэш инстансов `express.static` по директории версии (снятая с диска версия уносит свой маунт через `GameSync.onPruned`), 404 на промахе версионного пути и `next()` на неверсионном. Отдельный модуль, потому что `lobby.js` поднимает сервер и из тестов не импортируется |
 | `packages/engine/src/master/JwksProxy.js` | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | проксирует per-user `GET`/`PUT /rank` и `/state` центрального auth-сервиса, **без кэша** (Этап B4) — см. [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); также публичный `GET /leaderboard` и per-user `GET /placement` (lobby-page-plan) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/LeaderboardCache.js` | keyed-TTL кэш (`game:limit:period`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
@@ -203,6 +204,16 @@ Dedicated-сервер переиспользует тот же `GameCatalog`, �
 версию. Они нужны трём потребителям: вкладкам, открытым до смены версии;
 путям dev / standalone / dedicated, где `mapsBase` в манифесте нет вовсе; и
 хостам старых сборок.
+
+Промах по `/games/<id>/<version>/…` — неизвестная игра, неизвестная версия
+или отсутствующий файл — отвечает `404 {"error": "unknownGame"}` либо
+`404 {"error": "notFound"}` (`gameStatic.js`). Провалиться в html-фолбэк такой
+путь не может по построению: он адресует хранилище пакетов и ничего больше, а
+`200 text/html` на месте бандла превращает «файла нет» в невнятный отказ
+`import()`. Не-`GET`/`HEAD` запрос уходит дальше по цепочке: `serve-static`
+его не смотрит, и «файла нет» про него неизвестно. Неверсионный путь
+(`/games/<id>/…`) по-прежнему уходит `next()` — в dev это выход на
+Vite-исходники прилинкованной игры.
 
 #### Роуты реестра (заявка и модерация)
 

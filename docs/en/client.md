@@ -534,6 +534,25 @@ the result is sent as the room object to `connectAsHost` → `HostController`
 (`packages/engine/src/lib/applyRoomOverrides.js`) reads `maxPlayers`/`roundTime`/`mapTime`/
 `friendlyFire`/`map`.
 
+**An empty catalog is a lobby state, not a load failure.** Games live in the
+auth service's registry, so a moderator may pull the last one off the air and
+a fresh deployment has none approved yet. In lobby mode the bootstrap then
+binds no game at all and `applyCatalogState`
+([client/lib/catalogState.js](../../packages/engine/src/client/lib/catalogState.js)) disables "Create
+server" and prints `create.emptyCatalogText` in the lobby's error line —
+everything that does not depend on a game (sign-in, the user badge, "My
+games", "Moderation") stays up, and those are exactly what brings the catalog
+back: staging a version with "Test" activates it in place, an approval brings
+it in on the next tab reload. A *non-empty* catalog with nothing playable in
+it (an engine upgrade left every published game asking for a capability it no
+longer has) is the same lobby state — `pickActiveGame`'s reason replaces
+`emptyCatalogText` in that line instead of ending the load. Only solo and
+dedicated still treat "no game" as fatal. A terminal load failure now
+paints `#tech-informer` over the page (`showBootFailure` in
+[views/gameShell.js](../../packages/engine/src/client/views/gameShell.js)) instead of replacing
+`document.body`: wiping the markup used to take the moderation panel with it,
+so the moderator who disabled the last game had no way back.
+
 The Publisher pattern within a triplet:
 
 - `main.js` or the `view` → calls the `controller`'s methods **directly**;

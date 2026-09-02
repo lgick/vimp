@@ -24,6 +24,9 @@ const makeCatalog = () => ({
   upsert: vi.fn(),
   remove: vi.fn(),
   stagedManifests: vi.fn(() => []),
+  // манифест РАЗДАВАЕМОЙ записи: по его version (хешу сборки) и решается,
+  // отработал ли черновик своё
+  getManifest: vi.fn(() => undefined),
   // каталог ещё не описывает состояние, полученное из реестра, — проход
   // обязан дойти до upsert
   hasActive: vi.fn(() => false),
@@ -248,11 +251,13 @@ describe('GameSync', () => {
     expect(store.prune).toHaveBeenCalledWith(new Map([['tanks', new Set(['0.16.1'])]]));
   });
 
-  it('черновик локальной игры снимается, когда реестр раздаёт ту же версию', async () => {
-    // «Тест» одобрен: тестировать больше нечего, а снять запись больше
+  it('черновик локальной игры снимается, когда раздаётся ТА ЖЕ сборка', async () => {
+    // «Тест» одобрен, и опубликованный пакет собран из того же dist/, что
+    // лежит в node_modules: тестировать больше нечего, а снять запись больше
     // некому — локальная игра выходит из цикла до _owned
     const catalog = makeCatalog();
 
+    catalog.getManifest.mockReturnValue(manifestOf('tanks'));
     catalog.stagedManifests.mockReturnValue([
       { id: 'tanks', version: '0.16.1', manifest: manifestOf('tanks') },
     ]);
@@ -269,11 +274,17 @@ describe('GameSync', () => {
     expect(catalog.remove).toHaveBeenCalledWith('tanks', '0.16.1');
   });
 
-  it('черновик локальной игры с другой версией остаётся: он ещё на тесте', async () => {
+  it('совпадения npm-версий мало: разные сборки — черновик остаётся', async () => {
+    // Ровно сломанный до этой правки dev-контур: у прилинкованной игры
+    // раздаётся сборка из node_modules, а game.version реестра описывает
+    // совсем другой артефакт — тот, что лежит в npm. Сверка по номеру
+    // сносила «Тест» ближайшим же тиком, то есть сравнить опубликованную
+    // сборку с локальной было нельзя — ради чего «Тест» в dev и нужен
     const catalog = makeCatalog();
 
+    catalog.getManifest.mockReturnValue({ ...manifestOf('tanks'), version: 'local-hash' });
     catalog.stagedManifests.mockReturnValue([
-      { id: 'tanks', version: '0.17.0', manifest: manifestOf('tanks') },
+      { id: 'tanks', version: '0.16.1', manifest: manifestOf('tanks') },
     ]);
 
     const sync = new GameSync({
@@ -285,6 +296,44 @@ describe('GameSync', () => {
 
     await sync.run();
 
+    expect(catalog.remove).not.toHaveBeenCalled();
+  });
+
+  it('черновик другой сборки остаётся: он ещё на тесте', async () => {
+    const catalog = makeCatalog();
+
+    catalog.getManifest.mockReturnValue(manifestOf('tanks'));
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '0.17.0', manifest: { ...manifestOf('tanks'), version: 'next-hash' } },
+    ]);
+
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store: makeStore(),
+      catalog,
+      localGameIds: new Set(['tanks']),
+    });
+
+    await sync.run();
+
+    expect(catalog.remove).not.toHaveBeenCalled();
+  });
+
+  it('без раздаваемой записи ничего не снимает и не бросает', async () => {
+    const catalog = makeCatalog();
+
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'tanks', version: '0.16.1', manifest: manifestOf('tanks') },
+    ]);
+
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store: makeStore(),
+      catalog,
+      localGameIds: new Set(['tanks']),
+    });
+
+    await expect(sync.run()).resolves.not.toThrow();
     expect(catalog.remove).not.toHaveBeenCalled();
   });
 

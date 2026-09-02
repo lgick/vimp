@@ -136,6 +136,37 @@ export function ensureCanvas(canvasId, size, container = document.body) {
 }
 
 /**
+ * Терминальный отказ загрузки — поверх страницы, а не вместо неё.
+ *
+ * Раньше здесь стояло `document.body.textContent = …`: разметка страницы
+ * стиралась целиком, вместе с формой входа и панелью реестра игр, — то есть
+ * любая ошибка загрузки игры уносила с собой и путь к её исправлению.
+ * `#tech-informer` для того и есть: полноэкранный слой поверх (z-index 9),
+ * под которым разметка остаётся целой и рабочей после перезагрузки вкладки.
+ *
+ * Слой ТЕРМИНАЛЬНЫЙ и снять его нечем — он кроет и `#lobby-auth`, и
+ * `#games-panel` (обе z-index 8). Поэтому сюда попадает только то, что и
+ * правда терминально: отсутствие каталога само по себе не терминально, и в
+ * lobby-режиме оно идёт строкой отказа лобби (client/lib/catalogState.js).
+ * @param {string} text - Сообщение игроку.
+ * @param {HTMLElement} [container] - Точка монтирования каркаса.
+ * @returns {void}
+ */
+export function showBootFailure(text, container = document.body) {
+  let elem = document.getElementById('tech-informer');
+
+  if (!elem) {
+    // каркаса нет (отказ случился до ensureGameShell): добавляем узел ПЕРЕД
+    // содержимым, а не вместо него
+    elem = createNode({ tag: 'div', id: 'tech-informer' });
+    container.prepend(elem);
+  }
+
+  elem.textContent = text;
+  elem.style.display = 'block';
+}
+
+/**
  * Набор id, которые собирает каркас. Нужен тесту паритета с pug.
  * @returns {Set<string>}
  */

@@ -247,4 +247,30 @@ describe('GamesView: формы и списки', () => {
 
     expect($('games-admin-error').textContent).toContain('нет manifest.json');
   });
+
+  it('предупреждение о пустом каталоге — человеческой строкой', () => {
+    // решение принято, отказа не было: модератор снял с раздачи последнюю
+    // игру и обязан узнать об этом здесь, а не от игроков
+    model.publisher.emit('warning', { scope: 'admin', code: 'catalogEmpty' });
+
+    expect($('games-admin-error').textContent).toContain('No published games left');
+
+    // неизвестный код едет как есть — лучше сырой, чем проглоченный
+    model.publisher.emit('warning', { scope: 'admin', code: 'somethingNew' });
+
+    expect($('games-admin-error').textContent).toBe('somethingNew');
+  });
+
+  it('поле формы, разъехавшееся с разметкой, бросает в конструкторе', async () => {
+    vi.resetModules(); // синглтон: без сброса вернулся бы уже созданный view
+    $('games-field-title').remove();
+
+    const Fresh = (
+      await import('../../packages/engine/src/client/components/view/Games.js')
+    ).default;
+
+    // сообщение называет и id, и поле: молчаливый null падал бы позже —
+    // безымянным TypeError внутри clearForm или _readForm
+    expect(() => new Fresh(model, config)).toThrow(/games-field-title.*title/);
+  });
 });

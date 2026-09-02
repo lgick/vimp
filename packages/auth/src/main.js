@@ -34,6 +34,10 @@ import {
 } from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
 import rateLimit from './lib/rateLimit.js';
+// ник модератора снимается на границе маршрута, где смысл читается: общий
+// список колонок (GAME_FIELDS) выбирает его для очереди модерации, а третьей
+// проекции в репозитории заводить не за чем
+import { forAuthor } from './lib/gameViews.js';
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
@@ -347,7 +351,9 @@ app.get('/games', async (req, res) => {
 
 // GET /games/mine — заявки вызывающего со статусами и замечаниями модератора
 app.get('/games/mine', requireAuth, async (req, res) => {
-  res.json({ games: await userRepo.listGamesByAuthor(req.user.id) });
+  const games = await userRepo.listGamesByAuthor(req.user.id);
+
+  res.json({ games: games.map(forAuthor) });
 });
 
 // проверяет поля заявки и отвечает своим кодом на каждое; null — всё чисто
@@ -405,7 +411,7 @@ app.post('/games', requireAuth, byIp(gamesLimiter), async (req, res) => {
       authorUserId: req.user.id,
     });
 
-    res.status(201).json({ game });
+    res.status(201).json({ game: forAuthor(game) });
   } catch (err) {
     if (err instanceof GameExistsError) {
       res.status(409).json({ error: 'gameExists' });
@@ -431,12 +437,15 @@ app.post('/games/:id/version', requireAuth, byIp(gamesLimiter), async (req, res)
   }
 
   try {
+    const isAdmin = await isAdminUser(req.user.id);
     const game = await userRepo.requestGameVersion(req.params.id, version, {
       userId: req.user.id,
-      isAdmin: await isAdminUser(req.user.id),
+      isAdmin,
     });
 
-    res.json({ game });
+    // админ подаёт версию за чужую игру из той же панели, где ник модератора
+    // и так виден: скрывать его от него незачем
+    res.json({ game: isAdmin ? game : forAuthor(game) });
   } catch (err) {
     if (err instanceof GameNotFoundError) {
       res.status(404).json({ error: 'unknownGame' });
@@ -513,7 +522,18 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
     patch.pendingVersion = null;
   }
 
-  res.json({ game: await userRepo.moderateGame(req.params.id, patch, req.user.id) });
+  const updated = await userRepo.moderateGame(req.params.id, patch, req.user.id);
+
+  // решение могло снять с раздачи последнюю игру платформы. Отказом это не
+  // является — лобби остаётся рабочим, вход и модерация от каталога не
+  // зависят, — но комнату создавать становится не на чем, и узнать об этом
+  // модератор должен здесь, а не от игроков
+  if ((await userRepo.countApprovedGames()) === 0) {
+    res.json({ game: updated, warning: 'catalogEmpty' });
+    return;
+  }
+
+  res.json({ game: updated });
 });
 
 // GET /jwks — публичный ключ для верификации identity-токена хостом

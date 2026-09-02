@@ -185,6 +185,35 @@ describe('GamesModel: модерация', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/admin/games');
   });
 
+  it('catalogEmpty из ответа доезжает предупреждением — после перечитывания', async () => {
+    const seen = [];
+
+    fetchMock
+      .mockResolvedValueOnce(answer({ game: { id: 'tanks' }, warning: 'catalogEmpty' }))
+      .mockResolvedValueOnce(answer({ games: [] }));
+    model.publisher.on('admin-changed', () => seen.push('admin'));
+    model.publisher.on('warning', data => seen.push(data));
+
+    await model.moderate('tanks', { status: 'disabled' });
+
+    // порядок важен: renderAdmin чистит строку отказа панели, и
+    // предупреждение, показанное раньше, стёрлось бы тем же тиком
+    expect(seen).toEqual(['admin', { scope: 'admin', code: 'catalogEmpty' }]);
+  });
+
+  it('без warning в ответе предупреждение не публикуется', async () => {
+    const seen = [];
+
+    fetchMock
+      .mockResolvedValueOnce(answer({ game: { id: 'tanks' } }))
+      .mockResolvedValueOnce(answer({ games }));
+    model.publisher.on('warning', data => seen.push(data));
+
+    await model.moderate('tanks', { status: 'approved' });
+
+    expect(seen).toEqual([]);
+  });
+
   it('версии из npm попадают в admin-changed', async () => {
     const seen = [];
 

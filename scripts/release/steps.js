@@ -477,7 +477,22 @@ export async function checkTarball({ shell, dir }) {
   let files;
 
   try {
-    files = JSON.parse(stdout)[0].files.map(entry => entry.path);
+    const parsed = JSON.parse(stdout);
+    // npm ≤ 11 отдавал массив пакетов, npm ≥ 12 — объект «имя пакета →
+    // пакет». Пакет здесь ровно один (npm pack в каталоге игры), поэтому
+    // берём первую запись любой из форм, а не индекс
+    const entry = Array.isArray(parsed)
+      ? parsed[0]
+      : Object.values(parsed ?? {})[0];
+
+    // проверка обязательна: без неё третья форма ответа даст то же невнятное
+    // `Cannot read properties of undefined`, ради которого этот разбор и
+    // переписан
+    if (!entry || !Array.isArray(entry.files)) {
+      throw new Error('в ответе нет списка files');
+    }
+
+    files = entry.files.map(item => item.path);
   } catch (error) {
     throw new Error(`не разобрать вывод npm pack --json: ${error.message}`);
   }
@@ -624,8 +639,9 @@ export async function rollOutProduction({
   report,
   tags,
   engineApi = null,
+  push = true,
 }) {
-  ui.log('прод: пуш в main');
+  ui.log(push ? 'прод: пуш в main' : 'прод: проверка выпущенных игр');
 
   // Пинов игр в корневом package.json больше нет (master-game-registry,
   // этап 5): каталог платформы приезжает из реестра auth-сервиса, а версию
@@ -642,16 +658,45 @@ export async function rollOutProduction({
     ui.raw('');
   }
 
+  // strict: игры уже переопубликованы, поэтому расхождение версии API здесь —
+  // не «ещё не время», а выпуск без пересборки. Проверка идёт первой и в
+  // обеих ветках: она единственное, ради чего шаг вообще выполняется, когда
+  // движок не публикуется
+  for (const game of games) {
+    await simGame(shell, root, game, { engineApi, strict: true });
+  }
+
+  // релиз одних игр в этом репозитории не меняет ни файла: снимок пинов
+  // шаблона зависит только от версий движка и крейта, коммитить было бы
+  // нечего, а пуш в main оказался бы деплоем без изменений — то есть
+  // подтверждением «это ДЕПЛОЙ прода» за пустой коммит
+  if (!push) {
+    ui.raw('  прод: движок не публикуется — деплой не нужен');
+
+    // …но собственные коммиты и теги ЭТОГО репозитория деплоем не являются и
+    // всё равно ждут пуша: шаг скаффолдера коммитит `chore: bump
+    // create-vimp-game` и ставит тег в корне. Промолчать нельзя — сводка
+    // напечатает «прод: не пушился», и незапушенное всплывёт только
+    // следующим релизом
+    const local = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {
+      cwd: root,
+      allowFailure: true,
+    });
+
+    if (local.stdout.trim() || tags.length) {
+      ui.raw('');
+      ui.raw(local.stdout.trim() || '  (коммитов нет)');
+      ui.raw('');
+      report.remaining.push('пуш локальных коммитов и тегов этого репозитория');
+    }
+
+    return;
+  }
+
   await writePinSnapshot(shell, root);
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
     cwd: root,
   });
-
-  // strict: игры уже переопубликованы и перепинены, поэтому расхождение
-  // версии API здесь — не «ещё не время», а выпуск без пересборки
-  for (const game of games) {
-    await simGame(shell, root, game, { engineApi, strict: true });
-  }
 
   // коммитится только снимок пинов шаблона: package.json корня релиз больше
   // не трогает — игр в его зависимостях нет

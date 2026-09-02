@@ -7,6 +7,7 @@ import {
   shellIds,
   SHELL_CLASS,
   LETTERBOX_CLASS,
+  showBootFailure,
 } from '../../packages/engine/src/client/views/gameShell.js';
 
 // DOM-каркас игрового интерфейса (Этап 2 плана standalone-sdk). Главное
@@ -266,5 +267,49 @@ describe('ensureCanvas', () => {
     expect(canvas).toBe(own);
     expect(own.parentNode).toBe(document.body);
     expect(container.children).toHaveLength(0);
+  });
+});
+
+// Терминальный отказ загрузки (кодревью master-game-registry, находка 1).
+// Раньше здесь стояло `document.body.textContent = …`: разметка страницы
+// стиралась целиком, вместе с формой входа и панелью реестра игр, — то есть
+// отказ уносил с собой и путь к своему исправлению.
+describe('showBootFailure', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('пишет в информер каркаса и не трогает остальную разметку', () => {
+    ensureGameShell();
+
+    const lobby = document.createElement('div');
+
+    lobby.setAttribute('id', 'lobby');
+    document.body.appendChild(lobby);
+
+    showBootFailure('Failed to load the game: boom');
+
+    const informer = document.getElementById('tech-informer');
+
+    expect(informer.textContent).toBe('Failed to load the game: boom');
+    expect(informer.style.display).toBe('block');
+    // главное: панель реестра и форма входа на месте — модератор, отключивший
+    // последнюю игру, должен уметь вернуть её из той же вкладки
+    expect(document.getElementById('lobby')).toBe(lobby);
+    expect(document.getElementById('auth-form')).not.toBeNull();
+  });
+
+  it('без каркаса добавляет узел ПЕРЕД содержимым, а не вместо него', () => {
+    const container = document.createElement('div');
+    const kept = document.createElement('p');
+
+    kept.textContent = 'sign in';
+    container.appendChild(kept);
+    document.body.appendChild(container);
+
+    showBootFailure('boom', container);
+
+    expect(container.firstChild.getAttribute('id')).toBe('tech-informer');
+    expect(container.contains(kept)).toBe(true);
   });
 });

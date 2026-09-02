@@ -529,8 +529,16 @@ async function main(argv) {
         game.reason,
       ]),
       [
-        'прод (push в main)',
-        decision.prod.push && args.only.includes('prod') ? 'да' : 'нет',
+        // «да/нет» отвечает на вопрос о ДЕПЛОЕ: релиз одних игр деплоя не
+        // делает, но шаг всё равно проходит — проверкой sim
+        'прод',
+        args.only.includes('prod')
+          ? decision.prod.push
+            ? 'да (push в main)'
+            : decision.prod.verifyGames
+              ? 'нет (только sim)'
+              : 'нет'
+          : 'нет',
         '—',
         decision.prod.reason,
       ],
@@ -640,13 +648,18 @@ async function main(argv) {
       });
     }
 
-    if (args.only.includes('prod') && decision.prod.push) {
+    if (
+      args.only.includes('prod') &&
+      (decision.prod.push || decision.prod.verifyGames)
+    ) {
       await rollOutProduction({
         shell,
         root,
         games: selectedGames,
         report,
         engineApi,
+        // деплой или только проверка выпущенных игр — см. plan.js:prod
+        push: decision.prod.push,
         // из vimp пушатся только его собственные теги: теги игр уже уехали
         // вместе с `git push --tags` в их репозиториях
         tags: report.tags

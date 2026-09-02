@@ -25,9 +25,25 @@ function fakeShell(stdout, stderr = '') {
   };
 }
 
-function packJson(files) {
-  return JSON.stringify([{ files: files.map(file => ({ path: file })) }]);
-}
+// Формы ответа `npm pack --json`, снятые с живого вывода и подписанные
+// версией инструмента, для которой сняты: npm 12.0.2 отдаёт объект «имя
+// пакета → пакет», npm 11 и старше — массив пакетов. Разбор обязан принимать
+// обе — устаревшая фикстура уже сделала эти тесты зелёными и ложными, и
+// релиз игры упал там, где тест ничего не заметил (кодревью
+// master-game-registry, находка 2)
+const packEntry = files => ({
+  id: '@vimp-games/snakes@0.4.0',
+  name: '@vimp-games/snakes',
+  files: files.map(file => ({ path: file })),
+});
+
+const PACK_FORMS = [
+  [
+    'npm 12 (объект «имя → пакет»)',
+    files => JSON.stringify({ '@vimp-games/snakes': packEntry(files) }),
+  ],
+  ['npm 11 (массив пакетов)', files => JSON.stringify([packEntry(files)])],
+];
 
 const FULL = [
   'package.json',
@@ -54,7 +70,7 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe('checkTarball', () => {
+describe.each(PACK_FORMS)('checkTarball: %s', (_form, packJson) => {
   it('пропускает тарбол с манифестом и node-ядром', async () => {
     const count = await checkTarball({ shell: fakeShell(packJson(FULL)), dir: root });
 
@@ -80,11 +96,28 @@ describe('checkTarball', () => {
 
     await expect(checkTarball({ shell, dir: root })).rejects.toThrow(/\.wasm/);
   });
+});
 
-  it('внятно падает на неразбираемом выводе', async () => {
+describe('checkTarball: неразбираемый вывод', () => {
+  it('внятно падает на не-JSON', async () => {
     await expect(
       checkTarball({ shell: fakeShell('не json'), dir: root }),
     ).rejects.toThrow(/npm pack --json/);
+  });
+
+  // третья форма ответа обязана давать ТУ ЖЕ внятную строку, а не
+  // `Cannot read properties of undefined (reading 'files')`: именно это
+  // сообщение и стоило разбора при отказе релиза
+  it.each([
+    ['пустой объект', '{}'],
+    ['пустой массив', '[]'],
+    ['null', 'null'],
+    ['пакет без files', '{"@vimp-games/snakes":{"id":"x"}}'],
+  ])('внятно падает на форме «%s»', async (_name, stdout) => {
+    const promise = checkTarball({ shell: fakeShell(stdout), dir: root });
+
+    await expect(promise).rejects.toThrow(/npm pack --json/);
+    await expect(promise).rejects.not.toThrow(/Cannot read properties/);
   });
 });
 
@@ -520,6 +553,53 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     });
 
     expect(simCalls(shell)).toHaveLength(1);
+  });
+
+  // Публикация игры не меняет в этом репозитории ни файла (игры едут через
+  // реестр auth-сервиса), поэтому пуш в main был бы деплоем без изменений —
+  // за подтверждением «это ДЕПЛОЙ прода». Проверить выпущенную игру против
+  // текущего движка всё равно надо, и ради неё шаг и выполняется
+  it('релиз одних игр: только sim, без пуша, снимка пинов и npm test', async () => {
+    const shell = recordingShell();
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [{ name: '@vimp-games/fresh', target: '0.7.5' }],
+      report: { published: [], tags: [] },
+      tags: [],
+      engineApi: 4,
+      push: false,
+    });
+
+    expect(simCalls(shell)).toHaveLength(1);
+    expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);
+    expect(shell.calls.filter(call => call.includes('npm test'))).toEqual([]);
+    expect(shell.calls.filter(call => call.includes('git commit'))).toEqual([]);
+  });
+
+  // деплоем шаг скаффолдера не является, но коммит `chore: bump
+  // create-vimp-game` и тег он делает В ЭТОМ репозитории: без пуша они
+  // остаются локальными, и сводка обязана это назвать — иначе «прод: не
+  // пушился» умалчивает, что на ветке лежит незапушенное
+  it('незапушенные теги репозитория попадают в «осталось»', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [], remaining: [] };
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [{ name: '@vimp-games/fresh', target: '0.7.5' }],
+      report,
+      tags: ['create-vimp-game@0.4.4'],
+      engineApi: 4,
+      push: false,
+    });
+
+    expect(report.remaining).toEqual([
+      'пуш локальных коммитов и тегов этого репозитория',
+    ]);
+    expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);
   });
 
   it('шаг прода на том же расхождении ОТКАЗЫВАЕТ: игра выпущена без пересборки', async () => {

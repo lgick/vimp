@@ -992,6 +992,18 @@ describe('UserRepository: реестр игр', () => {
     'updated_at': 'now',
   };
 
+  it('countApprovedGames считает то же, что раздаёт listApprovedGames', async () => {
+    // условие обязано совпадать с каталогом мастера: иначе панель скажет
+    // «каталог пуст» там, где лобби игру ещё раздаёт, или промолчит там, где
+    // раздавать уже нечего
+    const db = createDbStub(text => {
+      expect(text).toMatch(/status = 'approved' AND version IS NOT NULL/);
+      return { rows: [{ count: 0 }] };
+    });
+
+    expect(await new UserRepository(db).countApprovedGames()).toBe(0);
+  });
+
   it('listApprovedGames отдаёт только раздаваемые игры в детерминированном порядке', async () => {
     const db = createDbStub(text => {
       expect(text).toMatch(/status = 'approved' AND g\.version IS NOT NULL/);

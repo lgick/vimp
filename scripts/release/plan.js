@@ -143,12 +143,22 @@ export function decide(input) {
       .filter(artifact => !artifact.publish)
       .flatMap(artifact => artifact.problems ?? []),
     prod: {
-      push: engine.publish || publishedGames.length > 0,
+      // игры едут в прод через реестр auth-сервиса, а не через образ
+      // (master-game-registry, этап 5): публикация игры не меняет в этом
+      // репозитории ни файла, и пуш в main был бы деплоем без изменений.
+      // Движок и крейт — меняют: их бамп коммитится и тегается здесь же,
+      // и без пуша релиз остался бы наполовину локальным
+      push: engine.publish || crate.publish,
+      // …но выпущенную игру всё равно надо прогнать против текущего движка:
+      // проверка нужна и тогда, когда пушить нечего
+      verifyGames: publishedGames.length > 0,
       reason: engine.publish
         ? 'опубликован движок'
-        : publishedGames.length > 0
-          ? 'опубликованы игры → нужен перепин'
-          : 'публиковать нечего',
+        : crate.publish
+          ? 'опубликован крейт'
+          : publishedGames.length > 0
+            ? 'игры едут через реестр — деплой не нужен, только проверка sim'
+            : 'публиковать нечего',
       // при бампе ENGINE_API_VERSION движок и плагин обязаны доехать в прод
       // одним пушем — все пуши ветки собраны в шаге C
       strictlyLast: input.engineApiChanged === true,
