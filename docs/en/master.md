@@ -227,8 +227,8 @@ publish.
 | Route | Access | What it does |
 | --- | --- | --- |
 | `GET /games/mine` | any logged-in user | the caller's own submissions with their status and the moderator's note |
-| `POST /games/submit` | any logged-in user | a new game submission: the package is downloaded and checked **before** the row is written, so the developer gets the list of problems at once and the registry does not fill up with unusable entries |
-| `POST /games/mine/:id/version` | the game's owner | a new version of an already registered game, checked the same way |
+| `POST /games/submit` | any logged-in user | a new game submission: the package is downloaded and checked **before** the row is written, so the developer gets the list of problems at once and the registry does not fill up with unusable entries. Limited to 5 submissions per minute per user, ahead of the npm fetch |
+| `POST /games/mine/:id/version` | the game's owner (an admin — any game) | a new version of an already registered game, checked the same way |
 | `GET /admin/games` | `role=admin` | the whole moderation queue plus this master's local state per game (`downloaded`, `stagedVersion`, `lastError`) |
 | `GET /admin/games/manifest.json` | `role=admin` | manifests of the staged (not served) versions — the admin's tab puts them into its own catalog and opens a room on one |
 | `POST /admin/games/:id/stage` | `role=admin` | "Test": download a version and put it into the catalog **inactive** |
@@ -243,7 +243,9 @@ session `hidden` when `GameCatalog.isStaged(gameId, gameVersion)` holds, and
 `GET /servers` never lists it — a test room is reachable only by its link, so
 players do not walk into an unapproved build. The check is done on
 `manifest.version` (the bundle hash the host reports), because the host knows
-nothing of npm versions.
+nothing of npm versions. A room on the approved version never counts as
+staged, even when its bundle hash matches a staged one (a republish that
+touched only `package.json` leaves the code untouched).
 
 The per-game score ceiling (`maxGameScore`, clamped onto `PUT /auth/rank`)
 comes from the **registry row an admin filled in**, not from the manifest —

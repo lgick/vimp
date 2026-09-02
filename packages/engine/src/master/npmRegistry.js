@@ -35,8 +35,14 @@ export async function fetchPackument(
   { registryUrl, fetchImpl = fetch, timeout } = {},
 ) {
   // имя scoped-пакета кодируется целиком: без этого '@vimp-games/tanks'
-  // уезжает в путь /@vimp-games/tanks и даёт 404
-  const url = `${registryUrl}/${packageName.replace('/', '%2F')}`;
+  // уезжает в путь /@vimp-games/tanks и даёт 404. Кодируется КАЖДЫЙ сегмент,
+  // а не только первый '/': нормализацию пути иначе делает уже fetch
+  // ведущая '@' скоупа остаётся как есть — так адресует пакеты сам npm
+  const url = `${registryUrl}/${String(packageName)
+    .split('/')
+    .map(encodeURIComponent)
+    .join('%2F')
+    .replace(/^%40/, '@')}`;
   let res;
 
   try {
@@ -165,6 +171,9 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) 
   // потока уходит мимо pipeline. Дальше всё отбрасывается, ошибка вылетает
   // после завершения разбора — распаковка идёт в .staging и целиком удаляется
   let limitError = null;
+  // поток рвётся сразу, а не дочитывается до конца: 64 МБ архива с высоким
+  // коэффициентом сжатия — это десятки гигабайт разжатия впустую
+  const source = Readable.from(buffer);
 
   const filter = (entryPath, entry) => {
     if (limitError) {
@@ -194,12 +203,14 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) 
 
     if (maxFiles && files > maxFiles) {
       limitError = `в архиве больше ${maxFiles} файлов`;
+      source.destroy();
 
       return false;
     }
 
     if (maxBytes && bytes > maxBytes) {
       limitError = `распакованное содержимое больше ${maxBytes} байт`;
+      source.destroy();
 
       return false;
     }
@@ -207,16 +218,25 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) 
     return true;
   };
 
-  await pipeline(
-    Readable.from(buffer),
-    tarExtract({
-      cwd: destDir,
-      strip: 2, // срезает 'package/dist'
-      filter,
-      preservePaths: false, // не доверять абсолютным путям внутри архива
-      onwarn: (code, message) => warnings.push(`${code}: ${message}`),
-    }),
-  );
+  try {
+    await pipeline(
+      source,
+      tarExtract({
+        cwd: destDir,
+        strip: 2, // срезает 'package/dist'
+        filter,
+        preservePaths: false, // не доверять абсолютным путям внутри архива
+        onwarn: (code, message) => warnings.push(`${code}: ${message}`),
+      }),
+    );
+  } catch (err) {
+    // разорванный по лимиту поток отклоняет pipeline (ERR_STREAM_PREMATURE_
+    // CLOSE) — снаружи это обязано читаться как превышение лимита, а не как
+    // сбой потока
+    if (!limitError) {
+      throw err;
+    }
+  }
 
   if (limitError) {
     throw new Error(`архив не распакован: ${limitError}`);
@@ -311,10 +331,15 @@ function splitIntegrity(integrity) {
 // (любой суффикс после '-') младше релиза той же тройки
 function compareVersions(a, b) {
   const parse = value => {
-    const [core, pre = ''] = String(value).split('-', 2);
-    const nums = core.split('.').map(Number);
+    // build-метаданные (+…) в сравнении не участвуют вовсе (semver §10),
+    // пререлиз отделяется по ПЕРВОМУ дефису и дальше сравнивается целиком:
+    // split('-', 2) терял хвост, и '1.0.0-alpha-1' равнялся '1.0.0-alpha-2'
+    const withoutBuild = String(value).split('+', 1)[0];
+    const dash = withoutBuild.indexOf('-');
+    const core = dash === -1 ? withoutBuild : withoutBuild.slice(0, dash);
+    const pre = dash === -1 ? '' : withoutBuild.slice(dash + 1);
 
-    return { nums, pre };
+    return { nums: core.split('.').map(n => Number(n) || 0), pre };
   };
   const left = parse(a);
   const right = parse(b);

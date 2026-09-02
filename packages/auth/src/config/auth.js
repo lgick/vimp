@@ -136,6 +136,11 @@ export default {
     // имя npm-пакета, в т.ч. scoped
     packagePattern: /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
     versionPattern: /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/,
+    // id, занятые роутами реестра на мастере (/games/mine, /games/submit,
+    // /games/<id>/manifest.json): игра с таким id перекрыла бы их. Список
+    // продублирован в packages/engine/src/master/gameRefs.js — общей
+    // зависимости между пакетами нет
+    reservedIds: ['mine', 'submit', 'manifest'],
     maxPerUser: 20,
     maxNoteLength: 1000,
     maxTitleLength: 60,

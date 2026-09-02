@@ -6,14 +6,18 @@
 // не интерпретирует: отдаёт {status, json}, решение принимает вызывающий
 // (GameSync — каталог, lobby.js — код ответа админского роута).
 export default class GameRegistryProxy {
-  constructor(authServiceUrl, { fetchImpl = fetch } = {}) {
+  constructor(authServiceUrl, { fetchImpl = fetch, timeout = 15000 } = {}) {
     this._url = authServiceUrl;
     this._fetch = fetchImpl;
+    this._timeout = timeout;
   }
 
   async _request(path, token, { method = 'GET', body } = {}) {
     const res = await this._fetch(`${this._url}${path}`, {
       method,
+      // зависший auth не должен держать проход синхронизации бесконечно —
+      // тот же приём, что у npmRegistry
+      signal: this._timeout ? AbortSignal.timeout(this._timeout) : undefined,
       headers: {
         // GET /games публичный (как /leaderboard): каталог платформы и так
         // виден в лобби до логина

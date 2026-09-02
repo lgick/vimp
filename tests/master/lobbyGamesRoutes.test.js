@@ -112,6 +112,27 @@ describe('POST /games/submit', () => {
     expect(registry.submit).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['обход каталога в id', { id: '../../../../tmp/pwn', packageName: '@vimp-games/tanks' }],
+    ['разделитель в id', { id: 'a/b', packageName: '@vimp-games/tanks' }],
+    ['зарезервированный id', { id: 'submit', packageName: '@vimp-games/tanks' }],
+    ['id не строка', { id: 42, packageName: '@vimp-games/tanks' }],
+    ['кривое имя пакета', { id: 'tanks', packageName: '../../etc/passwd' }],
+    [
+      'кривая версия',
+      { id: 'tanks', packageName: '@vimp-games/tanks', version: '../../x' },
+    ],
+  ])('%s — 400 ДО скачивания: store.inspect не зовётся', async (_name, body) => {
+    const res = fakeRes();
+
+    await routes.submit({ authToken: 't', body }, res);
+
+    expect(res.code).toBe(400);
+    expect(res.body).toEqual({ error: 'badRequest' });
+    expect(store.inspect).not.toHaveBeenCalled();
+    expect(registry.submit).not.toHaveBeenCalled();
+  });
+
   it('проверенный пакет уходит в реестр с резолвнутой версией', async () => {
     const res = fakeRes();
 
@@ -152,6 +173,31 @@ describe('POST /games/mine/:id/version', () => {
     );
 
     expect(store.inspect).toHaveBeenCalledWith('tanks', '@vimp-games/tanks', '1.1.0');
+    expect(registry.requestVersion).toHaveBeenCalledWith('t', 'tanks', '1.1.0');
+  });
+
+  it('админ поднимает версию ЧУЖОЙ игры — списком служит очередь модерации', async () => {
+    const adminRoutes = createGameRoutes({
+      registry,
+      store,
+      catalog,
+      sync,
+      isAdmin: user => user?.role === 'admin',
+    });
+    const res = fakeRes();
+
+    await adminRoutes.requestVersion(
+      {
+        authToken: 't',
+        user: { id: 1, role: 'admin' },
+        params: { id: 'tanks' },
+        body: { version: '1.1.0' },
+      },
+      res,
+    );
+
+    expect(registry.listAll).toHaveBeenCalledWith('t');
+    expect(registry.mine).not.toHaveBeenCalled();
     expect(registry.requestVersion).toHaveBeenCalledWith('t', 'tanks', '1.1.0');
   });
 });

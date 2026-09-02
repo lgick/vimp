@@ -1001,8 +1001,17 @@ describe('UserRepository: реестр игр', () => {
 
     const games = await new UserRepository(db).listApprovedGames();
 
-    expect(games[0].packageName).toBe('@vimp-games/tanks');
-    expect(games[0].pendingVersion).toBeNull();
+    // публичная проекция: наружу едет только то, что нужно каталогу мастера
+    // и футеру лобби — ни переписки модерации, ни внутреннего id автора
+    expect(games[0]).toEqual({
+      id: 'tanks',
+      packageName: '@vimp-games/tanks',
+      title: 'VIMP Tanks',
+      repoUrl: 'https://github.com/lgick/vimp-tanks',
+      authorNick: null,
+      version: '0.16.1',
+      maxGameScore: null,
+    });
   });
 
   it('listAllGames добавляет ник модератора и сортирует по свежести', async () => {
@@ -1038,13 +1047,13 @@ describe('UserRepository: реестр игр', () => {
 
   it('createGame вставляет заявку в pending с запрошенной версией', async () => {
     const db = createDbStub((text, values) => {
-      if (text.startsWith('SELECT COUNT')) {
-        return { rows: [{ total: 0 }] };
-      }
-
       expect(text).toMatch(/INSERT INTO games/);
       expect(text).toMatch(/'pending'/);
-      expect(values).toEqual(['pong', '@dev/pong', 'Pong', null, 42, '1.0.0']);
+      // потолок заявок считается ВНУТРИ вставки — отдельного COUNT(*) нет
+      expect(text).toMatch(/WHERE \(SELECT COUNT\(\*\) FROM games WHERE author_user_id = \$5\) < \$7/);
+      expect(values).toEqual([
+        'pong', '@dev/pong', 'Pong', null, 42, '1.0.0', config.games.maxPerUser,
+      ]);
 
       return { rows: [{ ...gameRow, id: 'pong', status: 'pending', 'pending_version': '1.0.0' }] };
     });
@@ -1062,11 +1071,7 @@ describe('UserRepository: реестр игр', () => {
   });
 
   it('createGame превращает 23505 в GameExistsError', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT COUNT')) {
-        return { rows: [{ total: 1 }] };
-      }
-
+    const db = createDbStub(() => {
       const err = new Error('duplicate key');
       err.code = '23505';
       throw err;
@@ -1083,10 +1088,10 @@ describe('UserRepository: реестр игр', () => {
   });
 
   it('createGame не вставляет ничего сверх лимита заявок', async () => {
-    const db = createDbStub(text => {
-      expect(text).toMatch(/^SELECT COUNT/);
-      return { rows: [{ total: config.games.maxPerUser }] };
-    });
+    // условие лимита не выполнилось — INSERT … SELECT не вставил ни строки,
+    // и пустой RETURNING читается как исчерпанный потолок (гонки, в отличие
+    // от отдельного COUNT(*) до вставки, здесь нет)
+    const db = createDbStub(() => ({ rows: [] }));
 
     await expect(
       new UserRepository(db).createGame({
@@ -1097,7 +1102,7 @@ describe('UserRepository: реестр игр', () => {
       }),
     ).rejects.toThrow(GameLimitError);
 
-    expect(db.query).toHaveBeenCalledTimes(1); // INSERT не выполнялся
+    expect(db.query).toHaveBeenCalledTimes(1);
   });
 
   it('requestGameVersion обновляет pending_version автора и снимает rejected', async () => {

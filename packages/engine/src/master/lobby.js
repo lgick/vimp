@@ -18,6 +18,7 @@ import GameCatalog from './GameCatalog.js';
 import GameRegistryProxy from './GameRegistryProxy.js';
 import GameStore from './GameStore.js';
 import GameSync from './GameSync.js';
+import { GAME_VERSION_PATTERN } from './gameRefs.js';
 import { createGameRoutes } from './gameRoutes.js';
 import { applyLocalGames } from './localGames.js';
 import { securityHeaders } from './httpSecurity.js';
@@ -112,6 +113,21 @@ const playerDataLimiter = new RateLimiter({
   windowMs: 60000,
 });
 
+// заявка стоит мастеру похода в npm и распаковки архива, поэтому лимит
+// стоит ДО скачивания, а не в auth-сервисе за ним (там он тоже есть, но
+// туда запрос доходит только с успешным вердиктом). Ключ — пользователь, а
+// не IP: заявка уже требует авторизации
+const gameSubmitLimiter = new RateLimiter({ limit: 5, windowMs: 60000 });
+
+function limitSubmits(req, res, next) {
+  if (!gameSubmitLimiter.consume(`u${req.user.id}`)) {
+    res.status(429).json({ error: 'tooManyRequests' });
+    return;
+  }
+
+  next();
+}
+
 // проксирует GET/PUT /host-rating central auth-сервиса (server-rating этап 2,
 // plan/server-rating/stage_2.md) — рейтинг хостера/голоса гостей персистентны
 // и глобальны, поэтому живут в БД auth, не в памяти мастера
@@ -146,6 +162,11 @@ const gameRegistry = new GameRegistryProxy(
   config.get('master:security:authServiceUrl'),
 );
 
+// статик-маунты игр по директории версии: наполняет staticFor() ниже, а
+// чистит onPruned — объявление стоит здесь, потому что первый проход
+// синхронизации идёт до конца модуля
+const staticByDir = new Map();
+
 // каталог перестал быть снимком стартового конфига: GameSync обновляет его
 // по реестру на лету — без пересборки образа и без рестарта мастера
 const gameSync = new GameSync({
@@ -157,6 +178,9 @@ const gameSync = new GameSync({
   localGameIds: new Set(localGames.map(game => game.id)),
   intervalMs: config.get('master:gameStore:refreshInterval'),
   keepVersions: config.get('master:gameStore:keepVersions'),
+  // снятая с диска версия уносит и свой статик-маунт: иначе Map растёт на
+  // каждую скачанную за время жизни процесса версию и никогда не убывает
+  onPruned: paths => paths.forEach(dir => staticByDir.delete(dir)),
 });
 
 // авторизация REST-роутов мастера (master-game-registry, этап 4): та же
@@ -169,12 +193,25 @@ const gameRoutes = createGameRoutes({
   store: gameStore,
   catalog: gameCatalog,
   sync: gameSync,
+  isAdmin: adminAuth.isAdmin,
 });
 
 // первый проход до listen: мастер стартует уже с каталогом. Его отказ старту
 // не мешает — каталог тогда пуст (или остаётся локальным), а следующий цикл
-// таймера подхватит реестр, когда тот вернётся
-await gameSync.run();
+// таймера подхватит реестр, когда тот вернётся.
+//
+// Дедлайн обязателен: медленный (а не отказавший) npm держал бы проход
+// минутами — по 30 с таймаута на игру, — и всё это время процесс не слушал
+// бы порт. Каталог пополнится следующим тиком таймера, а мастер обязан
+// начать отвечать в предсказуемое время
+const FIRST_SYNC_DEADLINE = 15000;
+
+await Promise.race([
+  gameSync.run(),
+  new Promise(resolve => {
+    setTimeout(resolve, FIRST_SYNC_DEADLINE).unref?.();
+  }),
+]);
 
 console.info('------------------------------------------');
 console.info('Master Server Settings:');
@@ -566,8 +603,13 @@ app.get('/games/manifest.json', (req, res) => {
 // Порядок объявления: эти пути обязаны идти ДО версионных `/games/:id/...`
 // и до статики `/games` — иначе `mine` и `submit` уехали бы в `:id`
 app.get('/games/mine', adminAuth.authenticated, gameRoutes.mine);
-app.post('/games/submit', adminAuth.authenticated, gameRoutes.submit);
-app.post('/games/mine/:id/version', adminAuth.authenticated, gameRoutes.requestVersion);
+app.post('/games/submit', adminAuth.authenticated, limitSubmits, gameRoutes.submit);
+app.post(
+  '/games/mine/:id/version',
+  adminAuth.authenticated,
+  limitSubmits,
+  gameRoutes.requestVersion,
+);
 
 app.get('/admin/games', adminAuth.required, gameRoutes.adminList);
 // раньше `/admin/games/:id/versions`: сегментов столько же, и `manifest.json`
@@ -586,8 +628,8 @@ app.patch('/admin/games/:id', adminAuth.required, gameRoutes.moderate);
 // `/games/:id/:version/manifest.json` имеют одинаковое число сегментов, и
 // объявленный первым версионный роут съел бы сегмент `maps` в `:version`.
 // Поэтому фиксированные maps-алиасы идут раньше, а `:version` вдобавок
-// охраняется проверкой формы версии (та же, что у реестра в auth).
-const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
+// охраняется проверкой формы версии (GAME_VERSION_PATTERN — та же, что у
+// реестра в auth).
 
 // неверсионные алиасы нужны трём потребителям: вкладкам, открытым до смены
 // версии; dev/standalone/dedicated, где mapsBase в манифесте нет вовсе; и
@@ -629,7 +671,7 @@ app.get('/games/:id/maps/:name', (req, res) => {
 // сегмент не похож на версию — это не версионный роут, пусть его разбирает
 // статика (иначе `/games/tanks/assets/manifest.json` ушёл бы в 404 отсюда)
 function isVersionSegment(req, next) {
-  if (!VERSION_PATTERN.test(req.params.version)) {
+  if (!GAME_VERSION_PATTERN.test(req.params.version)) {
     next();
     return false;
   }
@@ -691,9 +733,8 @@ app.get('/games/:id/:version/maps/:name', (req, res, next) => {
 // Один обработчик вместо цикла по каталогу: каталог теперь меняется на лету,
 // и статик-маунты, расставленные на старте, устарели бы уже к первому
 // gameSync.run(). Инстансы express.static кэшируются по директории —
-// создавать serve-static на каждый файл игры незачем
-const staticByDir = new Map();
-
+// создавать serve-static на каждый файл игры незачем (объявление Map — выше,
+// рядом с GameSync: снятая с диска версия уносит и свой маунт)
 function staticFor(dir) {
   let middleware = staticByDir.get(dir);
 
@@ -711,9 +752,20 @@ app.use('/games', (req, res, next) => {
   const pathname = queryAt === -1 ? original : original.slice(0, queryAt);
   const query = queryAt === -1 ? '' : original.slice(queryAt);
   const segments = pathname.split('/');
-  const id = decodeURIComponent(segments[1] ?? '');
-  const second = decodeURIComponent(segments[2] ?? '');
-  const versioned = VERSION_PATTERN.test(second);
+  let id;
+  let second;
+
+  try {
+    id = decodeURIComponent(segments[1] ?? '');
+    second = decodeURIComponent(segments[2] ?? '');
+  } catch {
+    // битая процентная последовательность (`/games/%ZZ/x.js`) — это 404
+    // дальше по цепочке, а не 500 из дефолтного обработчика Express
+    next();
+    return;
+  }
+
+  const versioned = GAME_VERSION_PATTERN.test(second);
   const dir = gameCatalog.getDistDir(id, versioned ? second : undefined);
 
   if (!dir) {

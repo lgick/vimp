@@ -23,6 +23,7 @@ describe('GameRegistryProxy', () => {
     });
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/games', {
       method: 'GET',
+      signal: expect.any(AbortSignal),
       headers: {},
       body: undefined,
     });
@@ -36,6 +37,7 @@ describe('GameRegistryProxy', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/admin/games', {
       method: 'GET',
+      signal: expect.any(AbortSignal),
       headers: { authorization: 'Bearer tok' },
       body: undefined,
     });
@@ -49,6 +51,7 @@ describe('GameRegistryProxy', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/games', {
       method: 'POST',
+      signal: expect.any(AbortSignal),
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
       body: JSON.stringify({ id: 'snakes', packageName: '@vimp-games/snakes', version: '0.9.1' }),
     });
@@ -61,6 +64,7 @@ describe('GameRegistryProxy', () => {
     await proxy.requestVersion('tok', 'tanks', '0.17.0');
     expect(fetchImpl).toHaveBeenLastCalledWith('http://auth.local/games/tanks/version', {
       method: 'POST',
+      signal: expect.any(AbortSignal),
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
       body: JSON.stringify({ version: '0.17.0' }),
     });
@@ -68,6 +72,7 @@ describe('GameRegistryProxy', () => {
     await proxy.moderate('tok', 'tanks', { status: 'approved', version: '0.17.0' });
     expect(fetchImpl).toHaveBeenLastCalledWith('http://auth.local/admin/games/tanks', {
       method: 'PATCH',
+      signal: expect.any(AbortSignal),
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'approved', version: '0.17.0' }),
     });
@@ -81,9 +86,31 @@ describe('GameRegistryProxy', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/games/mine', {
       method: 'GET',
+      signal: expect.any(AbortSignal),
       headers: { authorization: 'Bearer tok' },
       body: undefined,
     });
+  });
+
+  it('зависший auth не держит проход бесконечно: запрос идёт с AbortSignal', async () => {
+    const fetchImpl = makeFetch();
+    const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl, timeout: 1234 });
+
+    await proxy.list();
+
+    const [, options] = fetchImpl.mock.calls[0];
+
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(options.signal.aborted).toBe(false);
+  });
+
+  it('timeout: 0 отключает дедлайн — сигнала в запросе нет', async () => {
+    const fetchImpl = makeFetch();
+    const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl, timeout: 0 });
+
+    await proxy.list();
+
+    expect(fetchImpl.mock.calls[0][1].signal).toBeUndefined();
   });
 
   it('отказ апстрима отдаётся кодом и пустым json, а не броском', async () => {

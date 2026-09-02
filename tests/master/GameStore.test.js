@@ -202,6 +202,51 @@ describe('GameStore', () => {
     expect(fs.existsSync(path.join(dir, 'snakes'))).toBe(false);
   });
 
+  it.each([
+    '../../../../tmp/pwn',
+    'a/../../b',
+    'a/b',
+    '..',
+    '',
+  ])('ensure/inspect с id "%s" не создают ничего вне корня', async id => {
+    const dir = tempDir();
+    const outside = path.join(dir, '..', 'pwn');
+    const fetchImpl = vi.fn();
+    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+
+    const ensured = await store.ensure(id, '@vimp-games/tanks', '1.2.3');
+    const inspected = await store.inspect(id, '@vimp-games/tanks', '1.2.3');
+
+    // отказ вердиктом, а не броском: контракт ensure/inspect не меняется
+    expect(ensured.ok).toBe(false);
+    expect(inspected.ok).toBe(false);
+    expect(ensured.errors[0]).toMatch(/идентификатор игры/);
+    // до сети и диска дело не дошло вовсе
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fs.readdirSync(dir)).toEqual([]);
+    expect(fs.existsSync(outside)).toBe(false);
+  });
+
+  it('версия с разделителем отвергается вердиктом', async () => {
+    const dir = tempDir();
+    const fetchImpl = vi.fn();
+    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+
+    const result = await store.ensure('tanks', '@vimp-games/tanks', '../../etc');
+
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]).toMatch(/версия/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('distDir бросает на сегменте с разделителем — прямой вызов тоже защищён', () => {
+    const store = new GameStore({ dir: tempDir(), registryUrl, limits });
+
+    expect(() => store.distDir('../evil', '1.0.0')).toThrow(/недопустимый/);
+    expect(() => store.distDir('tanks', '../evil')).toThrow(/недопустимый/);
+    expect(() => store.listLocalVersions('../evil')).toThrow(/недопустимый/);
+  });
+
   it('prune не трогает свежий .staging', async () => {
     const dir = tempDir();
     const store = new GameStore({ dir, registryUrl, limits });

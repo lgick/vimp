@@ -47,8 +47,8 @@ export const clampLimit = (value, fallback, max) => {
 
 // сегмент URL раздачи /games/<id>/<version>/ — обязан совпадать с
 // manifest.id пакета
-export const isValidGameId = (id, { idPattern }) =>
-  typeof id === 'string' && idPattern.test(id);
+export const isValidGameId = (id, { idPattern, reservedIds = [] }) =>
+  typeof id === 'string' && idPattern.test(id) && !reservedIds.includes(id);
 
 export const isValidPackageName = (name, { packagePattern }) =>
   typeof name === 'string' && packagePattern.test(name);
@@ -79,6 +79,30 @@ export const isValidRepoUrl = (url, { maxUrlLength }) => {
     return false;
   }
 };
+
+// Обязательные поля заявки на новую игру. Проверка присутствия принадлежит
+// роуту создания, а не общей проверке формата: PATCH модерации те же поля
+// не требует, и без разделения тело `{}` доезжало до INSERT, падало на
+// NOT NULL и отвечало 500 вместо 400
+const REQUIRED_ON_CREATE = ['id', 'packageName', 'version'];
+
+export const missingGameField = (body = {}) =>
+  REQUIRED_ON_CREATE.find(field => body[field] === undefined) ?? null;
+
+// Потолок счёта ОДНОЙ игры, выставляемый админом при модерации. Он не может
+// превышать последнюю линию обороны самого auth: иначе мастер пропустит
+// результат, который здесь будет отклонён isValidGameResult, и хост уйдёт в
+// вечный повтор flush (см. config/auth.js:rank.maxPoints).
+// MERGED_GAMES_PER_WINDOW — та же константа, что в
+// packages/engine/src/lib/validators.js (окно склейки движка), тем же
+// множителем посчитан rank.maxPoints
+const MERGED_GAMES_PER_WINDOW = 20;
+
+export const isValidMaxGameScore = (value, { maxGameScore, maxPoints }) =>
+  Number.isInteger(value) &&
+  value >= 1 &&
+  value <= maxGameScore &&
+  value * MERGED_GAMES_PER_WINDOW <= maxPoints;
 
 // замечание модератора: пустое считается снятием замечания (null)
 export const isValidModeratorNote = (note, { maxNoteLength }) =>

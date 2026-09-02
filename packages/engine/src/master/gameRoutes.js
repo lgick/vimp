@@ -13,6 +13,13 @@
 // `pending`, а мастер перепроверяет пакет при каждом скачивании
 // (GameStore.ensure), поэтому неотвалидированный код в раздачу не попадает.
 
+import {
+  GAME_ID_PATTERN,
+  GAME_VERSION_PATTERN,
+  PACKAGE_NAME_PATTERN,
+  RESERVED_GAME_IDS,
+} from './gameRefs.js';
+
 // отказ auth-сервиса выглядит для лобби одинаково на всех роутах реестра
 function unavailable(res, err) {
   console.error('[games] registry proxy failed:', err.message);
@@ -25,9 +32,10 @@ function unavailable(res, err) {
  * @param {Object} deps.store - GameStore.
  * @param {Object} deps.catalog - GameCatalog.
  * @param {Object} deps.sync - GameSync.
+ * @param {Function} [deps.isAdmin] - Админская ли роль у req.user.
  * @returns {Object} Обработчики express.
  */
-export function createGameRoutes({ registry, store, catalog, sync }) {
+export function createGameRoutes({ registry, store, catalog, sync, isAdmin = () => false }) {
   // застейдженные версии по id — панель модерации и «Тест» показывают, что
   // именно сейчас лежит на диске рядом с одобренной версией
   function stagedVersionOf(id) {
@@ -72,7 +80,17 @@ export function createGameRoutes({ registry, store, catalog, sync }) {
     async submit(req, res) {
       const { id, packageName, version, title = null, repoUrl = null } = req.body || {};
 
-      if (typeof id !== 'string' || typeof packageName !== 'string') {
+      // форма ссылок проверяется ДО сети и диска: id доезжает до имени
+      // каталога в GameStore, а packageName — до пути в npm registry
+      if (
+        !GAME_ID_PATTERN.test(id ?? '') ||
+        RESERVED_GAME_IDS.has(id) ||
+        !PACKAGE_NAME_PATTERN.test(packageName ?? '') ||
+        (version !== undefined &&
+          version !== null &&
+          version !== 'latest' &&
+          !GAME_VERSION_PATTERN.test(version))
+      ) {
         res.status(400).json({ error: 'badRequest' });
         return;
       }
@@ -103,9 +121,13 @@ export function createGameRoutes({ registry, store, catalog, sync }) {
     async requestVersion(req, res) {
       const { id } = req.params;
       const { version } = req.body || {};
-      const { status, game } = await findGame(() => registry.mine(req.authToken), id).catch(
-        () => ({ status: 0, game: null }),
-      );
+      // админ вправе поднять версию ЛЮБОЙ игры (auth это разрешает —
+      // requestGameVersion(…, {isAdmin})), но в своих заявках чужой игры
+      // нет: списком для него служит очередь модерации целиком
+      const list = isAdmin(req.user)
+        ? () => registry.listAll(req.authToken)
+        : () => registry.mine(req.authToken);
+      const { status, game } = await findGame(list, id).catch(() => ({ status: 0, game: null }));
 
       if (status !== 200) {
         res.status(status || 502).json({ error: 'authServiceUnavailable' });

@@ -29,6 +29,8 @@ import {
   isValidGameTitle,
   isValidRepoUrl,
   isValidModeratorNote,
+  isValidMaxGameScore,
+  missingGameField,
 } from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
 import rateLimit from './lib/rateLimit.js';
@@ -376,6 +378,16 @@ function gameInputError({ id, packageName, version, title, repoUrl }) {
 // POST /games — заявка разработчика на новую игру платформы
 app.post('/games', requireAuth, byIp(gamesLimiter), async (req, res) => {
   const { id, packageName, title = null, repoUrl = null, version } = req.body || {};
+  // gameInputError проверяет ФОРМАТ и пропускает отсутствующее поле (он же
+  // обслуживает частичное обновление); присутствие обязательных полей —
+  // требование именно этого роута
+  const missing = missingGameField({ id, packageName, version });
+
+  if (missing) {
+    res.status(400).json({ error: 'badRequest', field: missing });
+    return;
+  }
+
   const error = gameInputError({ id, packageName, version, title, repoUrl });
 
   if (error) {
@@ -476,8 +488,11 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
     return;
   }
 
-  if (maxGameScore !== undefined && maxGameScore !== null && !Number.isInteger(maxGameScore)) {
-    res.status(400).json({ error: 'badRequest' });
+  if (
+    maxGameScore !== undefined && maxGameScore !== null &&
+    !isValidMaxGameScore(maxGameScore, config.rank)
+  ) {
+    res.status(400).json({ error: 'invalidMaxGameScore' });
     return;
   }
 
@@ -705,6 +720,20 @@ app.put('/host-rating/:hosterUserId', requireAuth, async (req, res) => {
   }
 
   res.json(await userRepo.voteHost(hosterUserId, req.user.id, value, reason.trim()));
+});
+
+// Финальный обработчик: без него отказ БД уходил в дефолтный обработчик
+// Express — 500 без единой строки в журнале сервиса. Тело наружу
+// обезличенное (стек в ответе не место), а requireAdmin с его next(err) на
+// этот обработчик и рассчитан
+app.use((err, req, res, next) => {
+  console.error(`[auth] ${req.method} ${req.path} failed:`, err);
+
+  if (res.headersSent) {
+    return;
+  }
+
+  res.status(500).json({ error: 'internal' });
 });
 
 const server = http.createServer(app);

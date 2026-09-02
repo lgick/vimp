@@ -119,6 +119,23 @@ function mapGame(row) {
     : null;
 }
 
+// Публичная форма строки: GET /games читает и мастер, и любой прохожий
+// (сервис выставлен наружу отдельным доменом), поэтому наружу едет только
+// то, что нужно каталогу мастера и футеру лобби. Внутренняя переписка
+// модерации (moderator_note), внутренний id автора и очередь версий
+// остаются на полном mapGame
+function mapPublicGame(row) {
+  return {
+    id: row.id,
+    packageName: row.package_name,
+    title: row.title,
+    repoUrl: row.repo_url,
+    authorNick: row.author_nick ?? null,
+    version: row.version,
+    maxGameScore: row.max_game_score,
+  };
+}
+
 // колонки игры + ник автора одним списком: все выборки реестра отдают одну и
 // ту же форму строки, чтобы mapGame был один на всех
 const GAME_FIELDS = `g.*, a.nick AS author_nick`;
@@ -712,7 +729,7 @@ export default class UserRepository {
         ORDER BY g.id`,
     );
 
-    return result.rows.map(mapGame);
+    return result.rows.map(mapPublicGame);
   }
 
   // очередь модерации: всё, включая отклонённое и выключенное, свежее сверху
@@ -754,23 +771,23 @@ export default class UserRepository {
   // Потолок заявок считается до вставки: 23505 отличить от него нельзя, а
   // сообщение разработчику у них разное
   async createGame({ id, packageName, title = null, repoUrl = null, version, authorUserId }) {
-    const counted = await this._db.query(
-      'SELECT COUNT(*)::int AS total FROM games WHERE author_user_id = $1',
-      [authorUserId],
-    );
-
-    if (Number(counted.rows[0]?.total ?? 0) >= config.games.maxPerUser) {
-      throw new GameLimitError(authorUserId);
-    }
-
     try {
+      // Потолок считается ВНУТРИ вставки: отдельный COUNT(*) до INSERT —
+      // гонка, параллельные заявки одного автора пролезали бы мимо лимита.
+      // Пустой RETURNING (условие не выполнилось) и есть «лимит исчерпан»:
+      // 23505 от него по-прежнему отличается, а сообщения у них разные
       const result = await this._db.query(
         `INSERT INTO games (id, package_name, title, repo_url, author_user_id,
                             status, pending_version)
-         VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+         SELECT $1, $2, $3, $4, $5, 'pending', $6
+          WHERE (SELECT COUNT(*) FROM games WHERE author_user_id = $5) < $7
          RETURNING *`,
-        [id, packageName, title, repoUrl, authorUserId, version],
+        [id, packageName, title, repoUrl, authorUserId, version, config.games.maxPerUser],
       );
+
+      if (result.rows.length === 0) {
+        throw new GameLimitError(authorUserId);
+      }
 
       return mapGame(result.rows[0]);
     } catch (err) {

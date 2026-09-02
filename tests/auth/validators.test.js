@@ -11,6 +11,8 @@ import {
   isValidGameTitle,
   isValidRepoUrl,
   isValidModeratorNote,
+  isValidMaxGameScore,
+  missingGameField,
 } from '../../packages/auth/src/lib/validators.js';
 import config from '../../packages/auth/src/config/auth.js';
 
@@ -172,5 +174,41 @@ describe('validators: реестр игр', () => {
     expect(isValidModeratorNote('версия падает на старте', config.games)).toBe(true);
     expect(isValidModeratorNote('x'.repeat(config.games.maxNoteLength + 1), config.games))
       .toBe(false);
+  });
+
+  it('зарезервированные id отклоняются: их занимают роуты реестра', () => {
+    config.games.reservedIds.forEach(id => {
+      expect(isValidGameId(id, config.games)).toBe(false);
+    });
+  });
+
+  it('missingGameField называет первое отсутствующее обязательное поле', () => {
+    expect(missingGameField({})).toBe('id');
+    expect(missingGameField({ id: 'pong' })).toBe('packageName');
+    expect(missingGameField({ id: 'pong', packageName: '@dev/pong' })).toBe('version');
+    expect(missingGameField({ id: 'pong', packageName: '@dev/pong', version: '1.0.0' }))
+      .toBeNull();
+    // отсутствие ≠ кривое значение: формат проверяет gameInputError
+    expect(missingGameField({ id: '', packageName: '', version: '' })).toBeNull();
+  });
+
+  it('maxGameScore ограничен потолками самого auth', () => {
+    const { rank } = config;
+
+    expect(isValidMaxGameScore(1, rank)).toBe(true);
+    expect(isValidMaxGameScore(rank.maxGameScore, rank)).toBe(true);
+    expect(isValidMaxGameScore(0, rank)).toBe(false);
+    expect(isValidMaxGameScore(-5, rank)).toBe(false);
+    expect(isValidMaxGameScore(1.5, rank)).toBe(false);
+    expect(isValidMaxGameScore('1000', rank)).toBe(false);
+    expect(isValidMaxGameScore(rank.maxGameScore + 1, rank)).toBe(false);
+    // произведение на окно склейки движка не должно перерастать maxPoints:
+    // иначе хост уходит в вечный повтор отклонённого flush
+    expect(isValidMaxGameScore(1000000, rank)).toBe(false);
+    expect(isValidMaxGameScore(Math.floor(rank.maxPoints / 20), { ...rank, maxGameScore: 1e9 }))
+      .toBe(true);
+    expect(
+      isValidMaxGameScore(Math.floor(rank.maxPoints / 20) + 1, { ...rank, maxGameScore: 1e9 }),
+    ).toBe(false);
   });
 });

@@ -24,6 +24,10 @@ const makeCatalog = () => ({
   upsert: vi.fn(),
   remove: vi.fn(),
   stagedManifests: vi.fn(() => []),
+  // каталог ещё не описывает состояние, полученное из реестра, — проход
+  // обязан дойти до upsert
+  hasActive: vi.fn(() => false),
+  entries: vi.fn(() => []),
 });
 
 const makeRegistry = games => ({
@@ -230,6 +234,88 @@ describe('GameSync', () => {
     await sync.run();
 
     expect(store.prune).toHaveBeenCalledWith(new Map([['snakes', new Set(['0.9.1'])]]));
+  });
+
+  it('застейдженная версия игры вне одобренного каталога остаётся в keep', async () => {
+    // основной сценарий модерации: заявка на НОВУЮ игру, админ жмёт «Тест».
+    // В GET /games её ещё нет, и раньше первый же тик таймера сносил
+    // скачанную версию с диска прямо посреди тестового матча
+    const catalog = makeCatalog();
+
+    catalog.stagedManifests.mockReturnValue([
+      { id: 'new-game', version: '1.0.0', manifest: manifestOf('new-game') },
+    ]);
+
+    const store = makeStore();
+    const sync = new GameSync({ registry: makeRegistry([tanks]), store, catalog });
+
+    await sync.run();
+
+    expect(store.prune).toHaveBeenCalledWith(
+      new Map([
+        ['tanks', new Set(['0.16.1'])],
+        ['new-game', new Set(['1.0.0'])],
+      ]),
+    );
+  });
+
+  it('повторный проход без изменений в реестре не трогает каталог', async () => {
+    const catalog = makeCatalog();
+    const store = makeStore();
+    const sync = new GameSync({ registry: makeRegistry([tanks]), store, catalog });
+
+    await sync.run();
+
+    catalog.hasActive.mockReturnValue(true);
+
+    await sync.run();
+
+    expect(catalog.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('запись каталога, чьей директории на диске нет, снимается', async () => {
+    const catalog = makeCatalog();
+
+    catalog.entries.mockReturnValue([
+      { id: 'tanks', version: '0.15.0', distDir: '/games-dir/tanks/0.15.0' },
+      // неверсионная запись (node_modules) диском не проверяется
+      { id: 'local', version: null, distDir: '/nowhere' },
+    ]);
+
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store: makeStore(),
+      catalog,
+    });
+
+    await sync.run();
+
+    expect(catalog.remove).toHaveBeenCalledWith('tanks', '0.15.0');
+    expect(catalog.remove).not.toHaveBeenCalledWith('local', null);
+  });
+
+  it('два одновременных run() дают один поход в реестр', async () => {
+    const registry = makeRegistry([tanks]);
+    const sync = new GameSync({ registry, store: makeStore(), catalog: makeCatalog() });
+
+    await Promise.all([sync.run(), sync.run()]);
+
+    expect(registry.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('удалённые prune пути отдаются в onPruned', async () => {
+    const onPruned = vi.fn();
+    const store = makeStore({ prune: vi.fn(async () => ['/games-dir/tanks/0.15.0']) });
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store,
+      catalog: makeCatalog(),
+      onPruned,
+    });
+
+    await sync.run();
+
+    expect(onPruned).toHaveBeenCalledWith(['/games-dir/tanks/0.15.0']);
   });
 
   it('start/stop заводят и снимают периодический опрос', async () => {

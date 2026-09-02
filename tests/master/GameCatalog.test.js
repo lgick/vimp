@@ -392,6 +392,42 @@ describe('GameCatalog: изменяемый версионный каталог'
     expect(catalog.isStaged('snakes', 'next-hash')).toBe(false);
   });
 
+  it('совпавший с активной версией хеш бандла — комната НЕ тестовая', () => {
+    // публикация с правкой только package.json/README не меняет ни одного
+    // байта сборки: две разные npm-версии несут один manifest.version, и
+    // комната игрока на одобренной версии обязана остаться видимой
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.16.2', { manifest: { ...fixtureManifest } });
+
+    expect(catalog.isStaged('tanks', fixtureManifest.version)).toBe(false);
+  });
+
+  it('hasActive отвечает, стоит ли версия раздаваемой', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0', {});
+
+    expect(catalog.hasActive('tanks', '0.16.1')).toBe(true);
+    expect(catalog.hasActive('tanks', '0.17.0')).toBe(false);
+    expect(catalog.hasActive('snakes', '0.9.1')).toBe(false);
+  });
+
+  it('entries отдаёт все записи каталога с их директориями', () => {
+    const catalog = new GameCatalog([], nodeModulesDir);
+
+    upsertVersion(catalog, 'tanks', '0.16.1', { active: true });
+    upsertVersion(catalog, 'tanks', '0.17.0', {});
+
+    expect(catalog.entries().map(({ id, version }) => `${id}@${version}`)).toEqual([
+      'tanks@0.16.1',
+      'tanks@0.17.0',
+    ]);
+    expect(catalog.entries().every(({ distDir }) => typeof distDir === 'string')).toBe(true);
+  });
+
   it('getMaxGameScore отдаёт потолок активной версии, иначе null', () => {
     const catalog = new GameCatalog([], nodeModulesDir);
 

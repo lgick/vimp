@@ -38,7 +38,7 @@ export default class GameCatalog {
    * @param {{dev?: boolean}} [options]
    */
   constructor(games, nodeModulesDir, { dev = false } = {}) {
-    // `${id}@${version ?? ''}` -> { version, manifest, mapCatalog, distDir, maxGameScore }
+    // `${id}@${version ?? ''}` -> { id, version, manifest, mapCatalog, distDir, maxGameScore }
     this._entries = new Map();
     this._active = new Map(); // id -> version активной записи (null у node_modules-пути)
     this._manifestList = '[]';
@@ -150,6 +150,9 @@ export default class GameCatalog {
     }
 
     this._entries.set(this._key(id, version), {
+      // id хранится в самой записи: разбор ключа по последнему '@' молча
+      // ломался бы на идентификаторе, содержащем '@'
+      id,
       version,
       // версионный URL раздачи: на диске рядом лежат несколько версий игры,
       // и один assetsBase на всех адресовал бы их вперемешку. У
@@ -194,8 +197,8 @@ export default class GameCatalog {
     if (version === undefined) {
       let removed = false;
 
-      for (const key of [...this._entries.keys()]) {
-        if (key.slice(0, key.lastIndexOf('@')) === id) {
+      for (const [key, entry] of [...this._entries]) {
+        if (entry.id === id) {
           this._entries.delete(key);
           removed = true;
         }
@@ -232,10 +235,17 @@ export default class GameCatalog {
       return false;
     }
 
+    // хеш активной сборки важнее: одна и та же сборка может быть
+    // опубликована под двумя npm-версиями (правка только package.json), и
+    // тогда комната игрока обязана остаться видимой
+    if (this._resolve(id)?.manifest.version === manifestVersion) {
+      return false;
+    }
+
     const activeVersion = this._active.get(id);
 
-    for (const [key, entry] of this._entries) {
-      if (key.slice(0, key.lastIndexOf('@')) !== id) {
+    for (const entry of this._entries.values()) {
+      if (entry.id !== id) {
         continue;
       }
 
@@ -254,15 +264,34 @@ export default class GameCatalog {
   stagedManifests() {
     const staged = [];
 
-    for (const [key, entry] of this._entries) {
-      const id = key.slice(0, key.lastIndexOf('@'));
-
-      if (entry.version !== this._active.get(id)) {
-        staged.push({ id, version: entry.version, manifest: entry.manifest });
+    for (const entry of this._entries.values()) {
+      if (entry.version !== this._active.get(entry.id)) {
+        staged.push({ id: entry.id, version: entry.version, manifest: entry.manifest });
       }
     }
 
     return staged;
+  }
+
+  /**
+   * Все записи каталога — чем он их раздаёт (GameSync сверяет с диском).
+   * @returns {{id: string, version: string|null, distDir: string}[]} Записи.
+   */
+  entries() {
+    return [...this._entries.values()].map(({ id, version, distDir }) => ({
+      id,
+      version,
+      distDir,
+    }));
+  }
+
+  /**
+   * @param {string} id - Идентификатор игры.
+   * @param {string|null} version - npm-версия.
+   * @returns {boolean} Стоит ли эта версия в каталоге раздаваемой.
+   */
+  hasActive(id, version) {
+    return this._active.get(id) === version && this._entries.has(this._key(id, version));
   }
 
   // package.json пакета игры: версия и адрес проекта (уже нормализованный —

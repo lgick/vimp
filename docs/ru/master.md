@@ -23,12 +23,20 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/main.js` | точка входа: развилка между лобби-мастером и [dedicated-сервером](dedicated.md) (`VIMP_DEDICATED_GAME`) |
 | `packages/engine/src/master/lobby.js` | сам лобби-мастер: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат |
 | `packages/engine/src/master/httpSecurity.js` | базовые security-заголовки (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP в проде), общие с dedicated-сервером |
-| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `GAMES_MATRIX`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated |
+| `packages/engine/src/config/env.js` | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`, `GAMES_MATRIX`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated |
 | `packages/engine/src/master/HostRegistry.js` | реестр комнат `Map<hostId, HostSession>`: регистрация (не более 1 комнаты с IP), heartbeat/`lastSeen`, закэшированный `rating`, выборка для `GET /servers` |
 | `packages/engine/src/master/SignalingServer.js` | сигнальный WebSocket: жизненный цикл соединений, маршрутизация WebRTC-сообщений, rate limiting пингов |
 | `packages/engine/src/master/MapCatalog.js` | каталог карт: JSON-представление `src/data/maps` игры-плагина (например, в `vimp-tanks`) в памяти + версия-хеш содержимого; раздача хостам без пересборки |
 | `packages/engine/src/master/WorkerCatalog.js` | каталог worker-бандла: версия-хеш содержимого `dist/assets/host.worker-*.js` + его URL; по нему хосты обнаруживают новую версию кода и меняют Worker эстафетой |
-| `packages/engine/src/master/GameCatalog.js` | каталог игр-плагинов: резолвит список игр из конфига `master:games` (`{id, package}[]`) в пакеты `node_modules/` и читает `<package>/dist/manifest.json` (продукт `npm run build` в репозитории игры) + строит per-game `MapCatalog` из `<package>/dist/maps/*.json`; в dev `entries.client/host/wasm` подменяются на исходники Vite `/@fs/` (HMR) — см. [plugin-api.md](plugin-api.md#gamemanifest) |
+| `packages/engine/src/master/GameCatalog.js` | каталог игр-плагинов, **изменяемый**: `upsert`/`setActive`/`remove` — единственный вход для обоих источников: списка `master:games` (`{id, package}[]`, резолвится в `node_modules/`) и `GameSync`. Запись адресуется парой `id` + npm-версия, поэтому две версии одной игры живут в каталоге одновременно (игроки — на одобренной, админ тестирует другую); в dev `entries.client/host/wasm` подменяются на исходники Vite `/@fs/` (HMR) — см. [plugin-api.md](plugin-api.md#gamemanifest) |
+| `packages/engine/src/master/GameRegistryProxy.js` | клиент реестра игр auth-сервиса (`/games`, `/games/mine`, `/admin/games`) — как `PlayerDataProxy`, ничего не кэширует и не интерпретирует, отдаёт `{status, json}` |
+| `packages/engine/src/master/GameStore.js` | хранилище игровых пакетов на диске (`VIMP_GAMES_DIR`, `<dir>/<id>/<npmVersion>/`): качает одобренную версию из npm registry, проверяет `integrity`, распаковывает `package/dist` и валидирует структурно. `ensure`/`inspect` не бросают никогда — сетевой отказ, 404, битый архив и проваленная проверка одинаково возвращают `{ok: false, errors}` |
+| `packages/engine/src/master/npmRegistry.js` | npm-половина хранилища: скачивание пакумента, резолв версии, загрузка тарболла с проверкой `integrity`/`shasum`, распаковка `tar` с потолками по размеру и числу файлов |
+| `packages/engine/src/master/gamePackageCheck.js` | структурная проверка скачанного пакета **без исполнения его кода** (форма манифеста, совпадение `id`, entries под `assetsBase`, карты): мастер не импортирует ни одну половину плагина — полный `vimp-contract` остаётся инструментом разработчика, см. [publishing.md](publishing.md) |
+| `packages/engine/src/master/rebaseManifest.js` | переписывает `assetsBase`/`entries` отдаваемого манифеста на версионную базу `/games/<id>/<version>/` и добавляет `mapsBase`; `entries.wasmNode` намеренно не трогается (это путь в ФС, а не URL) |
+| `packages/engine/src/master/GameSync.js` | держит каталог в согласии с реестром: один проход спрашивает реестр, докачивает недостающее, обновляет каталог и подметает диск; опрашивается по таймеру (`master:gameStore:refreshInterval`). Отказ реестра каталог не опустошает — протухший каталог лучше пустого |
+| `packages/engine/src/master/adminAuth.js` | авторизация REST-роутов мастера: та же проверка подписи по JWKS и та же политика issuer, что на сигнальном пути, плюс клейм `role` для `/admin/*` |
+| `packages/engine/src/master/gameRoutes.js` | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Тест» версии в каталоге |
 | `packages/engine/src/master/JwksProxy.js` | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | проксирует per-user `GET`/`PUT /rank` и `/state` центрального auth-сервиса, **без кэша** (Этап B4) — см. [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); также публичный `GET /leaderboard` и per-user `GET /placement` (lobby-page-plan) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/LeaderboardCache.js` | keyed-TTL кэш (`game:limit:period`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
@@ -95,20 +103,35 @@ IP хоста и служебные поля наружу не отдаются.
 не может зарегистрировать комнату, поэтому флага `blocked` в этом ответе
 нет.
 
-### GET /games/manifest.json, GET /games/:id/manifest.json, GET /games/:id/maps/\*
+### GET /games/manifest.json, GET /games/:id/…, GET /games/:id/:version/…
 
-Каталог `GameManifest` (`GameCatalog`, Этап A2 — см.
-[plugin-api.md](plugin-api.md#gamemanifest)): при старте мастера резолвит
-список игр из конфига `master:games` (`{id, package}[]`, см.
-[configuration.md](configuration.md#packagesenginesrcconfigmasterjs), переопределяется
-переменной окружения `GAMES_MATRIX`, а вне прода дополняется собранными
-пакетами `@vimp-games/*` из `node_modules` — `src/master/localGames.js`) в пакеты `node_modules/` (до
-разъезда репозиториев — workspace-симлинк на `games/<id>`, после — обычная
-зависимость) и читает `<package>/dist/manifest.json` (продукт
-`npm run build` в репозитории игры), по одной записи на игру-плагин. Игра, у которой
-`manifest.id` не совпадает с id из конфига, пропускается с предупреждением
-(статик-маунт строит пути по id); карта с битым JSON пропускается с
-предупреждением, не роняя мастер.
+Каталог `GameManifest` (`GameCatalog` — см.
+[plugin-api.md](plugin-api.md#gamemanifest)). У него **два источника**, и
+штатный из них — реестр:
+
+1. **Реестр игр центрального auth-сервиса** (`GameSync` + `GameStore`).
+   Каждые `master:gameStore:refreshInterval` мастер спрашивает у auth-сервиса
+   `GET /games` — одобренные игры и раздаваемую версию, — качает недостающее
+   из npm registry в `VIMP_GAMES_DIR` (`<dir>/<id>/<npmVersion>/`), проверяет
+   пакет структурно **без исполнения его кода** (`gamePackageCheck.js`) и
+   кладёт в каталог. Добавление игры и подъём её версии не требуют ни
+   пересборки образа, ни рестарта. Отказ реестра, битый архив или проваленная
+   проверка оставляют работающее на месте: протухший каталог лучше пустого, а
+   причина хранится по игре (`GameSync.lastError`) для панели модерации.
+2. **`master:games`** (`{id, package, maxGameScore?}[]`, см.
+   [configuration.md](configuration.md#packagesenginesrcconfigmasterjs),
+   переопределяется переменной окружения `GAMES_MATRIX`, а вне прода
+   дополняется собранными пакетами `@vimp-games/*` из `node_modules` —
+   `src/master/localGames.js`) — резолвится в пакеты `node_modules/` и
+   читается из `<package>/dist/manifest.json`. Это путь локальной разработки
+   (`npm link` плюс HMR) и self-hosted мастера без реестра. **Локально
+   прилинкованная игра всегда важнее**: `GameSync` пропускает запись реестра,
+   чей id прилинкован, — иначе разработчика молча увели бы править файлы,
+   которые никуда не едут.
+
+Игра, у которой `manifest.id` не совпадает с id из конфига, пропускается с
+предупреждением (статик-маунт строит пути по id); карта с битым JSON
+пропускается с предупреждением, не роняя мастер.
 
 За `engineApi` игра не выкидывается **никогда**: гейта по версии больше нет
 (`plan/plugin-forward-compat`). Игра, чей манифест просит через
@@ -126,10 +149,12 @@ IP хоста и служебные поля наружу не отдаются.
 игра выглядит как ошибка, а не как пустое лобби.
 
 В каждый отдаваемый манифест каталог дополнительно кладёт два поля, которых
-сборка игры не пишет: `packageVersion` и `packageUrl` — вычитанные из
-собственного `package.json` разрезолвленного пакета (`repository`, иначе
-`homepage`) и приведённые к https через `resolveProjectUrl`
-(`src/lib/packageLink.js`). Клиент показывает их в футере формы входа (см.
+сборка игры не пишет: `packageVersion` и `packageUrl`. На пути `node_modules`
+они вычитываются из собственного `package.json` разрезолвленного пакета
+(`repository`, иначе `homepage`) и приводятся к https через
+`resolveProjectUrl` (`src/lib/packageLink.js`); для игры из реестра они
+приходят строкой реестра — в опубликованном тарболле лежит только `dist/`.
+Клиент показывает их в футере формы входа (см.
 [client.md](client.md)). Источник здесь, а не в сборке игры, потому что новое
 поле манифеста доезжает до игроков только после того, как каждый репозиторий
 игры поправит свой `build-game-manifest.js`, пересоберётся и перепубликуется,
@@ -140,7 +165,8 @@ IP хоста и служебные поля наружу не отдаются.
 Dedicated-сервер переиспользует тот же `GameCatalog`, поэтому его футер
 `#auth` заполняется так же.
 
-- `GET /games/manifest.json` → JSON-массив манифестов всех известных игр.
+- `GET /games/manifest.json` → JSON-массив манифестов, которые каталог
+  **раздаёт** (активная версия каждой игры), в порядке по id.
 - `GET /games/:id/manifest.json` → манифест одной игры; неизвестный id →
   `404 { "error": "unknownGame" }`.
 - `GET /games/:id/maps/manifest.json` / `GET /games/:id/maps/:name` —
@@ -152,6 +178,63 @@ Dedicated-сервер переиспользует тот же `GameCatalog`, �
 - `GET /games/:id/*` — собранные ассеты игры (`dist/`: хешированные
   client/host-бандлы, общий хешированный `.wasm`, звуки) раздаются статикой
   под `assetsBase` (`/games/<id>/`), маунтится из `GameCatalog.getDistDir(id)`.
+
+#### Версионное URL-пространство
+
+Скачанная из реестра игра адресуется парой **id + npm-версия**:
+`/games/<id>/<version>/manifest.json`, `/games/<id>/<version>/maps/*` и
+`/games/<id>/<version>/*` для ассетов. Именно это позволяет админу играть в
+застейдженную версию, пока все остальные играют в одобренную, — один и тот же
+мастер раздаёт обе сразу. Сегмент версии обязан выглядеть как версия
+(`1.2.3`, при желании с суффиксом `-`/`+`), иначе путь уходит дальше в
+статику, и `/games/tanks/assets/…` по-прежнему резолвится.
+
+Мастер **переписывает отдаваемый манифест**: `rebaseManifest` переносит
+`assetsBase` и `entries.client/host/wasm` на `/games/<id>/<version>/` и
+добавляет `mapsBase` (`/games/<id>/<version>/maps`), откуда лобби берёт URL
+карт (`src/config/lobby.js`). `entries.wasmNode` не трогается — это путь в
+файловой системе для dedicated-сервера, а не URL. Тот же приём каталог уже
+применяет в dev, направляя entries на исходники Vite `/@fs/`. Entry, который
+не лежит под собственным `assetsBase` манифеста, остаётся как есть, а не
+«чинится».
+
+Неверсионные алиасы выше сохраняются и резолвятся в раздаваемую сейчас
+версию. Они нужны трём потребителям: вкладкам, открытым до смены версии;
+путям dev / standalone / dedicated, где `mapsBase` в манифесте нет вовсе; и
+хостам старых сборок.
+
+#### Роуты реестра (заявка и модерация)
+
+Обработчики живут в `gameRoutes.js`, авторизация — в `adminAuth.js`; **любая
+запись уходит в auth-сервис**, который перечитывает роль вызывающего из БД —
+мастер валидирует и раздаёт пакеты, но не решает, кому публиковать.
+
+| Роут | Доступ | Что делает |
+| --- | --- | --- |
+| `GET /games/mine` | любой вошедший | собственные заявки вызывающего со статусами и замечаниями модератора |
+| `POST /games/submit` | любой вошедший | заявка на новую игру: пакет качается и проверяется **до** записи строки, поэтому разработчик получает список проблем сразу, а реестр не засоряется нерабочими заявками. Лимит — 5 заявок в минуту на пользователя, до похода в npm |
+| `POST /games/mine/:id/version` | владелец игры (и админ — по любой игре) | новая версия уже заведённой игры, проверяется так же |
+| `GET /admin/games` | `role=admin` | вся очередь модерации плюс локальное состояние каждой игры на этом мастере (`downloaded`, `stagedVersion`, `lastError`) |
+| `GET /admin/games/manifest.json` | `role=admin` | манифесты застейдженных (не раздаваемых) версий — вкладка админа кладёт их в свой каталог и поднимает по ним комнату |
+| `POST /admin/games/:id/stage` | `role=admin` | «Тест»: скачать версию и положить её в каталог **неактивной** |
+| `PATCH /admin/games/:id` | `role=admin` | решение модератора (статус, раздаваемая версия, замечание, `maxGameScore`); при успехе мастер тут же гоняет проход синхронизации, поэтому админ видит результат немедленно, а остальные мастера подхватывают его в течение `refreshInterval` |
+| `GET /admin/games/:id/versions` | `role=admin` | что опубликовано в npm для пакета — индикатор «есть версия новее» |
+
+Отказ auth-сервиса на любом из них — `502 { "error": "authServiceUnavailable" }`.
+
+Комната, поднятая на застейдженной версии, **скрыта**: `register_host`
+помечает сессию `hidden`, когда срабатывает `GameCatalog.isStaged(gameId,
+gameVersion)`, и `GET /servers` её не показывает — в тестовую комнату можно
+попасть только по ссылке, чтобы игроки не заходили в неодобренную сборку.
+Проверка идёт по `manifest.version` (хеш бандла, который присылает хост): про
+npm-версии хост ничего не знает. Комната на одобренной версии скрытой не
+становится, даже если её хеш бандла совпал с застейдженным (публикация с
+правкой одного `package.json` кода не меняет).
+
+Потолок счёта одной игры (`maxGameScore`, применяется клампом к
+`PUT /auth/rank`) берётся из **строки реестра, заполненной админом**, а не из
+манифеста — иначе игра завысила бы себе потолок сама. В `master:games` он
+остаётся запасным путём для self-hosted.
 
 В dev `entries.client`/`entries.host`/`entries.wasm` подменяются на
 абсолютные пути исходников через Vite `/@fs/` (`src/client/index.js`

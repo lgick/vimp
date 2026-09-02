@@ -464,7 +464,10 @@ to `'user'` as soon as they leave the list. `deploy_auth` rewrites the line in
 the auth stack's `.env.prod` on every deploy and recreates the container with
 `--force-recreate` — `env_file` is only read when a container is created, so a
 plain restart would keep the old list (the same trap as
-`VIMP_AUTH_ALLOWED_ORIGINS` above).
+`VIMP_AUTH_ALLOWED_ORIGINS` above). An **empty** variable does not rewrite the
+line: an unset repository variable would otherwise mean `VIMP_ADMIN_NICKS=`
+and demote every superadmin on their next login. To clear the list on purpose,
+edit `.env.prod` on the server.
 
 **The package store.** Every master's `.env.prod` gets
 `VIMP_GAMES_DIR=/var/vimp/games`, and the generated `docker-compose.yml`

@@ -139,12 +139,21 @@ jobs:
             # переписываем идемпотентно и пересоздаём контейнер ниже. Та же
             # ловушка описана для VIMP_AUTH_ALLOWED_ORIGINS в
             # docs/en/deployment.md
-            echo "🔑 Updating VIMP_ADMIN_NICKS..."
-            touch .env.prod
-            grep -v '^VIMP_ADMIN_NICKS=' .env.prod > .env.prod.next || true
-            echo "VIMP_ADMIN_NICKS=${VIMP_ADMIN_NICKS}" >> .env.prod.next
-            mv .env.prod.next .env.prod
-            chmod 600 .env.prod
+            #
+            # Пустое значение НЕ переписывает строку: незаданная переменная
+            # репозитория означала бы VIMP_ADMIN_NICKS= — и syncRole разжаловал
+            # бы всех суперадминов при следующем входе. Чтобы список
+            # ОЧИСТИТЬ намеренно, правьте .env.prod на сервере
+            if [ -n "${VIMP_ADMIN_NICKS}" ]; then
+              echo "🔑 Updating VIMP_ADMIN_NICKS..."
+              touch .env.prod
+              grep -v '^VIMP_ADMIN_NICKS=' .env.prod > .env.prod.next || true
+              echo "VIMP_ADMIN_NICKS=${VIMP_ADMIN_NICKS}" >> .env.prod.next
+              mv .env.prod.next .env.prod
+              chmod 600 .env.prod
+            else
+              echo "🔑 VIMP_ADMIN_NICKS is empty — keeping the list already on the server"
+            fi
 
             echo "🚀 Pulling and Restarting..."
             docker compose pull

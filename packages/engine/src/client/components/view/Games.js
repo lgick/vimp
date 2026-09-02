@@ -126,11 +126,13 @@ export default class GamesView {
       item.className = 'games-item';
       item.appendChild(
         this._line(
-          `${game.id} — ${game.packageName} @ ${game.version ?? '—'}`,
+          `${game.title ? `${game.title} · ` : ''}${game.id} — ` +
+            `${game.packageName} @ ${game.version ?? '—'}`,
           'games-item-title',
         ),
       );
       item.appendChild(this._line(this._statusLine(game)));
+      this._appendRepo(item, game.repoUrl);
 
       if (game.moderatorNote) {
         item.appendChild(this._line(`Замечание: ${game.moderatorNote}`));
@@ -185,9 +187,13 @@ export default class GamesView {
 
     item.className = 'games-item';
     item.appendChild(
-      this._line(`${game.id} — ${game.packageName}`, 'games-item-title'),
+      this._line(
+        `${game.title ? `${game.title} · ` : ''}${game.id} — ${game.packageName}`,
+        'games-item-title',
+      ),
     );
     item.appendChild(this._line(`Автор: ${game.authorNick ?? game.authorUserId}`));
+    this._appendRepo(item, game.repoUrl);
     item.appendChild(
       this._line(
         `Раздаётся: ${game.version ?? '—'}; заявлена: ${game.pendingVersion ?? '—'}` +
@@ -239,6 +245,26 @@ export default class GamesView {
     );
 
     return item;
+  }
+
+  // Ссылка на репозиторий игры. Протокол проверяется и здесь, хотя auth уже
+  // принимает только http(s): href — единственное место представления, где
+  // содержимое поля становится исполняемым (javascript:), и полагаться на
+  // одну проверку на другой стороне сети тут не стоит
+  _appendRepo(item, url) {
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+      return;
+    }
+
+    const line = document.createElement('div');
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.textContent = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    line.appendChild(link);
+    item.appendChild(line);
   }
 
   _statusLine(game) {

@@ -46,6 +46,8 @@ export default class GameStore {
     this._registryUrl = registryUrl;
     this._limits = limits;
     this._fetch = fetchImpl;
+    // distDir -> {mtimeMs, check}: см. _checkCached
+    this._checks = new Map();
 
     try {
       fs.mkdirSync(dir, { recursive: true });
@@ -73,9 +75,15 @@ export default class GameStore {
    *   manifest: Object|null, compat: Object|null, errors: string[]}>} Вердикт.
    */
   async ensure(gameId, packageName, version) {
+    const badRef = refError(gameId, version);
+
+    if (badRef) {
+      return { ok: false, version: null, distDir: null, manifest: null, compat: null, errors: [badRef] };
+    }
+
     if (version && version !== 'latest' && this.has(gameId, version)) {
       const distDir = this.distDir(gameId, version);
-      const check = checkGamePackage(distDir, { id: gameId });
+      const check = this._checkCached(distDir, gameId);
 
       return { ...check, version, distDir: check.ok ? distDir : null };
     }
@@ -116,6 +124,32 @@ export default class GameStore {
     return { ...verdictOf(staged), distDir };
   }
 
+  // Перепроверка уже лежащей версии — защита от порчи тома, но бесплатной
+  // она не является: GameSync зовёт ensure на каждую игру каждый проход, а
+  // checkGamePackage читает манифест и щупает каждый entry и каждую карту.
+  // Ключ кэша — mtime каталога версии: любая правка содержимого его двигает
+  _checkCached(distDir, gameId) {
+    let mtimeMs;
+
+    try {
+      mtimeMs = fs.statSync(distDir).mtimeMs;
+    } catch {
+      mtimeMs = null;
+    }
+
+    const cached = this._checks.get(distDir);
+
+    if (cached && mtimeMs !== null && cached.mtimeMs === mtimeMs) {
+      return cached.check;
+    }
+
+    const check = checkGamePackage(distDir, { id: gameId });
+
+    this._checks.set(distDir, { mtimeMs, check });
+
+    return check;
+  }
+
   /**
    * Скачать и проверить версию, НЕ делая её доступной. Для заявки и «Теста».
    * @param {string} gameId - Идентификатор игры в каталоге.
@@ -125,6 +159,12 @@ export default class GameStore {
    *   compat: Object|null, errors: string[]}>} Вердикт.
    */
   async inspect(gameId, packageName, version) {
+    const badRef = refError(gameId, version);
+
+    if (badRef) {
+      return { ok: false, version: null, manifest: null, compat: null, errors: [badRef] };
+    }
+
     const staged = await this._stage(gameId, packageName, version);
 
     await remove(staged.stagingDir);
@@ -168,6 +208,9 @@ export default class GameStore {
    * @returns {string} Путь к dist/ этой версии (существующей или нет).
    */
   distDir(gameId, version) {
+    assertSegment(gameId, 'идентификатор игры');
+    assertSegment(version, 'версия');
+
     return path.join(this._dir, gameId, version);
   }
 
@@ -176,6 +219,8 @@ export default class GameStore {
    * @returns {string[]} Версии игры, лежащие на диске.
    */
   listLocalVersions(gameId) {
+    assertSegment(gameId, 'идентификатор игры');
+
     return readDirNames(path.join(this._dir, gameId)).filter(
       name => name !== STAGING,
     );
@@ -201,6 +246,7 @@ export default class GameStore {
 
         if (!wanted.has(name)) {
           await remove(path.join(gameDir, name));
+          this._checks.delete(path.join(gameDir, name));
           removed.push(path.join(gameDir, name));
         }
       }
@@ -243,6 +289,8 @@ export default class GameStore {
   // скачивание, распаковка и проверка в <gameId>/.staging/<rand>. Каталог
   // остаётся на диске: вызывающий либо переносит его в раздачу, либо удаляет
   async _stage(gameId, packageName, version) {
+    assertSegment(gameId, 'идентификатор игры');
+
     const stagingDir = path.join(
       this._dir,
       gameId,
@@ -293,6 +341,43 @@ export default class GameStore {
       return fail(stagingDir, null, err.message);
     }
   }
+}
+
+// id и версия становятся ИМЕНАМИ КАТАЛОГОВ под this._dir: значение с
+// разделителем или '..' увело бы path.join за пределы хранилища. Проверка
+// стоит в самом хранилище, а не только в роуте, потому что держаться она
+// обязана независимо от того, кто и откуда позвал
+function assertSegment(value, what) {
+  if (!isSegment(value)) {
+    throw new Error(`GameStore: недопустимый ${what} "${value}"`);
+  }
+}
+
+function isSegment(value) {
+  return (
+    typeof value === 'string' &&
+    value !== '' &&
+    // path.basename('..') === '..': сами по себе '.' и '..' разделителя не
+    // содержат, но каталогом версии быть не могут
+    value !== '.' &&
+    value !== '..' &&
+    value === path.basename(value)
+  );
+}
+
+// ensure/inspect не бросают по контракту, поэтому кривую ссылку они обязаны
+// вернуть вердиктом, а не исключением: assertSegment ниже по стеку — это
+// страховка на случай прямого вызова distDir/_stage, а не путь ответа
+function refError(gameId, version) {
+  if (!isSegment(gameId)) {
+    return `недопустимый идентификатор игры "${gameId}"`;
+  }
+
+  if (version !== undefined && version !== null && version !== 'latest' && !isSegment(version)) {
+    return `недопустимая версия "${version}"`;
+  }
+
+  return null;
 }
 
 function fail(stagingDir, version, message) {

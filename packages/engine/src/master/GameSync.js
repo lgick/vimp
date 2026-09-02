@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+
 // Синхронизация каталога мастера с реестром игр auth-сервиса
 // (master-game-registry, этап 3).
 //
@@ -19,6 +21,7 @@ export default class GameSync {
    * @param {Set<string>} [options.localGameIds] - id игр, взятых из node_modules.
    * @param {number} [options.intervalMs] - Период опроса реестра.
    * @param {number} [options.keepVersions] - Сколько версий игры держать на диске.
+   * @param {Function} [options.onPruned] - Колбэк со списком удалённых путей.
    */
   constructor({
     registry,
@@ -27,6 +30,7 @@ export default class GameSync {
     localGameIds = new Set(),
     intervalMs = 60000,
     keepVersions = 2,
+    onPruned = null,
   }) {
     this._registry = registry;
     this._store = store;
@@ -34,7 +38,12 @@ export default class GameSync {
     this._localGameIds = localGameIds;
     this._intervalMs = intervalMs;
     this._keepVersions = keepVersions;
+    // удалённые с диска пути: вызывающий снимает по ним свои кэши, привязанные
+    // к директории версии (статик-маунты лобби)
+    this._onPruned = onPruned;
     this._timer = null;
+    // идущий проход: см. run()
+    this._running = null;
     // id игр, поставленных в каталог именно этой синхронизацией: снимать с
     // раздачи мы вправе только их, но не игры из node_modules и не игры
     // из статического конфига self-hosted мастера
@@ -51,7 +60,24 @@ export default class GameSync {
    * Один проход синхронизации. Никогда не бросает.
    * @returns {Promise<void>} Завершение прохода.
    */
-  async run() {
+  run() {
+    // проход не пересекается сам с собой: PATCH модерации зовёт run() поверх
+    // таймерного прохода, а медленный npm легко переживает intervalMs.
+    // Возвращается ТОТ ЖЕ промис, а не немедленный выход: админ обязан
+    // дождаться завершения синхронизации, а не получить ответ раньше, чем
+    // каталог обновился
+    if (this._running) {
+      return this._running;
+    }
+
+    this._running = this._run().finally(() => {
+      this._running = null;
+    });
+
+    return this._running;
+  }
+
+  async _run() {
     let games;
 
     try {
@@ -101,6 +127,14 @@ export default class GameSync {
         continue;
       }
 
+      // каталог уже описывает ровно это состояние: пересобирать запись
+      // (перечитывание всех карт игры + JSON.stringify каталога) незачем
+      if (this._catalog.hasActive(game.id, result.version)) {
+        this._owned.add(game.id);
+        this._errors.delete(game.id);
+        continue;
+      }
+
       this._catalog.upsert({
         id: game.id,
         version: result.version,
@@ -127,7 +161,21 @@ export default class GameSync {
       }
     }
 
+    this._dropMissing();
+
     await this._prune(games);
+  }
+
+  // каталог и диск не расходятся ни в одну сторону: запись, чьей директории
+  // на диске уже нет (ручная чистка тома, прошлый prune), снимается — иначе
+  // /games/<id>/<version>/* отдаёт 404 посреди матча
+  _dropMissing() {
+    for (const { id, version, distDir } of this._catalog.entries()) {
+      if (version && !existsSync(distDir)) {
+        console.warn(`GameSync: drop "${id}"@${version} — ${distDir} is gone`);
+        this._catalog.remove(id, version);
+      }
+    }
   }
 
   // диск чистится по тому же списку, по которому собран каталог: активная
@@ -135,21 +183,40 @@ export default class GameSync {
   // больше keepVersions на игру
   async _prune(games) {
     const keep = new Map();
-
-    for (const game of games) {
-      if (!this._localGameIds.has(game.id)) {
-        keep.set(game.id, new Set([game.version]));
+    const add = (id, version) => {
+      if (!version || this._localGameIds.has(id)) {
+        return;
       }
-    }
 
-    for (const { id, version } of this._catalog.stagedManifests()) {
-      if (version && keep.has(id) && keep.get(id).size < this._keepVersions) {
+      if (!keep.has(id)) {
+        keep.set(id, new Set());
+      }
+
+      if (keep.get(id).size < this._keepVersions) {
         keep.get(id).add(version);
       }
+    };
+
+    // раздаваемая версия каждой игры реестра — первым приоритетом: место в
+    // пределах keepVersions она занимает раньше черновиков
+    for (const game of games) {
+      add(game.id, game.version);
+    }
+
+    // застейдженные версии — включая игры, которых в одобренном каталоге нет
+    // вовсе (заявка на новую игру, которую админ прямо сейчас тестирует).
+    // Раньше здесь стояло условие keep.has(id), и «Тест» новой игры сносило
+    // с диска первым же тиком таймера прямо посреди тестового матча
+    for (const { id, version } of this._catalog.stagedManifests()) {
+      add(id, version);
     }
 
     try {
-      await this._store.prune(keep);
+      const removed = await this._store.prune(keep);
+
+      if (removed.length > 0) {
+        this._onPruned?.(removed);
+      }
     } catch (err) {
       console.warn(`GameSync: prune failed (${err.message})`);
     }
@@ -188,6 +255,8 @@ export default class GameSync {
     if (this._timer) {
       clearInterval(this._timer);
       this._timer = null;
+    // идущий проход: см. run()
+    this._running = null;
     }
   }
 }

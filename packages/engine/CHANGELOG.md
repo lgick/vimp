@@ -41,6 +41,50 @@ bumps the minor version).
   `<id>` or `<id>@<version>` and, when the game is not linked into
   `node_modules`, fetches it from the registry into `VIMP_GAMES_DIR`.
 
+### Fixed
+
+- A staged version is no longer pruned off disk while an admin is testing it.
+  `GameSync` built its keep-set from the approved catalog only, so a "Test" of
+  a game that is not approved yet — the main moderation path — lost its files
+  on the next sync tick and started answering 404 mid-match. The keep-set now
+  follows the catalog, and a catalog entry whose directory is gone is dropped
+  so the two cannot drift apart.
+- `POST /games` of the auth service answers `400` instead of `500` when a
+  required field is missing: presence is now checked by the route, not left to
+  a `NOT NULL` violation. The service also got a final error handler, so a
+  database failure is logged instead of vanishing into Express's default one.
+- `maxGameScore` set by a moderator is validated against the auth service's
+  own ceilings. A value above them let the master forward a result the service
+  then rejected, which put the host into an endless flush retry.
+- A game's registry-published version list no longer sorts by an undefined
+  comparison: build metadata (`1.0.0+b`) is excluded from the comparison and a
+  prerelease is compared whole (`1.0.0-alpha-1` vs `1.0.0-alpha-2`).
+- A room on the approved version is no longer hidden from `GET /servers` when
+  its bundle hash happens to match a staged version's (a republish that
+  touched only `package.json` leaves the code identical).
+- `/games/%ZZ/x.js` answers `404` instead of `500`.
+- The master's first sync pass no longer delays `listen` indefinitely: a slow
+  npm registry used to hold the port closed for minutes. The startup pass now
+  has a deadline and the catalog fills in on the next tick.
+
+### Security
+
+- The game id of a submission is validated before it reaches disk. `POST
+  /games/submit` accepted any string and passed it to `path.join`, so any
+  logged-in user could make the master create directories and unpack a package
+  outside its package store. Both the route and `GameStore` now reject
+  anything that is not a single path segment, and reserved ids (`mine`,
+  `submit`, `manifest`) are refused by the master and the auth service alike.
+- `POST /games/submit` and `POST /games/mine/:id/version` are rate-limited on
+  the master (5/min per user), before the npm fetch and the tarball unpack —
+  the auth service's limiter sits behind them and only saw successful checks.
+- Tarball extraction aborts the stream as soon as a limit is exceeded instead
+  of decompressing the rest of the archive.
+- The public `GET /games` no longer returns the moderator's note, the author's
+  internal id or the pending version.
+- The submission cap per author is enforced inside the `INSERT` instead of by
+  a preceding `COUNT(*)`, closing the race between concurrent submissions.
+
 ## [0.24.2] — 2026-08-29
 
 ### Fixed
