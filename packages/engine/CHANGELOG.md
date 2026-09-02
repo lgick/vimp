@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-09-02
+
 ### ⚠️ Breaking
 
 - The `GAMES_MATRIX` environment variable is gone. The lobby master's catalog
@@ -1842,6 +1844,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.26.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.26.0
 [0.25.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.25.0
 [0.24.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.24.2
 [0.24.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.24.1
