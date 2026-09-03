@@ -404,6 +404,9 @@ async function main(argv) {
     engine: args.only.includes('engine') ? collected.engine : null,
     scaffold: args.only.includes('scaffold') ? collected.scaffold : null,
     engineApiChanged: collected.engineApiChanged,
+    // не артефакт, а состояние репозитория: под --only не попадает, иначе
+    // `--only=games` объявил бы незапушенный релиз доехавшим
+    unpushed: collected.unpushed,
   };
 
   // Решение по крейту и движку от игр не зависит, а вопросов про игры бывает
@@ -545,11 +548,14 @@ async function main(argv) {
     ],
   );
 
+  // публиковать нечего — но незапушенный релиз прошлого прогона всё ещё ждёт
+  // деплоя, и выйти здесь значило бы оставить его лежать локально
   if (
     !decision.crate.publish &&
     !decision.engine.publish &&
     !decision.scaffold.publish &&
-    !selectedGames.length
+    !selectedGames.length &&
+    !(args.only.includes('prod') && decision.prod.push)
   ) {
     ui.log('публиковать нечего');
     return 0;

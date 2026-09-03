@@ -12,6 +12,7 @@ import {
   publishEngine,
   publishScaffold,
   rollOutProduction,
+  unpushedTags,
 } from '../../../scripts/release/steps.js';
 import { CommandError } from '../../../scripts/release/shell.js';
 
@@ -234,6 +235,60 @@ function recordingShell(dryRun = true) {
     },
   };
 }
+
+// Шелл, отвечающий на `git tag` заранее заданными списками: `read` в
+// recordingShell всегда возвращает код 1 (это форма ответа `diff --cached`),
+// а здесь нужен именно вывод
+function tagShell(byCommand) {
+  return {
+    dryRun: true,
+    read: async (command, args) => {
+      const key = `${command} ${args.join(' ')}`;
+      const stdout = byCommand[key];
+
+      return stdout === undefined
+        ? { code: 1, stdout: '', stderr: '', output: '' }
+        : { code: 0, stdout, stderr: '', output: stdout };
+    },
+  };
+}
+
+// Прерванный прогон ставит тег и падает следующим шагом: report.tags нового
+// запуска о нём не знает, и без досбора тег остался бы лежать локально —
+// сводка сказала бы «прод: запушен», а движок в origin приехал бы без тега
+describe('unpushedTags', () => {
+  it('добавляет теги на коммитах, не уехавших в upstream', async () => {
+    const shell = tagShell({
+      'git tag --contains @{u}': 'vimp-engine-core@0.10.0\nvimp-engine@0.29.0\n',
+      'git tag --points-at @{u}': '',
+    });
+
+    const tags = await unpushedTags(shell, '/repo', ['create-vimp-game@0.4.7']);
+
+    expect(tags).toEqual([
+      'create-vimp-game@0.4.7',
+      'vimp-engine-core@0.10.0',
+      'vimp-engine@0.29.0',
+    ]);
+  });
+
+  it('не берёт тег самого upstream: --contains считает коммит своим предком', async () => {
+    const shell = tagShell({
+      'git tag --contains @{u}': 'vimp-engine@0.28.0\nvimp-engine@0.29.0\n',
+      'git tag --points-at @{u}': 'vimp-engine@0.28.0\n',
+    });
+
+    expect(await unpushedTags(shell, '/repo', [])).toEqual(['vimp-engine@0.29.0']);
+  });
+
+  it('без upstream отдаёт только теги текущего прогона', async () => {
+    const shell = tagShell({});
+
+    expect(await unpushedTags(shell, '/repo', ['vimp-engine@0.29.0'])).toEqual([
+      'vimp-engine@0.29.0',
+    ]);
+  });
+});
 
 // Скаффолдер уезжает в npm вместе с движком: prepack вшивает в его тарбол
 // версии из packages/engine, и шаг обязан гнать E2E — unit-тесты шаблон не

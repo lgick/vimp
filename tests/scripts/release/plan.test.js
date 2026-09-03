@@ -243,6 +243,57 @@ describe('decide', () => {
     expect(plan.prod.push).toBe(false);
   });
 
+  // прерванный прогон: крейт и движок опубликованы прошлым запуском, их
+  // бампы закоммичены и затегированы, publish у обоих уже false — но релиз
+  // всё ещё не доехал до прода, и решение обязано это видеть
+  it('деплоит прод по незапушенным коммитам, даже когда публиковать нечего', () => {
+    const plan = decide(input({ unpushed: true }));
+
+    expect(plan.crate.publish).toBe(false);
+    expect(plan.engine.publish).toBe(false);
+    expect(plan.prod.push).toBe(true);
+    expect(plan.prod.reason).toMatch(/не уехали в main/);
+  });
+
+  it('без незапушенных коммитов релиз одних игр прод не деплоит', () => {
+    const plan = decide(
+      input({
+        unpushed: false,
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.5.0',
+            published: '0.4.2',
+            changed: false,
+          },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(true);
+    expect(plan.prod.push).toBe(false);
+    expect(plan.prod.verifyGames).toBe(true);
+  });
+
+  // причина деплоя называется по самому сильному сигналу: публикация движка
+  // важнее «на ветке лежит незапушенное»
+  it('публикация движка перебивает незапушенные коммиты в причине', () => {
+    const plan = decide(
+      input({
+        unpushed: true,
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: true,
+          unreleased: added,
+        },
+      }),
+    );
+
+    expect(plan.prod.push).toBe(true);
+    expect(plan.prod.reason).toBe('опубликован движок');
+  });
+
   it('публикует игру, у которой версия поднята руками, но не уехала', () => {
     const plan = decide(
       input({

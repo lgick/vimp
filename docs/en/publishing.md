@@ -501,6 +501,15 @@ git push
 > engine. No `npm test`, no pin snapshot, no `git push` and no "this is a
 > PRODUCTION DEPLOY" prompt: a game release changes no file in this
 > repository.
+>
+> The exception is an interrupted run. If a previous run already published
+> the crate or the engine, committed and tagged their bumps, but never got
+> to `git push`, both artifacts now have `publish: false` while the branch
+> still carries unpushed commits. The script sees them (`@{u}..HEAD`) and
+> sets the "прод" row to **"да (push в main)"**, with the reason "релизные
+> коммиты этого репозитория не уехали в main" — even when there is nothing
+> left to publish in this run. The tags sitting on those commits go up with
+> the branch too, not just the ones this run created.
 
 CI then builds the master image, pushes it to GHCR, and SSHes into every
 server in `SERVERS_MATRIX` to `docker compose pull && up -d`; the auth

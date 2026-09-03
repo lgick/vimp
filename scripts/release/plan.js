@@ -148,7 +148,11 @@ export function decide(input) {
       // репозитории ни файла, и пуш в main был бы деплоем без изменений.
       // Движок и крейт — меняют: их бамп коммитится и тегается здесь же,
       // и без пуша релиз остался бы наполовину локальным
-      push: engine.publish || crate.publish,
+      // Прерванный прогон — третий случай: крейт и движок опубликованы
+      // прошлым запуском, их бампы закоммичены и затегированы, publish у
+      // обоих уже false — и без этого сигнала повторный прогон оставил бы
+      // релиз наполовину локальным ровно так же, как отменённый пуш
+      push: engine.publish || crate.publish || input.unpushed === true,
       // …но выпущенную игру всё равно надо прогнать против текущего движка:
       // проверка нужна и тогда, когда пушить нечего
       verifyGames: publishedGames.length > 0,
@@ -156,9 +160,11 @@ export function decide(input) {
         ? 'опубликован движок'
         : crate.publish
           ? 'опубликован крейт'
-          : publishedGames.length > 0
-            ? 'игры едут через реестр — деплой не нужен, только проверка sim'
-            : 'публиковать нечего',
+          : input.unpushed === true
+            ? 'релизные коммиты этого репозитория не уехали в main'
+            : publishedGames.length > 0
+              ? 'игры едут через реестр — деплой не нужен, только проверка sim'
+              : 'публиковать нечего',
       // при бампе ENGINE_API_VERSION движок и плагин обязаны доехать в прод
       // одним пушем — все пуши ветки собраны в шаге C
       strictlyLast: input.engineApiChanged === true,
@@ -390,6 +396,7 @@ export async function collect(root) {
 
   return {
     engineApiChanged,
+    unpushed: await hasUnpushedCommits(root),
     crate: {
       local: crateLocal,
       published: cratePublished,
@@ -419,6 +426,16 @@ export async function collect(root) {
       }),
     },
   };
+}
+
+// Незапушенные коммиты main. Свои коммиты релиз ставит только на бампе
+// крейта, движка или скаффолдера, поэтому непустой `@{u}..HEAD` в этом
+// репозитории и означает «релиз не доехал до прода». Без upstream ветки
+// сигнала нет — этот случай ловит preflightRepo.
+async function hasUnpushedCommits(root) {
+  const count = await git(root, ['rev-list', '--count', '@{u}..HEAD']);
+
+  return count !== null && Number(count) > 0;
 }
 
 // Пины, которые prepack-хук вшивает в тарбол скаффолдера, живут в чужих

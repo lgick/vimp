@@ -632,6 +632,44 @@ export async function publishGame({
 
 // ── Step C: прод ───────────────────────────────────────────────────────────
 
+// Теги этого репозитория, которые ещё не уехали в origin. `known` — теги
+// текущего прогона; после прерванного запуска их ставил прошлый, и он же
+// оставил их лежать локально, поэтому одного report.tags мало. Сеть не
+// нужна: релизный тег всегда стоит на релизном коммите, а незапушенные
+// коммиты — ровно те, что не входят в upstream.
+export async function unpushedTags(shell, root, known) {
+  const names = new Set(known);
+
+  const contains = await shell.read('git', ['tag', '--contains', '@{u}'], {
+    cwd: root,
+    allowFailure: true,
+  });
+
+  if (contains.code !== 0) {
+    return [...names];
+  }
+
+  // тег на самом @{u} уже запушен: --contains считает коммит содержащим сам
+  // себя, и без этого списка он попал бы в выдачу
+  const pushed = await shell.read('git', ['tag', '--points-at', '@{u}'], {
+    cwd: root,
+    allowFailure: true,
+  });
+  const alreadyPushed = new Set(
+    (pushed.code === 0 ? pushed.stdout : '').split('\n').map(line => line.trim()),
+  );
+
+  for (const line of contains.stdout.split('\n')) {
+    const name = line.trim();
+
+    if (name && !alreadyPushed.has(name)) {
+      names.add(name);
+    }
+  }
+
+  return [...names];
+}
+
 export async function rollOutProduction({
   shell,
   root,
@@ -718,6 +756,8 @@ export async function rollOutProduction({
   ui.raw(pending.stdout.trim() || '  (нечего пушить)');
   ui.raw('');
 
+  const pendingTags = await unpushedTags(shell, root, tags);
+
   const approved = await ui.confirm(
     'Пуш в main — это ДЕПЛОЙ прода (deploy.yml). Пушим?',
     false,
@@ -727,7 +767,7 @@ export async function rollOutProduction({
     ui.log('пуш отменён. Осталось выполнить вручную:');
     ui.raw('  git push');
 
-    for (const name of tags) {
+    for (const name of pendingTags) {
       ui.raw(`  git push origin ${name}`);
     }
 
@@ -737,7 +777,7 @@ export async function rollOutProduction({
 
   await shell.write('git', ['push'], { cwd: root });
 
-  for (const name of tags) {
+  for (const name of pendingTags) {
     await shell.write('git', ['push', 'origin', name], { cwd: root });
   }
 
