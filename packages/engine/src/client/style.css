@@ -438,7 +438,7 @@ body.hide-cursor {
   background-color: #333;
   border: 1px solid #eee;
   padding: 10px;
-  margin: 5px auto 3px;
+  margin: 5px auto 0;
   text-shadow: 1px 1px 1px #000;
   font-size: 12px;
   line-height: 15px;
@@ -549,15 +549,11 @@ body.hide-cursor {
   padding: 0 10px;
 }
 
-/* ширина — контентная область правой панели лобби (её ширина минус
-   собственные поля .lobby-browser-inner), под которой футер и стоит;
-   max-width, а не width: в одну колонку он обязан ужиматься по экрану */
 #lobby-footer {
-  width: 100%;
-  max-width: calc(var(--lobby-browser-width) - 2 * var(--lobby-panel-pad));
+  width: calc(var(--lobby-width) + var(--lobby-panel-pad));
   font-size: 10px;
   padding: 0;
-  margin: 0 var(--lobby-panel-pad) 0 0;
+  margin: 0 calc(var(--lobby-panel-pad) / 2) 0 0;
 }
 
 /* три равные ячейки: середину держит не space-between, а сама равность —
@@ -670,11 +666,7 @@ body.hide-cursor {
 /*lobby*/
 
 #lobby {
-  /* ширины панелей и их внутренние поля: по ним же считается ширина футера
-     (секция auth выше), поэтому числа живут в одном месте — иначе смена
-     ширины любой панели молча разъезжает вёрстку */
-  --lobby-setup-width: 370px;
-  --lobby-browser-width: 370px;
+  --lobby-width: 370px;
   --lobby-panel-pad: 10px;
 
   background-color: #222;
@@ -837,7 +829,7 @@ body.hide-cursor {
 }
 
 #lobby-setup-panel {
-  width: var(--lobby-setup-width);
+  width: var(--lobby-width);
 }
 
 /* высоту правой .card задаёт форма слева: обе панели тянутся до высоты
@@ -846,7 +838,7 @@ body.hide-cursor {
    вынесен в абсолютный слой .lobby-browser-inner (его высота не участвует в
    расчёте высоты строки) */
 #lobby-browser-panel {
-  width: var(--lobby-browser-width);
+  width: var(--lobby-width);
   position: relative;
 }
 
