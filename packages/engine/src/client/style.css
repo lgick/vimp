@@ -217,9 +217,9 @@ body.hide-cursor {
   background: rgba(25, 25, 25, 0.9);
   border-radius: 5px;
   border: 3px solid #fff;
-  overflow: hidden;
+  overflow: auto;
   width: 90%;
-  max-width: 550px;
+  max-width: 500px;
   font-size: 10px;
   line-height: 12px;
   color: #fff;
