@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-09-03
+
 ### Added
 
 - **Deleting a game is now reversible for 30 days.** A deleted game leaves the
@@ -1975,6 +1977,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.28.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.28.0
 [0.27.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.27.0
 [0.26.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.26.0
 [0.25.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.25.0
