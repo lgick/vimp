@@ -673,8 +673,8 @@ body.hide-cursor {
   /* ширины панелей и их внутренние поля: по ним же считается ширина футера
      (секция auth выше), поэтому числа живут в одном месте — иначе смена
      ширины любой панели молча разъезжает вёрстку */
-  --lobby-setup-width: 410px;
-  --lobby-browser-width: 430px;
+  --lobby-setup-width: 370px;
+  --lobby-browser-width: 370px;
   --lobby-panel-pad: 10px;
 
   background-color: #222;
