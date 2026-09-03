@@ -24,6 +24,9 @@ export const ENGINE_CAPABILITIES = createRegistry('engine-capabilities', [
   { value: 'accolades', since: '0.21.0' },
   // dispatch/abi_describe в ядре (этап 4): опциональные вызовы ядра
   { value: 'dispatch', since: '0.23.0' },
+  // слоёные карты: `levels`/`ramps` в формате карты, маски уровней в
+  // физике, уровень участника (`set_actor_level`), слоёный нав-граф
+  { value: 'map.layers', since: '0.25.0' },
 ]);
 
 // плоский список имён — то, чем правило контракта B2 проверяет `requires`

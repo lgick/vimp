@@ -74,6 +74,22 @@ export default class GameCoreAdapter {
     } else {
       this._core.spawn_actor(gameId, model, teamId, x, y, angle);
     }
+
+    this._applyActorLevel(gameId, data);
+  }
+
+  // явный уровень точки респауна на 2.5D-карте (respawns[i][3]); ядро,
+  // собранное до появления метода, его просто не экспортирует — тогда
+  // уровень выведется из геометрии внутри ядра
+  _applyActorLevel(gameId, data) {
+    const level = data[3];
+
+    if (
+      typeof level === 'number' &&
+      typeof this._core.set_actor_level === 'function'
+    ) {
+      this._core.set_actor_level(gameId, level);
+    }
   }
 
   // удаляет танк (Game.removePlayer). Scripted → удаляет и ИИ-контроллер
@@ -98,6 +114,7 @@ export default class GameCoreAdapter {
     const [x, y, angle] = data.respawnData;
 
     this._core.reset_actor(gameId, data.teamId, x, y, angle);
+    this._applyActorLevel(gameId, data.respawnData);
   }
 
   // ***** ввод ***** //

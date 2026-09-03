@@ -118,6 +118,43 @@ describe('GameCoreAdapter', () => {
     ]);
   });
 
+  it('createPlayer передаёт явный уровень точки респауна', () => {
+    const withLevel = { ...makeFakeCore(), set_actor_level(...a) {
+      this.calls.push(['set_actor_level', ...a]);
+    } };
+    const adapter = new GameCoreAdapter(withLevel, {
+      participants: makeParticipants(),
+    });
+
+    adapter.createPlayer(1, 'm1', 'Human', 1, [10, 20, 0, 1]);
+
+    expect(withLevel.calls).toContainEqual(['set_actor_level', 1, 1]);
+  });
+
+  it('createPlayer на старом ядре молча пропускает уровень', () => {
+    const adapter = new GameCoreAdapter(core, {
+      participants: makeParticipants(),
+    });
+
+    expect(() =>
+      adapter.createPlayer(1, 'm1', 'Human', 1, [10, 20, 0, 1]),
+    ).not.toThrow();
+    expect(core.calls.some(c => c[0] === 'set_actor_level')).toBe(false);
+  });
+
+  it('changePlayerData передаёт явный уровень точки респауна', () => {
+    const withLevel = { ...makeFakeCore(), set_actor_level(...a) {
+      this.calls.push(['set_actor_level', ...a]);
+    } };
+    const adapter = new GameCoreAdapter(withLevel, {
+      participants: makeParticipants(),
+    });
+
+    adapter.changePlayerData(1, { respawnData: [5, 6, 180, 1], teamId: 2 });
+
+    expect(withLevel.calls).toContainEqual(['set_actor_level', 1, 1]);
+  });
+
   it('removePlayer различает человека (remove_actor) и бота (remove_scripted_actor)', () => {
     const adapter = new GameCoreAdapter(core, {
       participants: makeParticipants(new Set([2])),

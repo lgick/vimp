@@ -201,6 +201,11 @@ class VirtualClient {
           setId: data.setId,
           physicsStatic: data.physicsStatic,
           physicsDynamic: data.physicsDynamic,
+          // 2.5D: надземные уровни и переходы. Клиентское ядро строит из
+          // них ту же `MapLevels`, что и хост, — иначе предсказание уровня
+          // разъедется с авторитетным молча
+          levels: data.levels,
+          ramps: data.ramps,
         }),
       );
     } catch (e) {

@@ -385,7 +385,14 @@ Implements the physics/bots/packing surface consumed by
   `removePlayer` tell scripted participants and humans apart via
   `participant.isScripted` (`spawn_scripted_actor`/`remove_scripted_actor` —
   a tank + AI in the core — versus `spawn_actor`/`remove_actor`);
-  `changePlayerData` → `reset_actor`;
+  `changePlayerData` → `reset_actor`; on a layered (2.5D) map a respawn
+  point may name its level (`[x, y, angle, level]`), and right after
+  `spawn_actor`/`spawn_scripted_actor`/`reset_actor` the adapter passes it
+  on with `set_actor_level(gameId, level)`. The call is guarded by a
+  `typeof` check, not out of caution for its own sake: a published game's
+  `dist` carries the glue code of its own core generation and has no such
+  method — there the level is derived from the geometry inside the core, as
+  it is for a point without one;
 - **input** → `apply_input` (seq is confirmed by the core in the frame's
   player block);
 - **event projection**: after `step`, drains `take_events()` and routes the

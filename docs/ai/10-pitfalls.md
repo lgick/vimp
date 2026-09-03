@@ -237,6 +237,13 @@ name the violation. Do not verify those by eye — run the tool
       respawns); do not scale again in a part.
 - [ ] At most 30 simultaneous world voices; ranking is
       `priority² / max(distance², 1)`.
+- [ ] A `levels.<n>.map` grid whose dimensions differ from `map` is silent at
+      runtime: the tank drives into nothing and nothing reaches the console.
+      `MapConfig::validate` is the only place that catches it — do not skip it
+      by building `GameMap` directly.
+- [ ] A railing tile listed in `levels.<n>.walls` but not in `.floor` hangs in
+      the air: it blocks movement on that level yet does not shield the slab
+      edge from a shot fired below. Every railing has to be part of `floor`.
 
 ## Build and packaging
 

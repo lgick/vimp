@@ -43,6 +43,11 @@ export const buildClientConfig = (game, defaults, gameClient) => {
     playerKeys: game.playerKeys,
     models: game.parts.models,
     weapons: game.parts.weapons,
+    // собственные параметры ядра игры (те же, что едут в хостовое ядро
+    // через lib/coreConfig.js): движок их не читает и не валидирует, а
+    // клиентская реплика обязана видеть правила ровно те же, что хост —
+    // иначе предсказание разъедется с авторитетным молча
+    coreParams: game.coreParams,
   };
 
   // снапшот-схема игры: клиент собирает по ней конфиг клиентского ядра и

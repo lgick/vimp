@@ -214,7 +214,10 @@ write it (it parses the init JSON).
 
 `load_map`, `map_info`, `clear`, `spawn_actor(id, model, teamId, x, y,
 angleDeg)`, `remove_actor`, `reset_actor`, `reset_all_vitals`,
-`spawn_scripted_actor`, `remove_scripted_actor`, `remove_players_and_shots`
+`spawn_scripted_actor`, `remove_scripted_actor`,
+`set_actor_level(id, level)` (2.5D maps; the engine calls it right after
+`spawn_actor`/`reset_actor` when the respawn point named a level — the trait
+default is a no-op), `remove_players_and_shots`
 (→ JSON), `apply_input(id, seq, action, keyName)`,
 `apply_aim(id, seq, x, y, flags)`, `last_input_seq`,
 `is_alive`, `position_of`, `players_data`, `alive_players` (→ `f32[]`),

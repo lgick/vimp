@@ -79,6 +79,11 @@ pub trait GameSim<G: GameDef>: Sized {
     ) -> Result<(), String>;
     fn remove_scripted_actor(&mut self, world: &mut PhysicsWorld, game_id: u32);
 
+    /// Явный уровень участника на 2.5D-карте (`respawns[i][3]`). Игра без
+    /// уровней метод не реализует — движок зовёт его только когда карта
+    /// слоёная и точка респауна назвала уровень.
+    fn set_actor_level(&mut self, _world: &mut PhysicsWorld, _game_id: u32, _level: u8) {}
+
     fn apply_input(&mut self, game_id: u32, seq: u32, action: &str, key_name: &str);
 
     /// Аналоговый ввод указателя (мышь/палец): мировая точка и биты

@@ -36,7 +36,8 @@ export default {
   ],
 
   respawns: {
-    team1: [[130, 520, 0], [130, 620, 0], …],   // [x, y, angleDeg]
+    // [x, y, angleDeg] or [x, y, angleDeg, level] on a layered map
+    team1: [[130, 520, 0], [130, 620, 0], …],
     team2: [[1600, 520, 180], …],
   },
 };
@@ -52,6 +53,55 @@ export default {
 | `step` | both | tile edge length before scaling |
 | `map` | both | row-major grid of tile indexes |
 | `respawns` | host | spawn points per team |
+| `levels` | core + client | above-ground levels (2.5D); absent = flat map |
+| `ramps` | core + client | level transitions |
+
+### Levels and ramps (2.5D)
+
+Level 0 is `map` / `physicsStatic` / `layers` and never moves. A second
+level is additive — a map without these fields loads exactly as before:
+
+```js
+  levels: {
+    '1': {                    // key = level number as a string, from 1
+      map: [[0, 9, 9, 0]],    // same dimensions as `map`; 0 = no level here
+      floor: [9],             // tiles you can drive on (the bridge slab)
+      walls: [7],             // railings: block movement and the ray on L1
+      layers: { 5: [9] },     // CLIENT-ONLY, same meaning as top-level layers
+    },
+  },
+  ramps: [
+    { tile: 3, dir: 'east', from: 0, to: 1 },   // dir = direction of the CLIMB
+  ],
+```
+
+| Field | Consumer | Notes |
+| --- | --- | --- |
+| `levels.<n>.map` | core + client | grid of level `n`; dimensions must match `map` |
+| `levels.<n>.floor` | core + client | drivable tiles of the level |
+| `levels.<n>.walls` | core + client | railings; **must be a subset of `floor`** |
+| `levels.<n>.layers` | client only | renderLayer → tile indexes of this grid |
+| `ramps[].tile` | core + client | tile index in the grid of level `from` |
+| `ramps[].dir` | core + client | `north` = `-y`, `south` = `+y`, `west` = `-x`, `east` = `+x` |
+| `ramps[].from` / `.to` | core + client | default `0` / `1` |
+| `physicsDynamic[].level` | core | level the prop stands on; default `0` |
+| `respawns[team][i][3]` | host + core | optional level of the spawn point |
+
+`MapConfig::validate` rejects a map with mismatched grid dimensions, a
+railing outside `floor`, an unknown ramp tile, or a level number out of
+range — `load_map` returns the error before a single body is created.
+Contract rule **E4** (`vimp-contract`) runs the same checks statically,
+before the build and without the core.
+
+What reaches the client: `MAP_DATA` carries `levels` and `ramps` untouched,
+`applyMapData` forwards both to the client core's `set_map` (it builds the
+same layered geometry as the host — otherwise level prediction drifts in
+silence) and assembles the static render data **per level**. The keys
+`s0..sN` run across all levels, and each part instance receives its own
+`level`, `solid` (blocking tiles: `physicsStatic` on level 0,
+`levels.<n>.walls` above) and `floor` (`levels.<n>.floor`, empty on level
+0). A game that cannot run without any of this declares `requires:
+['map.layers']` in its manifest.
 
 ### Scaling cascade
 

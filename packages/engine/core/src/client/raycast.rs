@@ -14,37 +14,32 @@ pub struct Box2 {
     pub half_h: f32,
 }
 
-/// Луч против тайловой сетки стен (DDA-обход клеток).
-/// Возвращает дистанцию до стены или None (промах в пределах range).
-pub fn ray_vs_grid(
+/// Обход клеток сетки вдоль луча (DDA). Колбэк получает клетку и дистанцию
+/// ВХОДА в неё вдоль луча (0.0 для стартовой клетки) и возвращает `false`,
+/// чтобы остановить обход. Обход прекращается сам, когда пройденная
+/// дистанция превысила `range` или луч вышел за пределы сетки по обеим осям.
+///
+/// Вынесено из `ray_vs_grid`, чтобы игра могла принять СВОЁ решение на
+/// каждой клетке (2.5D: смена уровня луча на кромке плиты) вместо
+/// единственного зашитого «стена — стоп».
+pub fn walk_ray_cells(
     origin: [f32; 2],
     dir: [f32; 2],
     range: f32,
-    map: &[Vec<i32>],
-    solid_tiles: &[i32],
+    rows: usize,
+    cols: usize,
     tile_size: f32,
-) -> Option<f32> {
-    let rows = map.len();
-    let cols = map.first().map(|row| row.len()).unwrap_or(0);
-
-    if rows == 0 || cols == 0 || solid_tiles.is_empty() {
-        return None;
+    mut visit: impl FnMut(i64, i64, f32) -> bool,
+) {
+    if rows == 0 || cols == 0 {
+        return;
     }
-
-    let is_solid = |cx: i64, cy: i64| {
-        cy >= 0
-            && (cy as usize) < rows
-            && cx >= 0
-            && (cx as usize) < cols
-            && solid_tiles.contains(&map[cy as usize][cx as usize])
-    };
 
     let mut cell_x = (origin[0] / tile_size).floor() as i64;
     let mut cell_y = (origin[1] / tile_size).floor() as i64;
 
-    // старт внутри стены — попадание в упор
-    if is_solid(cell_x, cell_y) {
-        return Some(0.0);
+    if !visit(cell_x, cell_y, 0.0) {
+        return;
     }
 
     let step_x: i64 = if dir[0] > 0.0 { 1 } else { -1 };
@@ -100,15 +95,62 @@ pub fn ray_vs_grid(
         }
 
         if traveled > range {
-            return None;
+            return;
         }
 
-        if is_solid(cell_x, cell_y) {
-            return Some(traveled);
+        // луч монотонен по каждой оси: уйдя за край в сторону движения,
+        // он в сетку уже не вернётся
+        let gone = (step_x < 0 && cell_x < 0)
+            || (step_x > 0 && cell_x >= cols as i64)
+            || (step_y < 0 && cell_y < 0)
+            || (step_y > 0 && cell_y >= rows as i64);
+
+        if gone {
+            return;
+        }
+
+        if !visit(cell_x, cell_y, traveled) {
+            return;
         }
     }
+}
 
-    None
+/// Луч против тайловой сетки стен (DDA-обход клеток).
+/// Возвращает дистанцию до стены или None (промах в пределах range).
+pub fn ray_vs_grid(
+    origin: [f32; 2],
+    dir: [f32; 2],
+    range: f32,
+    map: &[Vec<i32>],
+    solid_tiles: &[i32],
+    tile_size: f32,
+) -> Option<f32> {
+    let rows = map.len();
+    let cols = map.first().map(|row| row.len()).unwrap_or(0);
+
+    if rows == 0 || cols == 0 || solid_tiles.is_empty() {
+        return None;
+    }
+
+    let mut hit = None;
+
+    walk_ray_cells(origin, dir, range, rows, cols, tile_size, |cx, cy, t| {
+        let solid = cy >= 0
+            && (cy as usize) < rows
+            && cx >= 0
+            && (cx as usize) < cols
+            && solid_tiles.contains(&map[cy as usize][cx as usize]);
+
+        if solid {
+            hit = Some(t);
+
+            return false;
+        }
+
+        true
+    });
+
+    hit
 }
 
 /// Луч против повёрнутого прямоугольника (slab-тест в локальном фрейме OBB).
@@ -229,6 +271,72 @@ mod tests {
         let hit = ray_vs_grid([15.0, 15.0], [1.0, 0.0], 100.0, &grid, &[], 10.0);
 
         assert_eq!(hit, None);
+    }
+
+    #[test]
+    fn walk_visits_start_cell_at_zero() {
+        let mut visited: Vec<(i64, i64, f32)> = Vec::new();
+
+        walk_ray_cells([15.0, 15.0], [1.0, 0.0], 25.0, 5, 5, 10.0, |cx, cy, t| {
+            visited.push((cx, cy, t));
+
+            true
+        });
+
+        assert_eq!(visited[0], (1, 1, 0.0));
+        assert_eq!(visited[1], (2, 1, 5.0));
+        // клетки за range не посещаются вовсе
+        assert!(visited.iter().all(|(_, _, t)| *t <= 25.0));
+    }
+
+    #[test]
+    fn walk_stops_on_false() {
+        let mut count = 0;
+
+        walk_ray_cells([15.0, 15.0], [1.0, 0.0], 100.0, 5, 5, 10.0, |_, _, _| {
+            count += 1;
+
+            count < 3
+        });
+
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn walk_matches_ray_vs_grid() {
+        let grid = wall_grid();
+        let dirs = [
+            [1.0, 0.0],
+            [-1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, -1.0],
+            [
+                std::f32::consts::FRAC_1_SQRT_2,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ],
+            [0.6, -0.8],
+        ];
+
+        for dir in dirs {
+            let expected = ray_vs_grid([15.0, 15.0], dir, 100.0, &grid, &[1], 10.0);
+            let mut manual = None;
+
+            walk_ray_cells([15.0, 15.0], dir, 100.0, 5, 5, 10.0, |cx, cy, t| {
+                let solid = (0..5).contains(&cy)
+                    && (0..5).contains(&cx)
+                    && grid[cy as usize][cx as usize] == 1;
+
+                if solid {
+                    manual = Some(t);
+
+                    return false;
+                }
+
+                true
+            });
+
+            assert_eq!(expected, manual, "dir {dir:?}");
+        }
     }
 
     #[test]

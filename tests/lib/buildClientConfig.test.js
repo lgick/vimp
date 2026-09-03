@@ -25,6 +25,7 @@ const makeGame = () => ({
   playerKeys: { fire: { key: 1 } },
   parts: { models: { m1: {} }, weapons: { w1: {} } },
   snapshot: { a1: { id: 1, kind: 'indexed8', class: 'hot', fields: [] } },
+  coreParams: { levels: { fallTime: 0.35 } },
 });
 
 describe('buildClientConfig', () => {
@@ -56,6 +57,9 @@ describe('buildClientConfig', () => {
       playerKeys: game.playerKeys,
       models: game.parts.models,
       weapons: game.parts.weapons,
+      // собственные параметры ядра игры едут клиенту тем же непрозрачным
+      // объектом, что и хосту: реплика обязана считать правила теми же
+      coreParams: game.coreParams,
     });
     // снапшот-схема игры едет клиенту в CONFIG_DATA (Д1)
     expect(config.snapshot).toBe(game.snapshot);

@@ -222,6 +222,22 @@ before commands. The host has no chat rate limit (only a length limit,
   clear the frame buffer and the predictor in the core; `reset` also drops
   the local player's identity (`my_game_id`), so the prediction overlay
   stops rendering an entity the host no longer has.
+- **The map (`applyMapData`)** hands the payload to the client core
+  (`set_map`) and assembles the static render data. The core gets the
+  layered fields as they arrived — `levels` (above-ground levels: `map`,
+  `floor`, `walls`, `layers`) and `ramps` — so that it builds the same
+  geometry as the host; without them its level prediction would drift from
+  the authoritative one in silence. The render data is assembled **per
+  level**: level 0 from `layers` over the `map` grid, every above-ground
+  level from `levels[n].layers` over the `levels[n].map` grid. The keys
+  `s0..sN` run across all levels (they are part-instance ids in
+  `GameModel` — two `s0`s would overwrite each other and half the map would
+  never appear), and each instance receives `level` (its level number),
+  `solid` (the tiles that block movement on it — `physicsStatic` for level
+  0, `levels[n].walls` above) and `floor` (`levels[n].floor`, empty on level
+  0) next to `map`, `step`, `layer`, `tiles`, `physicsStatic`, `scale` and
+  `spriteSheet` it already read. A map without `levels` produces exactly
+  what it produced before.
 - **Tab wake-up** (`visibilitychange` → visible): besides unmuting, the
   shell calls `clientCore?.resync?.()` — the interpolator clock is reseeded
   from the next frame instead of crawling back through the EMA. The call is

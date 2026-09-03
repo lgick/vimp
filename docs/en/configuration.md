@@ -148,6 +148,15 @@ side) — [auth.md](auth.md#rank-and-state-loading-and-sync-host) and
 are opaque as far as the engine is concerned — only the game interprets
 their shape.
 
+`coreParams` — an optional, opaque dictionary of the game core's **own**
+parameters. `buildCoreConfig` merges it into the `game` half of the core
+config (`hostPlugin.createCore(...)`), where the keys the engine does know
+(`friendlyFire`, `models`, `weapons`, `playerKeys`, `panel`) win, so a game
+cannot swap out the engine's part of the contract. The engine neither reads
+nor validates the rest — it only delivers it to `GameSim::new`, which is
+what lets a game add a parameter to its core without an engine release
+(`vimp-tanks`, for one, passes the 2.5D fall parameters this way).
+
 `spectatorKeys` — a spectator's commands (`nextPlayer`/`prevPlayer`); the
 set is engine-owned and lives in
 `packages/engine/src/config/hostDefaults.js`. `playerKeys` (a player's

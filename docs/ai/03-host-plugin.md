@@ -189,6 +189,7 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 | `playerState.defaultState` | any JSON | starting profile blob for a player with no saved record |
 | `roomDefaults.maxPlayers` | `number` | room-size ceiling offered in the lobby |
 | `roomForm` | array | lobby form schema (manifest only, not read at runtime) |
+| `coreParams` | any JSON | opaque parameters of the **game's own** core: merged into the `game` half of the core config (`buildCoreConfig`), where the keys the engine knows (`friendlyFire`, `models`, `weapons`, `playerKeys`, `panel`) win. The engine neither reads nor validates the rest — a new core parameter needs no engine release (tanks passes its 2.5D fall parameters this way) |
 
 ### Room overrides — the whitelist
 

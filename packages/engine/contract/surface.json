@@ -287,6 +287,14 @@
       {
         "args": [
           "u32",
+          "u8"
+        ],
+        "name": "set_actor_level",
+        "ret": "()"
+      },
+      {
+        "args": [
+          "u32",
           "str",
           "u8",
           "f32",
@@ -371,6 +379,10 @@
     {
       "name": "dispatch",
       "since": "0.23.0"
+    },
+    {
+      "name": "map.layers",
+      "since": "0.25.0"
     },
     {
       "name": "stat.leaderboard",

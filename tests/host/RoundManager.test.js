@@ -286,6 +286,37 @@ describe('RoundManager.overrideMapData', () => {
     expect(socketManager.sendMap).toHaveBeenCalledWith('su', mapData);
   });
 
+  it('масштабирование сохраняет уровень точки респауна', () => {
+    // 4-й элемент точки — уровень 2.5D-карты: он не координата и умножению
+    // на scale не подлежит
+    const rm = makeCtx();
+
+    rm.overrideMapData({
+      scale: 0.5,
+      step: 64,
+      respawns: { players: [[100, 200, 0, 1]] },
+    });
+
+    expect(rm._scaledMapData.respawns.players).toEqual([[50, 100, 0, 1]]);
+  });
+
+  it('слои и рампы доезжают до масштабированной карты как есть', () => {
+    const rm = makeCtx();
+    const levels = { 1: { map: [[0, 1]], floor: [1], walls: [] } };
+    const ramps = [{ tile: 2, dir: 'east', from: 0, to: 1 }];
+
+    rm.overrideMapData({
+      scale: 2,
+      step: 64,
+      respawns: { players: [[9, 9, 0]] },
+      levels,
+      ramps,
+    });
+
+    expect(rm._scaledMapData.levels).toEqual(levels);
+    expect(rm._scaledMapData.ramps).toEqual(ramps);
+  });
+
   it('пустое значение игнорируется — карту нечем заменить', () => {
     const rm = makeCtx();
     const before = rm._scaledMapData;

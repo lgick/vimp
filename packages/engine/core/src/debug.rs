@@ -132,6 +132,14 @@ fn map_json(map: &Option<GameMap>) -> Value {
     let rows = map.grid.len();
     let cols = map.grid.first().map(|row| row.len()).unwrap_or(0);
 
+    let mut static_by_level = vec![0usize; map.level_count()];
+
+    for &level in map.static_levels() {
+        if let Some(count) = static_by_level.get_mut(level as usize) {
+            *count += 1;
+        }
+    }
+
     json!({
         "setId": map.set_id,
         "step": map.step,
@@ -139,6 +147,23 @@ fn map_json(map: &Option<GameMap>) -> Value {
         "physicsStatic": map.physics_static,
         "staticBodies": map.static_body_count(),
         "dynamicBodies": map.dynamic_body_count(),
+        "levels": map.level_count(),
+        "layered": map.is_layered(),
+        "staticByLevel": static_by_level,
+        "ramps": map
+            .levels()
+            .runs()
+            .iter()
+            .map(|run| json!({
+                "axis": run.axis,
+                "sign": run.sign,
+                "from": run.from,
+                "to": run.to,
+                "min": round2(run.min),
+                "max": round2(run.max),
+            }))
+            .collect::<Vec<Value>>(),
+        "dynamicLevels": map.dynamic_levels(),
         "respawns": map
             .respawns
             .iter()
@@ -156,6 +181,9 @@ fn nav_json(nav: &Option<NavigationSystem>) -> Value {
         "nodes": nav.node_count(),
         "edges": nav.edge_count(),
         "gridStep": nav.grid_step(),
+        "nodesByLevel": nav.nodes_by_level(),
+        "rampEdges": nav.ramp_edge_count(),
+        "ledgeEdges": nav.ledge_edge_count(),
     })
 }
 

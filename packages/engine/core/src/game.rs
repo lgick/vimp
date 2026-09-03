@@ -80,13 +80,22 @@ impl<G: GameDef> EngineSim<G> {
     pub fn load_map(&mut self, json: &str) -> Result<(), String> {
         let map_cfg: MapConfig = serde_json::from_str(json).map_err(|e| format!("bad map json: {e}"))?;
 
+        map_cfg.validate()?;
+
         if let Some(mut old) = self.map.take() {
             old.destroy(&mut self.world);
         }
 
         let map = GameMap::create(&mut self.world, &map_cfg, self.cfg.map_scale, &self.cfg.map_set_id);
 
-        self.nav = Some(NavigationSystem::generate(&map.grid, &map.physics_static, map.step));
+        // одноуровневая карта идёт прежним путём бит-в-бит: слоёный
+        // генератор для неё дал бы тот же граф, но лишним кодом на пути
+        self.nav = Some(if map.is_layered() {
+            NavigationSystem::generate_layered(map.levels(), map.step)
+        } else {
+            NavigationSystem::generate(&map.grid, &map.physics_static, map.step)
+        });
+
         self.map = Some(map);
 
         Ok(())
@@ -108,6 +117,7 @@ impl<G: GameDef> EngineSim<G> {
             "width": width,
             "height": height,
             "respawns": map.respawns,
+            "levels": map.level_count(),
         })
         .to_string()
     }
@@ -129,6 +139,11 @@ impl<G: GameDef> EngineSim<G> {
 
     pub fn reset_all_vitals(&mut self) {
         self.sim.reset_all_vitals(&mut self.events);
+    }
+
+    /// Явный уровень участника на слоёной карте (`respawns[i][3]`).
+    pub fn set_actor_level(&mut self, game_id: u32, level: u8) {
+        self.sim.set_actor_level(&mut self.world, game_id, level);
     }
 
     pub fn spawn_scripted_actor(&mut self, game_id: u32, model_name: &str, team_id: u8, x: f32, y: f32, angle_deg: f32) -> Result<(), String> {
@@ -440,10 +455,13 @@ impl<G: GameDef> EngineSim<G> {
 
         // производные структуры не входят в дамп: нав-граф регенерируется
         // из карты, пространственная сетка — из живых участников
-        self.nav = self
-            .map
-            .as_ref()
-            .map(|map| NavigationSystem::generate(&map.grid, &map.physics_static, map.step));
+        self.nav = self.map.as_ref().map(|map| {
+            if map.is_layered() {
+                NavigationSystem::generate_layered(map.levels(), map.step)
+            } else {
+                NavigationSystem::generate(&map.grid, &map.physics_static, map.step)
+            }
+        });
 
         self.sim.rebuild_spatial_grid(&self.world, &mut self.spatial);
         self.sim.refresh_cached(&self.world);
@@ -840,6 +858,55 @@ mod tests {
             "physicsStatic": [1],
             "respawns": { "team1": [[5, 5, 0]] }
         }"#
+    }
+
+    // слоёная карта 4×4: плита уровня 1 в правой половине
+    fn layered_map_json() -> &'static str {
+        r#"{
+            "setId": "layered",
+            "scale": 1,
+            "step": 10,
+            "map": [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+            "physicsStatic": [],
+            "levels": {
+                "1": {
+                    "map": [[0, 0, 9, 9], [0, 0, 9, 9], [0, 0, 9, 9], [0, 0, 9, 9]],
+                    "floor": [9]
+                }
+            }
+        }"#
+    }
+
+    #[test]
+    fn load_map_rejects_invalid_layers() {
+        let mut sim = make_sim();
+
+        // грид уровня 1 другой размерности — карта не должна загрузиться
+        let broken = r#"{
+            "step": 10,
+            "map": [[0, 0], [0, 0]],
+            "levels": { "1": { "map": [[0, 0]], "floor": [] } }
+        }"#;
+
+        assert!(sim.load_map(broken).is_err());
+        assert!(sim.map.is_none());
+        assert!(sim.nav.is_none());
+    }
+
+    #[test]
+    fn load_map_picks_layered_nav() {
+        let mut sim = make_sim();
+
+        sim.load_map(layered_map_json()).unwrap();
+
+        let map = sim.map.as_ref().unwrap();
+
+        assert!(map.is_layered());
+        assert_eq!(map.level_count(), 2);
+
+        let counts = sim.nav.as_ref().unwrap().nodes_by_level();
+
+        assert!(counts[0] > 0 && counts[1] > 0, "{counts:?}");
     }
 
     #[test]

@@ -13,6 +13,50 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- **Layered maps (2.5D).** A map may now declare above-ground levels next to
+  the ground it already had: the optional `levels` field (key — the level
+  number as a string, value — `map`/`floor`/`walls`/`layers`) and the optional
+  `ramps` field (`tile`, `dir`, `from`, `to`). A map without them loads exactly
+  as before, bit for bit: level 0 stays in `map`/`physicsStatic`/`layers`.
+  - `MapLevels` — the layered geometry without a physics world (grids, solid
+    and floor tiles per level, ramp runs). Built by the host inside `GameMap`
+    and by a game's client replica from the same `MAP_DATA` fields, so both
+    sides read the level rules from one place: `level_at`, `has_floor`,
+    `is_solid`, `ramp_at`, `cell_at`.
+  - `RampRun` / `RampSample` / `RampDir` — a ramp's continuous run along its
+    axis and the climb progress `0.0..1.0` at a point.
+  - `level_group` / `level_interaction` / `levels_interaction` — Rapier
+    `InteractionGroups` masks per level (level 0 — `GROUP_1`, level 1 —
+    `GROUP_2`). Static and dynamic map bodies now carry their level's mask;
+    a body that sets no groups keeps `Group::ALL` and still interacts with
+    level 0, so single-level worlds do not notice the change.
+  - `MapConfig::validate` — checked by `load_map` before any body is created:
+    level numbering, grid dimensions, railings being part of the floor, ramp
+    tiles, and levels named by respawns and `physicsDynamic`. Every one of
+    these is silent at runtime otherwise.
+  - `GameMap::levels`/`is_layered`/`level_count`/`level_at`/`has_floor`/
+    `ramp_at`/`dynamic_level`, `DynamicObjectConfig.level`.
+  - `respawns` accepts a 4th number — the level (`[x, y, angleDeg, level]`).
+    Without it the level is derived from the geometry.
+- `GameSim::set_actor_level` (default no-op) and the matching ABI method
+  `set_actor_level(game_id, level)` — the engine calls it right after
+  `spawn_actor`/`reset_actor` when the respawn point named a level. A game
+  without levels ignores it.
+- `client::raycast::walk_ray_cells` — the DDA cell walk lifted out of
+  `ray_vs_grid`, so a game can make its own decision at every cell (2.5D: the
+  ray changing level at a slab edge). `ray_vs_grid` is now a thin wrapper and
+  behaves identically.
+- `NavigationSystem::generate_layered` — a graph with nodes on every level,
+  two-way ramp edges and one-way ledge edges (top → bottom, with a penalty),
+  plus `PathPoint`, `find_path_on`, `random_point`, `is_walkable_on`,
+  `has_obstacle_between_on`, `node_level`, `level_count`. `generate` and the
+  single-level API are unchanged.
+- `debug.json` — the map block reports `levels`, `layered`, `staticByLevel`,
+  `ramps` and `dynamicLevels`; the nav block reports `nodesByLevel`,
+  `rampEdges` and `ledgeEdges`.
+
 ## [0.9.2] — 2026-08-29
 
 ### Changed

@@ -623,8 +623,27 @@ ClientPlugin hooks call them; a game reaches its own half through
 tanks plugin serves the geometry of the predicted map dynamics that way).
 
 The `set_map` payload the engine hands to the core is `{map, step, scale,
-setId, physicsStatic, physicsDynamic}` — the raw MAP_DATA fields, unscaled
-(the core scales them itself). `setId` is the snapshot key the map's dynamics
+setId, physicsStatic, physicsDynamic, levels, ramps}` — the raw MAP_DATA
+fields, unscaled (the core scales them itself). `levels` and `ramps` are the
+layered (2.5D) map format and are optional: a map without them is exactly
+the single-level map the engine has always loaded. `levels` is keyed by the
+level number as a string (`"1"` — the first above-ground level; level 0
+stays in `map`/`physicsStatic`/`layers`), and each value is `{map, floor,
+walls, layers}` — a grid of the same dimensions as `map`, the tiles that can
+be driven on, the tiles that block movement (railings), and the render
+layers of that grid. `ramps` is a list of `{tile, dir, from, to}` — the
+directed tile transitions between levels (`dir` — the direction of the
+climb: `north`/`south`/`west`/`east`). A respawn point may carry a fourth
+number, its level (`[x, y, angle, level]`), and a `physicsDynamic` object a
+`level` field; both default to the ground. The whole format is validated in
+the core (`MapConfig::validate`) and, before the build, by contract rule
+**E4**. A game that cannot run without it declares `requires:
+['map.layers']`.
+
+On the client the same `levels` reach the render parts: `applyMapData`
+builds the static data per level and hands each part instance its `level`,
+`solid` (blocking tiles) and `floor` — see
+[client.md](client.md#mainjs--bootstrap-dispatcher-and-render-loop). `setId` is the snapshot key the map's dynamics
 travels under (`c1`/`c2`): without it a game cannot tell its own dynamics
 block from another map constructor's.
 
@@ -922,8 +941,10 @@ The engine answers with a verdict, not with a version comparison
 in the append-only capability registry `src/lib/capabilities.js`, and a name
 the registry does not know means the game is newer than the engine. Currently
 registered: `stat.leaderboard` (rank-period leaderboard), `accolades`
-(`ACCOLADES_DATA` port and the client service) and `dispatch` (`dispatch` /
-`abi_describe` in the core). A registered name is supported forever — a
+(`ACCOLADES_DATA` port and the client service), `dispatch` (`dispatch` /
+`abi_describe` in the core) and `map.layers` (layered 2.5D maps: `levels` /
+`ramps` in the map format, level masks in physics, `set_actor_level`, the
+layered navigation graph). A registered name is supported forever — a
 published game may have written it, and its `dist/` will never be touched
 again.
 

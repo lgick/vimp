@@ -143,6 +143,66 @@ pushed out. Static walls do not need it (they never move).
 A game's own bodies (actors, projectiles) are built in the game crate and
 have to set their own prediction distance the same way.
 
+## Layered maps (2.5D)
+
+A map may carry above-ground levels next to the ground. Level 0 stays in
+`map` / `physicsStatic` / `layers`, so a map without the new fields loads
+exactly as before. A second level arrives in the optional `levels` field and
+the transitions between levels in the optional `ramps` field:
+
+```json
+{
+  "levels": {
+    "1": { "map": [[0, 9]], "floor": [9], "walls": [7], "layers": {} }
+  },
+  "ramps": [{ "tile": 3, "dir": "east", "from": 0, "to": 1 }]
+}
+```
+
+* `map` — the level's tile grid; its dimensions must match `map`, and `0`
+  means "no level here, the one below shows through".
+* `floor` — the tiles you can drive on (the bridge slab). `walls` — the
+  railings: they block movement and the ray on this level, and every railing
+  tile has to be part of `floor` too, otherwise it hangs in the air and does
+  not shield the ray from below.
+* `dir` is the direction of the *climb* (`north` = `-y`, `south` = `+y`,
+  `west` = `-x`, `east` = `+x`); `from`/`to` default to `0`/`1`.
+* `physicsDynamic[].level` places a dynamic body on a level; a respawn point
+  may name its level as a 4th number (`[x, y, angleDeg, level]`) — without it
+  the level is derived from the geometry (`GameMap::level_at`).
+
+`MapConfig::validate` runs inside `load_map` *before* any body is created and
+turns every one of these mistakes into an error from `load_map`; at runtime
+they are all silent.
+
+`MapLevels` holds the layered geometry without a physics world — the grids,
+the solid and floor tiles per level, and the ramp runs. The host keeps it
+inside `GameMap`, and a game's client replica builds the same structure from
+the same `MAP_DATA` fields, so both sides answer `level_at`, `has_floor`,
+`is_solid` and `ramp_at` from one implementation: a second copy of the rules
+would drift from the authoritative one silently.
+
+Physics separates the levels with Rapier masks: `level_interaction(level)`
+puts a body in `GROUP_1` (ground) or `GROUP_2` (overpass) and lets it see
+only its own level. A body that sets no groups keeps `Group::ALL` and still
+interacts with level 0, so single-level worlds and games that know nothing
+about levels are unaffected.
+
+A game reads a participant's level from `GameSim::set_actor_level` (the ABI
+method of the same name), which the engine calls right after
+`spawn_actor`/`reset_actor` when the respawn point named a level. The default
+implementation is a no-op.
+
+Bot navigation on such a map is built by `NavigationSystem::generate_layered`:
+nodes on every level, two-way ramp edges, and one-way ledge edges (top →
+bottom only, with a penalty, because the jump costs the game's `fallDamage`).
+Paths are searched with `find_path_on(PathPoint, PathPoint)`; a level change
+between two neighbouring points of the path means a ramp or a ledge.
+
+`client::raycast::walk_ray_cells` walks the ray's cells and hands each one to
+a callback, so a game can change the ray's level at a slab edge instead of
+the single hard-wired "wall — stop". `ray_vs_grid` is a thin wrapper over it.
+
 ## Rust traits (`vimp-engine-core`)
 
 The engine crate is pure Rust without wasm-bindgen (errors are

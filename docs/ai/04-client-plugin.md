@@ -74,6 +74,17 @@ export default class Tank {
 - A part that draws must be, or contain, a Pixi `Container` and add itself to
   the stage. The engine does not add it for you.
 
+The map part is the exception to "`data` is a frame field array": its static
+instances are built by `applyMapData` from `MAP_DATA`, one per render layer
+per map level, under the running keys `s0..sN`. Each gets `{type: 'static',
+spriteSheet, map, step, layer, tiles, physicsStatic, scale}` as before, plus
+three fields for layered (2.5D) maps: `level` (its level number, `0` for the
+ground), `solid` (tiles that block movement on that level — `physicsStatic`
+on level 0, `levels.<n>.walls` above) and `floor` (`levels.<n>.floor`, empty
+on level 0). A single-level map produces exactly what it did before: one
+instance per `layers` entry, all with `level: 0`. See
+`07-maps-and-assets.md` for the map format itself.
+
 ### Effects (self-destructing parts)
 
 When a snapshot payload for a key is an **array of records**, each record

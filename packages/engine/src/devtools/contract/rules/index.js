@@ -32,6 +32,7 @@ import d3 from './d3-snapshot-interp.js';
 import e1 from './e1-sound-pairs.js';
 import e2 from './e2-map-images.js';
 import e3 from './e3-sound-registry.js';
+import e4 from './e4-map-layers.js';
 
 // Порядок групп — порядок отчёта: A пакет и сборка, B host, C client,
 // D снапшот, E ассеты (plan/create-vimp-game/stage_1.md).
@@ -40,7 +41,7 @@ export const rules = [
   b1, b2, b3, b4, b5, b6, b7, b8, b9, b10,
   c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11,
   d1, d2, d3,
-  e1, e2, e3,
+  e1, e2, e3, e4,
 ];
 
 export default rules;

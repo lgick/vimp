@@ -13,7 +13,10 @@ import wsports from '../config/wsports.js';
  * игровая (models/weapons/playerKeys/seed трассеров).
  * @param {Object} options
  * @param {Object} options.prediction - Секция prediction CONFIG_DATA
- *   (timeStep в мс, playerKeys, models, weapons).
+ *   (timeStep в мс, playerKeys, models, weapons, coreParams). Поле
+ *   `coreParams` (необязательное) — непрозрачный словарь параметров ядра
+ *   игры: попадает в игровую половину как есть, движок его не читает;
+ *   известные движку ключи имеют приоритет.
  * @param {Object} options.interpolation - Секция interpolation CONFIG_DATA
  *   (delay, maxFrameAge в мс).
  * @param {Object} options.snapshot - Секция snapshot CONFIG_DATA —
@@ -32,6 +35,7 @@ export const buildClientCoreConfig = (
     playerKeys: prediction.playerKeys,
     models: prediction.models,
     weapons: prediction.weapons,
+    coreParams: prediction.coreParams,
     // keys — игровая схема из CONFIG_DATA; version/port — движковые
     snapshot: {
       version: SNAPSHOT_FORMAT_VERSION,
@@ -54,6 +58,11 @@ export const buildClientCoreConfig = (
       divergence: flat.divergence,
     },
     game: {
+      // собственные параметры ядра игры: движок их не читает и не
+      // валидирует — он лишь довозит их до `GameClientDef::new`. Известные
+      // ключи ниже перекрывают одноимённые, чтобы игра не могла подменить
+      // движковую часть контракта (то же правило, что в lib/coreConfig.js)
+      ...(flat.coreParams || {}),
       playerKeys: flat.playerKeys,
       models: flat.models,
       weapons: flat.weapons,

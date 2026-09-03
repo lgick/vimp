@@ -586,6 +586,11 @@ function applyMapData(data, { notifyHost = true } = {}) {
         setId,
         physicsStatic,
         physicsDynamic: data.physicsDynamic,
+        // 2.5D: надземные уровни и переходы. Клиентское ядро строит из них
+        // ту же `MapLevels`, что и хост, — иначе предсказание уровня
+        // разъедется с авторитетным молча
+        levels: data.levels,
+        ramps: data.ramps,
       }),
     );
   } catch (e) {
@@ -625,23 +630,47 @@ function applyMapData(data, { notifyHost = true } = {}) {
     currentMapSetId = setId;
   };
 
-  const staticData = Object.entries(layers).reduce(
-    (acc, [layer, tiles], index) => {
-      acc[`s${index}`] = {
+  // рендер-слои по уровням: уровень 0 — из `layers` над гридом `map`,
+  // надземные — из `levels[n].layers` над гридом `levels[n].map`.
+  // Ключи `s0..sN` сквозные: парт получает `level`, `solid` и `floor`
+  // своего уровня и не обязан ничего знать про соседний
+  const staticData = {};
+  let staticIndex = 0;
+
+  const pushLayers = (levelLayers, levelMap, level, solid, floor) => {
+    for (const [layer, tiles] of Object.entries(levelLayers || {})) {
+      staticData[`s${staticIndex}`] = {
         type: 'static',
         spriteSheet,
-        map,
+        map: levelMap,
         step,
         layer,
         tiles,
+        level,
+        solid,
+        floor,
+        // прежнее имя оставлено для парта, который его уже читает
         physicsStatic,
         scale,
       };
 
-      return acc;
-    },
-    {},
-  );
+      staticIndex += 1;
+    }
+  };
+
+  pushLayers(layers, map, 0, physicsStatic, []);
+
+  for (const [key, levelData] of Object.entries(data.levels || {})) {
+    const level = Number(key);
+
+    pushLayers(
+      levelData.layers,
+      levelData.map,
+      level,
+      levelData.walls || [],
+      levelData.floor || [],
+    );
+  }
 
   removeMap(currentMapSetId);
   createMap(setId, staticData);

@@ -149,6 +149,14 @@ macro_rules! export_game_core_abi {
                 self.state.remove_scripted_actor(game_id);
             }
 
+            /// Явный уровень участника на слоёной карте (`respawns[i][3]`).
+            /// Движок зовёт сразу после `spawn_actor`/`reset_actor`, когда
+            /// точка респауна назвала уровень; игра без слоёв метод
+            /// игнорирует (дефолт трейта — no-op).
+            pub fn set_actor_level(&mut self, game_id: u32, level: u8) {
+                self.state.set_actor_level(game_id, level);
+            }
+
             // ***** ввод и шаг ***** //
 
             /// Ввод игрока: seq + action ('down'/'up') + имя клавиши

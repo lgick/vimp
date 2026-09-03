@@ -61,6 +61,11 @@ const FROZEN_CORE_ABI = [
   'reset_actor',
   'reset_all_vitals',
   'serialize_state',
+  // append-only исключение (2.5D): метод добавлен вместе со слоями карты и
+  // уже вошёл в замороженный слепок (contract/surface.json → abi.game).
+  // Звать его напрямую можно только через проверку `typeof` — в dist игры,
+  // опубликованной до слоёв, символа нет (GameCoreAdapter._applyActorLevel)
+  'set_actor_level',
   'spawn_actor',
   'spawn_scripted_actor',
   'step',

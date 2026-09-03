@@ -371,7 +371,14 @@ stopRecording/dump()`; события самого рекордера допол
   `scale: 1` — ядро не масштабирует повторно); `createPlayer`/`removePlayer`
   различают scripted-участника и человека по `participant.isScripted`
   (`spawn_scripted_actor`/`remove_scripted_actor` — танк + ИИ в ядре — против
-  `spawn_actor`/`remove_actor`); `changePlayerData` → `reset_actor`;
+  `spawn_actor`/`remove_actor`); `changePlayerData` → `reset_actor`; на
+  слоёной (2.5D) карте точка респауна может называть свой уровень
+  (`[x, y, angle, level]`), и сразу после
+  `spawn_actor`/`spawn_scripted_actor`/`reset_actor` адаптер довозит его
+  вызовом `set_actor_level(gameId, level)`. Вызов защищён проверкой
+  `typeof` не для красоты: в `dist` уже опубликованной игры лежит glue-код
+  своего поколения ядра, и такого метода там нет — тогда уровень выводится
+  из геометрии внутри ядра, как и для точки без уровня;
 - **ввод** → `apply_input` (seq подтверждается ядром в player-блоке кадра);
 - **проекция событий**: после `step` дренирует `take_events()` и роутит
   стандартный движковый словарь (Wasm Host ABI, `packages/engine/core/src/events.rs`) сам, без

@@ -9,6 +9,38 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- **Layered maps (2.5D) travel from the game config to both cores and to the
+  renderer.** `MAP_DATA` now carries the map's optional `levels` and `ramps`
+  fields untouched (`scaleMapData` scales coordinates only, so the level in a
+  4-element respawn point `[x, y, angle, level]` survives), and
+  `applyMapData` hands them to the client core's `set_map` — the client
+  builds the same layered geometry as the host, or its level prediction would
+  drift from the authoritative one in silence. The static render data is now
+  assembled per level: keys `s0..sN` run across every level, and each part
+  instance gets its own `level`, `solid` and `floor` next to the fields it
+  already read. A map without `levels` produces exactly what it produced
+  before.
+- **`gameConfig.coreParams`** — an opaque dictionary of the game core's own
+  parameters. The engine neither reads nor validates it; it merges it into
+  the `game` half of the core config, where the keys the engine does know
+  (`friendlyFire`, `models`, `weapons`, `playerKeys`, `panel`) win. A new
+  parameter of a game's core no longer needs an engine release.
+- **The explicit respawn level reaches the core.** `GameCoreAdapter` calls
+  `set_actor_level(gameId, level)` after `spawn_actor`/`spawn_scripted_actor`/
+  `reset_actor` when the respawn point names a level. A core built before the
+  method existed simply does not export it — then the level is derived from
+  the geometry inside the core.
+- **Capability `map.layers`** — a game that cannot run without layered maps
+  declares it in `GameManifest.requires`.
+- **Contract rule E4 (`mapLayers`)** — checks a layered map before the build
+  and without the core: level keys running from 1 without gaps, grid
+  dimensions matching `map`, walls being part of the floor, ramp tiles, ramp
+  directions, respawn and `physicsDynamic` levels, and every tile named by a
+  level's render layers existing in `spriteSheet.frames`. It skips when no
+  map declares `levels`.
+
 ## [0.28.0] — 2026-09-03
 
 ### Added

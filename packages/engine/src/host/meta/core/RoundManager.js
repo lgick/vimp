@@ -15,7 +15,9 @@ function scaleMapData(mapData) {
   const respawns = Object.fromEntries(
     Object.entries(mapData.respawns || {}).map(([team, arr]) => [
       team,
-      arr.map(([x, y, angle]) => [x * scale, y * scale, angle]),
+      // 4-й элемент точки — уровень 2.5D-карты; масштабируются ТОЛЬКО
+      // координаты, всё остальное едет как есть
+      arr.map(point => [point[0] * scale, point[1] * scale, ...point.slice(2)]),
     ]),
   );
 
