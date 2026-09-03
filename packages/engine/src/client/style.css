@@ -438,7 +438,7 @@ body.hide-cursor {
   background-color: #333;
   border: 1px solid #eee;
   padding: 10px;
-  margin: 10px auto 5px;
+  margin: 5px auto 3px;
   text-shadow: 1px 1px 1px #000;
   font-size: 12px;
   line-height: 15px;
@@ -832,7 +832,7 @@ body.hide-cursor {
    высоты более высокой панели */
 .lobby-grid {
   display: flex;
-  gap: 10px;
+  gap: 5px;
   justify-content: center;
 }
 
@@ -848,7 +848,6 @@ body.hide-cursor {
 #lobby-browser-panel {
   width: var(--lobby-browser-width);
   position: relative;
-  padding: 0;
 }
 
 .lobby-browser-inner {
