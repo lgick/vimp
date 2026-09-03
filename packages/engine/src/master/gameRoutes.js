@@ -277,7 +277,11 @@ export function createGameRoutes({
     // DELETE /games/mine/:id — удаление игры. Право проверяет auth (админ —
     // любую, автор — свою неопубликованную), мастер лишь убирает за собой:
     // запись каталога снимается сразу, а файлы версий выметает ближайший
-    // prune внутри sync.run()
+    // prune внутри sync.run().
+    //
+    // В реестре удаление МЯГКОЕ (строка и рейтинги живут ещё 30 суток), но
+    // мастеру это безразлично: игра пропала из GET /games, и локально её
+    // держать не на чем. Вернёт её restore — тем же sync.run()
     async remove(req, res) {
       try {
         const { status, json } = await registry.remove(req.authToken, req.params.id);
@@ -286,6 +290,23 @@ export function createGameRoutes({
           // remove(id) без версии снимает ВСЕ записи игры, включая
           // застейдженные админом черновики: их не убирает больше никто
           catalog.remove(req.params.id);
+          await sync.run();
+        }
+
+        res.status(status).json(json);
+      } catch (err) {
+        unavailable(res, err);
+      }
+    },
+
+    // POST /admin/games/:id/restore — возврат мягко удалённой игры. Мастер
+    // ничего не докачивает сам: восстановленная игра снова появляется в
+    // GET /games, и её забирает штатная синхронизация
+    async restore(req, res) {
+      try {
+        const { status, json } = await registry.restore(req.authToken, req.params.id);
+
+        if (status === 200) {
           await sync.run();
         }
 

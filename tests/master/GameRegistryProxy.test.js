@@ -92,6 +92,20 @@ describe('GameRegistryProxy', () => {
     });
   });
 
+  it('восстановление уходит POST с токеном, id экранируется', async () => {
+    const fetchImpl = makeFetch();
+    const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl });
+
+    await proxy.restore('tok', 'my game');
+
+    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/admin/games/my%20game/restore', {
+      method: 'POST',
+      signal: expect.any(AbortSignal),
+      headers: { authorization: 'Bearer tok' },
+      body: undefined,
+    });
+  });
+
   it('заявки вызывающего идут с его токеном', async () => {
     const fetchImpl = makeFetch();
     const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl });

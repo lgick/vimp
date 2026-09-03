@@ -7,6 +7,7 @@ import { getProvider } from './oauth/index.js';
 import createDevLoginHandler from './devLogin.js';
 import dbPool from './db/pool.js';
 import { startRatingsJob } from './db/ratingsJob.js';
+import { startGamesPurgeJob } from './db/gamesPurgeJob.js';
 import UserRepository, {
   NickTakenError,
   NickAlreadySetError,
@@ -473,7 +474,11 @@ app.post('/games/:id/version', requireAuth, byIp(gamesLimiter), async (req, res)
 // DELETE /games/:id — удаление игры из реестра. Один маршрут на обе роли:
 // право решает не путь, а роль из БД (тот же приём, что у
 // POST /games/:id/version). Админ удаляет любую игру, автор — свою и
-// только не раздаваемую
+// только не раздаваемую.
+//
+// Удаление МЯГКОЕ: игра пропадает у игроков сразу, а строка и все её данные
+// живут ещё config.games.deleteRetentionDays суток и возвращаются
+// POST /admin/games/:id/restore
 app.delete('/games/:id', requireAuth, byIp(gamesLimiter), async (req, res) => {
   try {
     const isAdmin = await isAdminUser(req.user.id);
@@ -481,6 +486,14 @@ app.delete('/games/:id', requireAuth, byIp(gamesLimiter), async (req, res) => {
       userId: req.user.id,
       isAdmin,
     });
+
+    // удалить раздаваемую игру может только админ, и это могла быть
+    // последняя игра платформы: тот же случай, что у решения модератора
+    // (PATCH /admin/games/:id), и узнать о нём он должен здесь
+    if (isAdmin && (await userRepo.countApprovedGames()) === 0) {
+      res.json({ game, warning: 'catalogEmpty' });
+      return;
+    }
 
     res.json({ game: isAdmin ? game : forAuthor(game) });
   } catch (err) {
@@ -510,6 +523,22 @@ const GAME_STATUSES = ['pending', 'approved', 'rejected', 'disabled'];
 // GET /admin/games — очередь модерации целиком
 app.get('/admin/games', requireAdmin, async (req, res) => {
   res.json({ games: await userRepo.listAllGames() });
+});
+
+// POST /admin/games/:id/restore — возврат мягко удалённой игры вместе с её
+// рейтингами и скиллами. Только админ: у автора удалённая игра не видна
+// вовсе, возвращать её ему неоткуда
+app.post('/admin/games/:id/restore', requireAdmin, async (req, res) => {
+  try {
+    res.json({ game: await userRepo.restoreGame(req.params.id) });
+  } catch (err) {
+    if (err instanceof GameNotFoundError) {
+      res.status(404).json({ error: 'unknownGame' });
+      return;
+    }
+
+    throw err;
+  }
 });
 
 // PATCH /admin/games/:id — решение модератора
@@ -552,7 +581,9 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
   // провальном пути быть не должно
   const game = await userRepo.getGame(req.params.id);
 
-  if (!game) {
+  // удалённая игра модерации не подлежит: в графе Deleted у неё есть только
+  // Restore, и решение по ней вернуло бы потом не ту игру, которую удаляли
+  if (!game || game.deletedAt) {
     res.status(404).json({ error: 'unknownGame' });
     return;
   }
@@ -816,6 +847,11 @@ const server = http.createServer(app);
 
 // snakes-v3 (stage_2.md, 2.4): суточный пересчёт all-time-снимка
 startRatingsJob(dbPool.getPool());
+
+// полное удаление игр, пролежавших в графе Deleted дольше
+// config.games.deleteRetentionDays: до этого момента их возвращает
+// POST /admin/games/:id/restore
+startGamesPurgeJob(dbPool.getPool());
 
 // уборка кэша распределений (db/RankDistribution.js): Map растёт по числу
 // увиденных (игра, срез), а популярность игр меняется. Интервал — тот же

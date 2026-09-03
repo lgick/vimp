@@ -156,7 +156,11 @@ export default class GamesModel {
   }
 
   // удаление игры. scope решает, чей список перечитать: карточка автора и
-  // очередь модерации показывают разные проекции одной строки
+  // очередь модерации показывают разные проекции одной строки.
+  //
+  // Удаление обратимо: игра уходит в графу Deleted очереди модерации и
+  // возвращается оттуда `restore` — подтверждения второй кнопкой оно
+  // поэтому не требует
   async remove(id, scope = 'mine') {
     const { ok, json } = await this._request(this._config.urls.remove(id), {
       method: 'DELETE',
@@ -169,10 +173,32 @@ export default class GamesModel {
 
     if (scope === 'admin') {
       await this.loadAdmin();
+
+      // после loadAdmin, а не до: renderAdmin чистит строку панели (см.
+      // moderate). Снятая с раздачи последняя игра оставляет лобби без
+      // каталога, и сказать об этом обязан тот же тик
+      if (json?.warning) {
+        this.publisher.emit('warning', { scope: 'admin', code: json.warning });
+      }
+
       return;
     }
 
     await this.loadMine();
+  }
+
+  // возврат мягко удалённой игры из графы Deleted (только админ)
+  async restore(id) {
+    const { ok, json } = await this._request(this._config.urls.restore(id), {
+      method: 'POST',
+    });
+
+    if (!ok) {
+      this._fail('admin', json);
+      return;
+    }
+
+    await this.loadAdmin();
   }
 
   // «Test»: мастер качает версию и кладёт её в каталог не раздаваемой.
@@ -218,9 +244,17 @@ export default class GamesModel {
     await this.moderate(id, { authorNick: nick === '' ? null : nick });
   }
 
+  // графа, в которой стоит игра. Мягко удалённая уходит в свою графу
+  // ЦЕЛИКОМ, сохраняя прежний статус: восстановление возвращает её туда,
+  // где она была, а показывать её ещё и в Pending/Published значило бы
+  // предлагать модерировать то, чего у игроков уже нет
+  _bucketOf(game) {
+    return game.deletedAt ? 'deleted' : game.status;
+  }
+
   _emitAdmin() {
     this.publisher.emit('admin-changed', {
-      games: this._all.filter(game => game.status === this._filter),
+      games: this._all.filter(game => this._bucketOf(game) === this._filter),
       filter: this._filter,
       versions: this._versions,
     });

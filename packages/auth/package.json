@@ -9,7 +9,8 @@
     "dev": "NODE_ENV=development nodemon --exec \"node --env-file-if-exists=../../.env src/main.js\" -w src",
     "start": "NODE_ENV=production node --env-file ../../.env src/main.js",
     "db:migrate": "node --env-file-if-exists=../../.env src/db/migrate.js",
-    "db:ratings": "node --env-file-if-exists=../../.env src/db/ratingsJob.js"
+    "db:ratings": "node --env-file-if-exists=../../.env src/db/ratingsJob.js",
+    "db:games-purge": "node --env-file-if-exists=../../.env src/db/gamesPurgeJob.js"
   },
   "dependencies": {
     "express": "^5.1.0",

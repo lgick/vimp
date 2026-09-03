@@ -8,6 +8,7 @@ const config = {
   statuses: [
     { id: 'pending', title: 'Pending' },
     { id: 'approved', title: 'Published' },
+    { id: 'deleted', title: 'Deleted' },
   ],
   defaultStatus: 'pending',
   stagedSuffix: ' (test)',
@@ -483,38 +484,19 @@ describe('GamesView: формы и списки', () => {
 });
 
 describe('GamesView: удаление игры', () => {
-  const clickDelete = item => item.querySelector('.games-delete-btn');
+  const deleteBtn = item => item.querySelector('.games-delete-btn');
 
-  it('первое нажатие только взводит кнопку, второе публикует событие', () => {
+  // удаление обратимо (игра уходит в графу Deleted на 30 суток), поэтому
+  // подтверждения вторым нажатием у кнопки нет
+  it('одно нажатие публикует событие', () => {
     const seen = [];
 
     view.publisher.on('delete', e => seen.push(e));
     model.publisher.emit('mine-changed', [{ id: 'tanks', packageName: 'p', status: 'pending' }]);
 
-    const btn = clickDelete($('games-mine-list').querySelector('.games-item'));
-
-    btn.click();
-
-    expect(seen).toEqual([]);
-    expect(btn.value).toBe('Confirm delete');
-    expect(btn.classList.contains('games-delete-armed')).toBe(true);
-
-    btn.click();
+    deleteBtn($('games-mine-list').querySelector('.games-item')).click();
 
     expect(seen).toEqual([{ id: 'tanks', scope: 'mine' }]);
-  });
-
-  it('перерисовка списка возвращает кнопку в исходное состояние', () => {
-    const games = [{ id: 'tanks', packageName: 'p', status: 'pending' }];
-
-    model.publisher.emit('mine-changed', games);
-    clickDelete($('games-mine-list').querySelector('.games-item')).click();
-    model.publisher.emit('mine-changed', games);
-
-    const btn = clickDelete($('games-mine-list').querySelector('.games-item'));
-
-    expect(btn.value).toBe('Delete');
-    expect(btn.classList.contains('games-delete-armed')).toBe(false);
   });
 
   it('карточка модерации удаляет в scope admin', () => {
@@ -527,11 +509,56 @@ describe('GamesView: удаление игры', () => {
       versions: new Map(),
     });
 
-    const btn = clickDelete($('games-admin-list').querySelector('.games-item'));
-
-    btn.click();
-    btn.click();
+    deleteBtn($('games-admin-list').querySelector('.games-item')).click();
 
     expect(seen).toEqual([{ id: 'tanks', scope: 'admin' }]);
+  });
+});
+
+describe('GamesView: графа Deleted', () => {
+  const deleted = {
+    id: 'tanks',
+    packageName: 'p',
+    status: 'approved',
+    deletedAt: '2026-09-01T00:00:00Z',
+    purgeAt: '2026-10-01T00:00:00Z',
+  };
+
+  const render = () => {
+    model.publisher.emit('admin-changed', {
+      games: [deleted],
+      filter: 'deleted',
+      versions: new Map(),
+    });
+
+    return $('games-admin-list').querySelector('.games-item');
+  };
+
+  it('фильтров столько же, сколько граф в конфиге', () => {
+    expect($('games-filters').querySelectorAll('input').length).toBe(config.statuses.length);
+  });
+
+  it('карточка показывает срок полного удаления', () => {
+    const line = render().querySelector('.games-purge-line').textContent;
+
+    expect(line).toContain(new Date(deleted.deletedAt).toLocaleDateString());
+    expect(line).toContain(new Date(deleted.purgeAt).toLocaleDateString());
+    // прежний статус — след того, куда игру вернёт Restore
+    expect(line).toContain('published');
+  });
+
+  it('модерировать удалённую игру нечем: только Restore', () => {
+    const values = [...render().querySelectorAll('input[type="button"]')].map(btn => btn.value);
+
+    expect(values).toEqual(['Restore']);
+  });
+
+  it('Restore публикует событие', () => {
+    const seen = [];
+
+    view.publisher.on('restore', e => seen.push(e));
+    render().querySelector('input[type="button"]').click();
+
+    expect(seen).toEqual([{ id: 'tanks' }]);
   });
 });

@@ -67,6 +67,13 @@ export default class GameRegistryProxy {
     });
   }
 
+  // возврат мягко удалённой игры вместе с её данными (только админ)
+  restore(token, id) {
+    return this._request(`/admin/games/${encodeURIComponent(id)}/restore`, token, {
+      method: 'POST',
+    });
+  }
+
   // решение модератора (статус, раздаваемая версия, замечание, потолок счёта)
   moderate(token, id, patch) {
     return this._request(`/admin/games/${encodeURIComponent(id)}`, token, {

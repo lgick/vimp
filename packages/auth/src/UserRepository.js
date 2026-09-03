@@ -123,6 +123,11 @@ function mapGame(row) {
         maxGameScore: row.max_game_score,
         moderatorNote: row.moderator_note,
         moderatorNick: row.moderator_nick ?? null,
+        // мягкое удаление: обе метки либо null, либо заполнены парой.
+        // Срок полного удаления считает БД (см. PURGE_AT), а не получатель:
+        // ретенция — свойство сервиса, и клиенту знать её незачем
+        deletedAt: row.deleted_at ?? null,
+        purgeAt: row.purge_at ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }
@@ -146,12 +151,18 @@ function mapPublicGame(row) {
   };
 }
 
+// дата полного удаления мягко удалённой игры. Ретенция приходит из конфига
+// и приводится к числу: в текст SQL попадает только оно, входных данных
+// здесь нет. NULL у живой игры — INTERVAL от NULL тоже NULL
+const PURGE_AT =
+  `g.deleted_at + INTERVAL '${Number(config.games.deleteRetentionDays)} days' AS purge_at`;
+
 // колонки игры + ники автора и модератора одним списком: все запросы реестра,
 // отдающие полную строку (mapGame), — и выборки, и пишущие — обязаны отдавать
 // ОДНУ форму, иначе ответ POST/PATCH расходится со списком того же ресурса
 const GAME_JOINS = `LEFT JOIN users a ON a.id = g.author_user_id
        LEFT JOIN users m ON m.id = g.moderator_user_id`;
-const GAME_FIELDS = `g.*, a.nick AS author_nick, m.nick AS moderator_nick`;
+const GAME_FIELDS = `g.*, ${PURGE_AT}, a.nick AS author_nick, m.nick AS moderator_nick`;
 const GAME_FROM = `FROM games g ${GAME_JOINS}`;
 
 // публичная выборка (mapPublicGame) джойнит только автора: ник модератора —
@@ -166,10 +177,10 @@ const PUBLIC_GAME_FROM = `FROM games g LEFT JOIN users a ON a.id = g.author_user
 // потребитель, поверивший ответу, напечатал бы внутренний id
 const gameProject = cte => `SELECT ${GAME_FIELDS} FROM ${cte} g ${GAME_JOINS}`;
 
-// таблицы с колонкой game_id — всё, что удаление игры обязано унести за
-// собой (миграции 001, 003, 008). FK на games у них нет, поэтому чистка
+// таблицы с колонкой game_id — всё, что ПОЛНОЕ удаление игры обязано унести
+// за собой (миграции 001, 003, 008). FK на games у них нет, поэтому чистка
 // явная; у host_ratings/host_votes колонки game_id нет — их не трогаем.
-// Порядок: производные данные раньше строки games (см. deleteGame)
+// Порядок: производные данные раньше строки games (см. purgeGames)
 const GAME_DATA_TABLES = ['rank_periods', 'rank_events', 'state_snapshots', 'states', 'ratings'];
 
 // поля, которые вправе менять модератор: белый список ключей patch →
@@ -805,6 +816,7 @@ export default class UserRepository {
     const result = await this._db.query(
       `SELECT ${PUBLIC_GAME_FIELDS} ${PUBLIC_GAME_FROM}
         WHERE g.status = 'approved' AND g.version IS NOT NULL
+          AND g.deleted_at IS NULL
         ORDER BY g.id`,
     );
 
@@ -818,13 +830,15 @@ export default class UserRepository {
   async countApprovedGames() {
     const result = await this._db.query(
       `SELECT count(*)::int AS count FROM games
-        WHERE status = 'approved' AND version IS NOT NULL`,
+        WHERE status = 'approved' AND version IS NOT NULL
+          AND deleted_at IS NULL`,
     );
 
     return result.rows[0]?.count ?? 0;
   }
 
-  // очередь модерации: всё, включая отклонённое и выключенное, свежее сверху
+  // очередь модерации: всё, включая отклонённое, выключенное и мягко
+  // удалённое (графа Deleted рисуется из этого же ответа), свежее сверху
   async listAllGames() {
     const result = await this._db.query(
       `SELECT ${GAME_FIELDS} ${GAME_FROM}
@@ -837,7 +851,7 @@ export default class UserRepository {
   async listGamesByAuthor(userId) {
     const result = await this._db.query(
       `SELECT ${GAME_FIELDS} ${GAME_FROM}
-        WHERE g.author_user_id = $1
+        WHERE g.author_user_id = $1 AND g.deleted_at IS NULL
         ORDER BY g.updated_at DESC`,
       [userId],
     );
@@ -906,7 +920,7 @@ export default class UserRepository {
                 moderator_note = NULL,
                 status = CASE WHEN status = 'rejected' THEN 'pending' ELSE status END,
                 updated_at = now()
-          WHERE id = $1 AND ($3 OR author_user_id = $4)
+          WHERE id = $1 AND deleted_at IS NULL AND ($3 OR author_user_id = $4)
           RETURNING *
        )
        ${gameProject('updated')}`,
@@ -917,8 +931,14 @@ export default class UserRepository {
       return mapGame(result.rows[0]);
     }
 
-    // ноль строк — либо игры нет, либо она чужая; различаем отдельным чтением
-    if (await this.getGame(id)) {
+    // ноль строк — игры нет, она удалена или чужая; различаем отдельным
+    // чтением. Удалённая игра для этого роута не существует: строка ещё в
+    // БД, но у автора её нет в «My games», а у админа — только Restore в
+    // графе Deleted, и записать в неё значило бы вернуть потом не ту игру,
+    // которую удаляли
+    const game = await this.getGame(id);
+
+    if (game && !game.deletedAt) {
       throw new GameForbiddenError(id);
     }
 
@@ -945,7 +965,9 @@ export default class UserRepository {
     // сильнее прочих: его id проставляет ровно этот запрос
     const result = await this._db.query(
       `WITH updated AS (
-         UPDATE games SET ${sets.join(', ')} WHERE id = $1 RETURNING *
+         UPDATE games SET ${sets.join(', ')}
+          WHERE id = $1 AND deleted_at IS NULL
+         RETURNING *
        )
        ${gameProject('updated')}`,
       values,
@@ -959,17 +981,18 @@ export default class UserRepository {
   }
 
   /**
-   * Удаление игры из реестра вместе со всеми её данными.
+   * Мягкое удаление игры: строка и все данные по `game_id` остаются в БД,
+   * но игра снимается с раздачи (её больше не отдаёт `listApprovedGames`,
+   * и мастера выметают её из каталога ближайшей синхронизацией).
    *
-   * Жёсткое, а не пометка: ни у одной из таблиц с `game_id` нет FK на
-   * `games`, и оставленные строки вернулись бы вместе с игрой, заведённой
-   * под тем же id.
+   * Обратимо: `restoreGame` возвращает игру вместе с рейтингами и скиллами,
+   * пока её не забрала суточная задача очистки (`purgeGames`). Повторное
+   * удаление восстановленной игры просто переставляет `deleted_at`, то есть
+   * отсчёт срока начинается заново.
    *
-   * Транзакцией не обёрнуто (этот класс нигде не держит транзакции — тот
-   * же уровень гарантий, что у `voidHosterContributions`), поэтому порядок
-   * выбран так, чтобы прерывание на середине было безопасным: сначала
-   * производные данные, строка `games` — последней. Повтор после сбоя
-   * доделывает начатое, а игра до этого момента остаётся видимой.
+   * `id` и имя пакета остаются занятыми до полного удаления: восстановление
+   * обязано быть гарантированным, а заведённая под тем же id чужая игра
+   * сделала бы его невозможным.
    *
    * @param {string} id - Идентификатор игры.
    * @param {Object} actor - Кто удаляет.
@@ -983,7 +1006,10 @@ export default class UserRepository {
   async deleteGame(id, { userId, isAdmin = false }) {
     const game = await this.getGame(id);
 
-    if (!game) {
+    // уже удалённая игра для этого роута не существует: у автора её нет в
+    // «My games», у админа в графе Deleted стоит только Restore, и второе
+    // удаление по устаревшей карточке молча продлевало бы срок
+    if (!game || game.deletedAt) {
       throw new GameNotFoundError(id);
     }
 
@@ -993,20 +1019,96 @@ export default class UserRepository {
       }
 
       // опубликованную игру раздают мастера, и в неё играют прямо сейчас:
-      // снять её с раздачи — решение модератора, а не автора
+      // снять её с раздачи — решение модератора, а не автора. Мягкость
+      // удаления этого не отменяет: игроков оно выгоняет так же
       if (game.status === 'approved') {
         throw new GamePublishedError(id);
       }
     }
 
-    // имена таблиц берутся из литерального списка в коде, не из входных
-    // данных: подстановка в текст SQL здесь безопасна
-    for (const table of GAME_DATA_TABLES) {
-      await this._db.query(`DELETE FROM ${table} WHERE game_id = $1`, [id]);
+    const result = await this._db.query(
+      `WITH updated AS (
+         UPDATE games SET deleted_at = now(), updated_at = now()
+          WHERE id = $1 AND deleted_at IS NULL
+         RETURNING *
+       )
+       ${gameProject('updated')}`,
+      [id],
+    );
+
+    // ноль строк — игру унесли между чтением и записью (параллельное
+    // удаление, прогон очистки): отвечать 200 с пустой игрой нельзя,
+    // мастер принял бы это за успех и снял запись каталога
+    if (!result.rows[0]) {
+      throw new GameNotFoundError(id);
     }
 
-    await this._db.query('DELETE FROM games WHERE id = $1', [id]);
+    return mapGame(result.rows[0]);
+  }
 
-    return game;
+  /**
+   * Возврат мягко удалённой игры вместе со всеми её данными. Право —
+   * админское: автору удалённая игра не видна вовсе (`listGamesByAuthor`
+   * её не отдаёт), и возвращать её из графы модерации ему нечем.
+   *
+   * @param {string} id - Идентификатор игры.
+   * @returns {Promise<Object>} Восстановленная строка (проекция mapGame).
+   * @throws {GameNotFoundError} Игры нет или она не была удалена.
+   */
+  async restoreGame(id) {
+    const result = await this._db.query(
+      `WITH updated AS (
+         UPDATE games SET deleted_at = NULL, updated_at = now()
+          WHERE id = $1 AND deleted_at IS NOT NULL
+         RETURNING *
+       )
+       ${gameProject('updated')}`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      throw new GameNotFoundError(id);
+    }
+
+    return mapGame(result.rows[0]);
+  }
+
+  /**
+   * Полное удаление игр, удалённых раньше `before`, вместе со всеми их
+   * данными. Единственный потребитель — суточная задача
+   * (`db/gamesPurgeJob.js`): руками очистить графу Deleted нельзя, срок
+   * обязан быть одинаковым для всех.
+   *
+   * Уносит и данные по `game_id`: ни у одной из этих таблиц нет FK на
+   * `games`, и оставленные строки вернулись бы вместе с игрой, заведённой
+   * под тем же id.
+   *
+   * Транзакцией не обёрнуто (этот класс нигде не держит транзакции — тот
+   * же уровень гарантий, что у `voidHosterContributions`), поэтому порядок
+   * выбран так, чтобы прерывание на середине было безопасным: сначала
+   * производные данные, строка `games` — последней. Повтор после сбоя
+   * доделывает начатое, а игра до этого момента остаётся в графе Deleted.
+   *
+   * @param {Date} before - Граница: удаляется всё с deleted_at раньше неё.
+   * @returns {Promise<string[]>} Идентификаторы вычищенных игр.
+   */
+  async purgeGames(before) {
+    const expired = await this._db.query(
+      'SELECT id FROM games WHERE deleted_at IS NOT NULL AND deleted_at < $1',
+      [before],
+    );
+    const ids = expired.rows.map(row => row.id);
+
+    for (const id of ids) {
+      // имена таблиц берутся из литерального списка в коде, не из входных
+      // данных: подстановка в текст SQL здесь безопасна
+      for (const table of GAME_DATA_TABLES) {
+        await this._db.query(`DELETE FROM ${table} WHERE game_id = $1`, [id]);
+      }
+
+      await this._db.query('DELETE FROM games WHERE id = $1', [id]);
+    }
+
+    return ids;
   }
 }

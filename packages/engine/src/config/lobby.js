@@ -218,19 +218,26 @@ export default {
       staged: '/admin/games/manifest.json',
       // «Test»: скачать версию и положить её в каталог не раздаваемой
       stage: id => `/admin/games/${encodeURIComponent(id)}/stage`,
+      // возврат мягко удалённой игры из графы Deleted (только админ)
+      restore: id => `/admin/games/${encodeURIComponent(id)}/restore`,
       // решение модератора
       moderate: id => `/admin/games/${encodeURIComponent(id)}`,
       // что опубликовано в npm — индикатор «есть версия новее»
       versions: id => `/admin/games/${encodeURIComponent(id)}/versions`,
     },
 
-    // фильтры очереди модерации: id статуса реестра -> подпись кнопки.
-    // Значения обязаны совпадать со статусами auth-сервиса
+    // фильтры («графы») очереди модерации: id -> подпись кнопки. Первые
+    // четыре — статусы реестра, и значения обязаны совпадать со статусами
+    // auth-сервиса. Пятая графа стоит особняком: 'deleted' статусом НЕ
+    // является (мягко удалённая игра сохраняет свой прежний статус, иначе
+    // восстанавливать было бы не во что) — под неё попадает всё с
+    // непустым deletedAt, см. GamesModel._bucketOf
     statuses: [
       { id: 'pending', title: 'Pending' },
       { id: 'approved', title: 'Published' },
       { id: 'rejected', title: 'Rejected' },
       { id: 'disabled', title: 'Disabled' },
+      { id: 'deleted', title: 'Deleted' },
     ],
     defaultStatus: 'pending',
 

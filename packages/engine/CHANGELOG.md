@@ -9,6 +9,34 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- **Deleting a game is now reversible for 30 days.** A deleted game leaves the
+  players' catalog at once but keeps its registry row and everything keyed by
+  its `game_id` — ratings, skills, the results ledger — and moves into a new
+  `Deleted` tab of the moderation queue, where its card shows the date it will
+  be removed for good and a `Restore` button. `Restore`
+  (`POST /admin/games/:id/restore` on the master, admin only) brings the game
+  back whole, into the status it had before deletion, and the master picks it up
+  with the sync pass the route runs. Deleting a restored game starts the 30 days
+  over. The tab cannot be emptied by hand — the window has to be the same for
+  everybody — and a daily job in the auth service finishes the deletion once it
+  runs out. Until then the game's `id` and package name stay taken, so that
+  restoring is always possible: a submission under the same id answers
+  `409 gameExists`.
+
+### Changed
+
+- `DELETE /games/mine/:id` no longer destroys the game and its data — it marks
+  the registry row deleted (see above). Who may delete what is unchanged: an
+  admin any game, an author only their own and only while it is not being
+  served. An admin's deletion that leaves the platform with no servable game now
+  answers `warning: 'catalogEmpty'`, the same way a moderator's decision does.
+- The `Delete` button acts on the **first click**: the `Confirm delete` step was
+  the price of an irreversible action, and nothing is destroyed any more. Note
+  that an author's own undo goes through an admin — a deleted game leaves "My
+  games" and `Restore` lives in the moderation panel.
+
 ## [0.27.0] — 2026-09-03
 
 ### Added

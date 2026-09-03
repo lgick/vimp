@@ -242,11 +242,12 @@ publish.
 | `GET /games/mine` | any logged-in user | the caller's own submissions with their status and the moderator's note |
 | `POST /games/submit` | any logged-in user | a new game submission: the package is downloaded and checked **before** the row is written, so the developer gets the list of problems at once and the registry does not fill up with unusable entries. The body carries only `{packageName, version}` — see below. Limited to 5 submissions per minute per user, ahead of the npm fetch |
 | `POST /games/mine/:id/version` | the game's owner (an admin — any game) | a new version of an already registered game, checked the same way |
-| `DELETE /games/mine/:id` | any logged-in user (auth decides) | deletes the game. The right is checked by the auth service, not by the path — an admin may delete any game, an author only their own and only while it is not being served (`409 gamePublished` otherwise). The master merely cleans up after it: on a `200` the catalog entry is dropped **whole** (`catalog.remove(id)` without a version, so the admin's staged draft goes with it — nothing else would ever retire it) and a sync pass runs at once; the version's files are swept by the next `prune` inside it |
-| `GET /admin/games` | `role=admin` | the whole moderation queue plus this master's local state per game (`downloaded`, `stagedVersion`, `lastError`) |
+| `DELETE /games/mine/:id` | any logged-in user (auth decides) | deletes the game. The right is checked by the auth service, not by the path — an admin may delete any game, an author only their own and only while it is not being served (`409 gamePublished` otherwise). In the registry the deletion is **soft** (the row and its ratings live on for 30 days), but that is the auth service's business: for the master the game has simply left `GET /games`. On a `200` the catalog entry is dropped **whole** (`catalog.remove(id)` without a version, so the admin's staged draft goes with it — nothing else would ever retire it) and a sync pass runs at once; the version's files are swept by the next `prune` inside it |
+| `GET /admin/games` | `role=admin` | the whole moderation queue — soft-deleted games included, each with `deletedAt` and `purgeAt` — plus this master's local state per game (`downloaded`, `stagedVersion`, `lastError`) |
 | `GET /admin/games/manifest.json` | `role=admin` | manifests of the staged (not served) versions — the admin's tab puts them into its own catalog and opens a room on one |
 | `POST /admin/games/:id/stage` | `role=admin` | "Test": download a version and put it into the catalog **inactive**. One draft per game — a new "Test" retires the previous one, and a draft the registry already serves is dropped on the next sync pass; nothing else would ever retire it, and its version stays pinned on disk for as long as it is in the catalog |
 | `PATCH /admin/games/:id` | `role=admin` | the moderator's decision (status, served version, note, `maxGameScore`) and the game's author (`authorNick` — the panel's `Author` field; an empty field clears it). The master proxies the body as it is: the nick is resolved to a user by the auth service. Authorship is what puts a game into its author's "My games" and lets them request a new version, so the games seeded by the migration stay nobody's until an admin fills that field in. On success the master runs a sync pass at once, so the admin sees the result immediately while other masters pick it up within `refreshInterval` |
+| `POST /admin/games/:id/restore` | `role=admin` | brings a soft-deleted game back, together with its ratings and skills. The master downloads nothing itself: the restored game shows up in `GET /games` again, and the sync pass the route runs picks it up |
 | `GET /admin/games/:id/versions` | `role=admin` | what the npm registry has published for the package — the "there is a newer version" indicator |
 
 The submission form asks for **two things: the npm package and the version**.
@@ -267,6 +268,15 @@ or a direct call), but what the package says wins.
 
 An auth-service failure is `502 { "error": "authServiceUnavailable" }` on
 every one of them.
+
+The moderation queue is split into **tabs** by the buttons above the list
+(`lobby.games.statuses`). Four of them are registry statuses; the fifth,
+`Deleted`, is not — a soft-deleted game keeps the status it had, and the tab
+collects everything with a non-empty `deletedAt`. A game moves into it
+*whole*: leaving it in `Pending` or `Published` as well would offer moderating
+something the players no longer have. The card there carries no moderation
+controls at all, only the date it will be removed for good and `Restore`.
+Deleting therefore needs no confirmation click — it is reversible for 30 days.
 
 "My games" and "Moderation" are **two pages of one panel**, not two cards on
 one screen: exactly one of them is shown. The panel's head (the title, the page

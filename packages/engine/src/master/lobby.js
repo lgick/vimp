@@ -628,6 +628,7 @@ app.get('/admin/games', adminAuth.required, gameRoutes.adminList);
 app.get('/admin/games/manifest.json', adminAuth.required, gameRoutes.stagedManifests);
 app.get('/admin/games/:id/versions', adminAuth.required, gameRoutes.versions);
 app.post('/admin/games/:id/stage', adminAuth.required, gameRoutes.stage);
+app.post('/admin/games/:id/restore', adminAuth.required, gameRoutes.restore);
 app.patch('/admin/games/:id', adminAuth.required, gameRoutes.moderate);
 
 // Версионное URL-пространство игр (master-game-registry, этап 3):

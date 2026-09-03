@@ -151,15 +151,44 @@ describe('назначение автора игры', () => {
       new UserRepository(foreign).requestGameVersion('tanks', '0.17.0', { userId: 7 }),
     ).rejects.toThrow(GameForbiddenError);
   });
+
+  // карточка «My games» могла устареть: игру удалил админ, пока список не
+  // перечитывали. Запись в удалённую строку вернула бы потом Restore'ом не
+  // ту игру, которую удаляли, — и ответ здесь именно 404, а не 403
+  it('в удалённую игру версия не заявляется', async () => {
+    const db = createDbStub(text => (
+      text.includes('UPDATE games')
+        ? { rows: [] }
+        : { rows: [{ id: 'tanks', 'author_user_id': 42, 'deleted_at': new Date() }] }
+    ));
+
+    await expect(
+      new UserRepository(db).requestGameVersion('tanks', '0.17.0', { userId: 42 }),
+    ).rejects.toThrow(GameNotFoundError);
+  });
+
+  it('решение модератора в удалённую игру не пишется', async () => {
+    const db = createDbStub(() => ({ rows: [] }));
+
+    await expect(
+      new UserRepository(db).moderateGame('tanks', { status: 'approved' }, 1),
+    ).rejects.toThrow(GameNotFoundError);
+
+    const [text] = db.query.mock.calls[0];
+
+    expect(text).toMatch(/deleted_at IS NULL/);
+  });
 });
 
-// удаление игры (registry-review-fixes, этап 2): жёсткое, вместе со всеми
-// данными по game_id — FK на games у этих таблиц нет, и осиротевшие строки
-// «воскресли» бы при повторной заявке под тем же id
+// мягкое удаление игры: строка и все данные по game_id остаются в БД, игра
+// лишь снимается с раздачи и уходит в графу Deleted очереди модерации.
+// Полное удаление — отдельная задача (purgeGames), она же и уносит данные:
+// FK на games у этих таблиц нет, и осиротевшие строки «воскресли» бы при
+// повторной заявке под тем же id
 describe('удаление игры', () => {
   const DATA_TABLES = ['rank_periods', 'rank_events', 'state_snapshots', 'states', 'ratings'];
 
-  // стаб, отвечающий одной строкой games на SELECT и пустотой на DELETE
+  // стаб, отвечающий одной строкой games на SELECT/UPDATE и пустотой на DELETE
   function createDeleteStub(row) {
     return createDbStub(text => (
       text.startsWith('DELETE') ? { rows: [] } : { rows: row ? [row] : [] }
@@ -168,20 +197,23 @@ describe('удаление игры', () => {
 
   function deletedTables(db) {
     return db.query.mock.calls
-      .map(([text]) => text.match(/^DELETE FROM (\w+)/)?.[1])
+      .map(([text]) => text.match(/DELETE FROM (\w+)/)?.[1])
       .filter(Boolean);
   }
 
-  it('админ удаляет опубликованную игру: чистятся все таблицы, games — последней', async () => {
+  // текст UPDATE-запроса удаления, если он был
+  function softDelete(db) {
+    return db.query.mock.calls.find(([text]) => /UPDATE games SET deleted_at = now\(\)/.test(text));
+  }
+
+  it('админ удаляет опубликованную игру: строка помечается, данные целы', async () => {
     const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
     const game = await new UserRepository(db).deleteGame('tanks', { userId: 1, isAdmin: true });
 
     expect(game.id).toBe('tanks');
-    expect(deletedTables(db)).toEqual([...DATA_TABLES, 'games']);
+    expect(deletedTables(db)).toEqual([]);
     // id всегда параметром, в текст SQL не подставляется
-    db.query.mock.calls
-      .filter(([text]) => text.startsWith('DELETE'))
-      .forEach(([, values]) => expect(values).toEqual(['tanks']));
+    expect(softDelete(db)?.[1]).toEqual(['tanks']);
   });
 
   it('автор удаляет свою неопубликованную игру', async () => {
@@ -189,7 +221,46 @@ describe('удаление игры', () => {
 
     await new UserRepository(db).deleteGame('tanks', { userId: 42 });
 
-    expect(deletedTables(db)).toEqual([...DATA_TABLES, 'games']);
+    expect(softDelete(db)).toBeTruthy();
+    expect(deletedTables(db)).toEqual([]);
+  });
+
+  // «повторное удаление» — это удаление ВОССТАНОВЛЕННОЙ игры: метка снята,
+  // и запрос ставит её заново, то есть срок отсчитывается с нуля
+  it('удаление восстановленной игры ставит метку заново', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending',
+      'deleted_at': null });
+
+    await new UserRepository(db).deleteGame('tanks', { userId: 42 });
+
+    const [text] = softDelete(db);
+
+    // now() в самом запросе, а не значение из строки
+    expect(text).toMatch(/deleted_at = now\(\)/);
+  });
+
+  // карточка панели могла устареть: игру удалил кто-то другой, пока список
+  // не перечитывали. Второе удаление молча продлило бы срок на 30 суток
+  it('уже удалённая игра для роута не существует', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending',
+      'deleted_at': new Date('2026-01-01T00:00:00Z') });
+
+    await expect(
+      new UserRepository(db).deleteGame('tanks', { userId: 42 }),
+    ).rejects.toThrow(GameNotFoundError);
+
+    expect(softDelete(db)).toBeUndefined();
+  });
+
+  it('строку унесли между чтением и записью — GameNotFoundError, не пустая игра', async () => {
+    const db = createDbStub(text => (
+      text.startsWith('SELECT') ? { rows: [{ id: 'tanks', 'author_user_id': 42,
+        status: 'pending' }] } : { rows: [] }
+    ));
+
+    await expect(
+      new UserRepository(db).deleteGame('tanks', { userId: 42, isAdmin: true }),
+    ).rejects.toThrow(GameNotFoundError);
   });
 
   it('автор не удаляет раздаваемую игру', async () => {
@@ -199,7 +270,7 @@ describe('удаление игры', () => {
       new UserRepository(db).deleteGame('tanks', { userId: 42 }),
     ).rejects.toThrow(GamePublishedError);
 
-    expect(deletedTables(db)).toEqual([]);
+    expect(softDelete(db)).toBeUndefined();
   });
 
   it('чужая игра не удаляется', async () => {
@@ -209,7 +280,7 @@ describe('удаление игры', () => {
       new UserRepository(db).deleteGame('tanks', { userId: 7 }),
     ).rejects.toThrow(GameForbiddenError);
 
-    expect(deletedTables(db)).toEqual([]);
+    expect(softDelete(db)).toBeUndefined();
   });
 
   it('игры нет — GameNotFoundError', async () => {
@@ -219,6 +290,49 @@ describe('удаление игры', () => {
       new UserRepository(db).deleteGame('nope', { userId: 1, isAdmin: true }),
     ).rejects.toThrow(GameNotFoundError);
 
+    expect(softDelete(db)).toBeUndefined();
+  });
+
+  it('восстановление снимает метку', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
+    const game = await new UserRepository(db).restoreGame('tanks');
+
+    expect(game.id).toBe('tanks');
+
+    const [text, values] = db.query.mock.calls.at(-1);
+
+    expect(text).toMatch(/UPDATE games SET deleted_at = NULL/);
+    // условие deleted_at IS NOT NULL: восстанавливать живую игру нечем
+    expect(text).toMatch(/deleted_at IS NOT NULL/);
+    expect(values).toEqual(['tanks']);
+  });
+
+  it('игра не была удалена — восстановление не находит её', async () => {
+    const db = createDbStub(() => ({ rows: [] }));
+
+    await expect(new UserRepository(db).restoreGame('tanks')).rejects.toThrow(GameNotFoundError);
+  });
+
+  it('очистка уносит данные игры, строку games — последней', async () => {
+    const db = createDbStub(text => (
+      text.startsWith('SELECT id FROM games') ? { rows: [{ id: 'tanks' }] } : { rows: [] }
+    ));
+    const ids = await new UserRepository(db).purgeGames(new Date('2026-01-01T00:00:00Z'));
+
+    expect(ids).toEqual(['tanks']);
+    expect(deletedTables(db)).toEqual([...DATA_TABLES, 'games']);
+    // id всегда параметром, в текст SQL не подставляется
+    db.query.mock.calls
+      .filter(([text]) => text.startsWith('DELETE'))
+      .forEach(([, values]) => expect(values).toEqual(['tanks']));
+  });
+
+  it('просроченных игр нет — ни одного удаления', async () => {
+    const db = createDbStub(() => ({ rows: [] }));
+
+    await expect(
+      new UserRepository(db).purgeGames(new Date('2026-01-01T00:00:00Z')),
+    ).resolves.toEqual([]);
     expect(deletedTables(db)).toEqual([]);
   });
 });

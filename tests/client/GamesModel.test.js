@@ -12,10 +12,15 @@ const config = {
     admin: '/admin/games',
     staged: '/admin/games/manifest.json',
     stage: id => `/admin/games/${id}/stage`,
+    restore: id => `/admin/games/${id}/restore`,
     moderate: id => `/admin/games/${id}`,
     versions: id => `/admin/games/${id}/versions`,
   },
-  statuses: [{ id: 'pending', title: 'Ожидают' }, { id: 'approved', title: 'Опубликованы' }],
+  statuses: [
+    { id: 'pending', title: 'Ожидают' },
+    { id: 'approved', title: 'Опубликованы' },
+    { id: 'deleted', title: 'Удалены' },
+  ],
   defaultStatus: 'pending',
 };
 
@@ -141,6 +146,31 @@ describe('GamesModel: модерация', () => {
     model.setFilter('approved');
 
     expect(seen[1].games).toEqual([games[1]]);
+  });
+
+  // мягко удалённая игра сохраняет свой прежний статус, но уходит из его
+  // графы целиком: у игроков её уже нет, и модерировать в ней нечего
+  it('удалённая игра стоит в графе deleted, а не в графе своего статуса', async () => {
+    const rows = [
+      { id: 'tanks', status: 'pending', deletedAt: null },
+      { id: 'snakes', status: 'approved', deletedAt: '2026-09-01T00:00:00Z' },
+    ];
+    const seen = [];
+
+    fetchMock.mockResolvedValue(answer({ games: rows }));
+    model.publisher.on('admin-changed', data => seen.push(data));
+
+    await model.loadAdmin();
+
+    expect(seen[0].games).toEqual([rows[0]]);
+
+    model.setFilter('approved');
+
+    expect(seen[1].games).toEqual([]);
+
+    model.setFilter('deleted');
+
+    expect(seen[2].games).toEqual([rows[1]]);
   });
 
   it('stage публикует манифест застейдженной версии', async () => {
@@ -276,6 +306,21 @@ describe('GamesModel: удаление игры', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/admin/games');
   });
 
+  // удалить раздаваемую игру может только админ, и она могла быть последней
+  it('scope admin показывает предупреждение об опустевшем каталоге', async () => {
+    const order = [];
+
+    fetchMock.mockResolvedValueOnce(answer({ game: {}, warning: 'catalogEmpty' }));
+    fetchMock.mockResolvedValue(answer({ games: [] }));
+    model.publisher.on('admin-changed', () => order.push('list'));
+    model.publisher.on('warning', w => order.push(w));
+
+    await model.remove('tanks', 'admin');
+
+    // предупреждение после перерисовки списка: renderAdmin чистит строку панели
+    expect(order).toEqual(['list', { scope: 'admin', code: 'catalogEmpty' }]);
+  });
+
   it('отказ публикуется ошибкой в том же scope', async () => {
     const errors = [];
 
@@ -289,6 +334,33 @@ describe('GamesModel: удаление игры', () => {
       errors: [{ name: 'request', error: 'gamePublished' }],
     });
     // список не перечитывался
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('GamesModel: восстановление игры', () => {
+  it('шлёт POST и перечитывает очередь модерации', async () => {
+    fetchMock.mockResolvedValue(answer({ games: [] }));
+
+    await model.restore('tanks');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/admin/games/tanks/restore');
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+    expect(fetchMock.mock.calls[1][0]).toBe('/admin/games');
+  });
+
+  it('отказ публикуется ошибкой в scope admin', async () => {
+    const errors = [];
+
+    fetchMock.mockResolvedValue(answer({ error: 'unknownGame' }, false));
+    model.publisher.on('error', e => errors.push(e));
+
+    await model.restore('tanks');
+
+    expect(errors[0]).toEqual({
+      scope: 'admin',
+      errors: [{ name: 'request', error: 'unknownGame' }],
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

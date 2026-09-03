@@ -26,6 +26,7 @@ beforeEach(async () => {
     stage: vi.fn(),
     moderate: vi.fn(),
     remove: vi.fn(),
+    restore: vi.fn(),
   };
 
   view = { publisher: new Publisher(), show: vi.fn(), setAdmin: vi.fn() };
@@ -53,6 +54,12 @@ describe('GamesCtrl', () => {
     view.publisher.emit('delete', { id: 'tanks', scope: 'admin' });
 
     expect(model.remove).toHaveBeenCalledWith('tanks', 'admin');
+  });
+
+  it('восстановление доезжает до модели', () => {
+    view.publisher.emit('restore', { id: 'tanks' });
+
+    expect(model.restore).toHaveBeenCalledWith('tanks');
   });
 
   it('решения модератора уходят патчем статуса', () => {

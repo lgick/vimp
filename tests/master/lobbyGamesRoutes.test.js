@@ -68,6 +68,7 @@ beforeEach(() => {
     requestVersion: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
     moderate: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
     remove: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
+    restore: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
   };
 
   store = {
@@ -535,6 +536,42 @@ describe('DELETE /games/mine/:id', () => {
     expect(res.code).toBe(502);
     expect(res.body).toEqual({ error: 'authServiceUnavailable' });
     expect(catalog.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /admin/games/:id/restore', () => {
+  it('восстановление синхронизирует каталог: игра вернулась в GET /games', async () => {
+    const res = fakeRes();
+
+    await routes.restore({ authToken: 't', params: { id: 'tanks' } }, res);
+
+    expect(registry.restore).toHaveBeenCalledWith('t', 'tanks');
+    expect(sync.run).toHaveBeenCalled();
+    expect(res.code).toBe(200);
+  });
+
+  it('отказ реестра синхронизацию не запускает', async () => {
+    registry.restore.mockResolvedValue({ status: 404, json: { error: 'unknownGame' } });
+
+    const res = fakeRes();
+
+    await routes.restore({ authToken: 't', params: { id: 'tanks' } }, res);
+
+    expect(sync.run).not.toHaveBeenCalled();
+    expect(res.code).toBe(404);
+    expect(res.body).toEqual({ error: 'unknownGame' });
+  });
+
+  it('недоступный auth — 502 authServiceUnavailable', async () => {
+    registry.restore.mockRejectedValue(new Error('boom'));
+
+    const res = fakeRes();
+
+    await routes.restore({ authToken: 't', params: { id: 'tanks' } }, res);
+
+    expect(res.code).toBe(502);
+    expect(res.body).toEqual({ error: 'authServiceUnavailable' });
+    expect(sync.run).not.toHaveBeenCalled();
   });
 });
 

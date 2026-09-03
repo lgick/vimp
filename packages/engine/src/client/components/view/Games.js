@@ -288,8 +288,10 @@ export default class GamesView {
       item.appendChild(version);
       item.appendChild(send);
       item.appendChild(
-        this._deleteButton(() =>
-          this.publisher.emit('delete', { id: game.id, scope: 'mine' }),
+        this._button(
+          'Delete',
+          () => this.publisher.emit('delete', { id: game.id, scope: 'mine' }),
+          'games-delete-btn',
         ),
       );
       this._mineList.appendChild(item);
@@ -337,6 +339,21 @@ export default class GamesView {
         'games-item-title',
       ),
     );
+
+    // Мягко удалённая игра модерации не подлежит: у игроков её уже нет, а
+    // решение по ней приняли. Из всей карточки ей нужны срок полного
+    // удаления и возврат — остальные кнопки правили бы то, чего не видно
+    if (game.deletedAt) {
+      item.appendChild(this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`));
+      this._appendRepo(item, game.repoUrl);
+      item.appendChild(this._line(this._statusLine(game), 'games-purge-line'));
+      item.appendChild(
+        this._button('Restore', () => this.publisher.emit('restore', { id: game.id })),
+      );
+
+      return item;
+    }
+
     // у игр, засеянных миграцией, автора нет вовсе: без запасного прочерка
     // в строке печаталось бы литеральное "null"
     item.appendChild(this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`));
@@ -408,7 +425,11 @@ export default class GamesView {
       ),
     );
     item.appendChild(
-      this._deleteButton(() => this.publisher.emit('delete', { id: game.id, scope: 'admin' })),
+      this._button(
+        'Delete',
+        () => this.publisher.emit('delete', { id: game.id, scope: 'admin' }),
+        'games-delete-btn',
+      ),
     );
 
     return item;
@@ -438,6 +459,16 @@ export default class GamesView {
     const status = STATUS_TITLES[game.status] ?? game.status;
     const date = game.createdAt ? new Date(game.createdAt).toLocaleDateString() : '';
 
+    // у удалённой игры прежний статус — след того, куда её вернёт Restore, —
+    // а вести отсчёт человеку нужно от срока полного удаления: только он
+    // ограничен во времени
+    if (game.deletedAt) {
+      const deleted = new Date(game.deletedAt).toLocaleDateString();
+      const purge = game.purgeAt ? new Date(game.purgeAt).toLocaleDateString() : '—';
+
+      return `Deleted ${deleted} (was ${status}); removed for good on ${purge}`;
+    }
+
     return date ? `Status: ${status} (submitted ${date})` : `Status: ${status}`;
   }
 
@@ -459,33 +490,16 @@ export default class GamesView {
     });
   }
 
-  // Удаление необратимо и уносит рейтинги игры, поэтому кнопка требует
-  // второго нажатия: первое переводит её в «Confirm delete», второе публикует
-  // событие. Повторная отрисовка списка возвращает её в исходное состояние —
-  // незавершённое подтверждение не переживает перерисовку
-  _deleteButton(onConfirm) {
-    const btn = this._button('Delete', () => {
-      if (btn.dataset.armed !== '1') {
-        btn.dataset.armed = '1';
-        btn.value = 'Confirm delete';
-        btn.classList.add('games-delete-armed');
-        return;
-      }
-
-      onConfirm();
-    });
-
-    btn.className = 'games-delete-btn';
-
-    return btn;
-  }
-
-  _button(value, onclick) {
+  _button(value, onclick, className) {
     const btn = document.createElement('input');
 
     btn.type = 'button';
     btn.value = value;
     btn.onclick = onclick;
+
+    if (className) {
+      btn.className = className;
+    }
 
     return btn;
   }

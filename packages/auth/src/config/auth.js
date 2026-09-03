@@ -157,6 +157,11 @@ export default {
     // общей зависимости между пакетами нет
     reservedIds: ['mine', 'submit', 'manifest', 'lookup'],
     maxPerUser: 20,
+    // мягкое удаление: сколько суток удалённая игра лежит в графе Deleted
+    // панели модерации, откуда админ может вернуть её вместе с рейтингами.
+    // Единственное место, где записан срок: наружу он едет уже готовой
+    // датой полного удаления (UserRepository.purgeAt)
+    deleteRetentionDays: 30,
     maxNoteLength: 1000,
     maxTitleLength: 60,
     maxUrlLength: 200,

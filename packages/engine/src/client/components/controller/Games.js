@@ -29,6 +29,7 @@ export default class GamesCtrl {
     vp.on('submit', 'submit', this);
     vp.on('update-version', 'updateVersion', this);
     vp.on('delete', 'remove', this);
+    vp.on('restore', 'restore', this);
     vp.on('filter', 'filter', this);
     vp.on('stage', 'stage', this);
     vp.on('approve', 'approve', this);
@@ -79,6 +80,10 @@ export default class GamesCtrl {
 
   remove({ id, scope }) {
     this._model.remove(id, scope);
+  }
+
+  restore({ id }) {
+    this._model.restore(id);
   }
 
   filter(status) {

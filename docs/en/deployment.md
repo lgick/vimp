@@ -336,14 +336,20 @@ shared instance that every master domain points at.
     or `2) recreate` (`docker compose down -v` — wipes the DB and keys,
     requires typing `yes` to confirm).
 - **Migrations** run automatically as part of the above, and on every push
-  to `main`: `deploy.yml`'s `deploy_auth` job pulls the new auth image,
-  restarts the stack and runs `node src/db/migrate.js` (idempotent —
-  `CREATE TABLE/INDEX IF NOT EXISTS`). It derives the project directory from
+  to `main`: `deploy.yml`'s `deploy_auth` job pulls the new auth image, runs
+  `node src/db/migrate.js` in a **one-off container from it** (`docker compose
+  run --rm`, idempotent — `CREATE TABLE/INDEX IF NOT EXISTS`) and only then
+  recreates the stack. That order is deliberate: new code routinely reads
+  columns the old schema does not have, and every request between the
+  container's start and a successful migration would answer 500 — the public
+  `GET /games` the masters poll included. A failed migration stops the deploy
+  with the previous, working version still serving. It derives the project directory from
   `AUTH_SERVICE_URL` and connects with the same `SERVER_USER`/`SERVER_SSH_KEY`
   secrets as the master `deploy` job, but runs independently of it (masters
   are not blocked when the auth domain isn't configured). To re-run by hand
   (e.g. after a manual schema change): `docker compose exec auth node
-  src/db/migrate.js` from `~/vimp_projects/<domain>/`.
+  src/db/migrate.js` from `~/vimp_projects/<domain>/` — `exec` is right there,
+  since the running container already holds the code the schema belongs to.
 - **`AUTH_SERVER_IP`** (Settings → Secrets and variables → Actions →
   Variables) is the auth VPS's IP address, and it gates `deploy_auth`: with
   the variable unset the job is skipped and the auth service is never
