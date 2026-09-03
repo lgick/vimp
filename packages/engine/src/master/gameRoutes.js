@@ -85,7 +85,7 @@ export function createGameRoutes({
   // не должно блокировать (тот же приём, что в store.publishedVersions)
   async function packageMeta(packageName, version) {
     if (!registryUrl) {
-      return { repoUrl: null, homepage: null, description: null };
+      return { repoUrl: null };
     }
 
     try {
@@ -95,8 +95,43 @@ export function createGameRoutes({
         timeout,
       });
     } catch {
-      return { repoUrl: null, homepage: null, description: null };
+      return { repoUrl: null };
     }
+  }
+
+  // Вердикт разбора пакета: форма всегда делает lookup перед submit, и без
+  // кэша заявка стоит платформе двух скачиваний тарболла и двух походов в
+  // npm. TTL короткий намеренно: опубликованную версию подменить нельзя, но
+  // пакет могли снять (unpublish), и держать вердикт дольше минуты незачем
+  const INSPECT_TTL = 60000;
+  const inspected = new Map(); // `${packageName}@${version}` -> {at, verdict, meta}
+
+  async function inspectPackage(packageName, version) {
+    const key = `${packageName}@${version ?? ''}`;
+    const hit = inspected.get(key);
+
+    if (hit && Date.now() - hit.at < INSPECT_TTL) {
+      return hit;
+    }
+
+    const [verdict, meta] = await Promise.all([
+      store.inspectPackage(packageName, version),
+      packageMeta(packageName, version),
+    ]);
+    const entry = { at: Date.now(), verdict, meta };
+
+    inspected.set(key, entry);
+
+    // кэш ограничен: ключ приходит от пользователя, и расти ему нельзя
+    if (inspected.size > 64) {
+      for (const [oldKey, value] of inspected) {
+        if (Date.now() - value.at >= INSPECT_TTL) {
+          inspected.delete(oldKey);
+        }
+      }
+    }
+
+    return entry;
   }
 
   // форма ссылок проверяется ДО сети и диска: packageName доезжает до пути
@@ -129,10 +164,9 @@ export function createGameRoutes({
         return;
       }
 
-      const [verdict, versions, meta] = await Promise.all([
-        store.inspectPackage(packageName, version),
+      const [{ verdict, meta }, versions] = await Promise.all([
+        inspectPackage(packageName, version),
         store.publishedVersions(packageName),
-        packageMeta(packageName, version),
       ]);
 
       res.json({
@@ -171,7 +205,7 @@ export function createGameRoutes({
       // читает, а сверять прочитанное с тем, что человек напечатал в форме,
       // незачем. Присланные поля остаются запасным путём — старый клиент и
       // прямые вызовы работают как работали
-      const verdict = await store.inspectPackage(packageName, version);
+      const { verdict, meta } = await inspectPackage(packageName, version);
 
       if (!verdict.ok) {
         res.status(400).json({ errors: verdict.errors });
@@ -186,8 +220,6 @@ export function createGameRoutes({
         res.status(400).json({ error: 'badRequest' });
         return;
       }
-
-      const meta = await packageMeta(packageName, verdict.version);
 
       try {
         const { status, json } = await registry.submit(req.authToken, {
@@ -237,6 +269,27 @@ export function createGameRoutes({
         const answer = await registry.requestVersion(req.authToken, id, verdict.version);
 
         res.status(answer.status).json(answer.json);
+      } catch (err) {
+        unavailable(res, err);
+      }
+    },
+
+    // DELETE /games/mine/:id — удаление игры. Право проверяет auth (админ —
+    // любую, автор — свою неопубликованную), мастер лишь убирает за собой:
+    // запись каталога снимается сразу, а файлы версий выметает ближайший
+    // prune внутри sync.run()
+    async remove(req, res) {
+      try {
+        const { status, json } = await registry.remove(req.authToken, req.params.id);
+
+        if (status === 200) {
+          // remove(id) без версии снимает ВСЕ записи игры, включая
+          // застейдженные админом черновики: их не убирает больше никто
+          catalog.remove(req.params.id);
+          await sync.run();
+        }
+
+        res.status(status).json(json);
       } catch (err) {
         unavailable(res, err);
       }

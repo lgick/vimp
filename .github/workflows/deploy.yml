@@ -105,13 +105,17 @@ jobs:
           # каждом выпуске токена, поэтому список правится переменной, а не
           # руками в базе
           VIMP_ADMIN_NICKS: ${{ vars.VIMP_ADMIN_NICKS }}
+          # личности админов (провайдер:uid) — приоритетный источник прав:
+          # незанятый ник из списка выше достаётся первому, кто под ним
+          # зарегистрируется, а provider_uid принадлежит конкретному аккаунту
+          VIMP_ADMIN_IDENTITIES: ${{ vars.VIMP_ADMIN_IDENTITIES }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ vars.AUTH_SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: AUTH_SERVICE_URL,VIMP_ADMIN_NICKS,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: AUTH_SERVICE_URL,VIMP_ADMIN_NICKS,VIMP_ADMIN_IDENTITIES,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             set -e
 
@@ -153,6 +157,19 @@ jobs:
               chmod 600 .env.prod
             else
               echo "🔑 VIMP_ADMIN_NICKS is empty — keeping the list already on the server"
+            fi
+
+            # то же правило для списка личностей: пустая переменная строку не
+            # трогает (иначе деплой снял бы пин и вернул права по нику)
+            if [ -n "${VIMP_ADMIN_IDENTITIES}" ]; then
+              echo "🔑 Updating VIMP_ADMIN_IDENTITIES..."
+              touch .env.prod
+              grep -v '^VIMP_ADMIN_IDENTITIES=' .env.prod > .env.prod.next || true
+              echo "VIMP_ADMIN_IDENTITIES=${VIMP_ADMIN_IDENTITIES}" >> .env.prod.next
+              mv .env.prod.next .env.prod
+              chmod 600 .env.prod
+            else
+              echo "🔑 VIMP_ADMIN_IDENTITIES is empty — keeping the value already on the server"
             fi
 
             echo "🚀 Pulling and Restarting..."
@@ -220,6 +237,26 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
+      # settings матрицы — объект, а toJSON печатает его с переводами
+      # строк. В .env.prod значение обязано быть одной строкой: env_file
+      # docker compose читает файл построчно
+      - name: Compact dedicated room settings
+        id: room
+        env:
+          RAW: ${{ toJSON(matrix.settings) }}
+        run: |
+          set -e
+          # jq -c заодно проверяет, что значение вообще JSON: битая матрица
+          # уронит деплой здесь, с внятным текстом, а не молча на сервере
+          COMPACT=$(printf '%s' "$RAW" | jq -c .)
+          # поля settings в матрице нет -> jq вернёт "null": в .env.prod
+          # такая строка не пишется вовсе (readDedicatedRoom бросил бы
+          # 'expected a JSON object')
+          if [ "$COMPACT" = "null" ]; then
+            COMPACT=""
+          fi
+          echo "json=$COMPACT" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to ${{ matrix.domain }}
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -238,10 +275,11 @@ jobs:
           # обычным лобби-мастером, см. docs/en/deployment.md
           VIMP_DEDICATED_GAME: ${{ matrix.dedicatedGame }}
           # необязательное поле матрицы: настройки комнаты dedicated-сервера
-          # (map, maxPlayers, roundTime, mapTime, friendlyFire, seed) одной
-          # строкой JSON. Поля нет — toJSON даёт строку "null", она
-          # отсекается при генерации .env.prod ниже
-          VIMP_DEDICATED_ROOM: ${{ toJSON(matrix.settings) }}
+          # (map, maxPlayers, roundTime, mapTime, friendlyFire, seed)
+          # компактным JSON одной строкой (шаг «Compact dedicated room
+          # settings»): toJSON здесь напрямую нельзя — он многострочный.
+          # Поля нет — значение пустое, в .env.prod строка не пишется
+          VIMP_DEDICATED_ROOM: ${{ steps.room.outputs.json }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -295,10 +333,18 @@ jobs:
               # матрице нет) отсекается: readDedicatedRoom бросил бы на ней
               # 'expected a JSON object'. Привязка к непустому
               # VIMP_DEDICATED_GAME намеренная: лобби-мастеру настройки
-              # комнаты не нужны и в его окружение попадать не должны
+              # комнаты не нужны и в его окружение попадать не должны.
+              # Значение с переводом строки не пишется вовсе: сломанный
+              # env_file не даёт контейнеру подняться, а отсутствие
+              # переменной — всего лишь дефолтные настройки комнаты
+              # (wc -l считает переводы строк: у однострочного значения 0)
               if [ -n "$VIMP_DEDICATED_GAME" ] && [ -n "$VIMP_DEDICATED_ROOM" ] \
                  && [ "$VIMP_DEDICATED_ROOM" != "null" ]; then
-                echo "VIMP_DEDICATED_ROOM=$VIMP_DEDICATED_ROOM"
+                if [ "$(printf '%s' "$VIMP_DEDICATED_ROOM" | wc -l)" -eq 0 ]; then
+                  echo "VIMP_DEDICATED_ROOM=$VIMP_DEDICATED_ROOM"
+                else
+                  echo "WARN: VIMP_DEDICATED_ROOM contains a newline — skipped" >&2
+                fi
               fi
             } > .env.prod
 

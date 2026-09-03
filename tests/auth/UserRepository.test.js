@@ -973,6 +973,21 @@ describe('UserRepository: роли', () => {
 
     expect(await new UserRepository(db).getRole(3)).toBe('admin');
   });
+
+  // личность (провайдер:uid) — источник админских прав при заданном
+  // VIMP_ADMIN_IDENTITIES: ник до первой регистрации может занять кто угодно
+  it('getIdentity отдаёт провайдера и uid, null — для несуществующего id', async () => {
+    const db = createDbStub((text, values) => {
+      expect(text).toMatch(/SELECT provider, provider_uid FROM users WHERE id = \$1/);
+      return values[0] === 3
+        ? { rows: [{ provider: 'github', 'provider_uid': '123' }] }
+        : { rows: [] };
+    });
+    const repo = new UserRepository(db);
+
+    expect(await repo.getIdentity(3)).toEqual({ provider: 'github', 'provider_uid': '123' });
+    expect(await repo.getIdentity(4)).toBeNull();
+  });
 });
 
 describe('UserRepository: реестр игр', () => {

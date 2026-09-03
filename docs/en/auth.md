@@ -73,6 +73,32 @@ and case-insensitive, so the list is provider-independent). An empty value
 means "no admins" and must not fail: in production that is the legitimate
 state until the first setup.
 
+`VIMP_ADMIN_IDENTITIES` is the safer, also optional source of the same
+right: a CSV of `provider:uid` pairs (`github:1234567`), matched against the
+`provider` / `provider_uid` columns of the `users` row — for GitHub that is
+the numeric account id, which survives an account rename. **It wins over
+`VIMP_ADMIN_NICKS` entirely**: while it is non-empty, a nick grants nothing
+and only a listed identity gets `admin` (`isEnvAdmin` in
+`src/lib/adminRights.js`); when it is unset, the nick list behaves exactly as
+before.
+
+**Why it exists.** Admin rights attached to a *string* are only as safe as
+that string being taken. A nick listed in `VIMP_ADMIN_NICKS` that nobody has
+registered yet — a fresh database, a nick added to the list before its owner's
+first login, a typo in the list — is handed to whoever signs up with it first,
+together with `role = 'admin'`; OAuth sign-up is open to everyone and the race
+is won with a single request. Taking over an *already registered* admin nick
+is not possible (a nick is globally unique case-insensitively and there is no
+rename), so the exposure is exactly the free-nick window.
+
+**Recommendation for a new install**: either register the admin nicks before
+opening sign-up, or fill in `VIMP_ADMIN_IDENTITIES` right away. On start the
+service prints one line per admin nick — a warning for a nick nobody has
+registered, and `[admin] "<nick>" -> github:<uid>` for one that exists, which
+is the ready-made value for `VIMP_ADMIN_IDENTITIES` (no SQL against
+production needed). Both lines are skipped once `VIMP_ADMIN_IDENTITIES` is
+set.
+
 ## Schema
 
 ```
@@ -117,9 +143,9 @@ migration here it is idempotent and re-runnable, and it seeds the two games
 that already exist (`ON CONFLICT DO NOTHING`) so the lobby never empties.
 
 `users.role` is `'user'` by default and there are exactly two roles,
-`'user'` and `'admin'`. The single source of admin rights is
-`VIMP_ADMIN_NICKS`: `syncRole` writes the role on every token issue in one
-statement, and its `CASE` demotes any `admin` that is not on the list — so an
+`'user'` and `'admin'`. The single source of admin rights is the environment
+— `VIMP_ADMIN_IDENTITIES` if set, otherwise `VIMP_ADMIN_NICKS`: `syncRole`
+writes the role on every token issue in one statement, and its `CASE` demotes any `admin` that is not on the list — so an
 admin cannot be appointed behind the list's back by editing the row in the
 database. Other roles (a moderator appointed from an admin UI later) are left
 alone.
@@ -263,6 +289,7 @@ also reverted by the snapshot restore.
 | `GET /games/mine` (Bearer identity token) | the caller's own submissions with `status`, `pendingVersion` and `moderatorNote` — but **not** `moderatorNick` (`src/lib/gameViews.js` drops it, and so do the author's own `POST /games` and `POST /games/:id/version` answers). Moderation is anonymous from the author's side: what is addressed to them is the note, not the person — "this submission was killed by *that* human" is a product decision about moderator harassment, not a by-product of the shared row projection. Same reason `GET /games` omits it |
 | `POST /games` (Bearer, `{ id, packageName, title?, repoUrl?, version }`) | a submission from any signed-in user — there is no `developer` role: the submitter becomes the game's author (`author_user_id`), and only an admin can hand authorship to somebody else (`PATCH /admin/games/:id`, `authorNick`). `201 { game }`, created as `pending` with `pendingVersion = version`. Rate-limited per IP (5/60s). A missing `id`, `packageName` or `version` is `400 { error: 'badRequest', field }` — presence belongs to this route, while the format checks below are shared with moderation. Each field answers with its own code — `400 invalidGameId` \| `invalidPackageName` \| `invalidVersion` \| `invalidTitle` \| `invalidRepoUrl` — `409 gameExists` for a taken `id` or an already registered package (both are the same `23505`), `403 tooManyGames` above `config.games.maxPerUser` |
 | `POST /games/:id/version` (Bearer — author or admin) | `{ version }` → `{ game }`: stages a new version for review without touching the served `version`, clears `moderatorNote` and lifts `rejected` back to `pending`. `404 unknownGame`, `403 forbidden` for someone else's game |
+| `DELETE /games/:id` (Bearer — author or admin) | removes the game from the registry **and every row keyed by its `game_id`** — `rank_periods`, `rank_events`, `state_snapshots`, `states`, `ratings`, in that order, with the `games` row last. None of those tables has an FK on `games`, so the cleanup is explicit: orphaned rows would come back to life under a later submission that took the same id. Not wrapped in a transaction (this repository holds none anywhere) — the order makes an interrupted run safe to repeat, and the game stays visible until its own row goes. An admin may delete a game in any status; an author only their own, and only while it is not being served: `409 gamePublished` for an `approved` game (an admin disables it first), `403 forbidden` for someone else's, `404 unknownGame` if there is none. Rate-limited per IP with the other registry writes (5/60s) |
 | `GET /admin/games` (Bearer, admin) | the whole moderation queue, freshest first, with author and moderator nicks |
 | `PATCH /admin/games/:id` (Bearer, admin, `{ status?, version?, pendingVersion?, note?, maxGameScore?, authorNick? }`) | a moderator's decision — only the keys present are written. `status: 'approved'` without an explicit `version` promotes `pendingVersion` to `version` and clears it (the common path must not need two fields). `maxGameScore` must be a positive integer within this service's own ceilings (`<= config.rank.maxGameScore`, and `× 20` — the engine's merge window — still within `config.rank.maxPoints`), else `400 invalidMaxGameScore`: a ceiling above them would let the master forward a result this service then rejects, and the host would retry that flush forever. `404 unknownGame`. **`authorNick`** reassigns authorship: the nick is resolved to a user id case-insensitively (`400 badRequest` if it isn't a valid nick, `404 unknownUser` if nobody holds it), and `null` or `''` clears the author — a game of the platform's own is legitimately nobody's. It is the only way to give an author to the games seeded by `009_games.sql` with `author_user_id = NULL`: until an admin does it, they are in nobody's "My games" and nobody can request a new version for them. When the decision leaves the platform with no servable game at all, the answer carries `warning: 'catalogEmpty'` — not a refusal (the lobby stays up: sign-in, "My games" and "Moderation" do not depend on a game), but rooms cannot be created until something is published again, and the moderator has to learn that here rather than from the players |
 | `GET /jwks` | RS256 public key as a JWK — a host verifies `token`'s signature against this before trusting its `nick` |
@@ -483,8 +510,11 @@ competition ranking, an empty game; the game registry and roles — all three
 with a duplicate and over the per-author limit (no `INSERT` at all in that
 case), `requestGameVersion` as author/admin/stranger and its `rejected` →
 `pending` lift, and `moderateGame` building its `SET` from the passed keys
-only, with every value a placeholder), `adminNicks.test.js` (`VIMP_ADMIN_NICKS`
-parsing — case, spaces, a trailing comma, an empty value), `devLogin.test.js` (redirect carries a
+only, with every value a placeholder), `adminNicks.test.js` (`VIMP_ADMIN_NICKS` and
+`VIMP_ADMIN_IDENTITIES` parsing — case, spaces, a trailing comma, an empty
+value, a malformed pair), `adminRights.test.js` (`isEnvAdmin` — the identity
+list wins over the nick list, a foreign uid and a missing provider both fail
+closed), `devLogin.test.js` (redirect carries a
 token that verifies against a throwaway RSA key pair, the nick is set only on
 the first login, an invalid nick and a foreign-origin `returnUrl` are both
 rejected before any write).

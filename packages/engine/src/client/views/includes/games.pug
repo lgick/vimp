@@ -5,10 +5,15 @@
 //- Подписи — по-английски, как и остальное лобби
 div#games-panel(style='display:none')
   div.lobby-column
+    //- Шапка панели, а не карточки: карточки «My games» и «Moderation»
+    //- показываются по одной (панель — это две разные страницы), и
+    //- кнопка выхода в лобби обязана пережить переключение между ними
+    div.games-head
+      h3#games-title.lobby-section-title= 'My games'
+      input#games-switch(type='button', value='Moderation', style='display:none')
+      input#games-close(type='button', value='Back to lobby')
+
     div.card#games-mine
-      div.games-head
-        h3.lobby-section-title= 'My games'
-        input#games-close(type='button', value='Back to lobby')
       ul#games-mine-list.games-list
       //- Заявка спрашивает только пакет и версию: id, title и репозиторий
       //- мастер читает из самого пакета и показывает предпросмотром
@@ -26,7 +31,6 @@ div#games-panel(style='display:none')
         input#games-submit(type='submit', value='Submit for review')
 
     div.card#games-moderation(style='display:none')
-      h3.lobby-section-title= 'Moderation'
       div#games-filters.games-filters
       ul#games-admin-list.games-list
       div#games-admin-error.form-error

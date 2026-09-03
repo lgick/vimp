@@ -34,36 +34,48 @@ export async function fetchPackument(
   packageName,
   { registryUrl, fetchImpl = fetch, timeout } = {},
 ) {
+  return requestPackument(packageName, ABBREVIATED, {
+    registryUrl,
+    fetchImpl,
+    timeout,
+  });
+}
+
+// общий поход за пакументом: URL, таймаут, три формы отказа и разбор JSON у
+// обеих экспортированных функций одни и те же — разъехавшись, тексты ошибок
+// сообщали бы об одном и том же по-разному
+async function requestPackument(
+  packageName,
+  accept,
+  { registryUrl, fetchImpl, timeout },
+) {
   const url = packumentUrl(registryUrl, packageName);
+  const fail = message =>
+    new Error(`npm registry did not answer (${packageName}): ${message}`);
   let res;
 
   try {
     res = await fetchImpl(url, {
-      headers: { accept: ABBREVIATED },
+      headers: { accept },
       signal: timeout ? AbortSignal.timeout(timeout) : undefined,
     });
   } catch (err) {
-    throw new Error(
-      `npm registry did not answer (${packageName}): ${err.message}`,
-    );
+    throw fail(err.message);
   }
 
   if (res.status === 404) {
+    // «пакета нет» — не отказ; форму ответа выбирает вызывающий
     return null;
   }
 
   if (!res.ok) {
-    throw new Error(
-      `npm registry did not answer (${packageName}): HTTP ${res.status}`,
-    );
+    throw fail(`HTTP ${res.status}`);
   }
 
   try {
     return await res.json();
   } catch (err) {
-    throw new Error(
-      `npm registry did not answer (${packageName}): malformed JSON — ${err.message}`,
-    );
+    throw fail(`malformed JSON — ${err.message}`);
   }
 }
 
@@ -80,8 +92,8 @@ function packumentUrl(registryUrl, packageName) {
 }
 
 /**
- * Описательные поля пакета (репозиторий, домашняя страница, описание).
- * Форму заявки они заполняют вместо человека: в тарболл едет только
+ * Описательные поля пакета: ссылка на репозиторий.
+ * Форму заявки она заполняет вместо человека: в тарболл едет только
  * package/dist/**, package.json пакета до диска не доезжает вовсе.
  * @param {string} packageName - Имя пакета, в том числе scoped.
  * @param {string} [version] - Точная версия, 'latest' либо ничего.
@@ -89,8 +101,8 @@ function packumentUrl(registryUrl, packageName) {
  * @param {string} options.registryUrl - Базовый адрес реестра.
  * @param {Function} [options.fetchImpl] - Реализация fetch.
  * @param {number} [options.timeout] - Потолок ожидания ответа (мс).
- * @returns {Promise<{repoUrl: string|null, homepage: string|null,
- *   description: string|null}>} Поля пакета; пакета нет (404) — все null.
+ * @returns {Promise<{repoUrl: string|null}>} Поле пакета; пакета нет (404) —
+ *   null.
  * @throws {Error} Реестр недоступен или ответил не 200/404.
  */
 export async function fetchPackageMeta(
@@ -98,57 +110,31 @@ export async function fetchPackageMeta(
   version,
   { registryUrl, fetchImpl = fetch, timeout } = {},
 ) {
-  // отдельная функция, а не флаг у fetchPackument: полный пакумент тяжёлый
-  // (все версии со всеми полями), а «тощая» форма repository/homepage не
-  // отдаёт вовсе — GameSync и ensure платить за это не должны
-  const url = packumentUrl(registryUrl, packageName);
-  let res;
+  // полный пакумент, а не «тощий»: последний repository не отдаёт вовсе —
+  // GameSync и ensure платить за это не должны, поэтому accept разный
+  const packument = await requestPackument(packageName, 'application/json', {
+    registryUrl,
+    fetchImpl,
+    timeout,
+  });
 
-  try {
-    res = await fetchImpl(url, {
-      headers: { accept: 'application/json' },
-      signal: timeout ? AbortSignal.timeout(timeout) : undefined,
-    });
-  } catch (err) {
-    throw new Error(
-      `npm registry did not answer (${packageName}): ${err.message}`,
-    );
-  }
-
-  if (res.status === 404) {
-    return { repoUrl: null, homepage: null, description: null };
-  }
-
-  if (!res.ok) {
-    throw new Error(
-      `npm registry did not answer (${packageName}): HTTP ${res.status}`,
-    );
-  }
-
-  let packument;
-
-  try {
-    packument = await res.json();
-  } catch (err) {
-    throw new Error(
-      `npm registry did not answer (${packageName}): malformed JSON — ${err.message}`,
-    );
+  if (packument === null) {
+    return { repoUrl: null };
   }
 
   const versions = packument?.versions ?? {};
-  const wanted =
-    !version || version === 'latest' ? packument?.['dist-tags']?.latest : version;
-  // поля, которых нет в записи версии, берутся из корня пакумента: там
-  // лежит их последнее опубликованное значение
-  const entry = versions[wanted] ?? versions[packument?.['dist-tags']?.latest] ?? {};
+  const latest = packument?.['dist-tags']?.latest;
+  // запрошенной версии в пакументе нет — подставлять вместо неё latest
+  // нельзя: карточка заявки показывала бы репозиторий другой версии. Пустая
+  // запись честнее: поля доберутся из корня пакумента, где лежит их
+  // последнее опубликованное значение
+  const entry =
+    !version || version === 'latest'
+      ? versions[latest] ?? {}
+      : versions[version] ?? {};
   const pick = field => entry[field] ?? packument?.[field] ?? null;
 
-  return {
-    repoUrl: normalizeRepoUrl(pick('repository')),
-    homepage: typeof pick('homepage') === 'string' ? pick('homepage') : null,
-    description:
-      typeof pick('description') === 'string' ? pick('description') : null,
-  };
+  return { repoUrl: normalizeRepoUrl(pick('repository')) };
 }
 
 /**

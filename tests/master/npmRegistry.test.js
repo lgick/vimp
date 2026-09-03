@@ -254,17 +254,16 @@ describe('extractDist', () => {
 });
 
 // Описательные поля пакета: в тарболл едет только package/dist/, а
-// repository/homepage живут в package.json пакета — на диск они не попадают
-// вовсе, и «тощий» пакумент их тоже не отдаёт
+// repository живёт в package.json пакета — на диск он не попадает вовсе, и
+// «тощий» пакумент его тоже не отдаёт
 describe('fetchPackageMeta', () => {
   const full = {
     'dist-tags': { latest: '1.2.3' },
-    description: 'root description',
+    repository: 'lgick/vimp-root',
     versions: {
       '1.0.0': { repository: 'lgick/vimp-tanks' },
       '1.2.3': {
         repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp-tanks.git' },
-        homepage: 'https://vimp.example',
       },
     },
   };
@@ -285,11 +284,7 @@ describe('fetchPackageMeta', () => {
 
     await expect(
       fetchPackageMeta('@vimp-games/tanks', '1.2.3', { registryUrl, fetchImpl }),
-    ).resolves.toEqual({
-      repoUrl: 'https://github.com/lgick/vimp-tanks',
-      homepage: 'https://vimp.example',
-      description: 'root description',
-    });
+    ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-tanks' });
   });
 
   it('без версии и на latest читается dist-tags.latest', async () => {
@@ -297,10 +292,20 @@ describe('fetchPackageMeta', () => {
 
     await expect(
       fetchPackageMeta('@vimp-games/tanks', undefined, { registryUrl, fetchImpl }),
-    ).resolves.toMatchObject({ homepage: 'https://vimp.example' });
+    ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-tanks' });
     await expect(
       fetchPackageMeta('@vimp-games/tanks', 'latest', { registryUrl, fetchImpl }),
-    ).resolves.toMatchObject({ homepage: 'https://vimp.example' });
+    ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-tanks' });
+  });
+
+  // подмена на latest соврала бы: карточка заявки показывала бы репозиторий
+  // чужой версии вместо корневого — последнего опубликованного значения
+  it('запрошенной версии нет — поля из корня, а не из latest', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(full));
+
+    await expect(
+      fetchPackageMeta('@vimp-games/tanks', '9.9.9', { registryUrl, fetchImpl }),
+    ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-root' });
   });
 
   it('404 — пакета нет: все поля пустые', async () => {
@@ -308,7 +313,7 @@ describe('fetchPackageMeta', () => {
 
     await expect(
       fetchPackageMeta('@vimp-games/nope', '1.0.0', { registryUrl, fetchImpl }),
-    ).resolves.toEqual({ repoUrl: null, homepage: null, description: null });
+    ).resolves.toEqual({ repoUrl: null });
   });
 
   it.each([

@@ -49,6 +49,16 @@ export class GameForbiddenError extends Error {
   }
 }
 
+// игра существует и своя, но раздаётся прямо сейчас: снять её с раздачи —
+// решение модератора, а не автора
+export class GamePublishedError extends Error {
+  constructor(id) {
+    super(`game "${id}" is published`);
+    this.name = 'GamePublishedError';
+    this.id = id;
+  }
+}
+
 // потолок заявок на одного разработчика (config.games.maxPerUser)
 export class GameLimitError extends Error {
   constructor(userId) {
@@ -155,6 +165,12 @@ const PUBLIC_GAME_FROM = `FROM games g LEFT JOIN users a ON a.id = g.author_user
 // бы authorNick/moderatorNick: null там, где список отдаёт ники, и первый же
 // потребитель, поверивший ответу, напечатал бы внутренний id
 const gameProject = cte => `SELECT ${GAME_FIELDS} FROM ${cte} g ${GAME_JOINS}`;
+
+// таблицы с колонкой game_id — всё, что удаление игры обязано унести за
+// собой (миграции 001, 003, 008). FK на games у них нет, поэтому чистка
+// явная; у host_ratings/host_votes колонки game_id нет — их не трогаем.
+// Порядок: производные данные раньше строки games (см. deleteGame)
+const GAME_DATA_TABLES = ['rank_periods', 'rank_events', 'state_snapshots', 'states', 'ratings'];
 
 // поля, которые вправе менять модератор: белый список ключей patch →
 // колонок. Ключ, которого здесь нет, в SET не попадает вовсе — так значение
@@ -263,6 +279,17 @@ export default class UserRepository {
     const result = await this._db.query(
       'SELECT * FROM users WHERE lower(nick) = lower($1)',
       [nick],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  // провайдер и его uid — по ним, а не по нику, определяется админ
+  // (VIMP_ADMIN_IDENTITIES)
+  async getIdentity(userId) {
+    const result = await this._db.query(
+      'SELECT provider, provider_uid FROM users WHERE id = $1',
+      [userId],
     );
 
     return result.rows[0] ?? null;
@@ -743,10 +770,10 @@ export default class UserRepository {
 
   // ***** РОЛИ (master-game-registry, этап 1) *****
 
-  // Синхронизация роли по списку из окружения. VIMP_ADMIN_NICKS —
-  // единственный источник админской роли: назначить админа в обход списка
-  // (правкой строки в БД) нельзя — любой admin вне списка разжалуется при
-  // следующем входе.
+  // Синхронизация роли по окружению (VIMP_ADMIN_IDENTITIES, иначе
+  // VIMP_ADMIN_NICKS — см. lib/adminRights.js). Окружение — единственный
+  // источник админской роли: назначить админа в обход него (правкой строки
+  // в БД) нельзя — любой admin вне списка разжалуется при следующем входе.
   async syncRole(userId, isEnvAdmin) {
     const { rows } = await this._db.query(
       `UPDATE users
@@ -929,5 +956,57 @@ export default class UserRepository {
     }
 
     return mapGame(result.rows[0]);
+  }
+
+  /**
+   * Удаление игры из реестра вместе со всеми её данными.
+   *
+   * Жёсткое, а не пометка: ни у одной из таблиц с `game_id` нет FK на
+   * `games`, и оставленные строки вернулись бы вместе с игрой, заведённой
+   * под тем же id.
+   *
+   * Транзакцией не обёрнуто (этот класс нигде не держит транзакции — тот
+   * же уровень гарантий, что у `voidHosterContributions`), поэтому порядок
+   * выбран так, чтобы прерывание на середине было безопасным: сначала
+   * производные данные, строка `games` — последней. Повтор после сбоя
+   * доделывает начатое, а игра до этого момента остаётся видимой.
+   *
+   * @param {string} id - Идентификатор игры.
+   * @param {Object} actor - Кто удаляет.
+   * @param {number} actor.userId - Идентификатор вызывающего.
+   * @param {boolean} [actor.isAdmin] - Админская ли роль (из БД, не из токена).
+   * @returns {Promise<Object>} Удалённая строка (проекция mapGame).
+   * @throws {GameNotFoundError} Игры нет.
+   * @throws {GameForbiddenError} Игра чужая.
+   * @throws {GamePublishedError} Игра своя, но раздаётся.
+   */
+  async deleteGame(id, { userId, isAdmin = false }) {
+    const game = await this.getGame(id);
+
+    if (!game) {
+      throw new GameNotFoundError(id);
+    }
+
+    if (!isAdmin) {
+      if (game.authorUserId !== userId) {
+        throw new GameForbiddenError(id);
+      }
+
+      // опубликованную игру раздают мастера, и в неё играют прямо сейчас:
+      // снять её с раздачи — решение модератора, а не автора
+      if (game.status === 'approved') {
+        throw new GamePublishedError(id);
+      }
+    }
+
+    // имена таблиц берутся из литерального списка в коде, не из входных
+    // данных: подстановка в текст SQL здесь безопасна
+    for (const table of GAME_DATA_TABLES) {
+      await this._db.query(`DELETE FROM ${table} WHERE game_id = $1`, [id]);
+    }
+
+    await this._db.query('DELETE FROM games WHERE id = $1', [id]);
+
+    return game;
   }
 }

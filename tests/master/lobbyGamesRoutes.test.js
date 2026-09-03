@@ -67,6 +67,7 @@ beforeEach(() => {
     submit: vi.fn(async () => ({ status: 201, json: { game: GAME } })),
     requestVersion: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
     moderate: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
+    remove: vi.fn(async () => ({ status: 200, json: { game: GAME } })),
   };
 
   store = {
@@ -293,6 +294,47 @@ describe('GET /games/lookup', () => {
   });
 });
 
+// Форма всегда делает lookup перед submit: без кэша вердикта заявка стоила
+// бы платформе двух скачиваний тарболла и двух походов в npm
+describe('кэш вердикта разбора', () => {
+  const lookupReq = (over = {}) => ({
+    query: { package: '@vimp-games/tanks', version: '1.1.0', ...over },
+  });
+  const submitReq = (over = {}) => ({
+    authToken: 't',
+    body: { packageName: '@vimp-games/tanks', version: '1.1.0', ...over },
+  });
+
+  it('lookup, затем submit тем же пакетом — один разбор', async () => {
+    await routes.lookup(lookupReq(), fakeRes());
+    await routes.submit(submitReq(), fakeRes());
+
+    expect(store.inspectPackage).toHaveBeenCalledTimes(1);
+  });
+
+  it('другая версия — свой разбор', async () => {
+    await routes.lookup(lookupReq(), fakeRes());
+    await routes.lookup(lookupReq({ version: '1.0.0' }), fakeRes());
+
+    expect(store.inspectPackage).toHaveBeenCalledTimes(2);
+  });
+
+  it('протухший вердикт разбирается заново', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+
+    try {
+      await routes.lookup(lookupReq(), fakeRes());
+      vi.setSystemTime(new Date('2026-01-01T00:01:01Z'));
+      await routes.lookup(lookupReq(), fakeRes());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(store.inspectPackage).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('POST /games/mine/:id/version', () => {
   it('чужая/несуществующая игра — 404 без похода в реестр', async () => {
     registry.mine.mockResolvedValue({ status: 200, json: { games: [] } });
@@ -400,6 +442,23 @@ describe('POST /admin/games/:id/stage', () => {
     expect(catalog.remove).not.toHaveBeenCalled();
   });
 
+  it('403 от auth — 403 наружу, диск и каталог не трогаются', async () => {
+    // F13: рассуждение master/adminAuth.js («клейма role из токена
+    // достаточно») держится именно на этом порядке действий — сначала
+    // listAll от имени пользователя, и только потом скачивание. Разжалованный
+    // админ с ещё живым токеном получает 403 от auth и не успевает ничего
+    // положить на диск. Тест не даёт переставить шаги местами при рефакторинге
+    registry.listAll.mockResolvedValue({ status: 403, json: { error: 'forbidden' } });
+
+    const res = fakeRes();
+
+    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+
+    expect(res.code).toBe(403);
+    expect(store.ensure).not.toHaveBeenCalled();
+    expect(catalog.upsert).not.toHaveBeenCalled();
+  });
+
   it('битый пакет — 400, каталог не трогается', async () => {
     store.ensure.mockResolvedValue({ ok: false, version: null, errors: ['нет manifest.json'] });
 
@@ -437,6 +496,45 @@ describe('PATCH /admin/games/:id', () => {
 
     expect(res.code).toBe(403);
     expect(sync.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /games/mine/:id', () => {
+  it('удаление снимает запись каталога целиком и синхронизирует', async () => {
+    const res = fakeRes();
+
+    await routes.remove({ authToken: 't', params: { id: 'tanks' } }, res);
+
+    expect(registry.remove).toHaveBeenCalledWith('t', 'tanks');
+    // без версии: уносятся и застейдженные админом черновики
+    expect(catalog.remove).toHaveBeenCalledWith('tanks');
+    expect(sync.run).toHaveBeenCalled();
+    expect(res.code).toBe(200);
+  });
+
+  it('отказ реестра каталог не трогает', async () => {
+    registry.remove.mockResolvedValue({ status: 403, json: { error: 'forbidden' } });
+
+    const res = fakeRes();
+
+    await routes.remove({ authToken: 't', params: { id: 'tanks' } }, res);
+
+    expect(catalog.remove).not.toHaveBeenCalled();
+    expect(sync.run).not.toHaveBeenCalled();
+    expect(res.code).toBe(403);
+    expect(res.body).toEqual({ error: 'forbidden' });
+  });
+
+  it('недоступный auth — 502 authServiceUnavailable', async () => {
+    registry.remove.mockRejectedValue(new Error('boom'));
+
+    const res = fakeRes();
+
+    await routes.remove({ authToken: 't', params: { id: 'tanks' } }, res);
+
+    expect(res.code).toBe(502);
+    expect(res.body).toEqual({ error: 'authServiceUnavailable' });
+    expect(catalog.remove).not.toHaveBeenCalled();
   });
 });
 

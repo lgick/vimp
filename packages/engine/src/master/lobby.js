@@ -617,6 +617,10 @@ app.post(
   limitSubmits,
   gameRoutes.requestVersion,
 );
+// удаление игры: тот же лимитер, что у заявки — роут дёргает auth и
+// синхронизацию каталога. Роль здесь не проверяется (`authenticated`, не
+// `required`): игру удаляет и её автор, а решает auth по роли из БД
+app.delete('/games/mine/:id', adminAuth.authenticated, limitSubmits, gameRoutes.remove);
 
 app.get('/admin/games', adminAuth.required, gameRoutes.adminList);
 // раньше `/admin/games/:id/versions`: сегментов столько же, и `manifest.json`

@@ -60,6 +60,13 @@ export default class GameRegistryProxy {
     });
   }
 
+  // удаление игры из реестра (право решает auth по роли из БД)
+  remove(token, id) {
+    return this._request(`/games/${encodeURIComponent(id)}`, token, {
+      method: 'DELETE',
+    });
+  }
+
   // решение модератора (статус, раздаваемая версия, замечание, потолок счёта)
   moderate(token, id, patch) {
     return this._request(`/admin/games/${encodeURIComponent(id)}`, token, {

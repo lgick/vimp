@@ -14,6 +14,16 @@ export const parseAdminNicks = raw =>
     .map(nick => nick.trim().toLowerCase())
     .filter(Boolean);
 
+// Разбор VIMP_ADMIN_IDENTITIES: CSV из "провайдер:uid" (github:1234567).
+// Отдельная экспортируемая функция по той же причине, что и parseAdminNicks:
+// поведение (регистр, пробелы, мусорный элемент) проверяется юнит-тестом без
+// импорта всего конфига
+export const parseAdminIdentities = raw =>
+  String(raw || '')
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(item => /^[a-z0-9_-]+:[^:\s]+$/.test(item));
+
 export default {
   name: 'VIMP Auth Service',
   protocol: 'http:',
@@ -126,6 +136,11 @@ export default {
   // (админов нет), падать нельзя
   admin: {
     nicks: parseAdminNicks(process.env.VIMP_ADMIN_NICKS),
+
+    // личности админов (провайдер:uid) — приоритетный источник прав:
+    // ник может оказаться ещё не занятым, и тогда его захватывает кто
+    // угодно, а provider_uid принадлежит конкретному аккаунту
+    identities: parseAdminIdentities(process.env.VIMP_ADMIN_IDENTITIES),
   },
 
   // реестр игр платформы (миграция 009_games.sql): ограничения полей заявки
@@ -136,11 +151,11 @@ export default {
     // имя npm-пакета, в т.ч. scoped
     packagePattern: /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
     versionPattern: /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/,
-    // id, занятые роутами реестра на мастере (/games/mine, /games/submit,
-    // /games/<id>/manifest.json): игра с таким id перекрыла бы их. Список
-    // продублирован в packages/engine/src/master/gameRefs.js — общей
-    // зависимости между пакетами нет
-    reservedIds: ['mine', 'submit', 'manifest'],
+    // id, занятые роутами реестра на мастере (/games/lookup, /games/mine,
+    // /games/submit, /games/<id>/manifest.json): игра с таким id перекрыла бы
+    // их. Список продублирован в packages/engine/src/master/gameRefs.js —
+    // общей зависимости между пакетами нет
+    reservedIds: ['mine', 'submit', 'manifest', 'lookup'],
     maxPerUser: 20,
     maxNoteLength: 1000,
     maxTitleLength: 60,

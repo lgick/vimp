@@ -60,6 +60,8 @@
 | `VIMP_AUTH_ALLOWED_ORIGINS` | CSV origin'ов мастеров, которым разрешён CORS `POST /nick` и OAuth-редирект (`returnUrl`). **Обязательна** в production | `https://localhost:3002` (только в dev) |
 | `VIMP_AUTH_STATE_SECRET` | HMAC-секрет для stateless OAuth `state`. **Обязательна** в production | — |
 | `VIMP_AUTH_GITHUB_CLIENT_ID` / `VIMP_AUTH_GITHUB_CLIENT_SECRET` | реквизиты GitHub OAuth App. **Обязательны** в production | — |
+| `VIMP_ADMIN_NICKS` | CSV ников, которым при каждом выпуске токена выдаётся `role = 'admin'`. Необязательна; незанятый ник из списка достаётся первому, кто под ним зарегистрируется (см. [auth.md](auth.md#запуск)) | — (админов нет) |
+| `VIMP_ADMIN_IDENTITIES` | CSV личностей админов вида `провайдер:uid` (`github:1234567`). Необязательна; пока задана, полностью перебивает `VIMP_ADMIN_NICKS` | — |
 
 ## packages/engine/src/config/hostDefaults.js — движковые дефолты хоста
 

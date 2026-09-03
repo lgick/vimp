@@ -252,12 +252,17 @@ field in `SERVERS_MATRIX`:
 - `settings` is an optional field holding the room overrides (`map`,
   `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`; see
   [configuration.md](configuration.md#environment-variables-env)). The deploy
-  writes it into `.env.prod` as `VIMP_DEDICATED_ROOM`, one line of JSON.
+  writes it into `.env.prod` as `VIMP_DEDICATED_ROOM`, one line of JSON:
+  the runner collapses the value with `jq -c` before it is sent, so the
+  object itself may be written in the matrix as ordinary YAML/JSON and may
+  span lines.
   **The matrix is the source of truth**: `.env.prod` is regenerated on every
   run, so a line entered through `add-dedicated.sh` or added on the box by
   hand survives a deploy only if the matrix carries it too. `settings` may
   hold as many fields as you like (the engine defaults the rest), but its
-  values **must not contain newlines** — `.env.prod` is read line by line.
+  **field values must not contain newlines** — `.env.prod` is read line by
+  line, and a value that still holds one is skipped with a `WARN` in the
+  deploy log rather than written.
   `settings` is written only alongside a non-empty `dedicatedGame`: a lobby
   master has no room to configure and never receives the variable.
 - **A deploy interrupts the match.** There is no handoff: the container is
@@ -520,6 +525,17 @@ plain restart would keep the old list (the same trap as
 line: an unset repository variable would otherwise mean `VIMP_ADMIN_NICKS=`
 and demote every admin on their next login. To clear the list on purpose,
 edit `.env.prod` on the server.
+
+`VIMP_ADMIN_IDENTITIES` is the second, safer repository variable for the same
+right: a CSV of `provider:uid` pairs (`github:1234567`), deployed by the same
+job under the same rules (an empty value keeps whatever is on the server).
+**While it is set it wins over `VIMP_ADMIN_NICKS` completely** — a nick grants
+nothing. Prefer it: a nick from `VIMP_ADMIN_NICKS` that nobody has registered
+yet is handed to whoever signs up with it first, together with `role =
+'admin'`. On a new install either register the admin nicks before opening
+sign-up, or fill this variable in right away — the auth service prints
+`[admin] "<nick>" -> github:<uid>` at startup for every registered admin nick,
+which is exactly the value to paste here. Details: [auth.md](auth.md).
 
 **The package store.** Every master's `.env.prod` gets
 `VIMP_GAMES_DIR=/var/vimp/games`, and the generated `docker-compose.yml`

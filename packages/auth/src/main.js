@@ -13,6 +13,7 @@ import UserRepository, {
   GameExistsError,
   GameNotFoundError,
   GameForbiddenError,
+  GamePublishedError,
   GameLimitError,
   RANK_PERIODS,
 } from './UserRepository.js';
@@ -39,6 +40,7 @@ import rateLimit from './lib/rateLimit.js';
 // проекции в репозитории заводить не за чем
 import { forAuthor } from './lib/gameViews.js';
 import resolveAuthor from './lib/gameAuthor.js';
+import isEnvAdmin from './lib/adminRights.js';
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
@@ -145,12 +147,18 @@ function requireAuth(req, res, next) {
 }
 
 // Выпуск identity-токена (обе точки выпуска — OAuth-колбэк и POST /nick).
-// Роль синхронизируется с VIMP_ADMIN_NICKS на каждом входе: список из
-// окружения — источник истины этапа 1, и разжалование должно доезжать до БД
-// без ручного SQL
+// Роль синхронизируется с окружением на каждом входе: список из окружения —
+// источник истины, и разжалование должно доезжать до БД без ручного SQL
 async function issueIdentityToken(user) {
-  const isEnvAdmin = config.admin.nicks.includes(user.nick.toLowerCase());
-  const role = await userRepo.syncRole(user.id, isEnvAdmin);
+  // личность читается из БД: обе точки выпуска токена знают id и ник, но не
+  // провайдера. Лишнего запроса без VIMP_ADMIN_IDENTITIES не появляется
+  const identity = config.admin.identities.length ? await userRepo.getIdentity(user.id) : null;
+  const envAdmin = isEnvAdmin(config.admin, {
+    nick: user.nick,
+    provider: identity?.provider,
+    providerUid: identity?.provider_uid,
+  });
+  const role = await userRepo.syncRole(user.id, envAdmin);
 
   return jwtLib.signIdentityToken({ sub: user.id, nick: user.nick, role });
 }
@@ -462,6 +470,39 @@ app.post('/games/:id/version', requireAuth, byIp(gamesLimiter), async (req, res)
   }
 });
 
+// DELETE /games/:id — удаление игры из реестра. Один маршрут на обе роли:
+// право решает не путь, а роль из БД (тот же приём, что у
+// POST /games/:id/version). Админ удаляет любую игру, автор — свою и
+// только не раздаваемую
+app.delete('/games/:id', requireAuth, byIp(gamesLimiter), async (req, res) => {
+  try {
+    const isAdmin = await isAdminUser(req.user.id);
+    const game = await userRepo.deleteGame(req.params.id, {
+      userId: req.user.id,
+      isAdmin,
+    });
+
+    res.json({ game: isAdmin ? game : forAuthor(game) });
+  } catch (err) {
+    if (err instanceof GameNotFoundError) {
+      res.status(404).json({ error: 'unknownGame' });
+      return;
+    }
+
+    if (err instanceof GamePublishedError) {
+      res.status(409).json({ error: 'gamePublished' });
+      return;
+    }
+
+    if (err instanceof GameForbiddenError) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+
+    throw err;
+  }
+});
+
 // статусы игры в реестре; отдельного 'testing' нет намеренно — «игра на
 // тесте» это наличие pending_version при любой из этих отметок
 const GAME_STATUSES = ['pending', 'approved', 'rejected', 'disabled'];
@@ -506,18 +547,21 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
     return;
   }
 
+  // игра ищется ДО разбора авторства: несуществующая игра обязана отвечать
+  // 'unknownGame', а не 'unknownUser', и лишнего запроса в БД на заведомо
+  // провальном пути быть не должно
+  const game = await userRepo.getGame(req.params.id);
+
+  if (!game) {
+    res.status(404).json({ error: 'unknownGame' });
+    return;
+  }
+
   // авторство: в теле едет ник, в колонку — id
   const author = await resolveAuthor(authorNick, nick => userRepo.findByNick(nick));
 
   if (!author.ok) {
     res.status(author.status).json({ error: author.error });
-    return;
-  }
-
-  const game = await userRepo.getGame(req.params.id);
-
-  if (!game) {
-    res.status(404).json({ error: 'unknownGame' });
     return;
   }
 
@@ -784,11 +828,43 @@ const distributionSweep = setInterval(
 
 distributionSweep.unref?.();
 
+// Незанятый админский ник — это открытая дверь: права привязаны к строке, и
+// первый, кто зарегистрируется под ней, получит admin. Печатается один раз
+// при старте (во всех режимах, включая прод); VIMP_ADMIN_IDENTITIES снимает
+// вопрос. Вторая строка (nick -> provider:uid) даёт готовое значение
+// переменной, иначе его пришлось бы доставать SQL-ом из прода
+async function warnOnFreeAdminNicks() {
+  if (config.admin.identities.length > 0 || config.admin.nicks.length === 0) {
+    return;
+  }
+
+  for (const nick of config.admin.nicks) {
+    const user = await userRepo.findByNick(nick).catch(() => null);
+
+    if (!user) {
+      console.warn(
+        `[admin] nick "${nick}" from VIMP_ADMIN_NICKS is not registered yet — ` +
+          'whoever signs up with it first becomes an admin. Pin the account ' +
+          'with VIMP_ADMIN_IDENTITIES=<provider>:<uid> once it exists',
+      );
+      continue;
+    }
+
+    console.log(
+      `[admin] "${nick}" -> ${user.provider}:${user.provider_uid} ` +
+        '(value for VIMP_ADMIN_IDENTITIES)',
+    );
+  }
+}
+
 server.listen(config.port, () => {
   console.info(`
     Auth service is running for ${env.NODE_ENV || 'development'} mode.
     Listening on http://localhost:${config.port}
   `);
+
+  // отказ БД не должен мешать старту сервиса
+  warnOnFreeAdminNicks().catch(() => null);
 
   if (!isProduction) {
     // Ссылки на обе роли сразу: роль даёт VIMP_ADMIN_NICKS, и без готовой

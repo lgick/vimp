@@ -1,6 +1,8 @@
 import resolveAuthor from '../../packages/auth/src/lib/gameAuthor.js';
 import UserRepository, {
   GameForbiddenError,
+  GameNotFoundError,
+  GamePublishedError,
 } from '../../packages/auth/src/UserRepository.js';
 
 function createDbStub(handlers) {
@@ -148,5 +150,75 @@ describe('назначение автора игры', () => {
     await expect(
       new UserRepository(foreign).requestGameVersion('tanks', '0.17.0', { userId: 7 }),
     ).rejects.toThrow(GameForbiddenError);
+  });
+});
+
+// удаление игры (registry-review-fixes, этап 2): жёсткое, вместе со всеми
+// данными по game_id — FK на games у этих таблиц нет, и осиротевшие строки
+// «воскресли» бы при повторной заявке под тем же id
+describe('удаление игры', () => {
+  const DATA_TABLES = ['rank_periods', 'rank_events', 'state_snapshots', 'states', 'ratings'];
+
+  // стаб, отвечающий одной строкой games на SELECT и пустотой на DELETE
+  function createDeleteStub(row) {
+    return createDbStub(text => (
+      text.startsWith('DELETE') ? { rows: [] } : { rows: row ? [row] : [] }
+    ));
+  }
+
+  function deletedTables(db) {
+    return db.query.mock.calls
+      .map(([text]) => text.match(/^DELETE FROM (\w+)/)?.[1])
+      .filter(Boolean);
+  }
+
+  it('админ удаляет опубликованную игру: чистятся все таблицы, games — последней', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
+    const game = await new UserRepository(db).deleteGame('tanks', { userId: 1, isAdmin: true });
+
+    expect(game.id).toBe('tanks');
+    expect(deletedTables(db)).toEqual([...DATA_TABLES, 'games']);
+    // id всегда параметром, в текст SQL не подставляется
+    db.query.mock.calls
+      .filter(([text]) => text.startsWith('DELETE'))
+      .forEach(([, values]) => expect(values).toEqual(['tanks']));
+  });
+
+  it('автор удаляет свою неопубликованную игру', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending' });
+
+    await new UserRepository(db).deleteGame('tanks', { userId: 42 });
+
+    expect(deletedTables(db)).toEqual([...DATA_TABLES, 'games']);
+  });
+
+  it('автор не удаляет раздаваемую игру', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
+
+    await expect(
+      new UserRepository(db).deleteGame('tanks', { userId: 42 }),
+    ).rejects.toThrow(GamePublishedError);
+
+    expect(deletedTables(db)).toEqual([]);
+  });
+
+  it('чужая игра не удаляется', async () => {
+    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending' });
+
+    await expect(
+      new UserRepository(db).deleteGame('tanks', { userId: 7 }),
+    ).rejects.toThrow(GameForbiddenError);
+
+    expect(deletedTables(db)).toEqual([]);
+  });
+
+  it('игры нет — GameNotFoundError', async () => {
+    const db = createDeleteStub(null);
+
+    await expect(
+      new UserRepository(db).deleteGame('nope', { userId: 1, isAdmin: true }),
+    ).rejects.toThrow(GameNotFoundError);
+
+    expect(deletedTables(db)).toEqual([]);
   });
 });

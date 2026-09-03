@@ -25,6 +25,7 @@ beforeEach(async () => {
     loadStaged: vi.fn(),
     stage: vi.fn(),
     moderate: vi.fn(),
+    remove: vi.fn(),
   };
 
   view = { publisher: new Publisher(), show: vi.fn(), setAdmin: vi.fn() };
@@ -40,11 +41,18 @@ describe('GamesCtrl', () => {
     expect(model.loadAdmin).not.toHaveBeenCalled();
   });
 
-  it('«Модерация» открывает очередь', () => {
+  it('«Модерация» открывает очередь и не грузит чужую страницу', () => {
     view.publisher.emit('open-moderation');
 
     expect(view.show).toHaveBeenCalledWith(true);
     expect(model.loadAdmin).toHaveBeenCalled();
+    expect(model.loadMine).not.toHaveBeenCalled();
+  });
+
+  it('удаление доезжает до модели вместе со scope', () => {
+    view.publisher.emit('delete', { id: 'tanks', scope: 'admin' });
+
+    expect(model.remove).toHaveBeenCalledWith('tanks', 'admin');
   });
 
   it('решения модератора уходят патчем статуса', () => {

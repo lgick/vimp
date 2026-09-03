@@ -1081,11 +1081,17 @@ body.hide-cursor {
   text-align: left;
 }
 
-/* заголовок панели и кнопка возврата в одной строке */
+/* заголовок панели, переключатель страниц и кнопка возврата в одной
+   строке; шапка лежит НАД карточками, поэтому ширину и поля повторяет
+   за ними — иначе flex-end колонки увёл бы её вправо от карточки */
 .games-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  width: 700px;
+  padding: 0 10px;
+  box-sizing: border-box;
 }
 
 .games-list {
@@ -1141,6 +1147,18 @@ body.hide-cursor {
   color: #eee;
 }
 
+/* удаление необратимо: взведённое подтверждение обязано отличаться от
+   первого нажатия не только подписью */
+.games-delete-btn {
+  color: #d66;
+}
+
+.games-delete-armed {
+  background: #802020;
+  border-color: #d66;
+  color: #fee;
+}
+
 /* кнопки входа в панель стоят рядом с Sign out в бейдже пользователя */
 .lobby-user-actions {
   display: flex;
@@ -1150,7 +1168,8 @@ body.hide-cursor {
 
 @media (max-width: 900px) {
   #games-mine,
-  #games-moderation {
+  #games-moderation,
+  .games-head {
     width: 100%;
   }
 }

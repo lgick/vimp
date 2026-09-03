@@ -87,6 +87,8 @@ missing (see [auth.md](auth.md#running)).
 | `VIMP_AUTH_ALLOWED_ORIGINS` | CSV of master origins allowed to CORS `POST /nick` and to receive an OAuth redirect (`returnUrl`). **Required** in production | `https://localhost:3002` (dev only) |
 | `VIMP_AUTH_STATE_SECRET` | HMAC secret for the stateless OAuth `state` param. **Required** in production | — |
 | `VIMP_AUTH_GITHUB_CLIENT_ID` / `VIMP_AUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth App credentials. **Required** in production | — |
+| `VIMP_ADMIN_NICKS` | CSV of nicks granted `role = 'admin'` on every token issue. Optional; an unregistered nick on the list is claimed by whoever signs up with it first (see [auth.md](auth.md#running)) | — (no admins) |
+| `VIMP_ADMIN_IDENTITIES` | CSV of `provider:uid` admin identities (`github:1234567`). Optional; while set it fully overrides `VIMP_ADMIN_NICKS` | — |
 
 ## packages/engine/src/config/hostDefaults.js — engine host defaults
 

@@ -155,6 +155,26 @@ export default class GamesModel {
     await this.loadMine();
   }
 
+  // удаление игры. scope решает, чей список перечитать: карточка автора и
+  // очередь модерации показывают разные проекции одной строки
+  async remove(id, scope = 'mine') {
+    const { ok, json } = await this._request(this._config.urls.remove(id), {
+      method: 'DELETE',
+    });
+
+    if (!ok) {
+      this._fail(scope, json);
+      return;
+    }
+
+    if (scope === 'admin') {
+      await this.loadAdmin();
+      return;
+    }
+
+    await this.loadMine();
+  }
+
   // «Test»: мастер качает версию и кладёт её в каталог не раздаваемой.
   // Манифест едет наружу — по нему вкладка админа поднимает комнату
   async stage(id, version) {

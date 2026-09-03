@@ -8,6 +8,7 @@ const config = {
     mine: '/games/mine',
     submit: '/games/submit',
     version: id => `/games/mine/${id}/version`,
+    remove: id => `/games/mine/${id}`,
     admin: '/admin/games',
     staged: '/admin/games/manifest.json',
     stage: id => `/admin/games/${id}/stage`,
@@ -248,5 +249,46 @@ describe('GamesModel: модерация', () => {
     await model.loadAdmin();
 
     expect(errors[0].errors).toEqual([{ name: 'request', error: 'network' }]);
+  });
+});
+
+describe('GamesModel: удаление игры', () => {
+  it('шлёт DELETE и перечитывает свои заявки', async () => {
+    const seen = [];
+
+    fetchMock.mockResolvedValue(answer({ games: [] }));
+    model.publisher.on('mine-changed', list => seen.push(list));
+
+    await model.remove('tanks');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/games/mine/tanks');
+    expect(fetchMock.mock.calls[0][1].method).toBe('DELETE');
+    // после успеха список перечитан
+    expect(fetchMock.mock.calls[1][0]).toBe('/games/mine');
+    expect(seen).toEqual([[]]);
+  });
+
+  it('scope admin перечитывает очередь модерации', async () => {
+    fetchMock.mockResolvedValue(answer({ games: [] }));
+
+    await model.remove('tanks', 'admin');
+
+    expect(fetchMock.mock.calls[1][0]).toBe('/admin/games');
+  });
+
+  it('отказ публикуется ошибкой в том же scope', async () => {
+    const errors = [];
+
+    fetchMock.mockResolvedValue(answer({ error: 'gamePublished' }, false));
+    model.publisher.on('error', e => errors.push(e));
+
+    await model.remove('tanks', 'mine');
+
+    expect(errors[0]).toEqual({
+      scope: 'mine',
+      errors: [{ name: 'request', error: 'gamePublished' }],
+    });
+    // список не перечитывался
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

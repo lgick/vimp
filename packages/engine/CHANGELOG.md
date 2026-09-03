@@ -11,6 +11,21 @@ bumps the minor version).
 
 ### Added
 
+- **A game can now be deleted from the lobby.** A `Delete` button appears in
+  both cards of the games panel — under "My games" for the author and in the
+  moderation queue for the admin — and confirms in two clicks (the first turns
+  it into `Confirm delete`). Both go through the master's new
+  `DELETE /games/mine/:id`, which proxies to the registry's `DELETE /games/:id`:
+  the right is decided by the auth service from the role in the database, not by
+  the path. An admin may delete a game in any status; an author only their own,
+  and only while it is not being served — a published game answers
+  `409 gamePublished`, so an admin has to disable it first. Deletion is hard and
+  takes every row keyed by the game's `game_id` with it (`rank_periods`,
+  `rank_events`, `state_snapshots`, `states`, `ratings`): those tables have no
+  foreign key on `games`, and orphaned rows would come back to life under a
+  later submission that took the same id. On success the master drops the
+  catalog entry whole — the admin's staged draft included — and runs a sync pass
+  at once.
 - The submission form in "My games" asks for the **npm package and the version
   only**. A new route `GET /games/lookup?package=&version=` downloads and checks
   the package and answers with `{id, title, version, versions, repoUrl,
@@ -39,6 +54,9 @@ bumps the minor version).
 
 ### Changed
 
+- `fetchPackageMeta` returns `repoUrl` alone. `homepage` and `description`
+  were read by nobody — the submission card shows the repository link only.
+
 - The role `superadmin` is gone: `user` and `admin` are the only roles, and
   `VIMP_ADMIN_NICKS` is the only source of admin rights. The two names encoded
   where a role came from, never a difference in permissions — every check
@@ -60,6 +78,26 @@ bumps the minor version).
   catalog` is replaced by one that names the way out.
 
 ### Fixed
+
+- The submission form no longer parses the same package twice. A click on
+  `Load` while the package field is focused arrived as a pair
+  (`mousedown` → `blur` → `click`), and each parse cost the master a
+  downloaded tarball and one unit of the shared 5-per-minute submission limit.
+  A repeat of the same `package@version` is now skipped until the field is
+  edited.
+- `fetchPackageMeta` no longer answers with the `latest` version's fields when
+  the requested version is missing from the packument: the submission card
+  showed the repository of a version nobody asked for. Fields now fall back to
+  the packument root, where the last published value lives.
+- `lookup` joined the reserved game ids (`mine`, `submit`, `manifest`): a game
+  with that id would have shadowed the master's `GET /games/lookup`.
+
+- Opening "Moderation" in the games panel no longer shows the submission form
+  and the author's own games along with the queue. "My games" and "Moderation"
+  are two pages of one panel now: exactly one card is visible, the panel's head
+  (title, page switch, "Back to lobby") sits above them and survives the
+  switch, and an admin can move between the pages without going back to the
+  lobby.
 
 - The dedicated server no longer fails to start on a game that came from the
   registry with `Cannot find package 'pixi.js'`. The client half of a plugin

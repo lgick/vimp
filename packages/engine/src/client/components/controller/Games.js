@@ -28,6 +28,7 @@ export default class GamesCtrl {
     vp.on('lookup', 'lookup', this);
     vp.on('submit', 'submit', this);
     vp.on('update-version', 'updateVersion', this);
+    vp.on('delete', 'remove', this);
     vp.on('filter', 'filter', this);
     vp.on('stage', 'stage', this);
     vp.on('approve', 'approve', this);
@@ -57,9 +58,10 @@ export default class GamesCtrl {
     this._model.loadMine();
   }
 
+  // «Moderation» — отдельная страница панели: карточка «My games» в этом
+  // режиме не видна, и запрос за её данными был бы холостым
   openModeration() {
     this._view.show(true);
-    this._model.loadMine();
     this._model.loadAdmin();
   }
 
@@ -73,6 +75,10 @@ export default class GamesCtrl {
 
   updateVersion({ id, version }) {
     this._model.requestVersion(id, version);
+  }
+
+  remove({ id, scope }) {
+    this._model.remove(id, scope);
   }
 
   filter(status) {

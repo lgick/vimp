@@ -19,6 +19,7 @@ const ERROR_MESSAGES = {
   gameExists: 'A game with this id already exists',
   tooManyGames: 'Too many submissions from one author',
   unknownGame: 'Game is not in the registry',
+  gamePublished: 'Published game — ask an admin to disable it first',
   unknownUser: 'No player with this nick',
   invalidGameId: 'Invalid game id',
   invalidPackageName: 'Invalid npm package name',
@@ -77,6 +78,15 @@ export default class GamesView {
     this._preview = document.getElementById(elems.previewId);
     this._versionList = document.getElementById(elems.versionListId);
 
+    this._mine = document.getElementById(elems.mineId);
+    this._title = document.getElementById(elems.titleId);
+    this._switch = document.getElementById(elems.switchBtnId);
+    // текущая страница панели: от неё зависит, куда уводит переключатель
+    this._isModeration = false;
+    // последний разобранный `${packageName}@${version}` — защита от парного
+    // разбора одного и того же пакета, см. _emitLookup
+    this._lastLookup = null;
+
     this._moderation = document.getElementById(elems.moderationId);
     this._adminList = document.getElementById(elems.adminListId);
     this._adminError = document.getElementById(elems.adminErrorId);
@@ -104,6 +114,10 @@ export default class GamesView {
     this._openMine.onclick = () => this.publisher.emit('open-mine');
     this._openModeration.onclick = () => this.publisher.emit('open-moderation');
     this._close.onclick = () => this.hide();
+    // переключатель страниц панели: без него выход из «Moderation» в
+    // «My games» шёл бы только через лобби
+    this._switch.onclick = () =>
+      this.publisher.emit(this._isModeration ? 'open-mine' : 'open-moderation');
 
     this._submitForm.onsubmit = e => {
       e.preventDefault();
@@ -138,12 +152,21 @@ export default class GamesView {
   // (main.js по LobbyAuthModel.getRole())
   setAdmin(isAdmin) {
     this._openModeration.style.display = isAdmin ? '' : 'none';
+    this._switch.style.display = isAdmin ? '' : 'none';
   }
 
+  // Панель — две страницы, а не одна: «My games» и «Moderation»
+  // показываются по одной. Общая шапка (заголовок, переключатель и
+  // «Back to lobby») живёт над карточками и переживает переключение
   show(moderation = false) {
+    this._isModeration = moderation;
     this._panel.style.display = 'flex';
     this._lobby.style.display = 'none';
+    this._mine.style.display = moderation ? 'none' : 'block';
     this._moderation.style.display = moderation ? 'block' : 'none';
+    this._title.textContent = moderation ? 'Moderation' : 'My games';
+    // подпись переключателя называет ту страницу, куда он уводит
+    this._switch.value = moderation ? 'My games' : 'Moderation';
   }
 
   hide() {
@@ -172,6 +195,9 @@ export default class GamesView {
     this._preview.textContent = '';
     this._versionList.textContent = '';
     this._submitBtn.disabled = true;
+    // предпросмотра нет — значит, и запрета на повторный разбор быть не
+    // должно: правка поля обесценивает прошлый вердикт
+    this._lastLookup = null;
   }
 
   /**
@@ -203,6 +229,13 @@ export default class GamesView {
     if (version) {
       this._fields.get('version').value = version;
     }
+
+    // разрешённая версия в поле меняет `${packageName}@${version}`, и
+    // следующий blur прошёл бы как «другой пакет»: запрет повтора обновляется
+    // фактическим ответом мастера
+    this._lastLookup = `${this._fields.get('packageName').value.trim()}@${
+      this._fields.get('version').value.trim()
+    }`;
 
     const problems = errors || [];
 
@@ -254,6 +287,11 @@ export default class GamesView {
 
       item.appendChild(version);
       item.appendChild(send);
+      item.appendChild(
+        this._deleteButton(() =>
+          this.publisher.emit('delete', { id: game.id, scope: 'mine' }),
+        ),
+      );
       this._mineList.appendChild(item);
     });
   }
@@ -369,6 +407,9 @@ export default class GamesView {
         this.publisher.emit('load-versions', { id: game.id }),
       ),
     );
+    item.appendChild(
+      this._deleteButton(() => this.publisher.emit('delete', { id: game.id, scope: 'admin' })),
+    );
 
     return item;
   }
@@ -418,6 +459,27 @@ export default class GamesView {
     });
   }
 
+  // Удаление необратимо и уносит рейтинги игры, поэтому кнопка требует
+  // второго нажатия: первое переводит её в «Confirm delete», второе публикует
+  // событие. Повторная отрисовка списка возвращает её в исходное состояние —
+  // незавершённое подтверждение не переживает перерисовку
+  _deleteButton(onConfirm) {
+    const btn = this._button('Delete', () => {
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.value = 'Confirm delete';
+        btn.classList.add('games-delete-armed');
+        return;
+      }
+
+      onConfirm();
+    });
+
+    btn.className = 'games-delete-btn';
+
+    return btn;
+  }
+
   _button(value, onclick) {
     const btn = document.createElement('input');
 
@@ -440,17 +502,20 @@ export default class GamesView {
     return line;
   }
 
+  // Один и тот же пакет не разбирается дважды: blur поля и клик по «Load»
+  // приходят парой (mousedown → blur → click), а каждый разбор стоит мастеру
+  // скачанного тарболла и единицы общего лимитера заявок (5/мин на человека)
   _emitLookup() {
     const packageName = this._fields.get('packageName').value.trim();
+    const version = this._fields.get('version').value.trim();
+    const ref = `${packageName}@${version}`;
 
-    if (!packageName) {
+    if (!packageName || ref === this._lastLookup) {
       return;
     }
 
-    this.publisher.emit('lookup', {
-      packageName,
-      version: this._fields.get('version').value.trim(),
-    });
+    this._lastLookup = ref;
+    this.publisher.emit('lookup', { packageName, version });
   }
 
   _readForm() {

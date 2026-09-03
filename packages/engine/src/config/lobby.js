@@ -208,6 +208,9 @@ export default {
       submit: '/games/submit',
       // заявка на новую версию уже заведённой игры
       version: id => `/games/mine/${encodeURIComponent(id)}/version`,
+      // удаление игры: и «My games» (автор), и «Moderation» (админ) ходят
+      // одним URL — право решает auth
+      remove: id => `/games/mine/${encodeURIComponent(id)}`,
       // очередь модерации целиком плюс локальное состояние на этом мастере
       admin: '/admin/games',
       // манифесты застейдженных версий — по ним админ поднимает тестовую
@@ -259,6 +262,12 @@ export default {
       lookupBtnId: 'games-lookup',
       previewId: 'games-preview',
       versionListId: 'games-version-list',
+
+      // карточки панели показываются по одной; заголовок общий, как и
+      // переключатель страниц (виден только админу)
+      mineId: 'games-mine',
+      titleId: 'games-title',
+      switchBtnId: 'games-switch',
 
       // модерация
       moderationId: 'games-moderation',
