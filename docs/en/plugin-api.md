@@ -104,8 +104,20 @@ it the game can still be run headlessly by passing `--core <path>`
 explicitly; a game that has neither simply cannot be simulated on its real
 core. If the field is declared, the file must exist in the package as
 published — the loader checks it and names the contract, and it also
-re-checks both plugin halves against the manifest's `engineApi` (a rebuilt
-manifest next to a stale `dist/` is a failure, not a green run).
+re-checks the plugin halves it imports against the manifest's `engineApi` (a
+rebuilt manifest next to a stale `dist/` is a failure, not a green run).
+
+**A half loaded in Node must be self-contained.** External dependencies —
+`pixi.js` above all — are allowed only in the client half and only in the
+browser, where the import map resolves them (contract rule A1 keeps
+`pixi.js` out of `dependencies` so that engine and game share one PixiJS
+instance). Node therefore imports the client half **on demand**: the
+dedicated server never touches it (the browser gets it as static files),
+while the headless runner, whose virtual clients need it, asks for it up
+front. The host half and `entries.wasmNode` are always imported in Node, so
+an unresolvable import in them is a startup failure — reported as a named
+error naming the entry and the missing package, not a raw
+`ERR_MODULE_NOT_FOUND`.
 
 Because of it, `createCore`/`createClientCore` receive **two shapes** of
 `wasmUrl`: the browser passes the `.wasm` asset URL, the headless runner

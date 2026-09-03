@@ -57,6 +57,17 @@ beforeAll(async () => {
     path.join(dist, 'host-requires-bad.js'),
     `export default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION}, requires: "accolades" };\n`,
   );
+  // половины с неразрешимым в Node импортом: pixi.js внешний по правилу
+  // контракта A1, и клиентская сборка игры из реестра лежит вне
+  // node_modules движка
+  await writeFile(
+    path.join(dist, 'client-external.js'),
+    `import 'nonexistent-pkg';\nexport default { id: "demo", kind: "client", engineApi: ${ENGINE_API_VERSION} };\n`,
+  );
+  await writeFile(
+    path.join(dist, 'host-external.js'),
+    `import 'nonexistent-pkg';\nexport default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION} };\n`,
+  );
   await writeFile(path.join(dir, 'core', 'pkg-node', 'demo.js'), 'export {};\n');
 
   await writeFile(
@@ -69,14 +80,19 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const manifestWith = ({ host = '/games/demo/host-abc.js', wasmNode, requires }) => ({
+const manifestWith = ({
+  host = '/games/demo/host-abc.js',
+  client = '/games/demo/client-abc.js',
+  wasmNode,
+  requires,
+}) => ({
   id: 'demo',
   engineApi: ENGINE_API_VERSION,
   ...(requires ? { requires } : {}),
   assetsBase: '/games/demo/',
   entries: {
     host,
-    client: '/games/demo/client-abc.js',
+    client,
     wasm: '/games/demo/assets/demo_bg.wasm',
     ...(wasmNode ? { wasmNode } : {}),
   },
@@ -97,9 +113,68 @@ describe('loadGamePackage', () => {
 
     expect(pkg.id).toBe('demo');
     expect(pkg.hostPlugin.kind).toBe('host');
-    expect(pkg.clientPlugin.kind).toBe('client');
     expect(pkg.wasmUrl).toMatch(/core\/pkg-node\/demo\.js$/);
     expect(pkg.distDir).toBe(dist);
+  });
+
+  // Клиентская половина в Node нужна только виртуальным клиентам прогона:
+  // dedicated-сервер её не касается, а безусловный импорт требовал бы от
+  // игры самодостаточной клиентской сборки — правило A1 держит pixi.js
+  // внешним намеренно
+  describe('клиентская половина грузится по требованию', () => {
+    const external = name =>
+      variant(name, manifestWith({
+        client: '/games/demo/client-external.js',
+        wasmNode: '../core/pkg-node/demo.js',
+      }));
+
+    it('умолчание грузит только host, отказ приходит на loadClientPlugin()', async () => {
+      const pkg = await loadGamePackage(await external('lazy-client.json'));
+
+      expect(pkg.hostPlugin.kind).toBe('host');
+      expect(pkg.clientPlugin).toBeNull();
+
+      await expect(pkg.loadClientPlugin()).rejects.toThrow(/self-contained/);
+    });
+
+    it('client: true падает сразу на загрузке пакета', async () => {
+      await expect(
+        loadGamePackage(await external('eager-client.json'), { client: true }),
+      ).rejects.toThrow(/self-contained/);
+    });
+
+    it('половина импортируется один раз и кешируется', async () => {
+      const pkg = await loadGamePackage(dist);
+      const [first, second] = await Promise.all([
+        pkg.loadClientPlugin(),
+        pkg.loadClientPlugin(),
+      ]);
+
+      expect(first.kind).toBe('client');
+      expect(second).toBe(first);
+      expect(await pkg.loadClientPlugin()).toBe(first);
+    });
+
+    it('client: true отдаёт ту же половину и через loadClientPlugin()', async () => {
+      const pkg = await loadGamePackage(dist, { client: true });
+
+      expect(pkg.clientPlugin.kind).toBe('client');
+      await expect(pkg.loadClientPlugin()).resolves.toBe(pkg.clientPlugin);
+    });
+
+    it('неразрешимый импорт host-половины — именованный отказ на загрузке', async () => {
+      const file = await variant(
+        'host-external.json',
+        manifestWith({
+          host: '/games/demo/host-external.js',
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
+
+      await expect(loadGamePackage(file)).rejects.toThrow(
+        /host-external\.js' imports 'nonexistent-pkg'.*self-contained/s,
+      );
+    });
   });
 
   it('без node-сборки ядра говорит об этом, а не гадает', async () => {

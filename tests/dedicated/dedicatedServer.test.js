@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import {
+  fetchGameFromNpm,
   parseGameRef,
   resolveLocalRef,
   startDedicatedServer,
@@ -12,6 +15,7 @@ import engineConfig from '../../packages/engine/src/lib/config.js';
 import { resetHostSingletons } from '../../packages/engine/src/devtools/resetHostSingletons.js';
 import { ENGINE_API_VERSION } from '../../packages/engine/src/config/opcodes.js';
 import wsports from '../../packages/engine/src/config/wsports.js';
+import { tarballOf } from '../fixtures/gamePackages.js';
 
 // Dedicated-сервер (Этап 4 плана standalone-sdk): express + ws + матч в этом
 // же процессе. Прогон идёт на фикстурной миниигре — её ядро обычный JS,
@@ -599,5 +603,215 @@ describe('dedicated-сервер', () => {
     ).json();
 
     expect(versioned.assetsBase).toBe('/games/miniGame/9.9.9/');
+  });
+
+  it('клиентская половина, неразрешимая в Node, старту не мешает', async () => {
+    // игра из реестра лежит вне node_modules движка, и её клиентская сборка
+    // оставляет pixi.js внешним (правило контракта A1). Dedicated-сервер эту
+    // половину не касается: в браузер она едет статикой
+    const pkgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dedicated-pkg-'));
+    const fixture = new URL(
+      '../../packages/engine/tests/fixtures/miniGame/host/index.js',
+      import.meta.url,
+    ).href;
+
+    try {
+      fs.writeFileSync(
+        path.join(pkgDir, 'host.js'),
+        `export { default } from '${fixture}';\n`,
+      );
+      fs.writeFileSync(
+        path.join(pkgDir, 'client.js'),
+        "import 'pixi.js-not-installed';\nexport default {};\n",
+      );
+      fs.writeFileSync(path.join(pkgDir, 'core.js'), 'export {};\n');
+      fs.writeFileSync(
+        path.join(pkgDir, 'manifest.json'),
+        JSON.stringify({
+          id: 'miniGame',
+          engineApi: ENGINE_API_VERSION,
+          version: '9.9.9',
+          assetsBase: '/games/miniGame/',
+          entries: {
+            host: '/games/miniGame/host.js',
+            client: '/games/miniGame/client.js',
+            wasmNode: './core.js',
+          },
+        }),
+      );
+
+      server = await startDedicatedServer({
+        gameId: 'miniGame@9.9.9',
+        port: 0,
+        // loadGame не инъектируется: проверяется настоящий loadGamePackage
+        fetchGame: async () => ({
+          id: 'miniGame',
+          version: '9.9.9',
+          distDir: pkgDir,
+          manifest: JSON.parse(
+            fs.readFileSync(path.join(pkgDir, 'manifest.json'), 'utf8'),
+          ),
+          packageUrl: null,
+          maxGameScore: null,
+        }),
+        serveClient: false,
+      });
+
+      const res = await fetch(`http://localhost:${server.port}/config`);
+
+      await expect(res.json()).resolves.toMatchObject({
+        mode: 'dedicated',
+        gameId: 'miniGame',
+      });
+    } finally {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ***** разрешение игры без реестра (registry-dedicated-fixes, этап 3) ***** //
+
+describe('fetchGameFromNpm', () => {
+  const registryUrl = 'https://registry.example';
+  const authUrl = 'https://auth.example';
+  const dirs = [];
+  let savedFetch;
+
+  const gamesDir = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dedicated-games-'));
+
+    dirs.push(dir);
+    engineConfig.set('master:gameStore:dir', dir);
+
+    return dir;
+  };
+
+  // npm в памяти: пакумент и тарболл. Всё, что не npm (то есть обращение к
+  // auth), — провал теста: путь по имени пакета обязан обходиться без него
+  const npmOnly = async () => {
+    const tarball = await tarballOf('valid');
+
+    return vi.fn(async url => {
+      if (url === `${registryUrl}/@vimp-games%2Ftanks`) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            'dist-tags': { latest: '1.2.3' },
+            versions: {
+              '1.2.3': {
+                dist: {
+                  tarball: 'https://cdn/tanks-1.2.3.tgz',
+                  integrity: `sha512-${createHash('sha512').update(tarball).digest('base64')}`,
+                },
+              },
+            },
+          }),
+        };
+      }
+
+      if (url === 'https://cdn/tanks-1.2.3.tgz') {
+        return { ok: true, status: 200, body: Readable.from([tarball]) };
+      }
+
+      throw new Error(`unexpected request: ${url}`);
+    });
+  };
+
+  beforeEach(() => {
+    savedFetch = globalThis.fetch;
+    engineConfig.set('master:gameStore:registryUrl', registryUrl);
+    engineConfig.set('master:security:authServiceUrl', authUrl);
+  });
+
+  afterEach(() => {
+    globalThis.fetch = savedFetch;
+    engineConfig.set('master:gameStore:dir', null);
+    engineConfig.set('master:gameStore:registryUrl', 'https://registry.npmjs.org');
+
+    while (dirs.length) {
+      fs.rmSync(dirs.pop(), { recursive: true, force: true });
+    }
+  });
+
+  it('игра, названная пакетом, качается из npm мимо реестра', async () => {
+    // ключевое: VIMP_AUTH_SERVICE_URL нет, а сервер всё равно поднимается —
+    // одобрение в каталоге платформы к запуску на своём железе отношения не
+    // имеет
+    const dir = gamesDir();
+
+    globalThis.fetch = await npmOnly();
+
+    const entry = await fetchGameFromNpm('@vimp-games/tanks', undefined, {});
+
+    expect(entry).toMatchObject({ id: 'tanks', version: '1.2.3' });
+    expect(entry.distDir).toBe(path.join(dir, 'tanks', '1.2.3'));
+    expect(entry.manifest.id).toBe('tanks');
+    // репозиторий и потолок очков знает только реестр, а его не спрашивали
+    expect(entry.packageUrl).toBeNull();
+    expect(entry.maxGameScore).toBeNull();
+  });
+
+  it('игра, названная id, по-прежнему приезжает через реестр', async () => {
+    const dir = gamesDir();
+    const npm = await npmOnly();
+
+    globalThis.fetch = vi.fn(async (url, options) => {
+      if (url === `${authUrl}/games`) {
+        return {
+          status: 200,
+          json: async () => ({
+            games: [
+              {
+                id: 'tanks',
+                packageName: '@vimp-games/tanks',
+                version: '1.2.3',
+                repoUrl: 'https://example.com/tanks',
+                maxGameScore: 100,
+              },
+            ],
+          }),
+        };
+      }
+
+      return npm(url, options);
+    });
+
+    const entry = await fetchGameFromNpm('tanks', undefined, {
+      VIMP_AUTH_SERVICE_URL: authUrl,
+    });
+
+    expect(entry).toMatchObject({
+      id: 'tanks',
+      version: '1.2.3',
+      packageUrl: 'https://example.com/tanks',
+      maxGameScore: 100,
+    });
+    expect(entry.distDir).toBe(path.join(dir, 'tanks', '1.2.3'));
+  });
+
+  it('id без реестра — отказ с подсказкой про имя пакета', async () => {
+    gamesDir();
+
+    globalThis.fetch = vi.fn(async url => {
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    await expect(fetchGameFromNpm('tanks', undefined, {})).rejects.toThrow(
+      /name the game by its npm package/,
+    );
+  });
+
+  it('id, которого нет в каталоге, — та же подсказка, а не тупик', async () => {
+    gamesDir();
+
+    globalThis.fetch = vi.fn(async () => ({
+      status: 200,
+      json: async () => ({ games: [] }),
+    }));
+
+    await expect(
+      fetchGameFromNpm('tanks', undefined, { VIMP_AUTH_SERVICE_URL: authUrl }),
+    ).rejects.toThrow(/name the game by its npm package/);
   });
 });

@@ -48,12 +48,18 @@ VIMP_DEDICATED_GAME=tanks npm start          # production (HTTP behind Nginx)
 list — here the host runs in this very process, so a change to it must
 restart the server.
 
+On a VPS the box is set up by its own wizard,
+`.github/deployment/add-dedicated.sh` — it asks for the game, the room
+settings and an **optional** auth-service URL, and writes the `.env.prod`
+and `docker-compose.yml` this server needs; see
+[deployment.md](deployment.md#step-3b-adding-a-dedicated-server).
+
 ### Resolving the game
 
 `VIMP_DEDICATED_GAME` names the game either by its **registry id** (`tanks`)
 or by its **npm package name** (`@vimp-games/tanks`), with an optional
 `@<version>` pin on either form — an exact version is a pin, without one the
-server takes the version the registry serves. Both forms exist because the
+server takes the version npm (or, for an id, the registry) serves. Both forms exist because the
 deploy fills this in from `SERVERS_MATRIX`, where the package name is often
 the only name known before the registry has answered; the scope's leading `@`
 is never mistaken for a pin. The resolution order is:
@@ -66,27 +72,41 @@ is never mistaken for a pin. The resolution order is:
    own `dist/manifest.json`. This is the path of a production box that has
    the game installed but no registry, and it works for any package name,
    scoped or not (`@acme/arena`, `vimp-tanks`).
-3. **Otherwise, with `VIMP_AUTH_SERVICE_URL` set** — the server asks the
-   registry (`GET /games`) for the row matching that id **or** package name
-   and downloads the package into its own store (`VIMP_GAMES_DIR`,
-   `GameStore`), validating it structurally without executing its code,
-   exactly as a lobby master does. **A production dedicated box therefore
-   needs the store volume mounted**, see
+3. **A scoped package name** (`@vimp-games/tanks`) — downloaded straight from
+   the npm registry into the server's own store (`VIMP_GAMES_DIR`,
+   `GameStore`), validated structurally without executing its code, exactly
+   as a lobby master does; the id is read from the downloaded
+   `dist/manifest.json`. **The platform registry is not asked at all**, so
+   `VIMP_AUTH_SERVICE_URL` is not needed and the game's catalog status is
+   irrelevant: approval is admission to the platform catalog — the right to
+   be served to every player by the lobby masters — not a permission to run
+   a public npm package on your own box. **A production dedicated box needs
+   the store volume mounted**, see
    [deployment.md](deployment.md#dedicated-game-box-dedicatedgame).
-4. **None of them** — the process exits with a named error listing every way:
+4. **A game id** (`tanks`), with `VIMP_AUTH_SERVICE_URL` set — an id alone
+   does not say which package to download, and only the registry knows: the
+   server asks it (`GET /games`) for the row matching that id **or** package
+   name and then downloads exactly as in step 3. This is the one path that
+   does need the registry, and hence a game listed in its catalog.
+5. **None of them** — the process exits with a named error. Named by id with
+   no registry (or with no such row in it), it points at the way out:
 
    ```
-   dedicated: game "<ref>" is not available — link its package into
-   node_modules, name it by package (@scope/name), or set
-   VIMP_AUTH_SERVICE_URL so the server can fetch it from the registry
+   dedicated: game "<ref>" is not resolved — name the game by its npm
+   package (@scope/name) and no registry is needed, or set
+   VIMP_AUTH_SERVICE_URL and get the game approved in the catalog
    ```
+
+The scope is what separates step 3 from step 4: a bare `tanks` is
+indistinguishable in shape from an unscoped package of the same name, and
+taking it for one would download a stranger's package from npm.
 
 Steps 1 and 2 serve whatever is installed, so **a pin they cannot satisfy
-sends the game on to the registry** rather than quietly serving another
+sends the game on to the download path** rather than quietly serving another
 build: if the ref carries `@<version>` and the installed package's
-`package.json` says something else, the local match is dropped. With no
-registry to fetch the pinned version from, the process exits naming the
-version it found.
+`package.json` says something else, the local match is dropped. With no way
+left to fetch the pinned version — the game named by id and no registry —
+the process exits naming the version it found.
 
 Whichever form named the game, the **id** is what reaches the catalog and the
 serving URLs (`/games/<id>/<version>/…`): it comes from the resolved package
@@ -98,12 +118,22 @@ the process imports the host plugin as a normal ES module and loads
 repository). Without it the server refuses to start with a named error
 instead of a raw resolver failure.
 
+The **client half is never imported in Node**: the server only ever reads
+`hostPlugin`, and the browser gets the client build as static files (where
+`pixi.js` is resolved by the import map). That is what lets a game fetched
+from the registry live outside the engine's `node_modules` at all — its
+client build leaves `pixi.js` external by contract rule A1, and Node could
+not resolve it from `${VIMP_GAMES_DIR}`. The host half and `entries.wasmNode`
+are held to the opposite standard: they are loaded in Node and must be
+self-contained, and an unresolvable import there is reported as a named
+error naming the entry and the missing package.
+
 | Variable | Meaning |
 | --- | --- |
 | `VIMP_DEDICATED_GAME` | the game: a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either with a `@<version>` pin; also the switch that selects this role |
 | `VIMP_MASTER_PORT` | HTTP + WebSocket port (default `3002`) |
 | `VIMP_DOMAIN` | production domain — used for `Origin` validation |
-| `VIMP_AUTH_SERVICE_URL` | the central auth service — the registry the game is fetched from when it is not linked locally |
+| `VIMP_AUTH_SERVICE_URL` | the central auth service — only needed to resolve a game named by **id**; a game named by package name is fetched from npm without it |
 | `VIMP_GAMES_DIR` | root of the downloaded-package store (a mounted volume in production) |
 | `VIMP_DEDICATED_ROOM` | JSON room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
 
@@ -111,6 +141,10 @@ Unlike the lobby master, the dedicated server reads these **in development
 too** (`packages/engine/src/config/env.js`): the game, the port and the room
 settings have no other source. Malformed `VIMP_DEDICATED_ROOM` is a named
 startup failure, not a silent default.
+
+In production `VIMP_DEDICATED_ROOM` is filled from the `settings` field of
+`SERVERS_MATRIX` — the deploy regenerates `.env.prod` in full, see
+[deployment.md](deployment.md#dedicated-game-box-dedicatedgame).
 
 Everything else comes from `packages/engine/src/config/master.js` — see
 [configuration.md](configuration.md#packagesenginesrcconfigmasterjs).

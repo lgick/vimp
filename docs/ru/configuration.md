@@ -24,8 +24,8 @@
 | `VIMP_DOMAIN` | Домен мастера. **Обязательна** в production (иначе процесс завершится с ошибкой) | `localhost` |
 | `VIMP_MASTER_PORT` | Порт мастер-сервера | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | Origin central auth-сервиса (`packages/auth`), переопределяет `security.authServiceUrl` — используется в CSP `connect-src` и прокси-роутах `/auth/*` ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-сервис-packagesauth)) | `http://localhost:3010` |
-| `VIMP_DEDICATED_GAME` | игра dedicated-сервера — id игры (`tanks`) либо имя npm-пакета (`@vimp-games/tanks`), любое из них с пином `@<version>`; если задана, `src/master/main.js` поднимает [dedicated-сервер](dedicated.md) вместо лобби-мастера | — |
-| `VIMP_DEDICATED_ROOM` | JSON-объект с настройками комнаты dedicated-сервера (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); мусор в переменной — отказ при старте | `{}` |
+| `VIMP_DEDICATED_GAME` | игра dedicated-сервера — id игры (`tanks`) либо имя npm-пакета (`@vimp-games/tanks`), любое из них с пином `@<version>`; если задана, `src/master/main.js` поднимает [dedicated-сервер](dedicated.md) вместо лобби-мастера. Имя пакета со скоупом качается прямо из npm, поэтому `VIMP_AUTH_SERVICE_URL` не нужен; через реестр разрешается только id игры | — |
+| `VIMP_DEDICATED_ROOM` | JSON-объект с настройками комнаты dedicated-сервера (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); мусор в переменной — отказ при старте. В проде заполняется из поля `settings` матрицы `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-бокс-с-игрой-dedicatedgame)) | `{}` |
 | `VIMP_GAMES_DIR` | Корень хранилища игровых пакетов, куда мастер качает одобренные игры (`master:gameStore:dir`). В проде это смонтированный том — пакеты переживают пересоздание контейнера | `<repoRoot>/.games` |
 
 **Переменной для каталога игр нет.** Каталог лобби-мастера приходит из

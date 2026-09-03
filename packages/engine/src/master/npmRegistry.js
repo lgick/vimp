@@ -34,15 +34,7 @@ export async function fetchPackument(
   packageName,
   { registryUrl, fetchImpl = fetch, timeout } = {},
 ) {
-  // имя scoped-пакета кодируется целиком: без этого '@vimp-games/tanks'
-  // уезжает в путь /@vimp-games/tanks и даёт 404. Кодируется КАЖДЫЙ сегмент,
-  // а не только первый '/': нормализацию пути иначе делает уже fetch
-  // ведущая '@' скоупа остаётся как есть — так адресует пакеты сам npm
-  const url = `${registryUrl}/${String(packageName)
-    .split('/')
-    .map(encodeURIComponent)
-    .join('%2F')
-    .replace(/^%40/, '@')}`;
+  const url = packumentUrl(registryUrl, packageName);
   let res;
 
   try {
@@ -73,6 +65,135 @@ export async function fetchPackument(
       `npm registry did not answer (${packageName}): malformed JSON — ${err.message}`,
     );
   }
+}
+
+// имя scoped-пакета кодируется целиком: без этого '@vimp-games/tanks'
+// уезжает в путь /@vimp-games/tanks и даёт 404. Кодируется КАЖДЫЙ сегмент,
+// а не только первый '/': нормализацию пути иначе делает уже fetch
+// ведущая '@' скоупа остаётся как есть — так адресует пакеты сам npm
+function packumentUrl(registryUrl, packageName) {
+  return `${registryUrl}/${String(packageName)
+    .split('/')
+    .map(encodeURIComponent)
+    .join('%2F')
+    .replace(/^%40/, '@')}`;
+}
+
+/**
+ * Описательные поля пакета (репозиторий, домашняя страница, описание).
+ * Форму заявки они заполняют вместо человека: в тарболл едет только
+ * package/dist/**, package.json пакета до диска не доезжает вовсе.
+ * @param {string} packageName - Имя пакета, в том числе scoped.
+ * @param {string} [version] - Точная версия, 'latest' либо ничего.
+ * @param {Object} options - Реестр, сеть и таймаут.
+ * @param {string} options.registryUrl - Базовый адрес реестра.
+ * @param {Function} [options.fetchImpl] - Реализация fetch.
+ * @param {number} [options.timeout] - Потолок ожидания ответа (мс).
+ * @returns {Promise<{repoUrl: string|null, homepage: string|null,
+ *   description: string|null}>} Поля пакета; пакета нет (404) — все null.
+ * @throws {Error} Реестр недоступен или ответил не 200/404.
+ */
+export async function fetchPackageMeta(
+  packageName,
+  version,
+  { registryUrl, fetchImpl = fetch, timeout } = {},
+) {
+  // отдельная функция, а не флаг у fetchPackument: полный пакумент тяжёлый
+  // (все версии со всеми полями), а «тощая» форма repository/homepage не
+  // отдаёт вовсе — GameSync и ensure платить за это не должны
+  const url = packumentUrl(registryUrl, packageName);
+  let res;
+
+  try {
+    res = await fetchImpl(url, {
+      headers: { accept: 'application/json' },
+      signal: timeout ? AbortSignal.timeout(timeout) : undefined,
+    });
+  } catch (err) {
+    throw new Error(
+      `npm registry did not answer (${packageName}): ${err.message}`,
+    );
+  }
+
+  if (res.status === 404) {
+    return { repoUrl: null, homepage: null, description: null };
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      `npm registry did not answer (${packageName}): HTTP ${res.status}`,
+    );
+  }
+
+  let packument;
+
+  try {
+    packument = await res.json();
+  } catch (err) {
+    throw new Error(
+      `npm registry did not answer (${packageName}): malformed JSON — ${err.message}`,
+    );
+  }
+
+  const versions = packument?.versions ?? {};
+  const wanted =
+    !version || version === 'latest' ? packument?.['dist-tags']?.latest : version;
+  // поля, которых нет в записи версии, берутся из корня пакумента: там
+  // лежит их последнее опубликованное значение
+  const entry = versions[wanted] ?? versions[packument?.['dist-tags']?.latest] ?? {};
+  const pick = field => entry[field] ?? packument?.[field] ?? null;
+
+  return {
+    repoUrl: normalizeRepoUrl(pick('repository')),
+    homepage: typeof pick('homepage') === 'string' ? pick('homepage') : null,
+    description:
+      typeof pick('description') === 'string' ? pick('description') : null,
+  };
+}
+
+/**
+ * Приведение поля `repository` package.json к http(s)-ссылке.
+ * Проверка стоит здесь, а не только в href представления: значение едет и в
+ * БД реестра, и в `packageUrl` каталога.
+ * @param {(string|Object|null)} repository - Значение поля package.json.
+ * @returns {string|null} http(s)-ссылка либо null, если её не собрать.
+ */
+export function normalizeRepoUrl(repository) {
+  const raw =
+    typeof repository === 'string' ? repository : repository?.url ?? null;
+
+  if (typeof raw !== 'string' || raw === '') {
+    return null;
+  }
+
+  let url = raw.trim();
+
+  // шорткаты package.json: 'user/repo', 'github:user/repo', 'gitlab:…'
+  const shortcut = /^(?:(github|gitlab|bitbucket):)?([\w.-]+)\/([\w.-]+)$/.exec(url);
+
+  if (shortcut) {
+    const host = { gitlab: 'gitlab.com', bitbucket: 'bitbucket.org' }[
+      shortcut[1]
+    ] ?? 'github.com';
+
+    url = `https://${host}/${shortcut[2]}/${shortcut[3]}`;
+  }
+
+  url = url
+    .replace(/^git\+/, '')
+    // scp-подобная форма git@host:user/repo — двоеточие здесь разделитель
+    // пути, а не порта
+    .replace(/^(?:ssh:\/\/)?git@([^/:]+):/, 'https://$1/')
+    .replace(/^git:\/\//, 'https://')
+    .replace(/^ssh:\/\//, 'https://')
+    // userinfo вида git@ остаётся от ssh-формы и в http(s)-ссылке лишний
+    .replace(/^(https?:\/\/)[^@/]*@/i, '$1')
+    .replace(/\.git$/, '');
+
+  // всё, что после нормализации не http(s), ссылкой не станет: href — это
+  // исполняемое место представления (javascript:), а значение уезжает ещё и
+  // в БД
+  return /^https?:\/\//i.test(url) ? url : null;
 }
 
 /**

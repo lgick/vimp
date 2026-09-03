@@ -9,6 +9,69 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The submission form in "My games" asks for the **npm package and the version
+  only**. A new route `GET /games/lookup?package=&version=` downloads and checks
+  the package and answers with `{id, title, version, versions, repoUrl,
+  engineApi, compat, errors}`, which the form shows as a preview and the master
+  writes into the registry itself: `id`, `title` and the resolved version come
+  from `dist/manifest.json`, the repository URL from the npm packument (the
+  package's own `package.json` never reaches disk — only `package/dist/**` is
+  unpacked). `Submit for review` stays disabled until a package parses cleanly.
+  `POST /games/submit` no longer requires `id`, `title` or `repoUrl` in the body
+  and still accepts them as a fallback.
+- `GameStore.inspectPackage(packageName, version)` and
+  `GameStore.ensurePackage(packageName, version)` stage a package **without
+  knowing its game id in advance** — the id is read from the manifest inside the
+  tarball and held to the same id rules as a submitted one. Their unpack goes to
+  a root `<dir>/.staging/<rand>`, which `prune` now recognises as staging rather
+  than a game.
+- `fetchPackageMeta()` and `normalizeRepoUrl()` in `master/npmRegistry.js`: the
+  full packument (`repository`, `homepage`, `description`) and the normalisation
+  of every `repository` shape npm accepts down to an `http(s)` link, or `null`.
+- The moderation panel assigns a game's author: an `Author` field next to each
+  entry sends the nick as `authorNick` in `PATCH /admin/games/:id` (an empty
+  field clears the author). Authorship is what puts a game into its author's
+  "My games" and lets them request a new version, so the games seeded by the
+  registry migration stay nobody's until an admin fills this in. The submitter
+  of a new game still becomes its author automatically.
+
+### Changed
+
+- The role `superadmin` is gone: `user` and `admin` are the only roles, and
+  `VIMP_ADMIN_NICKS` is the only source of admin rights. The two names encoded
+  where a role came from, never a difference in permissions — every check
+  accepted both. The master and the lobby now recognise `admin` alone, so a
+  token minted with the old role stops counting as admin; it lives four hours
+  and is issued by the same auth service that switches to `admin` in the same
+  deploy. Roll out the auth service (with its `011_drop_superadmin.sql`
+  migration) before the masters.
+- The dedicated server fetches its game **from npm directly** when
+  `VIMP_DEDICATED_GAME` names it by a scoped package name
+  (`@vimp-games/tanks`): the package registry answers "which tarball", so the
+  platform registry is not asked at all, `VIMP_AUTH_SERVICE_URL` is no longer
+  needed, and the game's catalog status is irrelevant — approval is admission
+  to the platform catalog, not a permission to run a public package on your
+  own box. A game named by id (`tanks`) still resolves through the registry,
+  which is the only place that knows its package name. Package checks are
+  unchanged: the tarball goes through the same `gamePackageCheck` without
+  executing game code. The dead-end error `game "<ref>" is not in the registry
+  catalog` is replaced by one that names the way out.
+
+### Fixed
+
+- The dedicated server no longer fails to start on a game that came from the
+  registry with `Cannot find package 'pixi.js'`. The client half of a plugin
+  is now imported in Node **on demand**: the dedicated server never uses it
+  (the browser gets that build as static files, where the import map resolves
+  `pixi.js`), while the headless runner, whose virtual clients do need it,
+  asks for it up front. A game package installed outside the engine's
+  `node_modules` — where the registry puts it — therefore loads. An
+  unresolvable import in a half that Node does load (the host half,
+  `entries.wasmNode`) is now reported as a named error naming the entry and
+  the missing package instead of a raw `ERR_MODULE_NOT_FOUND`.
+
 ## [0.26.0] — 2026-09-02
 
 ### ⚠️ Breaking

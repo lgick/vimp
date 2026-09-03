@@ -39,11 +39,11 @@ describe('jwt (auth)', () => {
 
   it('кладёт роль в identity-токен, по умолчанию user', () => {
     const admin = jwtLib.verifyToken(
-      jwtLib.signIdentityToken({ sub: 1, nick: 'Admin', role: 'superadmin' }),
+      jwtLib.signIdentityToken({ sub: 1, nick: 'Admin', role: 'admin' }),
     );
     const plain = jwtLib.verifyToken(jwtLib.signIdentityToken({ sub: 2, nick: 'Player1' }));
 
-    expect(admin.role).toBe('superadmin');
+    expect(admin.role).toBe('admin');
     expect(plain.role).toBe('user');
   });
 

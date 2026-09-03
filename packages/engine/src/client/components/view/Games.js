@@ -19,6 +19,7 @@ const ERROR_MESSAGES = {
   gameExists: 'A game with this id already exists',
   tooManyGames: 'Too many submissions from one author',
   unknownGame: 'Game is not in the registry',
+  unknownUser: 'No player with this nick',
   invalidGameId: 'Invalid game id',
   invalidPackageName: 'Invalid npm package name',
   invalidVersion: 'Invalid version',
@@ -71,6 +72,10 @@ export default class GamesView {
     this._mineList = document.getElementById(elems.mineListId);
     this._submitForm = document.getElementById(elems.submitFormId);
     this._submitError = document.getElementById(elems.submitErrorId);
+    this._submitBtn = document.getElementById(elems.submitBtnId);
+    this._lookupBtn = document.getElementById(elems.lookupBtnId);
+    this._preview = document.getElementById(elems.previewId);
+    this._versionList = document.getElementById(elems.versionListId);
 
     this._moderation = document.getElementById(elems.moderationId);
     this._adminList = document.getElementById(elems.adminListId);
@@ -105,11 +110,24 @@ export default class GamesView {
       this.publisher.emit('submit', this._readForm());
     };
 
+    const packageField = this._fields.get('packageName');
+
+    // разбор пакета по кнопке И по уходу из поля: заполнять форму
+    // предпросмотром — обычный путь, а не отдельное действие
+    this._lookupBtn.onclick = () => this._emitLookup();
+    packageField.onblur = () => this._emitLookup();
+    // правка пакета обесценивает показанный предпросмотр: заявка ушла бы с
+    // разобранным ранее пакетом, а человек читал бы карточку другого
+    packageField.oninput = () => this.clearPreview();
+
+    this.clearPreview();
+
     this._renderFilters();
 
     const mp = model.publisher;
 
     mp.on('submitted', 'clearForm', this);
+    mp.on('looked-up', 'renderPreview', this);
     mp.on('mine-changed', 'renderMine', this);
     mp.on('admin-changed', 'renderAdmin', this);
     mp.on('error', 'renderError', this);
@@ -145,6 +163,58 @@ export default class GamesView {
     this._fields.forEach(field => {
       field.value = '';
     });
+    this.clearPreview();
+  }
+
+  // предпросмотра нет — отправлять нечего: мастер всё равно откажет, а
+  // человек не увидит, за какую игру он ручается
+  clearPreview() {
+    this._preview.textContent = '';
+    this._versionList.textContent = '';
+    this._submitBtn.disabled = true;
+  }
+
+  /**
+   * Карточка разобранного пакета: то, что раньше человек вводил руками.
+   * @param {Object} data - Ответ мастера на /games/lookup.
+   */
+  renderPreview({ id, title, version, versions, repoUrl, engineApi, errors }) {
+    this._preview.textContent = '';
+    this._submitError.textContent = '';
+
+    this._preview.appendChild(
+      this._line(`${title ? `${title} · ` : ''}${id ?? '—'}`, 'games-item-title'),
+    );
+    this._preview.appendChild(this._line(`Version: ${version ?? '—'}`));
+    this._preview.appendChild(this._line(`Engine API: ${engineApi ?? '—'}`));
+    this._appendRepo(this._preview, repoUrl);
+
+    // список опубликованных версий — подсказка поля, а не отдельный контрол
+    this._versionList.textContent = '';
+    (versions || []).forEach(value => {
+      const option = document.createElement('option');
+
+      option.value = value;
+      this._versionList.appendChild(option);
+    });
+
+    // резолвнутая мастером версия: 'latest' в поле осталась бы ссылкой,
+    // которая завтра означает другой пакет
+    if (version) {
+      this._fields.get('version').value = version;
+    }
+
+    const problems = errors || [];
+
+    if (problems.length) {
+      renderFormErrors(
+        this._submitError,
+        problems.map(error => ({ name: 'package', label: 'package', error })),
+      );
+    }
+
+    // заявка на заведомо нерабочий пакет реестру не нужна
+    this._submitBtn.disabled = problems.length > 0 || !id;
   }
 
   renderMine(games) {
@@ -232,6 +302,23 @@ export default class GamesView {
     // у игр, засеянных миграцией, автора нет вовсе: без запасного прочерка
     // в строке печаталось бы литеральное "null"
     item.appendChild(this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`));
+
+    // переназначение автора: игры платформы засеяны без него, и «My games»
+    // у их автора пуст, пока админ не проставит ник здесь. Пустое поле —
+    // снять автора
+    const author = document.createElement('input');
+
+    author.type = 'text';
+    author.className = 'field-text games-author-input';
+    author.placeholder = 'Author nick';
+    author.value = game.authorNick ?? '';
+
+    item.appendChild(author);
+    item.appendChild(
+      this._button('Set author', () =>
+        this.publisher.emit('set-author', { id: game.id, nick: author.value.trim() }),
+      ),
+    );
     this._appendRepo(item, game.repoUrl);
     item.appendChild(
       this._line(
@@ -351,6 +438,19 @@ export default class GamesView {
     }
 
     return line;
+  }
+
+  _emitLookup() {
+    const packageName = this._fields.get('packageName').value.trim();
+
+    if (!packageName) {
+      return;
+    }
+
+    this.publisher.emit('lookup', {
+      packageName,
+      version: this._fields.get('version').value.trim(),
+    });
   }
 
   _readForm() {

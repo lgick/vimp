@@ -19,6 +19,7 @@ import {
   PACKAGE_NAME_PATTERN,
   RESERVED_GAME_IDS,
 } from './gameRefs.js';
+import { fetchPackageMeta } from './npmRegistry.js';
 
 // отказ auth-сервиса выглядит для лобби одинаково на всех роутах реестра
 function unavailable(res, err) {
@@ -33,9 +34,23 @@ function unavailable(res, err) {
  * @param {Object} deps.catalog - GameCatalog.
  * @param {Object} deps.sync - GameSync.
  * @param {Function} [deps.isAdmin] - Админская ли роль у req.user.
+ * @param {string} [deps.registryUrl] - Базовый адрес npm registry: за
+ *   репозиторием пакета мастер ходит туда сам (в тарболл едет только
+ *   package/dist/, package.json пакета до диска не доезжает).
+ * @param {Function} [deps.fetchImpl] - Реализация fetch для этого похода.
+ * @param {number} [deps.timeout] - Потолок ожидания ответа реестра (мс).
  * @returns {Object} Обработчики express.
  */
-export function createGameRoutes({ registry, store, catalog, sync, isAdmin = () => false }) {
+export function createGameRoutes({
+  registry,
+  store,
+  catalog,
+  sync,
+  isAdmin = () => false,
+  registryUrl = null,
+  fetchImpl = fetch,
+  timeout,
+}) {
   // застейдженные версии по id — панель модерации и «Test» показывают, что
   // именно сейчас лежит на диске рядом с одобренной версией
   function stagedVersionOf(id) {
@@ -65,7 +80,73 @@ export function createGameRoutes({ registry, store, catalog, sync, isAdmin = () 
     return { status: 200, game: json.games.find(game => game.id === id) ?? null };
   }
 
+  // репозиторий — единственное поле карточки, которого нет ни в манифесте,
+  // ни на диске. Его отказ обнуляет ссылку, но не роняет роут: заявку это
+  // не должно блокировать (тот же приём, что в store.publishedVersions)
+  async function packageMeta(packageName, version) {
+    if (!registryUrl) {
+      return { repoUrl: null, homepage: null, description: null };
+    }
+
+    try {
+      return await fetchPackageMeta(packageName, version, {
+        registryUrl,
+        fetchImpl,
+        timeout,
+      });
+    } catch {
+      return { repoUrl: null, homepage: null, description: null };
+    }
+  }
+
+  // форма ссылок проверяется ДО сети и диска: packageName доезжает до пути
+  // в npm registry, version — до имени подкаталога в GameStore
+  function badPackageRef(packageName, version) {
+    return (
+      // тип проверяется явно: RegExp.test приводит аргумент к строке, и
+      // число 42 прошло бы как имя пакета "42"
+      typeof packageName !== 'string' ||
+      !PACKAGE_NAME_PATTERN.test(packageName) ||
+      (version !== undefined &&
+        version !== null &&
+        version !== '' &&
+        version !== 'latest' &&
+        !GAME_VERSION_PATTERN.test(version))
+    );
+  }
+
   return {
+    // GET /games/lookup?package=<name>&version=<v|latest> — разбор пакета
+    // для формы заявки: id, title и версия живут в манифесте внутри
+    // тарболла, и спрашивать их у человека, чтобы потом сверить с
+    // манифестом, незачем
+    async lookup(req, res) {
+      const packageName = req.query?.package ?? null;
+      const version = req.query?.version || null;
+
+      if (badPackageRef(packageName, version)) {
+        res.status(400).json({ error: 'badRequest' });
+        return;
+      }
+
+      const [verdict, versions, meta] = await Promise.all([
+        store.inspectPackage(packageName, version),
+        store.publishedVersions(packageName),
+        packageMeta(packageName, version),
+      ]);
+
+      res.json({
+        id: verdict.id,
+        title: verdict.manifest?.title ?? null,
+        version: verdict.version,
+        versions,
+        repoUrl: meta.repoUrl,
+        engineApi: verdict.manifest?.engineApi ?? null,
+        compat: verdict.compat,
+        errors: verdict.errors,
+      });
+    },
+
     // GET /games/mine — заявки вызывающего со статусами и замечаниями
     mine(req, res) {
       registry
@@ -78,37 +159,43 @@ export function createGameRoutes({ registry, store, catalog, sync, isAdmin = () 
     // проверяется ДО записи: разработчик получает список проблем сразу, а
     // реестр не засоряется заведомо нерабочими заявками
     async submit(req, res) {
-      const { id, packageName, version, title = null, repoUrl = null } = req.body || {};
+      const body = req.body || {};
+      const { packageName, version } = body;
 
-      // форма ссылок проверяется ДО сети и диска: id доезжает до имени
-      // каталога в GameStore, а packageName — до пути в npm registry
-      if (
-        !GAME_ID_PATTERN.test(id ?? '') ||
-        RESERVED_GAME_IDS.has(id) ||
-        !PACKAGE_NAME_PATTERN.test(packageName ?? '') ||
-        (version !== undefined &&
-          version !== null &&
-          version !== 'latest' &&
-          !GAME_VERSION_PATTERN.test(version))
-      ) {
+      if (badPackageRef(packageName, version)) {
         res.status(400).json({ error: 'badRequest' });
         return;
       }
 
-      const verdict = await store.inspect(id, packageName, version);
+      // id, title и репозиторий мастер берёт из пакета: манифест он и так
+      // читает, а сверять прочитанное с тем, что человек напечатал в форме,
+      // незачем. Присланные поля остаются запасным путём — старый клиент и
+      // прямые вызовы работают как работали
+      const verdict = await store.inspectPackage(packageName, version);
 
       if (!verdict.ok) {
         res.status(400).json({ errors: verdict.errors });
         return;
       }
 
+      const id = verdict.id ?? body.id ?? null;
+
+      // итоговый id проверяется независимо от того, откуда он взялся: он
+      // становится сегментом URL раздачи и именем каталога на диске
+      if (!GAME_ID_PATTERN.test(id ?? '') || RESERVED_GAME_IDS.has(id)) {
+        res.status(400).json({ error: 'badRequest' });
+        return;
+      }
+
+      const meta = await packageMeta(packageName, verdict.version);
+
       try {
         const { status, json } = await registry.submit(req.authToken, {
           id,
           packageName,
           version: verdict.version,
-          title,
-          repoUrl,
+          title: verdict.manifest?.title ?? body.title ?? null,
+          repoUrl: meta.repoUrl ?? body.repoUrl ?? null,
         });
 
         res.status(status).json(json);

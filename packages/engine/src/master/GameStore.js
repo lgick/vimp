@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { checkGamePackage } from './gamePackageCheck.js';
+import { GAME_ID_PATTERN, RESERVED_GAME_IDS } from './gameRefs.js';
 import {
   downloadTarball,
   extractDist,
@@ -178,6 +179,104 @@ export default class GameStore {
   }
 
   /**
+   * Скачать и проверить пакет, НЕ зная id заранее и НЕ делая версию
+   * доступной: id читается из dist/manifest.json распакованного архива.
+   * Форма заявки поэтому спрашивает только пакет и версию.
+   * @param {string} packageName - Имя npm-пакета игры.
+   * @param {string} [version] - Точная версия либо 'latest'.
+   * @returns {Promise<{ok: boolean, id: string|null, version: string|null,
+   *   manifest: Object|null, compat: Object|null, errors: string[]}>} Вердикт.
+   */
+  async inspectPackage(packageName, version) {
+    const staged = await this._stagePackage(packageName, version);
+
+    await remove(staged.stagingDir);
+
+    return { ...verdictOf(staged), id: staged.id };
+  }
+
+  /**
+   * То же безымянное стейджирование, что в inspectPackage, но версия
+   * переезжает в раздачу под прочитанным из манифеста id (нужно
+   * dedicated-серверу: он поднимает игру, которой в его каталоге ещё нет).
+   * @param {string} packageName - Имя npm-пакета игры.
+   * @param {string} [version] - Точная версия либо 'latest'.
+   * @returns {Promise<{ok: boolean, id: string|null, version: string|null,
+   *   distDir: string|null, manifest: Object|null, compat: Object|null,
+   *   errors: string[]}>} Вердикт.
+   */
+  async ensurePackage(packageName, version) {
+    const staged = await this._stagePackage(packageName, version);
+
+    if (!staged.ok) {
+      await remove(staged.stagingDir);
+
+      return { ...verdictOf(staged), id: staged.id, distDir: null };
+    }
+
+    const distDir = this.distDir(staged.id, staged.version);
+
+    try {
+      // тот же одиночный rename, что в ensure: недокачанная или
+      // непрошедшая проверку версия физически не может оказаться в раздаче
+      await fsp.mkdir(path.dirname(distDir), { recursive: true });
+      await fsp.rename(staged.stagingDir, distDir);
+    } catch (err) {
+      // гонка двух загрузок одной версии: каталог уже на месте — это успех
+      if (!this.has(staged.id, staged.version)) {
+        await remove(staged.stagingDir);
+
+        return {
+          ok: false,
+          id: staged.id,
+          version: staged.version,
+          distDir: null,
+          manifest: null,
+          compat: null,
+          errors: [`the version was not moved into service: ${err.message}`],
+        };
+      }
+
+      await remove(staged.stagingDir);
+    }
+
+    return { ...verdictOf(staged), id: staged.id, distDir };
+  }
+
+  // безымянное стейджирование плюс чтение id из манифеста. Манифест
+  // недоверенный, а id становится сегментом URL и именем каталога — те же
+  // проверки, что у роута заявки. Контракт «не бросать» распространяется и
+  // сюда: негодный id — обычный элемент errors[]
+  async _stagePackage(packageName, version) {
+    const staged = await this._stage(null, packageName, version);
+    const id = staged.manifest?.id ?? null;
+
+    if (!staged.ok) {
+      return { ...staged, id: null };
+    }
+
+    if (typeof id !== 'string' || !GAME_ID_PATTERN.test(id)) {
+      return {
+        ...fail(staged.stagingDir, staged.version, `invalid game id "${id}"`),
+        id: null,
+      };
+    }
+
+    if (RESERVED_GAME_IDS.has(id)) {
+      return {
+        ...fail(
+          staged.stagingDir,
+          staged.version,
+          `game id "${id}" is reserved by the master's own routes`,
+        ),
+        id: null,
+      };
+    }
+
+    return { ...staged, id };
+  }
+
+  /**
    * Версии пакета, опубликованные в npm (индикатор «есть обновление» в
    * панели модерации, master-game-registry этап 4). Как ensure/inspect,
    * не бросает: недоступный реестр — пустой список, а не отказ роута.
@@ -240,6 +339,15 @@ export default class GameStore {
     const removed = [];
 
     for (const gameId of readDirNames(this._dir)) {
+      // корневой .staging — не игра, а безымянная распаковка заявки (id
+      // читается из манифеста внутри архива). Не отфильтруй его здесь —
+      // prune снёс бы чужую идущую прямо сейчас распаковку как «игру, которой
+      // нет в keep»
+      if (gameId === STAGING) {
+        removed.push(...(await this._pruneStaging(this._dir)));
+        continue;
+      }
+
       const wanted = keep.get(gameId) ?? new Set();
       const gameDir = path.join(this._dir, gameId);
 
@@ -292,13 +400,19 @@ export default class GameStore {
   }
 
   // скачивание, распаковка и проверка в <gameId>/.staging/<rand>. Каталог
-  // остаётся на диске: вызывающий либо переносит его в раздачу, либо удаляет
+  // остаётся на диске: вызывающий либо переносит его в раздачу, либо удаляет.
+  //
+  // gameId === null — заявка, в которой id ещё неизвестен: он лежит в
+  // манифесте внутри архива, а узнать его можно только распаковав. Такая
+  // распаковка идёт в КОРНЕВОЙ <dir>/.staging/<rand>, и checkGamePackage
+  // зовётся без ожидаемого id
   async _stage(gameId, packageName, version) {
-    assertSegment(gameId, 'game id');
+    if (gameId !== null) {
+      assertSegment(gameId, 'game id');
+    }
 
     const stagingDir = path.join(
-      this._dir,
-      gameId,
+      ...(gameId === null ? [this._dir] : [this._dir, gameId]),
       STAGING,
       randomBytes(4).toString('hex'),
     );
@@ -345,7 +459,10 @@ export default class GameStore {
         maxFiles,
       });
 
-      const check = checkGamePackage(stagingDir, { id: gameId });
+      const check = checkGamePackage(
+        stagingDir,
+        gameId === null ? {} : { id: gameId },
+      );
 
       return { ...check, version: resolved.version, stagingDir };
     } catch (err) {

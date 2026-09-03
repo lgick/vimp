@@ -99,6 +99,28 @@ export default class GamesModel {
     this._emitAdmin();
   }
 
+  // разбор пакета для формы заявки: мастер качает тарболл, читает манифест
+  // и отдаёт то, что раньше человек вводил руками. Отдельный запрос, а не
+  // часть submit: предпросмотр обязан быть виден ДО отправки заявки
+  async lookup(packageName, version) {
+    const query = new URLSearchParams({ package: packageName });
+
+    if (version) {
+      query.set('version', version);
+    }
+
+    const { ok, json } = await this._request(
+      `${this._config.urls.lookup}?${query}`,
+    );
+
+    if (!ok) {
+      this._fail('mine', json);
+      return;
+    }
+
+    this.publisher.emit('looked-up', json);
+  }
+
   async submit(form) {
     const { ok, json } = await this._request(this._config.urls.submit, {
       method: 'POST',
@@ -168,6 +190,12 @@ export default class GamesModel {
     if (json?.warning) {
       this.publisher.emit('warning', { scope: 'admin', code: json.warning });
     }
+  }
+
+  // переназначение автора — тот же PATCH, что и решение модератора: наружу
+  // едет ник, пустой означает «снять автора»
+  async setAuthor(id, nick) {
+    await this.moderate(id, { authorNick: nick === '' ? null : nick });
   }
 
   _emitAdmin() {

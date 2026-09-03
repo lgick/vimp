@@ -1978,11 +1978,6 @@ function populateRoomForm(manifest) {
   }
 }
 
-// роли, которым лобби показывает кнопку «Moderation» (master-game-registry,
-// этап 4). Это подсказка интерфейсу: доступ к данным проверяет мастер, а
-// запись — auth-сервис, перечитывая роль из БД
-const ADMIN_ROLES = ['admin', 'superadmin'];
-
 // каталог манифестов по id: форма и leaderboard селектора игр, а также
 // активация игры перед созданием комнаты и входом в чужую
 const gamesById = new Map(
@@ -2240,7 +2235,10 @@ function initLobby() {
   const gamesView = new GamesView(gamesModel, lobbyConfig.games);
   const games = new GamesCtrl(gamesModel, gamesView);
 
-  games.setAdmin(ADMIN_ROLES.includes(lobbyAuthModel.getRole()));
+  // кнопку «Moderation» лобби показывает роли admin (master-game-registry,
+  // этап 4). Это подсказка интерфейсу: доступ к данным проверяет мастер, а
+  // запись — auth-сервис, перечитывая роль из БД
+  games.setAdmin(lobbyAuthModel.getRole() === 'admin');
 
   // «Test»: манифест застейдженной версии кладётся в каталог вкладки, и
   // админ поднимает по нему комнату обычной кнопкой Create server

@@ -195,6 +195,10 @@ const gameRoutes = createGameRoutes({
   catalog: gameCatalog,
   sync: gameSync,
   isAdmin: adminAuth.isAdmin,
+  // за репозиторием пакета роут заявки ходит в npm сам: в тарболл едет
+  // только package/dist/, package.json пакета до диска не доезжает вовсе
+  registryUrl: config.get('master:gameStore:registryUrl'),
+  timeout: config.get('master:gameStore:timeout'),
 });
 
 // первый проход до listen: мастер стартует уже с каталогом. Его отказ старту
@@ -602,6 +606,9 @@ app.get('/games/manifest.json', (req, res) => {
 //
 // Порядок объявления: эти пути обязаны идти ДО версионных `/games/:id/...`
 // и до статики `/games` — иначе `mine` и `submit` уехали бы в `:id`
+// разбор пакета для формы заявки: тот же лимитер, что у submit — роут
+// ходит в сеть за чужим тарболлом, и без лимита это усилитель трафика
+app.get('/games/lookup', adminAuth.authenticated, limitSubmits, gameRoutes.lookup);
 app.get('/games/mine', adminAuth.authenticated, gameRoutes.mine);
 app.post('/games/submit', adminAuth.authenticated, limitSubmits, gameRoutes.submit);
 app.post(

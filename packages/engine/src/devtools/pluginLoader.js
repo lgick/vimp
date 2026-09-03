@@ -54,12 +54,14 @@ export async function loadGameForSim({ game = null, core = null } = {}) {
 }
 
 // путь --game указывает либо на пакет игры, либо прямо на манифест; сама
-// загрузка общая с dedicated-сервером (lib/loadGamePackage.js)
+// загрузка общая с dedicated-сервером (lib/loadGamePackage.js).
+// client: true — прогону виртуальные клиенты обязательны, и отказ на
+// загрузке пакета лучше отказа посреди сценария
 async function loadFromManifest(game, core) {
   const target = game.endsWith('.json')
     ? path.resolve(game)
     : path.resolve(game, 'dist');
-  const pkg = await loadGamePackage(target, { core });
+  const pkg = await loadGamePackage(target, { core, client: true });
 
   return { ...pkg, source: pkg.manifestPath };
 }

@@ -932,23 +932,23 @@ describe('ratingsJob', () => {
 // ***** РЕЕСТР ИГР И РОЛИ (master-game-registry, этап 1) *****
 
 describe('UserRepository: роли', () => {
-  it('syncRole назначает superadmin по списку окружения', async () => {
+  it('syncRole назначает admin по списку окружения', async () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/UPDATE users/);
-      expect(text).toMatch(/CASE WHEN \$2 THEN 'superadmin'/);
+      expect(text).toMatch(/CASE WHEN \$2 THEN 'admin'/);
       expect(values).toEqual([7, true]);
-      return { rows: [{ role: 'superadmin' }] };
+      return { rows: [{ role: 'admin' }] };
     });
 
-    expect(await new UserRepository(db).syncRole(7, true)).toBe('superadmin');
+    expect(await new UserRepository(db).syncRole(7, true)).toBe('admin');
   });
 
   it('syncRole понижает выбывшего из списка и не трогает чужую роль', async () => {
     const db = createDbStub(text => {
-      // обе ветки понижения/сохранения живут в одном CASE: superadmin,
-      // которого больше нет в списке, становится user, остальные роли
+      // обе ветки понижения/сохранения живут в одном CASE: admin, которого
+      // больше нет в списке окружения, становится user, остальные роли
       // (будущий moderator из админки) остаются как есть
-      expect(text).toMatch(/WHEN role = 'superadmin' THEN 'user'/);
+      expect(text).toMatch(/WHEN role = 'admin' THEN 'user'/);
       expect(text).toMatch(/ELSE role END/);
       return { rows: [{ role: 'user' }] };
     });

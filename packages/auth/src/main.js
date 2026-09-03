@@ -38,6 +38,7 @@ import rateLimit from './lib/rateLimit.js';
 // список колонок (GAME_FIELDS) выбирает его для очереди модерации, а третьей
 // проекции в репозитории заводить не за чем
 import { forAuthor } from './lib/gameViews.js';
+import resolveAuthor from './lib/gameAuthor.js';
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
@@ -162,7 +163,7 @@ function requireAdmin(req, res, next) {
     try {
       const role = await userRepo.getRole(req.user.id);
 
-      if (role !== 'admin' && role !== 'superadmin') {
+      if (role !== 'admin') {
         res.status(403).json({ error: 'forbidden' });
         return;
       }
@@ -179,7 +180,7 @@ function requireAdmin(req, res, next) {
 async function isAdminUser(userId) {
   const role = await userRepo.getRole(userId);
 
-  return role === 'admin' || role === 'superadmin';
+  return role === 'admin';
 }
 
 const app = express();
@@ -472,7 +473,7 @@ app.get('/admin/games', requireAdmin, async (req, res) => {
 
 // PATCH /admin/games/:id — решение модератора
 app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
-  const { status, version, pendingVersion, note, maxGameScore } = req.body || {};
+  const { status, version, pendingVersion, note, maxGameScore, authorNick } = req.body || {};
 
   if (status !== undefined && !GAME_STATUSES.includes(status)) {
     res.status(400).json({ error: 'badRequest' });
@@ -505,6 +506,14 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
     return;
   }
 
+  // авторство: в теле едет ник, в колонку — id
+  const author = await resolveAuthor(authorNick, nick => userRepo.findByNick(nick));
+
+  if (!author.ok) {
+    res.status(author.status).json({ error: author.error });
+    return;
+  }
+
   const game = await userRepo.getGame(req.params.id);
 
   if (!game) {
@@ -512,7 +521,10 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
     return;
   }
 
-  const patch = { status, version, pendingVersion, note, maxGameScore };
+  const patch = {
+    status, version, pendingVersion, note, maxGameScore,
+    authorUserId: author.authorUserId,
+  };
 
   // самый частый путь одобрения: админ шлёт только status='approved', а
   // поднять версию на раздачу и очистить очередь — работа сервиса, не

@@ -22,13 +22,15 @@ const ENTRIES = ['client', 'host', 'wasm'];
 /**
  * Структурная проверка распакованного dist/ игрового пакета.
  * @param {string} distDir - Каталог с содержимым package/dist.
- * @param {Object} options - Ожидания вызывающего.
- * @param {string} options.id - Идентификатор игры в каталоге мастера.
+ * @param {Object} [options] - Ожидания вызывающего.
+ * @param {string} [options.id] - Идентификатор игры в каталоге мастера.
+ *   Не передан — сверять не с чем: так пакет разбирают для заявки, где id
+ *   ещё неизвестен и читается как раз из манифеста.
  * @returns {{ok: boolean, manifest: Object|null, compat: Object|null,
  *   errors: string[]}} Вердикт. Проверки не прерываются на первой ошибке —
  *   разработчику нужен полный список.
  */
-export function checkGamePackage(distDir, { id }) {
+export function checkGamePackage(distDir, { id } = {}) {
   const errors = [];
   let manifest;
 
@@ -56,7 +58,7 @@ export function checkGamePackage(distDir, { id }) {
 
   // статик-маунт мастера раздаёт dist/ по id каталога — при расхождении с
   // manifest.id он бьёт мимо (тот же инвариант, что в GameCatalog)
-  if (manifest.id !== id) {
+  if (id !== undefined && manifest.id !== id) {
     errors.push(
       `manifest.id "${manifest.id}" does not match the requested "${id}"`,
     );

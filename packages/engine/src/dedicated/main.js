@@ -165,14 +165,61 @@ export function resolveLocalRef(ref, { games = [], nodeModulesDir: dir } = {}) {
   return id ? { id, package: ref } : null;
 }
 
-// Игра из реестра auth-сервиса (master-game-registry, этап 5): лобби-мастера
-// рядом нет, поэтому dedicated повторяет его путь сам — спрашивает каталог
-// реестра и качает пакет в собственное хранилище (VIMP_GAMES_DIR, в проде
-// это смонтированный том). Скачивание проверяется структурно тем же
-// gamePackageCheck, код игры при этом не исполняется.
-async function fetchRegistryGame(ref, version, env = process.env) {
+// Игра для dedicated-сервера: лобби-мастера рядом нет, поэтому пакет
+// приезжает в собственное хранилище (VIMP_GAMES_DIR, в проде это
+// смонтированный том) тем же путём, что у мастера. Скачивание проверяется
+// структурно тем же gamePackageCheck, код игры при этом не исполняется.
+//
+// Реестр здесь — подсказка, а не ворота: он отвечает на единственный вопрос
+// «какой пакет качать», и спрашивать его нужно, только если игру назвали id.
+// Одобрение (status=approved) — допуск в каталог платформы, то есть право
+// быть раздаваемой лобби всем игрокам; оператор, поднимающий сервер на своём
+// железе, чужого модератора не спрашивает.
+export async function fetchGameFromNpm(ref, version, env = process.env) {
+  const store = new GameStore({
+    dir: resolveGamesDir(),
+    registryUrl: config.get('master:gameStore:registryUrl'),
+    limits: {
+      maxTarballBytes: config.get('master:gameStore:maxTarballBytes'),
+      maxFiles: config.get('master:gameStore:maxFiles'),
+      timeout: config.get('master:gameStore:timeout'),
+    },
+  });
+
+  // Скоуп — единственный признак, которым имя пакета отличимо от id: id по
+  // форме (`tanks`) неотличим от безскоупного пакета, и принять его за пакет
+  // значило бы качать из npm что-то чужое. Названная пакетом игра идёт мимо
+  // реестра: id читается из манифеста скачанного архива (ensurePackage)
+  if (ref.includes('/') && PACKAGE_NAME_PATTERN.test(ref)) {
+    const result = await store.ensurePackage(ref, version);
+
+    if (!result.ok) {
+      throw new Error(
+        `dedicated: game "${result.id ?? ref}"@${version ?? 'latest'} is not usable — ` +
+          result.errors.join('; '),
+      );
+    }
+
+    return {
+      id: result.id,
+      version: result.version,
+      distDir: result.distDir,
+      manifest: result.manifest,
+      // реестра не спрашивали: репозитория и потолка очков взять неоткуда
+      packageUrl: null,
+      maxGameScore: null,
+    };
+  }
+
+  // дальше игра названа id, и имя пакета по нему знает только реестр
+  const unresolved = new Error(
+    `dedicated: game "${ref}" is not resolved — name the game by its npm ` +
+      'package (@scope/name) and no registry is needed, or set ' +
+      'VIMP_AUTH_SERVICE_URL and get the game approved in the catalog',
+  );
+
   if (!env.VIMP_AUTH_SERVICE_URL) {
-    return null;
+    throw unresolved;
   }
 
   const registry = new GameRegistryProxy(
@@ -186,25 +233,15 @@ async function fetchRegistryGame(ref, version, env = process.env) {
     );
   }
 
-  // ссылкой может быть и имя пакета: реестр знает оба имени, и id игры
-  // берётся из НАЙДЕННОЙ строки, а не из того, как её назвали
+  // id игры берётся из НАЙДЕННОЙ строки, а не из того, как её назвали
   const game = json.games.find(
     item => item.id === ref || item.packageName === ref,
   );
 
   if (!game) {
-    throw new Error(`dedicated: game "${ref}" is not in the registry catalog`);
+    throw unresolved;
   }
 
-  const store = new GameStore({
-    dir: resolveGamesDir(),
-    registryUrl: config.get('master:gameStore:registryUrl'),
-    limits: {
-      maxTarballBytes: config.get('master:gameStore:maxTarballBytes'),
-      maxFiles: config.get('master:gameStore:maxFiles'),
-      timeout: config.get('master:gameStore:timeout'),
-    },
-  });
   // пин из VIMP_DEDICATED_GAME важнее раздаваемой версии: так админ поднимает
   // сервер на конкретной сборке, не трогая реестр
   const result = await store.ensure(game.id, game.packageName, version ?? game.version);
@@ -238,7 +275,7 @@ async function fetchRegistryGame(ref, version, env = process.env) {
  * @param {Object} [options.room] - Переопределения комнаты (map, maxPlayers,
  *   roundTime, mapTime, friendlyFire, seed).
  * @param {Function} [options.loadGame] - Загрузчик пакета игры (инъекция тестов).
- * @param {Function} [options.fetchGame] - Загрузчик игры из реестра (инъекция тестов).
+ * @param {Function} [options.fetchGame] - Загрузчик игры из npm/реестра (инъекция тестов).
  * @param {boolean} [options.serveClient] - Раздавать ли клиент движка
  *   (ViteExpress); тестам не нужен.
  * @returns {Promise<Object>} { id, port, app, server, runtime, portMachine, close }.
@@ -249,7 +286,7 @@ export async function startDedicatedServer({
   host,
   room = {},
   loadGame = loadGamePackage,
-  fetchGame = fetchRegistryGame,
+  fetchGame = fetchGameFromNpm,
   serveClient = true,
 } = {}) {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -271,9 +308,9 @@ export async function startDedicatedServer({
     dev: !isProduction,
   });
 
-  // Порядок разрешения игры (master-game-registry, этап 5): прилинкованный
-  // пакет важнее реестра (это dev-путь и HMR разработки самой игры), а если
-  // его нет — игра приезжает из реестра тем же способом, что у лобби-мастера
+  // Порядок разрешения игры: прилинкованный пакет важнее всего (это dev-путь
+  // и HMR разработки самой игры); дальше — имя npm-пакета, которое качается
+  // напрямую, и только id заставляет спросить у реестра, какой это пакет
   let registryEntry = null;
   let packageDir = entry
     ? path.join(nodeModulesDir, entry.package, 'dist')
@@ -281,9 +318,9 @@ export async function startDedicatedServer({
 
   // Инъекция loadGame означает, что пакет игры тесту уже известен и
   // директория ему не нужна; инъекция fetchGame — что тест проверяет как раз
-  // разрешение через реестр
+  // разрешение игры
   const needsPackageDir =
-    loadGame === loadGamePackage || fetchGame !== fetchRegistryGame;
+    loadGame === loadGamePackage || fetchGame !== fetchGameFromNpm;
 
   if (!entry && needsPackageDir) {
     registryEntry = await fetchGame(ref.id, ref.version);

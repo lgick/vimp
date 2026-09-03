@@ -38,8 +38,8 @@ room settings have no other source.
 | `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
 | `VIMP_MASTER_PORT` | The master server's port | `3002` |
 | `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
-| `VIMP_DEDICATED_GAME` | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master | — |
-| `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure | `{}` |
+| `VIMP_DEDICATED_GAME` | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master. A scoped package name is fetched straight from npm, so `VIMP_AUTH_SERVICE_URL` is not needed; only a game id has to be resolved through the registry | — |
+| `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure. In production it is filled from the `settings` field of `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-game-box-dedicatedgame)) | `{}` |
 | `VIMP_GAMES_DIR` | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate | `<repoRoot>/.games` |
 
 **There is no environment variable for the game catalog.** The lobby master's

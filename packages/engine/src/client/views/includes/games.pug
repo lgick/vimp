@@ -10,22 +10,18 @@ div#games-panel(style='display:none')
         h3.lobby-section-title= 'My games'
         input#games-close(type='button', value='Back to lobby')
       ul#games-mine-list.games-list
+      //- Заявка спрашивает только пакет и версию: id, title и репозиторий
+      //- мастер читает из самого пакета и показывает предпросмотром
       form#games-submit-form
-        div.form-row
-          label.form-label(for='games-field-id')= 'Game id'
-          input#games-field-id.field-text(type='text', name='id', maxlength='32', autocomplete='off')
         div.form-row
           label.form-label(for='games-field-package')= 'npm package'
           input#games-field-package.field-text(type='text', name='packageName', maxlength='214', autocomplete='off')
+          input#games-lookup(type='button', value='Load')
         div.form-row
           label.form-label(for='games-field-version')= 'Version'
-          input#games-field-version.field-text(type='text', name='version', maxlength='64', autocomplete='off')
-        div.form-row
-          label.form-label(for='games-field-repo')= 'Repository URL'
-          input#games-field-repo.field-text(type='text', name='repoUrl', maxlength='256', autocomplete='off')
-        div.form-row
-          label.form-label(for='games-field-title')= 'Title'
-          input#games-field-title.field-text(type='text', name='title', maxlength='64', autocomplete='off')
+          input#games-field-version.field-text(type='text', name='version', maxlength='64', autocomplete='off', placeholder='latest', list='games-version-list')
+          datalist#games-version-list
+        div#games-preview.games-preview
         div#games-submit-error.form-error
         input#games-submit(type='submit', value='Submit for review')
 

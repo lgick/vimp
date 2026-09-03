@@ -108,11 +108,20 @@ describe('adminAuth.optional', () => {
   });
 
   it('заполняет req.user валидным токеном', async () => {
-    const req = reqWith(signToken({ role: 'superadmin' }));
+    const req = reqWith(signToken({ role: 'admin' }));
 
     await new Promise(resolve => adminAuth.optional(req, fakeRes(), resolve));
 
     expect(adminAuth.isAdmin(req.user)).toBe(true);
+  });
+
+  it('не считает админом произвольную роль', async () => {
+    const req = reqWith(signToken({ role: 'superadmin' }));
+
+    await new Promise(resolve => adminAuth.optional(req, fakeRes(), resolve));
+
+    expect(req.user).toBeDefined();
+    expect(adminAuth.isAdmin(req.user)).toBe(false);
   });
 });
 

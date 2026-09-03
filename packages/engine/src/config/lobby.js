@@ -201,6 +201,9 @@ export default {
     urls: {
       // заявки вызывающего со статусами и замечаниями модератора
       mine: '/games/mine',
+      // разбор npm-пакета для формы заявки: id, title, версии и репозиторий
+      // мастер читает сам — человек вводит только пакет и версию
+      lookup: '/games/lookup',
       // заявка на новую игру платформы (валидируется мастером до записи)
       submit: '/games/submit',
       // заявка на новую версию уже заведённой игры
@@ -247,13 +250,15 @@ export default {
       submitFormId: 'games-submit-form',
       submitErrorId: 'games-submit-error',
       submitBtnId: 'games-submit',
+      // форма спрашивает ровно две вещи; id, title и репозиторий приезжают
+      // предпросмотром из разобранного пакета
       fieldIds: {
-        id: 'games-field-id',
         packageName: 'games-field-package',
         version: 'games-field-version',
-        repoUrl: 'games-field-repo',
-        title: 'games-field-title',
       },
+      lookupBtnId: 'games-lookup',
+      previewId: 'games-preview',
+      versionListId: 'games-version-list',
 
       // модерация
       moderationId: 'games-moderation',

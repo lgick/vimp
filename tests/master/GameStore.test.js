@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import GameStore from '../../packages/engine/src/master/GameStore.js';
-import { tarballOf } from '../fixtures/gamePackages.js';
+import { makeTarball, tarballOf, validManifest } from '../fixtures/gamePackages.js';
 
 const registryUrl = 'https://registry.example';
 const limits = { maxTarballBytes: 64 * 1024 * 1024, maxFiles: 5000 };
@@ -58,6 +58,22 @@ const makeRegistry = (versions, packageName = '@vimp-games/tanks') => {
     }
 
     return { ok: false, status: 404 };
+  });
+};
+
+// пакет с произвольным id в манифесте: id заявки читается из него, и
+// проверять его надо ровно там, где он приезжает
+const tarballWithId = id => {
+  const manifest = { ...validManifest(), id };
+
+  return makeTarball({
+    'package/package.json': JSON.stringify({ name: '@vimp-games/tanks' }),
+    'package/dist/manifest.json': JSON.stringify(manifest),
+    'package/dist/client.js': 'export default {};\n',
+    'package/dist/host.js': 'export default {};\n',
+    'package/dist/assets/core_bg.wasm': '\0asm',
+    'package/dist/core-node/core.js': 'export default {};\n',
+    'package/dist/maps/arena.json': JSON.stringify({ name: 'arena' }),
   });
 };
 
@@ -273,6 +289,80 @@ describe('GameStore', () => {
     expect(() => store.distDir('../evil', '1.0.0')).toThrow(/invalid/);
     expect(() => store.distDir('tanks', '../evil')).toThrow(/invalid/);
     expect(() => store.listLocalVersions('../evil')).toThrow(/invalid/);
+  });
+
+  // ***** заявка без заранее известного id (форма спрашивает только пакет) *****
+
+  it('inspectPackage читает id из манифеста и убирает за собой', async () => {
+    const dir = tempDir();
+    const fetchImpl = makeRegistry({ '1.2.3': await tarballOf('valid') });
+    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+
+    const verdict = await store.inspectPackage('@vimp-games/tanks', '1.2.3');
+
+    expect(verdict).toMatchObject({ ok: true, id: 'tanks', version: '1.2.3' });
+    expect(verdict.manifest.title).toBe('Tanks');
+    // версия доступной не стала, а корневой .staging пуст
+    expect(fs.existsSync(path.join(dir, 'tanks'))).toBe(false);
+    expect(fs.readdirSync(path.join(dir, '.staging'))).toEqual([]);
+  });
+
+  it.each([
+    ['негодный по формату', 'A/../pwn'],
+    ['зарезервированный роутами мастера', 'submit'],
+  ])('id из манифеста %s — отказ вердиктом', async (_name, id) => {
+    const dir = tempDir();
+    const fetchImpl = makeRegistry({ '1.2.3': await tarballWithId(id) });
+    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+
+    const verdict = await store.inspectPackage('@vimp-games/tanks', '1.2.3');
+
+    // манифест недоверенный: id становится сегментом URL и именем каталога
+    expect(verdict.ok).toBe(false);
+    expect(verdict.id).toBeNull();
+    expect(verdict.errors[0]).toMatch(/game id/);
+    expect(fs.readdirSync(dir)).toEqual(['.staging']);
+  });
+
+  it('ensurePackage кладёт версию под прочитанным id', async () => {
+    const dir = tempDir();
+    const fetchImpl = makeRegistry({ '1.2.3': await tarballOf('valid') });
+    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+
+    const verdict = await store.ensurePackage('@vimp-games/tanks', 'latest');
+
+    expect(verdict).toMatchObject({ ok: true, id: 'tanks', version: '1.2.3' });
+    expect(verdict.distDir).toBe(path.join(dir, 'tanks', '1.2.3'));
+    expect(store.has('tanks', '1.2.3')).toBe(true);
+    expect(stagingEntries(dir, '.')).toEqual([]);
+
+    // dedicated зовёт ensurePackage на каждом старте процесса: повтор обязан
+    // отдать ту же версию и не оставить мусора в .staging
+    const again = await store.ensurePackage('@vimp-games/tanks', 'latest');
+
+    expect(again).toMatchObject({ ok: true, id: 'tanks', version: '1.2.3' });
+    expect(again.distDir).toBe(verdict.distDir);
+    expect(stagingEntries(dir, 'tanks')).toEqual([]);
+    expect(stagingEntries(dir, '.')).toEqual([]);
+  });
+
+  it('корневой .staging — не игра: prune чистит его по TTL, а не как каталог игры', async () => {
+    const dir = tempDir();
+    const store = new GameStore({ dir, registryUrl, limits });
+    const fresh = path.join(dir, '.staging', 'fresh');
+    const stale = path.join(dir, '.staging', 'stale');
+
+    fs.mkdirSync(fresh, { recursive: true });
+    fs.mkdirSync(stale, { recursive: true });
+    fs.utimesSync(stale, new Date(0), new Date(0));
+
+    // keep пуст: не отфильтруй prune корневой .staging — он снёс бы чужую
+    // идущую прямо сейчас распаковку как «игру, которой нет в keep»
+    await store.prune(new Map());
+
+    expect(fs.existsSync(fresh)).toBe(true);
+    expect(fs.existsSync(stale)).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.staging'))).toBe(true);
   });
 
   it('prune не трогает свежий .staging', async () => {

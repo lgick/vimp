@@ -25,6 +25,7 @@ export default class GamesCtrl {
 
     vp.on('open-mine', 'openMine', this);
     vp.on('open-moderation', 'openModeration', this);
+    vp.on('lookup', 'lookup', this);
     vp.on('submit', 'submit', this);
     vp.on('update-version', 'updateVersion', this);
     vp.on('filter', 'filter', this);
@@ -33,6 +34,7 @@ export default class GamesCtrl {
     vp.on('reject', 'reject', this);
     vp.on('disable', 'disable', this);
     vp.on('load-versions', 'loadVersions', this);
+    vp.on('set-author', 'setAuthor', this);
 
     model.publisher.on('staged', 'staged', this);
   }
@@ -59,6 +61,10 @@ export default class GamesCtrl {
     this._view.show(true);
     this._model.loadMine();
     this._model.loadAdmin();
+  }
+
+  lookup({ packageName, version }) {
+    this._model.lookup(packageName, version);
   }
 
   submit(form) {
@@ -91,6 +97,10 @@ export default class GamesCtrl {
 
   loadVersions({ id }) {
     this._model.loadVersions(id);
+  }
+
+  setAuthor({ id, nick }) {
+    this._model.setAuthor(id, nick);
   }
 
   staged(data) {

@@ -7,8 +7,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   downloadTarball,
   extractDist,
+  fetchPackageMeta,
   fetchPackument,
   listVersions,
+  normalizeRepoUrl,
   resolveVersion,
 } from '../../packages/engine/src/master/npmRegistry.js';
 import { tarballOf } from '../fixtures/gamePackages.js';
@@ -248,5 +250,111 @@ describe('extractDist', () => {
     await expect(
       extractDist(await tarballOf('valid'), dir, { maxBytes: 4 }),
     ).rejects.toThrow(/exceed 4 bytes/);
+  });
+});
+
+// Описательные поля пакета: в тарболл едет только package/dist/, а
+// repository/homepage живут в package.json пакета — на диск они не попадают
+// вовсе, и «тощий» пакумент их тоже не отдаёт
+describe('fetchPackageMeta', () => {
+  const full = {
+    'dist-tags': { latest: '1.2.3' },
+    description: 'root description',
+    versions: {
+      '1.0.0': { repository: 'lgick/vimp-tanks' },
+      '1.2.3': {
+        repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp-tanks.git' },
+        homepage: 'https://vimp.example',
+      },
+    },
+  };
+
+  it('просит ПОЛНЫЙ пакумент: тощая форма repository не отдаёт', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(full));
+
+    await fetchPackageMeta('@vimp-games/tanks', '1.2.3', { registryUrl, fetchImpl });
+
+    const [url, options] = fetchImpl.mock.calls[0];
+
+    expect(url).toBe(`${registryUrl}/@vimp-games%2Ftanks`);
+    expect(options.headers.accept).toBe('application/json');
+  });
+
+  it('берёт поля запрошенной версии, недостающие — из корня пакумента', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(full));
+
+    await expect(
+      fetchPackageMeta('@vimp-games/tanks', '1.2.3', { registryUrl, fetchImpl }),
+    ).resolves.toEqual({
+      repoUrl: 'https://github.com/lgick/vimp-tanks',
+      homepage: 'https://vimp.example',
+      description: 'root description',
+    });
+  });
+
+  it('без версии и на latest читается dist-tags.latest', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(full));
+
+    await expect(
+      fetchPackageMeta('@vimp-games/tanks', undefined, { registryUrl, fetchImpl }),
+    ).resolves.toMatchObject({ homepage: 'https://vimp.example' });
+    await expect(
+      fetchPackageMeta('@vimp-games/tanks', 'latest', { registryUrl, fetchImpl }),
+    ).resolves.toMatchObject({ homepage: 'https://vimp.example' });
+  });
+
+  it('404 — пакета нет: все поля пустые', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(null, 404));
+
+    await expect(
+      fetchPackageMeta('@vimp-games/nope', '1.0.0', { registryUrl, fetchImpl }),
+    ).resolves.toEqual({ repoUrl: null, homepage: null, description: null });
+  });
+
+  it.each([
+    ['недоступный реестр', async () => { throw new Error('ECONNRESET'); }],
+    ['не-200', async () => jsonResponse(null, 500)],
+  ])('%s — отказ, а не «репозитория нет»', async (_name, fetchImpl) => {
+    await expect(
+      fetchPackageMeta('@vimp-games/tanks', '1.0.0', { registryUrl, fetchImpl }),
+    ).rejects.toThrow(/npm registry did not answer/);
+  });
+});
+
+describe('normalizeRepoUrl', () => {
+  it.each([
+    ['шорткат', 'lgick/vimp-tanks', 'https://github.com/lgick/vimp-tanks'],
+    ['github:', 'github:lgick/vimp-tanks', 'https://github.com/lgick/vimp-tanks'],
+    ['gitlab:', 'gitlab:lgick/vimp-tanks', 'https://gitlab.com/lgick/vimp-tanks'],
+    [
+      'git+https',
+      { type: 'git', url: 'git+https://github.com/lgick/vimp-tanks.git' },
+      'https://github.com/lgick/vimp-tanks',
+    ],
+    [
+      'git+ssh',
+      { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp-tanks.git' },
+      'https://github.com/lgick/vimp-tanks',
+    ],
+    [
+      'scp-подобная форма',
+      { url: 'git@github.com:lgick/vimp-tanks.git' },
+      'https://github.com/lgick/vimp-tanks',
+    ],
+    ['git://', 'git://github.com/lgick/vimp-tanks.git', 'https://github.com/lgick/vimp-tanks'],
+    ['уже http(s)', 'https://example.com/repo', 'https://example.com/repo'],
+  ])('%s приводится к http(s)', (_name, input, expected) => {
+    expect(normalizeRepoUrl(input)).toBe(expected);
+  });
+
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['мусор', 'not a url at all'],
+    ['пусто', ''],
+    ['null', null],
+    ['объект без url', { type: 'git' }],
+  ])('%s ссылкой не становится', (_name, input) => {
+    // href — исполняемое место представления, и значение уезжает ещё и в БД
+    expect(normalizeRepoUrl(input)).toBeNull();
   });
 });

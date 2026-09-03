@@ -22,12 +22,12 @@ const config = {
     submitErrorId: 'games-submit-error',
     submitBtnId: 'games-submit',
     fieldIds: {
-      id: 'games-field-id',
       packageName: 'games-field-package',
       version: 'games-field-version',
-      repoUrl: 'games-field-repo',
-      title: 'games-field-title',
     },
+    lookupBtnId: 'games-lookup',
+    previewId: 'games-preview',
+    versionListId: 'games-version-list',
     moderationId: 'games-moderation',
     adminListId: 'games-admin-list',
     adminErrorId: 'games-admin-error',
@@ -45,11 +45,11 @@ const seedDom = () => {
         <input type="button" id="games-close">
         <ul id="games-mine-list"></ul>
         <form id="games-submit-form">
-          <input type="text" id="games-field-id">
           <input type="text" id="games-field-package">
-          <input type="text" id="games-field-version">
-          <input type="text" id="games-field-repo">
-          <input type="text" id="games-field-title">
+          <input type="button" id="games-lookup">
+          <input type="text" id="games-field-version" list="games-version-list">
+          <datalist id="games-version-list"></datalist>
+          <div id="games-preview"></div>
           <div id="games-submit-error"></div>
           <input type="submit" id="games-submit">
         </form>
@@ -119,27 +119,106 @@ describe('GamesView: панель', () => {
 });
 
 describe('GamesView: формы и списки', () => {
-  it('submit отдаёт значения полей', () => {
+  // разобранный пакет — предпросмотр мастера: id, title и репозиторий
+  // человек не вводит вовсе
+  const preview = (over = {}) =>
+    model.publisher.emit('looked-up', {
+      id: 'tanks',
+      title: 'Tanks',
+      version: '1.1.0',
+      versions: ['1.0.0', '1.1.0'],
+      repoUrl: 'https://github.com/lgick/vimp-tanks',
+      engineApi: 4,
+      compat: null,
+      errors: [],
+      ...over,
+    });
+
+  it('submit отдаёт только пакет и версию', () => {
     const seen = [];
 
     view.publisher.on('submit', form => seen.push(form));
-    $('games-field-id').value = ' tanks ';
-    $('games-field-package').value = '@vimp-games/tanks';
+    $('games-field-package').value = ' @vimp-games/tanks ';
+    $('games-field-version').value = '1.1.0';
     $('games-submit-form').dispatchEvent(new Event('submit'));
 
-    expect(seen[0]).toMatchObject({ id: 'tanks', packageName: '@vimp-games/tanks' });
+    expect(seen[0]).toEqual({
+      packageName: '@vimp-games/tanks',
+      version: '1.1.0',
+    });
   });
 
-  it('успешная заявка очищает поля формы', () => {
-    $('games-field-id').value = 'tanks';
+  it('успешная заявка очищает поля формы и предпросмотр', () => {
     $('games-field-package').value = '@vimp-games/tanks';
     $('games-field-version').value = '1.0.0';
+    preview();
 
     model.publisher.emit('submitted');
 
     Object.values(config.elems.fieldIds).forEach(id => {
       expect($(id).value).toBe('');
     });
+    expect($('games-preview').textContent).toBe('');
+    expect($('games-submit').disabled).toBe(true);
+  });
+
+  it('«Load» и уход из поля пакета публикуют lookup', () => {
+    const seen = [];
+
+    view.publisher.on('lookup', e => seen.push(e));
+    $('games-field-package').value = ' @vimp-games/tanks ';
+    $('games-field-version').value = ' 1.1.0 ';
+    $('games-lookup').click();
+    $('games-field-package').dispatchEvent(new Event('blur'));
+
+    expect(seen).toEqual([
+      { packageName: '@vimp-games/tanks', version: '1.1.0' },
+      { packageName: '@vimp-games/tanks', version: '1.1.0' },
+    ]);
+
+    // пустое поле в сеть не ходит: мастер качает чужой тарболл
+    seen.length = 0;
+    $('games-field-package').value = '  ';
+    $('games-lookup').click();
+
+    expect(seen).toEqual([]);
+  });
+
+  it('предпросмотр печатает разобранный пакет и подставляет версию', () => {
+    preview();
+
+    const text = $('games-preview').textContent;
+
+    expect(text).toContain('Tanks');
+    expect(text).toContain('tanks');
+    expect(text).toContain('1.1.0');
+    expect(text).toContain('4');
+    expect($('games-preview').querySelector('a').href).toBe(
+      'https://github.com/lgick/vimp-tanks',
+    );
+    // 'latest' в поле осталась бы ссылкой, которая завтра значит другое
+    expect($('games-field-version').value).toBe('1.1.0');
+    expect(
+      [...$('games-version-list').querySelectorAll('option')].map(o => o.value),
+    ).toEqual(['1.0.0', '1.1.0']);
+    expect($('games-submit').disabled).toBe(false);
+  });
+
+  it('пакет с проблемами не отправляется, замечания видны', () => {
+    preview({ errors: ['dist/manifest.json отсутствует'] });
+
+    expect($('games-submit-error').textContent).toContain('manifest.json');
+    expect($('games-submit').disabled).toBe(true);
+  });
+
+  it('правка поля пакета сбрасывает предпросмотр', () => {
+    preview();
+
+    $('games-field-package').value = '@vimp-games/other';
+    $('games-field-package').dispatchEvent(new Event('input'));
+
+    expect($('games-preview').textContent).toBe('');
+    expect($('games-submit').disabled).toBe(true);
   });
 
   it('рисует свои заявки со статусом и замечанием модератора', () => {
@@ -208,12 +287,16 @@ describe('GamesView: формы и списки', () => {
 
     item.querySelector('.games-note-input').value = 'нет карт';
 
-    const buttons = item.querySelectorAll('input[type="button"]');
+    // по подписи, а не по позиции: в строке живёт ещё и «Set author»
+    const click = value =>
+      [...item.querySelectorAll('input[type="button"]')]
+        .find(btn => btn.value === value)
+        .click();
 
-    buttons[0].click();
-    buttons[1].click();
-    buttons[2].click();
-    buttons[3].click();
+    click('Test');
+    click('Approve');
+    click('Reject');
+    click('Disable');
 
     expect(seen).toEqual([
       ['stage', { id: 'tanks', version: '1.1.0' }],
@@ -221,6 +304,49 @@ describe('GamesView: формы и списки', () => {
       ['reject', { id: 'tanks', note: 'нет карт' }],
       ['disable', { id: 'tanks' }],
     ]);
+  });
+
+  it('поле автора предзаполнено и публикует set-author, пустое — снимает автора', () => {
+    const seen = [];
+
+    view.publisher.on('set-author', data => seen.push(data));
+    model.publisher.emit('admin-changed', {
+      games: [{ id: 'tanks', packageName: 'p', status: 'pending', authorNick: 'dev' }],
+      filter: 'pending',
+      versions: new Map(),
+    });
+
+    const item = $('games-admin-list').querySelector('.games-item');
+    const author = item.querySelector('.games-author-input');
+    const setAuthor = [...item.querySelectorAll('input[type="button"]')]
+      .find(btn => btn.value === 'Set author');
+
+    expect(author.value).toBe('dev');
+
+    author.value = ' Player1 ';
+    setAuthor.click();
+
+    // очистка поля — законное действие: игры платформы бывают ничьи
+    author.value = '';
+    setAuthor.click();
+
+    expect(seen).toEqual([
+      { id: 'tanks', nick: 'Player1' },
+      { id: 'tanks', nick: '' },
+    ]);
+  });
+
+  it('игра без автора оставляет поле пустым', () => {
+    model.publisher.emit('admin-changed', {
+      games: [{ id: 'tanks', packageName: 'p', status: 'pending' }],
+      filter: 'pending',
+      versions: new Map(),
+    });
+
+    const item = $('games-admin-list').querySelector('.games-item');
+
+    expect(item.textContent).toContain('Author: —');
+    expect(item.querySelector('.games-author-input').value).toBe('');
   });
 
   it('фильтры отмечают открытый и публикуют выбор', () => {
@@ -263,7 +389,7 @@ describe('GamesView: формы и списки', () => {
 
   it('поле формы, разъехавшееся с разметкой, бросает в конструкторе', async () => {
     vi.resetModules(); // синглтон: без сброса вернулся бы уже созданный view
-    $('games-field-title').remove();
+    $('games-field-version').remove();
 
     const Fresh = (
       await import('../../packages/engine/src/client/components/view/Games.js')
@@ -271,6 +397,6 @@ describe('GamesView: формы и списки', () => {
 
     // сообщение называет и id, и поле: молчаливый null падал бы позже —
     // безымянным TypeError внутри clearForm или _readForm
-    expect(() => new Fresh(model, config)).toThrow(/games-field-title.*title/);
+    expect(() => new Fresh(model, config)).toThrow(/games-field-version.*version/);
   });
 });

@@ -237,6 +237,11 @@ jobs:
           # dedicated-сервером одной игры (без лобби и OAuth), пусто —
           # обычным лобби-мастером, см. docs/en/deployment.md
           VIMP_DEDICATED_GAME: ${{ matrix.dedicatedGame }}
+          # необязательное поле матрицы: настройки комнаты dedicated-сервера
+          # (map, maxPlayers, roundTime, mapTime, friendlyFire, seed) одной
+          # строкой JSON. Поля нет — toJSON даёт строку "null", она
+          # отсекается при генерации .env.prod ниже
+          VIMP_DEDICATED_ROOM: ${{ toJSON(matrix.settings) }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -246,7 +251,7 @@ jobs:
           # Передача переменных окружения внутрь скрипта SSH.
           # Имя, не перечисленное здесь, ssh-action не пробрасывает — пропуск
           # VIMP_DEDICATED_GAME означает молчаливый старт в лобби-режиме
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,VIMP_GAMES_DIR,VIMP_DEDICATED_GAME,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,VIMP_GAMES_DIR,VIMP_DEDICATED_GAME,VIMP_DEDICATED_ROOM,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             # Остановка выполнения при любой критической ошибке
             set -e
@@ -284,6 +289,16 @@ jobs:
               echo "VIMP_GAMES_DIR=$VIMP_GAMES_DIR"
               if [ -n "$VIMP_DEDICATED_GAME" ]; then
                 echo "VIMP_DEDICATED_GAME=$VIMP_DEDICATED_GAME"
+              fi
+              # JSON одной строкой без внешних кавычек — так его читает
+              # env_file docker compose. Строка "null" (поля settings в
+              # матрице нет) отсекается: readDedicatedRoom бросил бы на ней
+              # 'expected a JSON object'. Привязка к непустому
+              # VIMP_DEDICATED_GAME намеренная: лобби-мастеру настройки
+              # комнаты не нужны и в его окружение попадать не должны
+              if [ -n "$VIMP_DEDICATED_GAME" ] && [ -n "$VIMP_DEDICATED_ROOM" ] \
+                 && [ "$VIMP_DEDICATED_ROOM" != "null" ]; then
+                echo "VIMP_DEDICATED_ROOM=$VIMP_DEDICATED_ROOM"
               fi
             } > .env.prod
 

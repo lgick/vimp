@@ -165,6 +165,10 @@ const MODERATABLE = {
   pendingVersion: 'pending_version',
   note: 'moderator_note',
   maxGameScore: 'max_game_score',
+  // авторство переназначает админ: игры платформы засеяны миграцией без
+  // автора, а у заведённых через форму автор мог смениться. null — снять
+  // автора (колонка nullable)
+  authorUserId: 'author_user_id',
 };
 
 export default class UserRepository {
@@ -249,6 +253,19 @@ export default class UserRepository {
     );
 
     return Boolean(result.rows[0]);
+  }
+
+  // поиск по нику без учёта регистра: ник уникален именно так
+  // (002_nick_case_insensitive.sql), и админ, назначающий автора, вводит
+  // его руками — требовать точный регистр значило бы отдавать 404 на живого
+  // пользователя
+  async findByNick(nick) {
+    const result = await this._db.query(
+      'SELECT * FROM users WHERE lower(nick) = lower($1)',
+      [nick],
+    );
+
+    return result.rows[0] ?? null;
   }
 
   async getRank(userId, gameId) {
@@ -726,15 +743,15 @@ export default class UserRepository {
 
   // ***** РОЛИ (master-game-registry, этап 1) *****
 
-  // Синхронизация роли по списку из окружения. Одним запросом и через CASE —
-  // чтобы не гасить роль, назначенную из БД (будущее назначение модераторов
-  // из админки): понижаем только того, кто получил superadmin из этого же
-  // списка и в нём больше не значится.
+  // Синхронизация роли по списку из окружения. VIMP_ADMIN_NICKS —
+  // единственный источник админской роли: назначить админа в обход списка
+  // (правкой строки в БД) нельзя — любой admin вне списка разжалуется при
+  // следующем входе.
   async syncRole(userId, isEnvAdmin) {
     const { rows } = await this._db.query(
       `UPDATE users
-          SET role = CASE WHEN $2 THEN 'superadmin'
-                          WHEN role = 'superadmin' THEN 'user'
+          SET role = CASE WHEN $2 THEN 'admin'
+                          WHEN role = 'admin' THEN 'user'
                           ELSE role END
         WHERE id = $1
         RETURNING role`,

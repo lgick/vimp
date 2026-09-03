@@ -185,6 +185,20 @@ describe('GamesModel: модерация', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/admin/games');
   });
 
+  it('setAuthor шлёт ник тем же PATCH, пустой — как null', async () => {
+    fetchMock
+      .mockResolvedValueOnce(answer({ game: { id: 'tanks' } }))
+      .mockResolvedValueOnce(answer({ games }))
+      .mockResolvedValueOnce(answer({ game: { id: 'tanks' } }))
+      .mockResolvedValueOnce(answer({ games }));
+
+    await model.setAuthor('tanks', 'Player1');
+    await model.setAuthor('tanks', '');
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ authorNick: 'Player1' });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ authorNick: null });
+  });
+
   it('catalogEmpty из ответа доезжает предупреждением — после перечитывания', async () => {
     const seen = [];
 

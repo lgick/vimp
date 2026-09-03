@@ -71,6 +71,16 @@ beforeEach(() => {
 
   store = {
     inspect: vi.fn(async () => ({ ok: true, version: '1.1.0', manifest: {}, errors: [] })),
+    // разбор пакета без заранее известного id: он читается из манифеста
+    // внутри тарболла (форма заявки спрашивает только пакет и версию)
+    inspectPackage: vi.fn(async () => ({
+      ok: true,
+      id: 'tanks',
+      version: '1.1.0',
+      manifest: { id: 'tanks', title: 'Tanks', engineApi: 4 },
+      compat: null,
+      errors: [],
+    })),
     ensure: vi.fn(async () => ({
       ok: true,
       version: '1.1.0',
@@ -96,18 +106,18 @@ beforeEach(() => {
 
 describe('POST /games/submit', () => {
   it('непрошедший проверку пакет — 400 со списком проблем, и в auth не ходим', async () => {
-    store.inspect.mockResolvedValue({
+    store.inspectPackage.mockResolvedValue({
       ok: false,
+      id: null,
       version: null,
+      manifest: null,
+      compat: null,
       errors: ['пакета "@vimp-games/none" нет в реестре'],
     });
 
     const res = fakeRes();
 
-    await routes.submit(
-      { authToken: 't', body: { id: 'none', packageName: '@vimp-games/none' } },
-      res,
-    );
+    await routes.submit({ authToken: 't', body: { packageName: '@vimp-games/none' } }, res);
 
     expect(res.code).toBe(400);
     expect(res.body.errors).toHaveLength(1);
@@ -115,33 +125,76 @@ describe('POST /games/submit', () => {
   });
 
   it.each([
-    ['обход каталога в id', { id: '../../../../tmp/pwn', packageName: '@vimp-games/tanks' }],
-    ['разделитель в id', { id: 'a/b', packageName: '@vimp-games/tanks' }],
-    ['зарезервированный id', { id: 'submit', packageName: '@vimp-games/tanks' }],
-    ['id не строка', { id: 42, packageName: '@vimp-games/tanks' }],
-    ['кривое имя пакета', { id: 'tanks', packageName: '../../etc/passwd' }],
-    [
-      'кривая версия',
-      { id: 'tanks', packageName: '@vimp-games/tanks', version: '../../x' },
-    ],
-  ])('%s — 400 ДО скачивания: store.inspect не зовётся', async (_name, body) => {
+    ['кривое имя пакета', { packageName: '../../etc/passwd' }],
+    ['имя пакета не строка', { packageName: 42 }],
+    ['кривая версия', { packageName: '@vimp-games/tanks', version: '../../x' }],
+  ])('%s — 400 ДО скачивания: пакет не качается', async (_name, body) => {
     const res = fakeRes();
 
     await routes.submit({ authToken: 't', body }, res);
 
     expect(res.code).toBe(400);
     expect(res.body).toEqual({ error: 'badRequest' });
-    expect(store.inspect).not.toHaveBeenCalled();
+    expect(store.inspectPackage).not.toHaveBeenCalled();
     expect(registry.submit).not.toHaveBeenCalled();
   });
 
-  it('проверенный пакет уходит в реестр с резолвнутой версией', async () => {
+  it.each([
+    ['обход каталога', '../../../../tmp/pwn'],
+    ['разделитель', 'a/b'],
+    ['зарезервированный', 'submit'],
+  ])('%s id из манифеста в реестр не уходит', async (_name, id) => {
+    store.inspectPackage.mockResolvedValue({
+      ok: true,
+      id,
+      version: '1.1.0',
+      manifest: { id },
+      compat: null,
+      errors: [],
+    });
+
+    const res = fakeRes();
+
+    await routes.submit({ authToken: 't', body: { packageName: '@vimp-games/tanks' } }, res);
+
+    expect(res.code).toBe(400);
+    expect(res.body).toEqual({ error: 'badRequest' });
+    expect(registry.submit).not.toHaveBeenCalled();
+  });
+
+  it('заявка без id/title/repoUrl заводит игру полями из пакета', async () => {
+    const res = fakeRes();
+
+    await routes.submit(
+      { authToken: 't', body: { packageName: '@vimp-games/tanks', version: 'latest' } },
+      res,
+    );
+
+    expect(res.code).toBe(201);
+    expect(registry.submit).toHaveBeenCalledWith('t', {
+      id: 'tanks',
+      packageName: '@vimp-games/tanks',
+      version: '1.1.0',
+      title: 'Tanks',
+      repoUrl: null,
+    });
+  });
+
+  it('тело со всеми полями по-прежнему принимается', async () => {
+    // старый клиент и прямые вызовы: присланные поля — запасной путь, но
+    // прочитанное из пакета важнее
     const res = fakeRes();
 
     await routes.submit(
       {
         authToken: 't',
-        body: { id: 'tanks', packageName: '@vimp-games/tanks', version: 'latest' },
+        body: {
+          id: 'other',
+          packageName: '@vimp-games/tanks',
+          version: '1.1.0',
+          title: 'Old title',
+          repoUrl: 'https://example.com/repo',
+        },
       },
       res,
     );
@@ -149,8 +202,94 @@ describe('POST /games/submit', () => {
     expect(res.code).toBe(201);
     expect(registry.submit).toHaveBeenCalledWith(
       't',
-      expect.objectContaining({ id: 'tanks', version: '1.1.0' }),
+      expect.objectContaining({ id: 'tanks', title: 'Tanks', repoUrl: 'https://example.com/repo' }),
     );
+  });
+});
+
+describe('GET /games/lookup', () => {
+  const query = (over = {}) => ({ query: { package: '@vimp-games/tanks', ...over } });
+
+  it('отдаёт поля манифеста, версии npm и репозиторий пакета', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        'dist-tags': { latest: '1.1.0' },
+        versions: {
+          '1.1.0': { repository: { type: 'git', url: 'git+https://github.com/lgick/vimp-tanks.git' } },
+        },
+      }),
+    }));
+    const withRegistry = createGameRoutes({
+      registry,
+      store,
+      catalog,
+      sync,
+      registryUrl: 'https://registry.example',
+      fetchImpl,
+    });
+    const res = fakeRes();
+
+    await withRegistry.lookup(query({ version: 'latest' }), res);
+
+    expect(res.body).toEqual({
+      id: 'tanks',
+      title: 'Tanks',
+      version: '1.1.0',
+      versions: ['1.0.0', '1.1.0'],
+      repoUrl: 'https://github.com/lgick/vimp-tanks',
+      engineApi: 4,
+      compat: null,
+      errors: [],
+    });
+  });
+
+  it('отказ npm обнуляет репозиторий, но не роняет разбор', async () => {
+    const withRegistry = createGameRoutes({
+      registry,
+      store,
+      catalog,
+      sync,
+      registryUrl: 'https://registry.example',
+      fetchImpl: async () => {
+        throw new Error('ECONNRESET');
+      },
+    });
+    const res = fakeRes();
+
+    await withRegistry.lookup(query(), res);
+
+    expect(res.body.repoUrl).toBeNull();
+    expect(res.body.id).toBe('tanks');
+  });
+
+  it('кривое имя пакета — 400 без похода в сеть', async () => {
+    const res = fakeRes();
+
+    await routes.lookup(query({ package: '../../etc/passwd' }), res);
+
+    expect(res.code).toBe(400);
+    expect(store.inspectPackage).not.toHaveBeenCalled();
+  });
+
+  it('проблемы пакета едут карточкой, а не отказом роута', async () => {
+    store.inspectPackage.mockResolvedValue({
+      ok: false,
+      id: null,
+      version: null,
+      manifest: null,
+      compat: null,
+      errors: ['dist/manifest.json отсутствует'],
+    });
+
+    const res = fakeRes();
+
+    await routes.lookup(query(), res);
+
+    expect(res.code).toBe(200);
+    expect(res.body.errors).toEqual(['dist/manifest.json отсутствует']);
+    expect(res.body.id).toBeNull();
   });
 });
 

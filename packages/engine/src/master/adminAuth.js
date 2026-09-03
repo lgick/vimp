@@ -19,8 +19,6 @@ import { verifyIdentityToken } from '../lib/jwt.js';
 // в auth, и разжалованному админу тот отвечает 403 — до скачивания дело не
 // доходит.
 export function createAdminAuth(jwksProxy, issuer) {
-  const ADMIN_ROLES = ['admin', 'superadmin'];
-
   async function identify(req) {
     const header = req.get('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -63,7 +61,7 @@ export function createAdminAuth(jwksProxy, issuer) {
             return;
           }
 
-          if (!ADMIN_ROLES.includes(user.role)) {
+          if (user.role !== 'admin') {
             res.status(403).json({ error: 'forbidden' });
             return;
           }
@@ -96,6 +94,6 @@ export function createAdminAuth(jwksProxy, issuer) {
      * @param {Object} user - req.user, заполненный identify.
      * @returns {boolean} Админская ли это роль.
      */
-    isAdmin: user => ADMIN_ROLES.includes(user?.role),
+    isAdmin: user => user?.role === 'admin',
   };
 }
