@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-09-03
+
 ### Added
 
 - **Layered maps (2.5D) travel from the game config to both cores and to the
@@ -2009,6 +2011,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.29.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.29.0
 [0.28.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.28.0
 [0.27.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.27.0
 [0.26.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.26.0
