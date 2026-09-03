@@ -64,12 +64,12 @@ entity is gone (JSON `null`), `1` = a field row follows.
 The body is a concatenation of `[u8 keyId][block]` for every key that has
 content this tick.
 
-## Frame v3 layout
+## Frame v5 layout
 
 ```
 offset  size  field
 0       1     port          (5 = SHOT_DATA)
-1       1     version       (3)
+1       1     version       (5)
 2       4     seq           u32
 6       8     serverTime    f64
 14      1     flags         1 = camera, 2 = forceReset, 4 = shake, 8 = player

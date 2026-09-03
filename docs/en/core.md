@@ -253,7 +253,7 @@ the engine hot buffer are all schema interpreters; a game crate only
 supplies rows as flat `Vec<FieldValue>`. The schema itself is game data, supplied through
 `HostPlugin.gameConfig.snapshot` (see [plugin-api.md](plugin-api.md)) —
 the engine bundle carries no snapshot keys of its own.
-`SNAPSHOT_FORMAT_VERSION` (currently `3`) is the engine's framing version;
+`SNAPSHOT_FORMAT_VERSION` (currently `5`) is the engine's framing version;
 byte compatibility across deploys is not required (host and clients are
 one deploy — the version only protects framing within a room).
 

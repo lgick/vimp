@@ -715,7 +715,8 @@ Internally the core implements the following algorithms:
   ms), lerp for actors/dynamics/camera (angles by shortest path), discrete
   fields taken from the reference frame, hold with no extrapolation,
   seq-based insertion + immediate emission of late-frame events;
-- **prediction** (`client/predictor.rs`): a replica of the authoritative
+- **prediction** (the game plugin's own `client/predictor.rs`, e.g.
+  `vimp-tanks`'s): a replica of the authoritative
   motion without Rapier collisions, at a fixed `timeStep`; tick formulas
   are **shared** with the game plugin's own actor-update code (e.g.
   `vimp-tanks`'s `core/src/motion.rs`) — the replica
@@ -724,7 +725,8 @@ Internally the core implements the following algorithms:
   tests; input history, replay from the frame's `serverTime`,
   `visualError` with exponential decay and a snap, freeze at `condition
   0`, resets on a camera forceReset/map change/keySet;
-- **shot spawning** (`client/shot.rs` + `client/raycast.rs`): a replica of
+- **shot spawning** (the game plugin's own `client/shot.rs` +
+  the engine's `client/raycast.rs`): a replica of
   the authoritative gate and muzzle formulas, DDA raycasting over wall
   tiles + an OBB test against dynamics and actors, a single
   pending-projectile gate, RTT-compensated projectile position,

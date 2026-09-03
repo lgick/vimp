@@ -807,9 +807,13 @@ reproduce real WebRTC reordering, so an end-to-end match check is manual, in
 the browser:
 
 ```bash
-npm run core:build     # web target of the core for the Worker (once)
 npm run dev            # master: lobby + signaling, https://localhost:3002
 ```
+
+The core's web target is built in the game plugin's own repository (its own
+`npm run core:build`, e.g. `vimp-tanks`'s) — not a script of this repository —
+before the plugin is linked/installed into `node_modules`; see
+[core.md](core.md#build) and [getting-started.md](getting-started.md).
 
 Open `https://localhost:3002`, "Create server" → the host tab. Remote
 clients are other tabs/machines: lobby → the room shows up in the list →

@@ -126,7 +126,7 @@ Rules for that documentation:
 
 ## Reading rules
 
-- **Numbers are contract values.** `ENGINE_API_VERSION = 3`,
+- **Numbers are contract values.** `ENGINE_API_VERSION = 4`,
   `PLAYER_STATE_LEN = 8`, `WORLD_VOICE_LIMIT = 30`, the byte layouts — none
   of these are configurable by a plugin. If a generated plugin disagrees with
   one, the plugin is wrong.

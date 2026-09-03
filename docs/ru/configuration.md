@@ -256,7 +256,7 @@ identity лобби, а не вводится пользователем. Вал
 ## packages/engine/src/config/wsports.js и packages/engine/src/config/opcodes.js
 
 - **`wsports.js`** — реестр числовых портов игрового протокола (источник истины). Полные таблицы — в [network.md](network.md#порты).
-- **`opcodes.js`** — версия бинарного snapshot-формата (`SNAPSHOT_FORMAT_VERSION = 3`), `ENGINE_API_VERSION` и `HOT_FLAGS`. Реестр снапшот-ключей — игровые данные, поставляемые через `HostPlugin.gameConfig.snapshot` (числовой id + `kind` на каждый ключ, задающий байтовую раскладку блока). Незарегистрированный ключ уронит упаковку кадра. Подробности — в [network.md](network.md#бинарный-snapshot-кадр-порт-5).
+- **`opcodes.js`** — версия бинарного snapshot-формата (`SNAPSHOT_FORMAT_VERSION = 5`), `ENGINE_API_VERSION` и `HOT_FLAGS`. Реестр снапшот-ключей — игровые данные, поставляемые через `HostPlugin.gameConfig.snapshot` (числовой id + `kind` на каждый ключ, задающий байтовую раскладку блока). Незарегистрированный ключ уронит упаковку кадра. Подробности — в [network.md](network.md#бинарный-snapshot-кадр-порт-5).
 - **`gameCodes.js`** — коды сообщений `GAME_INFORM_DATA` (порт 7) (`winnerTeam`/`roundStart`/`gameOver`), источник истины, общий для хоста (`SocketManager.sendGameInform`) и клиента (`GAME_ROUND_START_CODE` в `main.js`, запускающий анимацию старта раунда на панели и логотипе).
 
 ## lib/clock.js

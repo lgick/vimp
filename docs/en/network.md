@@ -140,6 +140,7 @@ unchanged — only the object implementing `open`/`send`/`disconnect` differs.
 | 15 | `CHAT_DATA` | JSON | A chat message (broadcast or personal) |
 | 16 | `VOTE_DATA` | JSON | Vote data |
 | 17 | `KEYSET_DATA` | JSON | The active key set: `0` — spectator, `1` — player; sent on a status change, and on a map change (the spectator set right before `CLEAR`) |
+| 18 | `ACCOLADES_DATA` | JSON | Global leaderboard placements for the room's participants, produced by `host/meta/modules/Accolades.js` and applied client-side by `lib/accolades.js` |
 
 ### Client → server
 

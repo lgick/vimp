@@ -60,7 +60,7 @@ the Worker, and the master only reads `dist/manifest.json`.
 | Constant | Value | Meaning | Checked where |
 | --- | --- | --- | --- |
 | `ENGINE_API_VERSION` | `4`, frozen | Generation label of the plugin contract (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema). **Not a gate**: no plugin is rejected for its age | nowhere at runtime; contract rule `B2` checks it is consistent inside the package |
-| `SNAPSHOT_FORMAT_VERSION` | `3` | Byte layout of the state frame | inside the WASM core, both ends |
+| `SNAPSHOT_FORMAT_VERSION` | `5` | Byte layout of the state frame | inside the WASM core, both ends |
 | `HANDOFF_VERSION` | `3` | Shape of the state blob passed when host duty migrates | `HostGame` (rejects a mismatched blob) |
 
 A plugin publishes `engineApi` in **three** places and all three must agree

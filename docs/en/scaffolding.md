@@ -102,7 +102,7 @@ imports the wasm from `core/pkg-web/`, so until the core has been built once
 `npm run dev` dies on startup while resolving that import.
 
 `check:contract` is the step that pays for itself. It is `vimp-contract`
-from the engine package — 33 rules over `package.json`, `vite.config.js`,
+from the engine package — 34 rules over `package.json`, `vite.config.js`,
 `core/Cargo.toml`, `dist/manifest.json` and both plugin halves imported as
 modules; a rule with no input reports `skip`, so it is usable from the first
 commit. It catches exactly the class of mistake that otherwise reaches the

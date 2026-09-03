@@ -745,7 +745,7 @@ schema-described: its layout is fixed by the engine
 (`PLAYER_STATE_LEN` = 8 `f32`s + a `centering` flag) and hardcoded in both
 the packer and the decoder. (`gameConfig.playerState` is an unrelated key —
 the starting rank/state profile blob.)
-`SNAPSHOT_FORMAT_VERSION` stays 3 (engine framing; the byte layout did not
+`SNAPSHOT_FORMAT_VERSION` stays 5 (engine framing; the byte layout did not
 change); byte compatibility across deploys is not required (host and
 clients are one deploy; the version only protects framing within a room).
 
@@ -974,7 +974,7 @@ this build does not have: … — update the engine"*.
 | Constant | Owner | Policy |
 | --- | --- | --- |
 | `ENGINE_API_VERSION` (=4) | engine | **frozen at 4 and never bumped again**; a generation label carried by every manifest and plugin half, not a compatibility gate. Its history: v2 introduced the explicit [Form schema](#form-schema) (`roomForm`, `authSchema.params[].options`) in place of type-based control inference; v3 cut the `control` set down to native elements (`range`/`number`/`toggle`/`segmented` are back as permanent aliases); v4 added the `ACCOLADES_DATA` port, the `accolades` service and the `leaderboard` mode of the `stat` module. The engine keeps every retired name working (`plan/plugin-forward-compat`), so a game built against v2 runs on today's build unchanged. Contract rule `B2` only requires that the manifest and both plugin halves agree with each other and that the value is imported, not hardcoded |
-| `SNAPSHOT_FORMAT_VERSION` (=3) | engine (framing) | the block schema travels in CONFIG_DATA → always consistent within a room |
+| `SNAPSHOT_FORMAT_VERSION` (=5) | engine (framing) | the block schema travels in CONFIG_DATA → always consistent within a room |
 | `HANDOFF_VERSION` (→3) | engine | v2: +`gameId`, `gameVersion` in the handoff meta; v3: the `bots` field renamed to `scripted`; mismatch → the regular `resume` |
 | `codeVersion` | master | composite: `{ engine: hash(host.worker-*.js), game: {id, version} }`; a mismatch of either part → Worker handoff (the new Worker gets a fresh `entries.host`) |
 | `mapsVersion` | master | per-game: `/games/:id/maps/manifest.json` |

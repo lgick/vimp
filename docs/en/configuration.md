@@ -491,7 +491,7 @@ mechanics (voice limits, priorities) are engine-owned — see
 - **`wsports.js`** — the numeric port registry for the game protocol
   (the source of truth). Full tables — [network.md](network.md#ports).
 - **`opcodes.js`** — the binary snapshot format version
-  (`SNAPSHOT_FORMAT_VERSION = 3`), `ENGINE_API_VERSION` and `HOT_FLAGS`.
+  (`SNAPSHOT_FORMAT_VERSION = 5`), `ENGINE_API_VERSION` and `HOT_FLAGS`.
   The snapshot key registry is game data, supplied through
   `HostPlugin.gameConfig.snapshot` (a numeric id + `kind` per key, which
   drives the block's byte layout). An unregistered key breaks frame

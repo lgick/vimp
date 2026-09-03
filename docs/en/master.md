@@ -55,6 +55,7 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/JwksProxy.js` | proxies `GET /jwks` of the central auth service under the master's own origin, cached (TTL) — see [GET /auth/jwks](#get-authjwks) |
 | `packages/engine/src/master/PlayerDataProxy.js` | proxies per-user `GET`/`PUT /rank` and `/state` of the central auth service, **not cached** (Stage B4) — see [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); also the public `GET /leaderboard` and the per-user `GET /placement` (lobby page plan) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/LeaderboardCache.js` | keyed TTL cache (`game:limit:period`) in front of `PlayerDataProxy.getLeaderboard` (code review L2) — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
+| `packages/engine/src/master/PlacementCache.js` | keyed TTL cache (`master:placement:cacheTtl`, default 30s) in front of `PlayerDataProxy.getPlacement`, per-user — see [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement) |
 | `packages/engine/src/master/HostRatingProxy.js` | proxies the central auth service's host-rating endpoints: `getRating` (own rating, Bearer) for the `register_host` block check, `vote` (Bearer) for `like_host`/`unlike_host`, `getPublic` (no token — `GET /host-rating/:hosterUserId` is unauthenticated, the value is public lobby data) for `refreshRatings`'s periodic poll |
 | `packages/engine/src/lib/rateLimiter.js` | a shared fixed-window rate limiter (event limit per key per interval) |
 
@@ -407,12 +408,16 @@ origin:
   slice is `400 badPeriod` without a trip to the auth service. It is part of
   the cache key, so the three slices of one game never answer for each
   other.
-- `GET /auth/placement?game=&period=` — goes through the same `forwardPlayerData` helper as
-  `/auth/rank`/`/auth/state` (Bearer token + `?game=` required, same
-  `400`/`404`/`502` cases), forwarding to `PlayerDataProxy.getPlacement(token, game)`.
-  Per-user data, never cached — `forwardPlayerData` sends
-  `Cache-Control: no-store` on every response. `period` is read and
+- `GET /auth/placement?game=&period=` — Bearer token + `?game=` required, same
+  `400`/`404`/`502` cases as `/auth/rank`/`/auth/state`, forwarding to
+  `PlayerDataProxy.getPlacement(token, game)`. Per-user data, cached by
+  `PlacementCache` (`packages/engine/src/master/PlacementCache.js`, keyed
+  TTL, default 30s — `master:placement:cacheTtl`), same pattern as
+  `LeaderboardCache` in front of the leaderboard. `period` is read and
   validated before the forward, exactly as for the leaderboard.
+- `GET /auth/placements?game=` — aggregates all three rank periods
+  (`day`/`month`/`all`) for the caller in one call, going through the same
+  `PlacementCache` per period.
 
 `PlayerDataProxy._request` omits the `Authorization` header when called with
 a `null` token (as `HostRatingProxy.getPublic` already does for
