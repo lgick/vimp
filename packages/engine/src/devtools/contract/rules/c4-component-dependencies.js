@@ -9,6 +9,11 @@ import { SERVICES } from '../../../config/clientServices.js';
 // assetsBase выглядит как чистый холст без единой строки в консоли, ради
 // этого правило и существует. Правило остаётся ERROR: оно работает на этапе
 // разработки игры, а не в рантайме.
+//
+// Что именно возвращает `hooks.services(core)`, статически не видно — хук
+// требует живого ядра. Поэтому у плагина есть необязательное поле
+// `serviceNames`: объявленный список имён снимает догадку, и правило снова
+// умеет краснеть (без него оно опускается до WARN и пропускает опечатку).
 export { SERVICES };
 
 export default {
@@ -24,16 +29,39 @@ export default {
       return skip('no client parts.componentDependencies');
     }
 
+    const declared = ctx.clientPlugin?.serviceNames;
+    const listed = Array.isArray(declared) ? declared : [];
+
+    if (declared !== undefined && !Array.isArray(declared)) {
+      return verdict([
+        `ClientPlugin.serviceNames is ${typeof declared}, expected an array ` +
+          'of service names returned by hooks.services(core)',
+      ]);
+    }
+
     // раскладка «сервис → парты, которым он нужен» (client.js игры)
     const unknown = Object.keys(deps).filter(
-      service => !SERVICES.includes(service),
+      service => !SERVICES.includes(service) && !listed.includes(service),
     );
 
     if (unknown.length === 0) {
       return verdict([]);
     }
 
-    const pool = SERVICES.join(', ');
+    const pool = [...SERVICES, ...listed].join(', ');
+
+    // список игровых сервисов объявлен — гадать больше не о чем: имя вне
+    // объединённого пула не даст парту ничего, кроме undefined
+    if (listed.length) {
+      return verdict(
+        unknown.map(
+          service =>
+            `componentDependencies declares service "${service}" — neither ` +
+            `the engine nor ClientPlugin.serviceNames provides it (${pool}), ` +
+            'so it is silently undefined in the part',
+        ),
+      );
+    }
     // hooks.services(core) требует живой инстанс ядра, а игровой код чекер не
     // запускает — статически перечислить игровые сервисы нечем. Поэтому при
     // объявленном хуке имя вне движкового пула остаётся строкой отчёта, но

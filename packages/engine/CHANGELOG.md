@@ -9,6 +9,33 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- **`ClientPlugin.serviceNames`** — an optional list of the service names
+  `hooks.services(core)` returns. Nothing at runtime reads it: the contract
+  checker cannot call the hook (that needs a live core) and so could not tell
+  a game service from a typo in `componentDependencies`. With the list, rule
+  `C4` reports an unknown name as an error again instead of downgrading
+  itself to a warning; without it, behaviour is unchanged.
+- **Contract rule `E5 mapRadarWalls`** — every solid tile (`physicsStatic`,
+  and a level's `walls`) must be named by a render layer. The radar draws
+  walls only from a layer that lists them, so a wall no layer names exists in
+  physics and is missing from the radar, silently. Skipped for a map without
+  `layers`.
+- **Rule `E4`** now also catches a ramp that leads nowhere and a slab edge
+  that is neither railed nor a fall onto walkable ground — the same two
+  checks the core gained in `map::validate_levels`. Both sides run one corpus
+  of cases (`packages/engine/contract/fixtures/layered/`), so their wording
+  may differ but their verdicts cannot.
+
+### Fixed
+
+- **`buildCoreConfig` now honours `overrides.coreParams`.** The host builder
+  spread `gameConfig.coreParams` into the game section directly, while the
+  client builder went through its `flat` object — so an override that worked
+  for the client core was silently ignored for the host one. Both now read
+  `flat.coreParams`.
+
 ## [0.29.0] — 2026-09-03
 
 ### Added

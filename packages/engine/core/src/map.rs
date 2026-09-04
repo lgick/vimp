@@ -133,105 +133,282 @@ pub struct MapConfig {
     pub ramps: Vec<RampConfig>,
 }
 
+/// Проверки формы слоёных полей карты (`levels`/`ramps`). Вынесены из
+/// `MapConfig::validate` отдельной функцией, потому что выполнять их обязаны
+/// обе стороны: хост при загрузке карты и клиентская реплика, которой те же
+/// поля приходят по сети в MAP_DATA. Косой грид уровня на клиенте не паникует
+/// — он молча даёт геометрию, отличную от хостовой, и предсказание расходится
+/// без единой строки в консоли: ровно та категория отказа, ради которой
+/// валидатор и написан.
+pub fn validate_levels(
+    map: &[Vec<i32>],
+    physics_static: &[i32],
+    levels: &IndexMap<String, MapLevelConfig>,
+    ramps: &[RampConfig],
+) -> Result<(), String> {
+    let rows = map.len();
+    let level_count = levels.len() + 1;
+
+    if !levels.is_empty() {
+        if level_count > MAX_LEVELS {
+            return Err(format!(
+                "map levels: {level_count} levels, at most {MAX_LEVELS} supported"
+            ));
+        }
+
+        let mut keys: Vec<u8> = Vec::with_capacity(levels.len());
+
+        for key in levels.keys() {
+            let level: u8 = key
+                .parse()
+                .map_err(|_| format!("map levels: key '{key}' is not a level number"))?;
+
+            if level == 0 {
+                return Err(
+                    "map levels: level 0 lives in map/physicsStatic, not in levels".to_string(),
+                );
+            }
+
+            keys.push(level);
+        }
+
+        keys.sort_unstable();
+
+        for (index, &level) in keys.iter().enumerate() {
+            if level as usize != index + 1 {
+                return Err(format!(
+                    "map levels: levels must run from 1 without gaps, got {level} at position {}",
+                    index + 1
+                ));
+            }
+        }
+    }
+
+    for (key, level) in levels {
+        if level.map.len() != rows {
+            return Err(format!(
+                "map levels: level {key} grid has {} rows, map has {rows}",
+                level.map.len()
+            ));
+        }
+
+        for (y, row) in level.map.iter().enumerate() {
+            let expected = map[y].len();
+
+            if row.len() != expected {
+                return Err(format!(
+                    "map levels: level {key} row {y} has {} cells, map has {expected}",
+                    row.len()
+                ));
+            }
+        }
+
+        for tile in &level.walls {
+            if !level.floor.contains(tile) {
+                return Err(format!(
+                    "map levels: level {key} wall tile {tile} is not part of floor"
+                ));
+            }
+        }
+    }
+
+    for (index, ramp) in ramps.iter().enumerate() {
+        if ramp.from == ramp.to {
+            return Err(format!("map ramps: ramp {index} goes from level {} to itself", ramp.from));
+        }
+
+        if (ramp.from as usize) >= level_count || (ramp.to as usize) >= level_count {
+            return Err(format!(
+                "map ramps: ramp {index} references level out of range (levels: {level_count})"
+            ));
+        }
+
+        let grid = if ramp.from == 0 {
+            Some(map)
+        } else {
+            levels.get(&ramp.from.to_string()).map(|level| level.map.as_slice())
+        };
+
+        let found = grid.is_some_and(|grid| {
+            grid.iter().any(|row| row.contains(&ramp.tile))
+        });
+
+        if !found {
+            return Err(format!(
+                "map ramps: ramp {index} tile {} is missing from level {} grid",
+                ramp.tile, ramp.from
+            ));
+        }
+
+        // рампа, ведущая в пустоту: за верхним концом прогона обязана быть
+        // поверхность уровня `to`. Иначе танк доезжает до вершины и в тот же
+        // шаг срывается вниз — молча, потому что и подъём, и падение
+        // штатные правила
+        let grid = grid.unwrap_or(map);
+
+        for (x, y) in ramp_run_exits(grid, ramp.tile, ramp.dir) {
+            if !walkable(map, physics_static, levels, ramp.to, x, y) {
+                return Err(format!(
+                    "map ramps: ramp {index} run ends at ({x}, {y}), which is not \
+                     walkable ground of level {}",
+                    ramp.to
+                ));
+            }
+        }
+    }
+
+    validate_level_edges(map, physics_static, levels)?;
+
+    Ok(())
+}
+
+/// Край плиты: клетка `floor` уровня N, у которой сосед — не плита и не
+/// перила, это обрыв. Обрыв разрешён (падение — правило игры), но приземлиться
+/// с него нужно на проходимую землю: за краем карты или в стене уровня 0 танк
+/// либо уезжает за карту (стены уровня 0 плите не преграда), либо
+/// приземляется внутри стены, откуда его выталкивает рывком.
+fn validate_level_edges(
+    map: &[Vec<i32>],
+    physics_static: &[i32],
+    levels: &IndexMap<String, MapLevelConfig>,
+) -> Result<(), String> {
+    for (key, level) in levels {
+        for (y, row) in level.map.iter().enumerate() {
+            for (x, tile) in row.iter().enumerate() {
+                // перила закрывают край сами; клетка вне плиты краем не бывает
+                if !level.floor.contains(tile) || level.walls.contains(tile) {
+                    continue;
+                }
+
+                for (dx, dy) in [(1_i64, 0_i64), (-1, 0), (0, 1), (0, -1)] {
+                    let nx = x as i64 + dx;
+                    let ny = y as i64 + dy;
+
+                    let neighbour = cell_at(&level.map, nx, ny);
+
+                    if neighbour.is_some_and(|tile| level.floor.contains(&tile)) {
+                        continue;
+                    }
+
+                    // сосед вне плиты — обрыв: под ним обязана быть земля
+                    if ground_walkable(map, physics_static, nx, ny) {
+                        continue;
+                    }
+
+                    return Err(format!(
+                        "map levels: level {key} floor cell ({x}, {y}) has an open \
+                         edge at ({nx}, {ny}) with no walkable ground below — close \
+                         it with a wall tile"
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cell_at(grid: &[Vec<i32>], x: i64, y: i64) -> Option<i32> {
+    if x < 0 || y < 0 {
+        return None;
+    }
+
+    grid.get(y as usize)
+        .and_then(|row| row.get(x as usize))
+        .copied()
+}
+
+/// Земля уровня 0 проходима, если клетка есть в гриде и её тайл не объявлен
+/// стеной (`physicsStatic`).
+fn ground_walkable(map: &[Vec<i32>], physics_static: &[i32], x: i64, y: i64) -> bool {
+    cell_at(map, x, y).is_some_and(|tile| !physics_static.contains(&tile))
+}
+
+/// Проходима ли клетка на уровне `level`: для земли — не стена, для
+/// надземного уровня — плита без перил.
+fn walkable(
+    map: &[Vec<i32>],
+    physics_static: &[i32],
+    levels: &IndexMap<String, MapLevelConfig>,
+    level: u8,
+    x: i64,
+    y: i64,
+) -> bool {
+    if level == 0 {
+        return ground_walkable(map, physics_static, x, y);
+    }
+
+    let Some(cfg) = levels.get(&level.to_string()) else {
+        return false;
+    };
+
+    cell_at(&cfg.map, x, y)
+        .is_some_and(|tile| cfg.floor.contains(&tile) && !cfg.walls.contains(&tile))
+}
+
+/// Клетки, следующие за верхними концами прогонов рампы (прогон — непрерывная
+/// линия одинаковых тайлов вдоль оси рампы, как в `MapLevels::build_runs`).
+fn ramp_run_exits(grid: &[Vec<i32>], tile: i32, dir: RampDir) -> Vec<(i64, i64)> {
+    let (axis, sign) = dir.axis_sign();
+    let mut out = Vec::new();
+
+    if axis == 1 {
+        let cols = grid.iter().map(|row| row.len()).max().unwrap_or(0);
+
+        for x in 0..cols {
+            let mut y = 0;
+
+            while y < grid.len() {
+                if grid[y].get(x) != Some(&tile) {
+                    y += 1;
+                    continue;
+                }
+
+                let y0 = y;
+
+                while y < grid.len() && grid[y].get(x) == Some(&tile) {
+                    y += 1;
+                }
+
+                let exit = if sign > 0 { y as i64 } else { y0 as i64 - 1 };
+
+                out.push((x as i64, exit));
+            }
+        }
+    } else {
+        for (y, row) in grid.iter().enumerate() {
+            let mut x = 0;
+
+            while x < row.len() {
+                if row[x] != tile {
+                    x += 1;
+                    continue;
+                }
+
+                let x0 = x;
+
+                while x < row.len() && row[x] == tile {
+                    x += 1;
+                }
+
+                let exit = if sign > 0 { x as i64 } else { x0 as i64 - 1 };
+
+                out.push((exit, y as i64));
+            }
+        }
+    }
+
+    out
+}
+
 impl MapConfig {
     /// Валидация слоёных полей. Любая из этих ошибок в рантайме молчит:
     /// карта с рассинхроном размерностей гридов даёт танк, проваливающийся
     /// в пустоту, и ни одной строки в консоли.
     pub fn validate(&self) -> Result<(), String> {
-        let rows = self.map.len();
         let level_count = self.levels.len() + 1;
 
-        if !self.levels.is_empty() {
-            if level_count > MAX_LEVELS {
-                return Err(format!(
-                    "map levels: {level_count} levels, at most {MAX_LEVELS} supported"
-                ));
-            }
-
-            let mut keys: Vec<u8> = Vec::with_capacity(self.levels.len());
-
-            for key in self.levels.keys() {
-                let level: u8 = key
-                    .parse()
-                    .map_err(|_| format!("map levels: key '{key}' is not a level number"))?;
-
-                if level == 0 {
-                    return Err(
-                        "map levels: level 0 lives in map/physicsStatic, not in levels".to_string(),
-                    );
-                }
-
-                keys.push(level);
-            }
-
-            keys.sort_unstable();
-
-            for (index, &level) in keys.iter().enumerate() {
-                if level as usize != index + 1 {
-                    return Err(format!(
-                        "map levels: levels must run from 1 without gaps, got {level} at position {}",
-                        index + 1
-                    ));
-                }
-            }
-        }
-
-        for (key, level) in &self.levels {
-            if level.map.len() != rows {
-                return Err(format!(
-                    "map levels: level {key} grid has {} rows, map has {rows}",
-                    level.map.len()
-                ));
-            }
-
-            for (y, row) in level.map.iter().enumerate() {
-                let expected = self.map[y].len();
-
-                if row.len() != expected {
-                    return Err(format!(
-                        "map levels: level {key} row {y} has {} cells, map has {expected}",
-                        row.len()
-                    ));
-                }
-            }
-
-            for tile in &level.walls {
-                if !level.floor.contains(tile) {
-                    return Err(format!(
-                        "map levels: level {key} wall tile {tile} is not part of floor"
-                    ));
-                }
-            }
-        }
-
-        for (index, ramp) in self.ramps.iter().enumerate() {
-            if ramp.from == ramp.to {
-                return Err(format!("map ramps: ramp {index} goes from level {} to itself", ramp.from));
-            }
-
-            if (ramp.from as usize) >= level_count || (ramp.to as usize) >= level_count {
-                return Err(format!(
-                    "map ramps: ramp {index} references level out of range (levels: {level_count})"
-                ));
-            }
-
-            let grid = if ramp.from == 0 {
-                Some(&self.map)
-            } else {
-                self.levels.get(&ramp.from.to_string()).map(|level| &level.map)
-            };
-
-            let found = grid.is_some_and(|grid| {
-                grid.iter().any(|row| row.contains(&ramp.tile))
-            });
-
-            if !found {
-                return Err(format!(
-                    "map ramps: ramp {index} tile {} is missing from level {} grid",
-                    ramp.tile, ramp.from
-                ));
-            }
-        }
+        validate_levels(&self.map, &self.physics_static, &self.levels, &self.ramps)?;
 
         for (team, points) in &self.respawns {
             for (index, point) in points.iter().enumerate() {
@@ -269,15 +446,38 @@ impl MapConfig {
 /// остаются в `Group::ALL` и поэтому продолжают взаимодействовать с
 /// уровнем 0 — старые карты и старые игры не замечают появления слоёв.
 pub fn level_group(level: u8) -> Group {
+    // уровень вне `MAX_LEVELS` схлопнулся бы в уровень 1 молча: карта с
+    // тремя слоями не проходит `validate`, поэтому сюда он попасть может
+    // только из кода, и ловить это должен разработчик, а не игрок
+    debug_assert!(
+        (level as usize) < MAX_LEVELS,
+        "level_group: level {level} is out of range (MAX_LEVELS: {MAX_LEVELS})"
+    );
+
     match level {
         0 => Group::GROUP_1,
         _ => Group::GROUP_2,
     }
 }
 
+/// Группа статики карты: её несут стены ВСЕХ уровней в дополнение к своей
+/// `level_group`. Нужна телам, которым по правилам игры полагаются только
+/// стены и ни одного динамического тела (падающий с обрыва танк): маска
+/// `STATIC_LEVEL_GROUP` в одиночку видит стену любого уровня и не видит ни
+/// танков, ни ящиков. Уровни занимают GROUP_1..GROUP_2 (см. `MAX_LEVELS`),
+/// поэтому статика берёт заведомо свободный бит.
+pub const STATIC_LEVEL_GROUP: Group = Group::GROUP_9;
+
 /// Маска «я на уровне `level` и вижу только его».
 pub fn level_interaction(level: u8) -> InteractionGroups {
     let group = level_group(level);
+
+    InteractionGroups::new(group, group, InteractionTestMode::And)
+}
+
+/// Маска стены уровня `level`: своя группа уровня плюс `STATIC_LEVEL_GROUP`.
+pub fn static_level_interaction(level: u8) -> InteractionGroups {
+    let group = level_group(level) | STATIC_LEVEL_GROUP;
 
     InteractionGroups::new(group, group, InteractionTestMode::And)
 }
@@ -334,6 +534,64 @@ pub struct MapLevels {
     tile_size: f32,
 }
 
+/// Один прогон рампы: `from`..`to` — границы по своей оси в клетках,
+/// `cross0`..`cross1` — поперёк; клетки, уже занятые прогоном, пропускаются
+/// (первая объявленная рампа выигрывает — детерминированно). Свободная
+/// функция, а не метод: `build_runs` держит грид уровня взаймы у того же
+/// `MapLevels`, и метод по `&mut self` заставил бы клонировать грид.
+#[allow(clippy::too_many_arguments)]
+fn push_run(
+    runs: &mut Vec<RampRun>,
+    run_cells: &mut [Vec<i16>],
+    tile_size: f32,
+    ramp: &RampConfig,
+    axis: u8,
+    sign: i8,
+    from: usize,
+    to: usize,
+    cross0: usize,
+    cross1: usize,
+) {
+    if runs.len() >= i16::MAX as usize {
+        return;
+    }
+
+    let index = runs.len() as i16;
+    let mut claimed = false;
+
+    for main in from..to {
+        for cross in cross0..cross1 {
+            let (x, y) = if axis == 1 { (cross, main) } else { (main, cross) };
+
+            let Some(cell) = run_cells.get_mut(y).and_then(|row| row.get_mut(x)) else {
+                continue;
+            };
+
+            if *cell < 0 {
+                *cell = index;
+                claimed = true;
+            }
+        }
+    }
+
+    if !claimed {
+        return;
+    }
+
+    let size = tile_size;
+
+    runs.push(RampRun {
+        axis,
+        sign,
+        from: ramp.from,
+        to: ramp.to,
+        min: from as f32 * size,
+        max: to as f32 * size,
+        cross_min: cross0 as f32 * size,
+        cross_max: cross1 as f32 * size,
+    });
+}
+
 impl MapLevels {
     /// `grid0`/`solid0` — грид и стены уровня 0; `levels` — конфиги
     /// надземных уровней (ключ — номер строкой); `ramps` — конфиги рамп;
@@ -380,12 +638,22 @@ impl MapLevels {
 
     // прогоны рамп: непрерывные линии одинаковых тайлов вдоль оси рампы
     fn build_runs(&mut self, ramps: &[RampConfig]) {
+        // заимствования разведены по полям: грид уровня читается на месте,
+        // прогоны пишутся в свои поля — иначе пришлось бы клонировать грид
+        // на каждую рампу
+        let Self {
+            grids,
+            runs,
+            run_cells,
+            tile_size,
+            ..
+        } = self;
+
         for ramp in ramps {
             let (axis, sign) = ramp.dir.axis_sign();
-            let Some(grid) = self.grid(ramp.from) else {
+            let Some(grid) = grids.get(ramp.from as usize) else {
                 continue;
             };
-            let grid = grid.clone();
             let rows = grid.len();
 
             if axis == 1 {
@@ -406,7 +674,18 @@ impl MapLevels {
                             y += 1;
                         }
 
-                        self.push_run(ramp, axis, sign, y0, y, x, x + 1);
+                        push_run(
+                            runs,
+                            run_cells,
+                            *tile_size,
+                            ramp,
+                            axis,
+                            sign,
+                            y0,
+                            y,
+                            x,
+                            x + 1,
+                        );
                     }
                 }
             } else {
@@ -425,65 +704,22 @@ impl MapLevels {
                             x += 1;
                         }
 
-                        self.push_run(ramp, axis, sign, x0, x, y, y + 1);
+                        push_run(
+                            runs,
+                            run_cells,
+                            *tile_size,
+                            ramp,
+                            axis,
+                            sign,
+                            x0,
+                            x,
+                            y,
+                            y + 1,
+                        );
                     }
                 }
             }
         }
-    }
-
-    // `from`..`to` — границы прогона по своей оси в клетках,
-    // `cross0`..`cross1` — поперёк; клетки, уже занятые прогоном,
-    // пропускаются (первая объявленная рампа выигрывает — детерминированно)
-    #[allow(clippy::too_many_arguments)]
-    fn push_run(
-        &mut self,
-        ramp: &RampConfig,
-        axis: u8,
-        sign: i8,
-        from: usize,
-        to: usize,
-        cross0: usize,
-        cross1: usize,
-    ) {
-        if self.runs.len() >= i16::MAX as usize {
-            return;
-        }
-
-        let index = self.runs.len() as i16;
-        let mut claimed = false;
-
-        for main in from..to {
-            for cross in cross0..cross1 {
-                let (x, y) = if axis == 1 { (cross, main) } else { (main, cross) };
-
-                let Some(cell) = self.run_cells.get_mut(y).and_then(|row| row.get_mut(x)) else {
-                    continue;
-                };
-
-                if *cell < 0 {
-                    *cell = index;
-                    claimed = true;
-                }
-            }
-        }
-
-        if !claimed {
-            return;
-        }
-
-        let size = self.tile_size;
-
-        self.runs.push(RampRun {
-            axis,
-            sign,
-            from: ramp.from,
-            to: ramp.to,
-            min: from as f32 * size,
-            max: to as f32 * size,
-            cross_min: cross0 as f32 * size,
-            cross_max: cross1 as f32 * size,
-        });
     }
 
     /// Есть ли надземные уровни (2.5D-режим).
@@ -721,7 +957,7 @@ impl GameMap {
                             ColliderBuilder::cuboid(width / 2.0, height / 2.0)
                                 .friction(DEFAULT_FRICTION)
                                 .restitution(DEFAULT_RESTITUTION)
-                                .collision_groups(level_interaction(level)),
+                                .collision_groups(static_level_interaction(level)),
                             Some(body),
                         );
 
@@ -1056,14 +1292,32 @@ mod tests {
         assert!(map.is_layered());
         assert_eq!(map.static_body_count(), 2);
         assert_eq!(map.static_levels(), &[0, 1]);
+        // стена несёт свою группу уровня И группу статики: падающий танк
+        // (маска STATIC_LEVEL_GROUP) обязан задевать стены обоих уровней
         assert_eq!(
             collision_groups(&world, map.static_bodies[0]).memberships,
-            Group::GROUP_1
+            Group::GROUP_1 | STATIC_LEVEL_GROUP
         );
         assert_eq!(
             collision_groups(&world, map.static_bodies[1]).memberships,
-            Group::GROUP_2
+            Group::GROUP_2 | STATIC_LEVEL_GROUP
         );
+    }
+
+    #[test]
+    fn static_group_sees_walls_but_no_bodies() {
+        let falling = InteractionGroups::new(
+            STATIC_LEVEL_GROUP,
+            STATIC_LEVEL_GROUP,
+            InteractionTestMode::And,
+        );
+
+        // стены обоих уровней падающий задевает
+        assert!(falling.test(static_level_interaction(0)));
+        assert!(falling.test(static_level_interaction(1)));
+        // тела (танки, ящики) — нет
+        assert!(!falling.test(level_interaction(0)));
+        assert!(!falling.test(level_interaction(1)));
     }
 
     #[test]
@@ -1203,6 +1457,49 @@ mod tests {
         let error = cfg.validate().unwrap_err();
 
         assert!(error.contains("missing"), "{error}");
+    }
+
+    // Общий с JS-правилом E4 корпус кейсов: одна и та же карта и один и тот
+    // же ожидаемый фрагмент сообщения. Тексты у двух реализаций разные,
+    // фрагмент — то, о чём они договорились; разойдётся одна из них —
+    // покраснеет здесь, а не молча на живой карте.
+    #[test]
+    fn shared_layered_fixtures() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../contract/fixtures/layered");
+
+        let mut checked = 0;
+
+        for entry in std::fs::read_dir(&dir).expect("fixtures dir") {
+            let path = entry.unwrap().path();
+
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+
+            let name = path.file_stem().unwrap().to_string_lossy().to_string();
+            let doc: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+                    .unwrap_or_else(|e| panic!("{name}: {e}"));
+
+            let cfg: MapConfig = serde_json::from_value(doc["map"].clone())
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+
+            let result = cfg.validate();
+
+            match doc.get("expect").and_then(|v| v.as_str()) {
+                None => assert!(result.is_ok(), "{name}: {result:?}"),
+                Some(fragment) => {
+                    let error = result.expect_err(&format!("{name}: expected an error"));
+
+                    assert!(error.contains(fragment), "{name}: got {error}");
+                }
+            }
+
+            checked += 1;
+        }
+
+        assert!(checked > 1, "корпус фикстур не прочитан: {checked}");
     }
 
     #[test]

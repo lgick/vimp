@@ -140,8 +140,26 @@ function checkMap(name, map, violations) {
         `${at}: ramp ${index} tile ${ramp?.tile} is missing from ` +
           `level ${from} grid`,
       );
+      continue;
+    }
+
+    // 9. рампа, ведущая в пустоту: за верхним концом прогона обязана быть
+    // поверхность уровня `to`. Иначе танк доезжает до вершины и в тот же шаг
+    // срывается вниз — молча, потому что и подъём, и падение штатные правила
+    for (const [x, y] of rampRunExits(fromGrid ?? [], ramp?.tile, ramp?.dir)) {
+      if (!walkable(map, to, x, y)) {
+        violations.push(
+          `${at}: ramp ${index} run ends at (${x}, ${y}), which is not ` +
+            `walkable ground of level ${to}`,
+        );
+      }
     }
   }
+
+  // 10. край плиты без перил — обрыв; приземлиться с него нужно на
+  // проходимую землю, иначе танк уезжает за карту (стены уровня 0 плите не
+  // преграда) или приземляется внутри стены
+  checkLevelEdges(at, map, violations);
 
   // 6. точка респауна: [x, y, angle] либо [x, y, angle, level]
   for (const [team, points] of Object.entries(map.respawns ?? {})) {
@@ -173,6 +191,136 @@ function checkMap(name, map, violations) {
           `(levels: ${levelCount})`,
       );
     }
+  }
+}
+
+// --- геометрия уровней (зеркало vimp_engine_core::map::validate_levels) ---
+
+function cellAt(grid, x, y) {
+  if (x < 0 || y < 0) {
+    return undefined;
+  }
+
+  return grid?.[y]?.[x];
+}
+
+// земля проходима, если клетка есть в гриде и её тайл не объявлен стеной
+function groundWalkable(map, x, y) {
+  const tile = cellAt(map.map ?? [], x, y);
+
+  return tile !== undefined && !(map.physicsStatic ?? []).includes(tile);
+}
+
+function walkable(map, level, x, y) {
+  if (level === 0) {
+    return groundWalkable(map, x, y);
+  }
+
+  const cfg = (map.levels ?? {})[String(level)];
+
+  if (!cfg) {
+    return false;
+  }
+
+  const tile = cellAt(cfg.map ?? [], x, y);
+
+  return (
+    tile !== undefined &&
+    (cfg.floor ?? []).includes(tile) &&
+    !(cfg.walls ?? []).includes(tile)
+  );
+}
+
+// клетки, следующие за верхними концами прогонов рампы (прогон —
+// непрерывная линия одинаковых тайлов вдоль оси рампы)
+function rampRunExits(grid, tile, dir) {
+  const sign = dir === 'south' || dir === 'east' ? 1 : -1;
+  const vertical = dir === 'north' || dir === 'south';
+  const out = [];
+
+  if (vertical) {
+    const cols = Math.max(0, ...grid.map(row => row.length));
+
+    for (let x = 0; x < cols; x += 1) {
+      let y = 0;
+
+      while (y < grid.length) {
+        if (grid[y][x] !== tile) {
+          y += 1;
+          continue;
+        }
+
+        const y0 = y;
+
+        while (y < grid.length && grid[y][x] === tile) {
+          y += 1;
+        }
+
+        out.push([x, sign > 0 ? y : y0 - 1]);
+      }
+    }
+
+    return out;
+  }
+
+  grid.forEach((row, y) => {
+    let x = 0;
+
+    while (x < row.length) {
+      if (row[x] !== tile) {
+        x += 1;
+        continue;
+      }
+
+      const x0 = x;
+
+      while (x < row.length && row[x] === tile) {
+        x += 1;
+      }
+
+      out.push([sign > 0 ? x : x0 - 1, y]);
+    }
+  });
+
+  return out;
+}
+
+const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+function checkLevelEdges(at, map, violations) {
+  for (const [key, level] of Object.entries(map.levels ?? {})) {
+    const floor = level?.floor ?? [];
+    const walls = level?.walls ?? [];
+    const grid = level?.map ?? [];
+
+    grid.forEach((row, y) => {
+      row.forEach((tile, x) => {
+        // перила закрывают край сами; клетка вне плиты краем не бывает
+        if (!floor.includes(tile) || walls.includes(tile)) {
+          return;
+        }
+
+        for (const [dx, dy] of NEIGHBOURS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const neighbour = cellAt(grid, nx, ny);
+
+          if (neighbour !== undefined && floor.includes(neighbour)) {
+            continue;
+          }
+
+          if (groundWalkable(map, nx, ny)) {
+            continue;
+          }
+
+          violations.push(
+            `${at}: level ${key} floor cell (${x}, ${y}) has an open edge ` +
+              `at (${nx}, ${ny}) with no walkable ground below — close it ` +
+              'with a wall tile',
+          );
+        }
+      });
+    });
   }
 }
 

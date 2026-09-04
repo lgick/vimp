@@ -13,6 +13,41 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-09-04
+
+### Added
+
+- `map::validate_levels(map, physicsStatic, levels, ramps)` — the shape checks
+  of the layered fields as a free function. `MapConfig::validate` now calls
+  it, and so can a game's client replica: `MAP_DATA` arrives over the network
+  and a level grid that disagrees with the host's builds different geometry,
+  desyncing prediction with nothing in the console.
+- Two checks the layers were built for, in `validate_levels` (and in contract
+  rule `E4`, which shares the case corpus at
+  `packages/engine/contract/fixtures/layered/`):
+  - a **ramp that arrives nowhere** — the cell past the top end of a run must
+    be drivable surface of the level the ramp climbs to; otherwise the tank
+    reaches the top and falls in the same step, and both the climb and the
+    fall are normal rules, so nothing complains;
+  - a **slab edge that is neither railed nor a ledge** — a `floor` cell whose
+    neighbour is neither floor nor railing is a fall, and the fall has to land
+    on walkable level-0 ground. Over the grid border or over a wall it is an
+    error: level-0 walls are no obstacle to a tank on the slab, so an
+    unrailed end drives it off the map.
+- `STATIC_LEVEL_GROUP` and `static_level_interaction(level)` — a map wall now
+  carries its level group **and** a shared static group. A body whose mask is
+  `STATIC_LEVEL_GROUP` alone collides with the walls of every level and with
+  no dynamic body at all, which is what a game needs for a tank falling off a
+  ledge: it must not phase through a building on the way down, but tanks,
+  crates, rays and blasts must not reach it either.
+
+### Changed
+
+- Static colliders built by `GameMap` are now created with
+  `static_level_interaction(level)` instead of `level_interaction(level)`.
+  Level filtering is unchanged for every existing mask (a level-N body still
+  sees only level-N walls); only the extra membership bit is new.
+
 ## [0.10.0] — 2026-09-03
 
 ### Added

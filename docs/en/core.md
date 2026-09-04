@@ -173,7 +173,22 @@ the transitions between levels in the optional `ramps` field:
 
 `MapConfig::validate` runs inside `load_map` *before* any body is created and
 turns every one of these mistakes into an error from `load_map`; at runtime
-they are all silent.
+they are all silent. Two of the checks are about the geometry a level is for:
+
+* a **ramp must arrive somewhere** — the cell past the top end of a run has
+  to be drivable surface of the level it climbs to, or the tank reaches the
+  top and falls in the same step;
+* a **slab edge must be railed or land somewhere** — a `floor` cell whose
+  neighbour is neither floor nor railing is a ledge, and the fall from it
+  has to land on walkable ground of level 0; over the grid border or over a
+  wall it is an error (level-0 walls are no obstacle to a tank on the slab).
+
+The shape checks live in `map::validate_levels`, a free function taking the
+raw `levels`/`ramps` fields, so a game's client replica can run the very same
+rules on `MAP_DATA` — the map arrives there over the network, and a level
+grid that disagrees with the host's desyncs prediction without a word. The
+Rust validator and contract rule `E4` share one corpus of cases
+(`packages/engine/contract/fixtures/layered/`).
 
 `MapLevels` holds the layered geometry without a physics world — the grids,
 the solid and floor tiles per level, and the ramp runs. The host keeps it

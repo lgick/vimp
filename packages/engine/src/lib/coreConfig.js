@@ -34,6 +34,7 @@ export const buildCoreConfig = (gameConfig, overrides = {}) => {
     weapons,
     playerKeys: gameConfig.playerKeys,
     panel: gameConfig.panel.fields,
+    coreParams: gameConfig.coreParams,
     // keys — игровая схема (gameConfig.snapshot); version/port — движковые
     snapshot: {
       version: SNAPSHOT_FORMAT_VERSION,
@@ -57,7 +58,7 @@ export const buildCoreConfig = (gameConfig, overrides = {}) => {
       // валидирует — он лишь довозит их до `GameSim::new`. Известные ключи
       // ниже перекрывают одноимённые, чтобы игра не могла подменить
       // движковую часть контракта
-      ...(gameConfig.coreParams || {}),
+      ...(flat.coreParams || {}),
       friendlyFire: flat.friendlyFire,
       models: flat.models,
       weapons: flat.weapons,

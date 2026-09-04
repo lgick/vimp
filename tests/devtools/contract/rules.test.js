@@ -655,6 +655,54 @@ describe('C. client', () => {
     expect(hasBlockingFailure({ results: runRules(ctx) })).toBe(false);
   });
 
+  it('C4 goes back to an error when ClientPlugin.serviceNames lists them', () => {
+    // объявленный список игровых сервисов снимает догадку: правило снова
+    // умеет отличить опечатку от штатного механизма движка
+    const withNames = deps => ({
+      ...base,
+      clientPlugin: {
+        ...base.clientPlugin,
+        serviceNames: ['mapDynamics', 'levelView'],
+        hooks: { ...base.clientPlugin.hooks, services: () => ({}) },
+      },
+      clientConfig: withParts(base, { componentDependencies: deps }),
+    });
+
+    expect(violations('C4', withNames({ levelView: ['Map'] }))).toBe('');
+
+    const typo = withNames({ mapDynamic: ['ShotEffect'] });
+
+    expect(check('C4', typo).level).toBeUndefined();
+    expect(violations('C4', typo)).toMatch(/service "mapDynamic"/);
+  });
+
+  it('C4 rejects a serviceNames that is not an array', () => {
+    expect(
+      violations('C4', {
+        ...base,
+        clientPlugin: { ...base.clientPlugin, serviceNames: 'levelView' },
+        clientConfig: withParts(base, {
+          componentDependencies: { levelView: ['Map'] },
+        }),
+      }),
+    ).toMatch(/serviceNames is string/);
+  });
+
+  it('E5 catches a solid tile that no render layer names', () => {
+    const map = {
+      map: [[0, 1]],
+      physicsStatic: [1],
+      layers: { 1: [0] },
+    };
+
+    expect(
+      violations('E5', {
+        ...base,
+        gameConfig: { ...base.gameConfig, maps: { m1: map } },
+      }),
+    ).toMatch(/solid tile 1 is not named by any render layer/);
+  });
+
   it('C4 accepts localPlayer — the fourth service of the pool', () => {
     expect(
       violations('C4', {

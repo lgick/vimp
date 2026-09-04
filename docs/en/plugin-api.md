@@ -533,6 +533,8 @@ export default {
     onLocalAction(core, action, name, now) { /* try_fire / cycle_weapon; → spawn JSON | null */ },
     services(core) { return { mapDynamics: /* … */ }; },  // optional
   },
+
+  serviceNames: ['mapDynamics'],   // optional: what services() returns
 };
 ```
 
@@ -544,6 +546,13 @@ without the engine knowing what is being handed over — the tanks plugin
 serves `mapDynamics` (`toWorld(key, localX, localY)` over
 `ClientCore.map_dynamics_to_world`) so the shot effect can anchor its debris
 to the box it hit. Engine keys win a name clash.
+
+`serviceNames` is the same list written down statically. Nothing at runtime
+reads it: it exists for the contract checker, which cannot call
+`services(core)` (that needs a live core) and therefore cannot tell a game
+service from a typo in `componentDependencies`. Without the list rule `C4`
+reports an unknown name as a warning; with it, the name is an error again —
+and an unprovided service is silently `undefined` in the part.
 
 **Key point: the Stat/Panel/Vote/Chat modules are engine-owned but fully
 parameterized by the game's config.** Consequences:
