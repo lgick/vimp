@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { decide } from '../../../scripts/release/plan.js';
+import { decide, repoProblems } from '../../../scripts/release/plan.js';
 
 // Форма как у parseUnreleased: без present секция читается как отсутствующая
 const quiet = { present: true, isEmpty: true, sections: [] };
@@ -617,5 +617,86 @@ describe('decide', () => {
 
     expect(plan.scaffold.publish).toBe(true);
     expect(plan.prod.push).toBe(false);
+  });
+});
+
+// ***** СОСТОЯНИЕ РЕПОЗИТОРИЯ ДВИЖКА *****
+//
+// Игра едет до игроков через реестр auth-сервиса (master-game-registry), в
+// vimp её релиз не меняет ни файла и собирается она против копий движка ИЗ
+// РЕЕСТРА. Требовать ради неё чистый main с upstream — требование без
+// причины: разработчик игры не обязан приводить в порядок чужое дерево.
+describe('repoProblems', () => {
+  const clean = {
+    changelog: [],
+    npmDryRun: false,
+    branch: 'main',
+    dirty: false,
+    upstream: true,
+    behind: 0,
+    cratePatches: [],
+  };
+
+  it('чистое состояние — ни отказов, ни замечаний', () => {
+    expect(repoProblems(clean, { writesRepo: true })).toEqual({
+      problems: [],
+      notes: [],
+    });
+  });
+
+  it('грязное дерево на ветке не main — отказ, когда репозиторий правится', () => {
+    const { problems, notes } = repoProblems(
+      { ...clean, dirty: true, branch: 'wip' },
+      { writesRepo: true },
+    );
+
+    expect(problems).toHaveLength(2);
+    expect(problems.join('\n')).toMatch(/дерево не чистое/);
+    expect(notes).toEqual([]);
+  });
+
+  it('то же самое при релизе одних игр — замечание, релиз идёт', () => {
+    const { problems, notes } = repoProblems(
+      { ...clean, dirty: true, branch: 'wip', upstream: false },
+      { writesRepo: false },
+    );
+
+    expect(problems).toEqual([]);
+    expect(notes.join('\n')).toMatch(/дерево не чистое/);
+    // и объяснение, почему это не отказ
+    expect(notes.at(-1)).toMatch(/из реестра/);
+  });
+
+  // ядро из локального [patch.crates-io] нет ни у кого, кроме этой машины, а
+  // `npm run sim` шага прода поднимает ядро именно этого дерева — проверка
+  // прошла бы по тому, чего в проде не будет
+  it('[patch.crates-io] остаётся отказом и при релизе одних игр', () => {
+    const { problems } = repoProblems(
+      { ...clean, cratePatches: ['Cargo.toml: [patch.crates-io]'] },
+      { writesRepo: false },
+    );
+
+    expect(problems).toEqual(['Cargo.toml: [patch.crates-io]']);
+  });
+
+  // холостой npm из окружения к состоянию дерева отношения не имеет:
+  // публикации молча не случатся, а теги и коммиты — да
+  it('npm_config_dry_run — отказ в любом случае', () => {
+    const { problems } = repoProblems(
+      { ...clean, npmDryRun: true },
+      { writesRepo: false },
+    );
+
+    expect(problems.join('\n')).toMatch(/npm_config_dry_run/);
+  });
+
+  // дефекты журнала считает decide(); repoProblems лишь не теряет их
+  it('проблемы журнала остаются отказом', () => {
+    const { problems } = repoProblems(
+      { ...clean, changelog: ['CHANGELOG: ⚠️ Breaking без Migration'] },
+      { writesRepo: false },
+    );
+
+    expect(problems).toEqual(['CHANGELOG: ⚠️ Breaking без Migration']);
   });
 });

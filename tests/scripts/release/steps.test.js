@@ -1,13 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { readFile } from 'node:fs/promises';
 
 import {
-  checkTarball,
+  packGame,
   checkManifest,
+  checkGameStructure,
+  extractDist,
+  withPublishedGame,
+  simVersion,
   gameCommitPaths,
   publishEngine,
   publishScaffold,
@@ -15,6 +20,7 @@ import {
   unpushedTags,
 } from '../../../scripts/release/steps.js';
 import { CommandError } from '../../../scripts/release/shell.js';
+import { tarballOf, variants, writeDist } from '../../fixtures/gamePackages.js';
 
 let root;
 
@@ -35,6 +41,7 @@ function fakeShell(stdout, stderr = '') {
 const packEntry = files => ({
   id: '@vimp-games/snakes@0.4.0',
   name: '@vimp-games/snakes',
+  filename: 'vimp-games-snakes-0.4.0.tgz',
   files: files.map(file => ({ path: file })),
 });
 
@@ -53,14 +60,13 @@ const FULL = [
   'dist/core-node/vimp_tanks_core_bg.wasm',
 ];
 
+// каталог с распакованным содержимым package/dist — то, что проверяют
+// checkManifest и checkGameStructure
 async function writeManifest(name, manifest) {
-  const dir = path.join(root, name);
-  await mkdir(path.join(dir, 'dist'), { recursive: true });
-  await writeFile(
-    path.join(dir, 'dist', 'manifest.json'),
-    JSON.stringify(manifest),
-  );
-  return dir;
+  const distDir = path.join(root, name, 'dist');
+  await mkdir(distDir, { recursive: true });
+  await writeFile(path.join(distDir, 'manifest.json'), JSON.stringify(manifest));
+  return distDir;
 }
 
 beforeAll(async () => {
@@ -71,39 +77,38 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe.each(PACK_FORMS)('checkTarball: %s', (_form, packJson) => {
-  it('пропускает тарбол с манифестом и node-ядром', async () => {
-    const count = await checkTarball({ shell: fakeShell(packJson(FULL)), dir: root });
+const pack = (shell, destDir = root) => packGame({ shell, dir: root, destDir });
 
-    expect(count).toBe(4);
+describe.each(PACK_FORMS)('packGame: %s', (_form, packJson) => {
+  it('пропускает тарбол с манифестом и node-ядром', async () => {
+    const { files, tarball } = await pack(fakeShell(packJson(FULL)));
+
+    expect(files).toHaveLength(4);
+    expect(tarball).toBe(path.join(root, 'vimp-games-snakes-0.4.0.tgz'));
   });
 
   it('не спотыкается о предупреждение npm в stderr', async () => {
     const shell = fakeShell(packJson(FULL), 'npm warn deprecated foo@1: use [bar]\n');
 
-    await expect(checkTarball({ shell, dir: root })).resolves.toBe(4);
+    await expect(pack(shell)).resolves.toMatchObject({ files: FULL });
   });
 
   it('падает без dist/manifest.json', async () => {
     const shell = fakeShell(packJson(FULL.filter(f => f !== 'dist/manifest.json')));
 
-    await expect(checkTarball({ shell, dir: root })).rejects.toThrow(
-      /dist\/manifest\.json/,
-    );
+    await expect(pack(shell)).rejects.toThrow(/dist\/manifest\.json/);
   });
 
   it('падает без wasm рядом с глюe', async () => {
     const shell = fakeShell(packJson(FULL.filter(f => !f.endsWith('.wasm'))));
 
-    await expect(checkTarball({ shell, dir: root })).rejects.toThrow(/\.wasm/);
+    await expect(pack(shell)).rejects.toThrow(/\.wasm/);
   });
 });
 
-describe('checkTarball: неразбираемый вывод', () => {
+describe('packGame: неразбираемый вывод', () => {
   it('внятно падает на не-JSON', async () => {
-    await expect(
-      checkTarball({ shell: fakeShell('не json'), dir: root }),
-    ).rejects.toThrow(/npm pack --json/);
+    await expect(pack(fakeShell('не json'))).rejects.toThrow(/npm pack --json/);
   });
 
   // третья форма ответа обязана давать ТУ ЖЕ внятную строку, а не
@@ -115,7 +120,7 @@ describe('checkTarball: неразбираемый вывод', () => {
     ['null', 'null'],
     ['пакет без files', '{"@vimp-games/snakes":{"id":"x"}}'],
   ])('внятно падает на форме «%s»', async (_name, stdout) => {
-    const promise = checkTarball({ shell: fakeShell(stdout), dir: root });
+    const promise = pack(fakeShell(stdout));
 
     await expect(promise).rejects.toThrow(/npm pack --json/);
     await expect(promise).rejects.not.toThrow(/Cannot read properties/);
@@ -124,38 +129,207 @@ describe('checkTarball: неразбираемый вывод', () => {
 
 describe('checkManifest', () => {
   it('пропускает манифест с совпадающим engineApi и путём внутри dist/', async () => {
-    const dir = await writeManifest('ok', {
+    const distDir = await writeManifest('ok', {
       engineApi: 3,
       entries: { wasmNode: './core-node/vimp_tanks_core.js' },
     });
 
-    await expect(checkManifest({ dir, engineApi: 3 })).resolves.toBeUndefined();
+    await expect(checkManifest({ distDir, engineApi: 3 })).resolves.toBeUndefined();
   });
 
   it('ловит расхождение engineApi', async () => {
-    const dir = await writeManifest('api', {
+    const distDir = await writeManifest('api', {
       engineApi: 2,
       entries: { wasmNode: './core-node/core.js' },
     });
 
-    await expect(checkManifest({ dir, engineApi: 3 })).rejects.toThrow(
+    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(
       /engineApi=2/,
     );
   });
 
   it('ловит путь наружу из dist/', async () => {
-    const dir = await writeManifest('outside', {
+    const distDir = await writeManifest('outside', {
       engineApi: 3,
       entries: { wasmNode: '../core/pkg-node/core.js' },
     });
 
-    await expect(checkManifest({ dir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
+    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
   });
 
   it('ловит отсутствующий wasmNode вместо TypeError', async () => {
-    const dir = await writeManifest('missing', { engineApi: 3, entries: {} });
+    const distDir = await writeManifest('missing', { engineApi: 3, entries: {} });
 
-    await expect(checkManifest({ dir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
+    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
+  });
+});
+
+// ***** ПРОВЕРКА ПАКЕТА ЛОГИКОЙ МАСТЕРА *****
+//
+// Мастер встречает пакет тем же checkGamePackage на POST /games/submit и
+// POST /games/mine/:id/version и отвечает 400 со списком проблем. Версия в
+// npm неперезаписываема: узнать об отказе надо ДО публикации, а не от
+// реестра после.
+describe('checkGameStructure', () => {
+  it('валидный dist проходит и отдаёт вердикт совместимости', async () => {
+    const distDir = writeDist(
+      await mkdtemp(path.join(root, 'valid-')),
+      variants.valid.files,
+    );
+
+    await expect(checkGameStructure({ distDir })).resolves.toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('отказывает списком проблем мастера, а не первой из них', async () => {
+    const distDir = writeDist(
+      await mkdtemp(path.join(root, 'broken-')),
+      variants.missingMap.files,
+    );
+
+    const promise = checkGameStructure({ distDir });
+
+    await expect(promise).rejects.toThrow(/gamePackageCheck/);
+    await expect(promise).rejects.toThrow(/nowhere/);
+  });
+});
+
+describe('extractDist', () => {
+  it('распаковывает только package/dist и срезает префикс', async () => {
+    const tmp = await mkdtemp(path.join(root, 'tgz-'));
+    const tarball = path.join(tmp, 'game.tgz');
+
+    await writeFile(tarball, await tarballOf('extraFiles'));
+
+    const distDir = path.join(tmp, 'dist');
+
+    await extractDist(tarball, distDir);
+
+    const manifest = JSON.parse(
+      await readFile(path.join(distDir, 'manifest.json'), 'utf8'),
+    );
+
+    expect(manifest.id).toBe('tanks');
+    // README и src/ пакета в раздаче не существуют — как и у мастера
+    expect(existsSync(path.join(distDir, 'README.md'))).toBe(false);
+    expect(existsSync(path.join(tmp, 'package'))).toBe(false);
+  });
+});
+
+// Пина игр в корневом package.json больше нет, а линки на время релиза
+// сняты: копию, которую поставят пользователи, шаг ставит себе сам
+describe('withPublishedGame', () => {
+  it('ставит копию из npm во временный каталог и убирает его', async () => {
+    const calls = [];
+    const shell = {
+      check: async (label) => {
+        calls.push(label);
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      },
+    };
+
+    let handed;
+
+    await withPublishedGame(
+      shell,
+      { name: '@vimp-games/tanks', version: '0.17.0' },
+      async dir => {
+        handed = dir;
+      },
+    );
+
+    expect(calls).toEqual(['npm install @vimp-games/tanks@0.17.0']);
+    expect(handed.endsWith(path.join('node_modules', '@vimp-games/tanks'))).toBe(
+      true,
+    );
+    // каталог живёт ровно на время прогона: релиз не оставляет мусора
+    expect(existsSync(path.dirname(path.dirname(handed)))).toBe(false);
+  });
+
+  // игра, которой в реестре ещё нет вовсе (её первый релиз идёт прямо
+  // сейчас): на шаге движка это невозможность проверки, а не её провал
+  it('optional: отсутствие пакета в реестре — пропуск, а не падение шага', async () => {
+    const shell = {
+      check: async () => {
+        throw new CommandError({
+          command: 'npm install',
+          cwd: '/tmp',
+          code: 1,
+          output: 'npm error code E404',
+        });
+      },
+    };
+
+    let called = false;
+
+    await expect(
+      withPublishedGame(
+        shell,
+        { name: '@vimp-games/new', version: 'latest', optional: true },
+        async () => {
+          called = true;
+        },
+      ),
+    ).rejects.toThrow(/не ставится/);
+
+    expect(called).toBe(false);
+  });
+
+  it('без optional отказ установки остаётся отказом', async () => {
+    const shell = {
+      check: async () => {
+        throw new CommandError({
+          command: 'npm install',
+          cwd: '/tmp',
+          code: 1,
+          output: 'npm error code E404',
+        });
+      },
+    };
+
+    await expect(
+      withPublishedGame(
+        shell,
+        { name: '@vimp-games/new', version: '0.1.0' },
+        async () => {},
+      ),
+    ).rejects.toThrow(CommandError);
+  });
+
+  it('с готовым installRoot ничего не ставит и не удаляет', async () => {
+    const shell = {
+      check: async () => {
+        throw new Error('ставить не должно');
+      },
+    };
+
+    const dir = await withPublishedGame(
+      shell,
+      { name: '@vimp-games/tanks', version: '0.17.0', installRoot: root },
+      async handed => handed,
+    );
+
+    expect(dir).toBe(path.join(root, 'node_modules', '@vimp-games/tanks'));
+    expect(existsSync(root)).toBe(true);
+  });
+});
+
+describe('simVersion', () => {
+  const game = { name: '@vimp-games/tanks', target: '0.17.1' };
+
+  it('шаг прода гоняет ровно выпущенную версию', () => {
+    expect(simVersion(game, { strict: true })).toBe('0.17.1');
+  });
+
+  it('шаг движка — ту, что стоит у пользователей', () => {
+    expect(simVersion(game, {})).toBe('latest');
+  });
+
+  // холостой прогон ничего не публикует: 0.17.1 в реестре не появится, и
+  // установка упала бы на E404 — репетиция обязана доходить до конца
+  it('в холостом прогоне даже на проде — latest', () => {
+    expect(simVersion(game, { strict: true, dryRun: true })).toBe('latest');
   });
 });
 
@@ -573,6 +747,7 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       games: [{ name: '@vimp-games/stale' }],
       report: { published: [], tags: [] },
       engineApi: 4,
+      installRoot: simRoot,
     });
 
     // копии под новый API ещё не существует: её выпустит следующий шаг
@@ -589,6 +764,7 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       games: [{ name: '@vimp-games/fresh' }],
       report: { published: [], tags: [] },
       engineApi: 4,
+      installRoot: simRoot,
     });
 
     expect(simCalls(shell)).toHaveLength(1);
@@ -605,6 +781,7 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       decision: { target: '0.10.3', bump: false },
       games: [{ name: '@vimp-games/stale' }],
       report: { published: [], tags: [] },
+      installRoot: simRoot,
     });
 
     expect(simCalls(shell)).toHaveLength(1);
@@ -621,10 +798,11 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       shell,
       root: simRoot,
       games: [{ name: '@vimp-games/fresh', target: '0.7.5' }],
-      report: { published: [], tags: [] },
+      report: { published: [], tags: [], remaining: [] },
       tags: [],
       engineApi: 4,
       push: false,
+      installRoot: simRoot,
     });
 
     expect(simCalls(shell)).toHaveLength(1);
@@ -641,6 +819,10 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     const shell = recordingShell();
     const report = { published: [], tags: [], remaining: [] };
 
+    // адрес лобби дописывается к напоминанию: у разработчика он может быть
+    // выставлен, и тогда строка другая
+    vi.stubEnv('VIMP_LOBBY_URL', '');
+
     await rollOutProduction({
       shell,
       root: simRoot,
@@ -649,12 +831,19 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       tags: ['create-vimp-game@0.4.4'],
       engineApi: 4,
       push: false,
+      installRoot: simRoot,
     });
 
+    // сперва напоминание о каталоге: без подачи версии и одобрения игра до
+    // игроков не доедет вовсе, пуш тегов рядом с этим — мелочь
     expect(report.remaining).toEqual([
+      '@vimp-games/fresh@0.7.5: подать версию в лобби ' +
+        '(«Мои игры» → «Обновить») и подтвердить в «Модерации»',
       'пуш локальных коммитов и тегов этого репозитория',
     ]);
     expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);
+
+    vi.unstubAllEnvs();
   });
 
   it('шаг прода на том же расхождении ОТКАЗЫВАЕТ: игра выпущена без пересборки', async () => {
@@ -668,6 +857,7 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
         report: { published: [], tags: [] },
         tags: [],
         engineApi: 4,
+        installRoot: simRoot,
       }),
     ).rejects.toThrow(/engineApi=3, у движка 4/);
 

@@ -47,9 +47,11 @@ export async function observeLinks(root, games) {
 //
 // `npm unlink <pkg>` — алиас `npm uninstall`: он снимает не только симлинк,
 // но и запись из package.json с package-lock.json, а обратно `npm link` её
-// не пишет. Без --no-save релиз уносил из корня `@vimp-games/tanks`, и в
-// коммит шага уезжал lock без плагина — прод ставит его именно оттуда
-// (`npm ci`). Флаг обязателен на обеих сторонах пары.
+// не пишет. Со стороны игры без --no-save из её package.json уезжал бы
+// `vimp-engine`, а правленый lock — в релизный коммит шага B. В корне vimp
+// игр в зависимостях больше нет (master-game-registry, этап 5), но флаг
+// обязателен на обеих сторонах пары: разное поведение половин одной
+// операции — источник сюрпризов, а не экономия.
 export function buildLinkPlan(observed, { root, engineDir }) {
   const unlink = [];
   const relink = [];

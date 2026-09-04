@@ -3,7 +3,11 @@
 ## The short way: `npm run release`
 
 One command replaces the ~25 manual steps below. It runs from the `vimp`
-repository, on a clean `main`, and asks before anything irreversible:
+repository and asks before anything irreversible. A clean `main` with an
+upstream is required only when the run writes to this repository — the crate,
+the engine, the scaffolder or the deploy; a game-only release prints the state
+of the tree as a note and carries on, because a game changes no file here and
+is built against the engine copies **from the registry**:
 
 ```bash
 npm run release -- --dry-run     # rehearsal: full checks, nothing published
@@ -47,7 +51,10 @@ and restores exactly those pairs afterwards — including on failure and on
 Ctrl-C; checks the npm/cargo logins only for the registries it will actually
 publish to; runs every check with captured output (one status line each, the
 full log printed only on failure — a failed check stops the run **before**
-publishing). The `npm publish` / `cargo publish` commands are the exception:
+publishing). For a game it packs the real tarball, unpacks `package/dist` out
+of it and runs the master's own `checkGamePackage` over what npm will actually
+ship — the same verdict the registry answers a submission with, only before
+the version is burned. The `npm publish` / `cargo publish` commands are the exception:
 they run attached to this terminal, so a registry can ask for a 2FA one-time
 code or open a browser — with the output captured they have no stdin and fail
 with `EOTP` instead of asking. A game is always rebuilt against the versions
@@ -157,11 +164,15 @@ The script handles that itself, and the rule it follows is:
   impossible, not failing;
 - on the **prod** step the same mismatch is a **hard error**. By then the game
   has been republished, so a mismatch means it was released without rebuilding
-  against the new API. (The sim runs against the local checkout — the root
-  `package.json` pins no games any more.)
+  against the new API.
 
 Coverage is not lost by the skip: the prod step sims the same games, against
-the copies that were actually published.
+the copies that were actually published. Since the root `package.json` pins
+no games any more, the step **installs those copies itself** — `npm install
+<game>@<version>` into a temporary directory, which is thrown away
+afterwards. Nothing in the repository's `node_modules` and none of the local
+links are touched; the engine step does the same for the version that is live
+in the registry (`latest`).
 
 What this asks of you: **when `ENGINE_API_VERSION` changes, release the games
 in the same run** (the table below already marks them **required**), and do
@@ -471,6 +482,17 @@ engine's `ENGINE_API_VERSION`, and `entries.wasmNode` must point at
 `./core-node/<crate>.js` — inside `dist/`, the only directory the package
 ships.
 
+> `npm run release` does that reading for you, and one thing more: it packs
+> the tarball, unpacks `package/dist` and runs
+> `packages/engine/src/master/gamePackageCheck.js` on it — the very module the
+> master runs on `POST /games/submit` and `POST /games/mine/:id/version`
+> (entries resolving inside `dist/`, every map of `maps.list` on disk, every
+> `roomForm` field answered by `roomDefaults`). A package the registry would
+> refuse is refused here instead, before an npm version — which can never be
+> overwritten — is spent on it. A `requires` the engine cannot satisfy is not
+> a refusal but a warning with a confirmation: the master keeps such a game in
+> the catalog and the lobby marks it unplayable.
+
 ## Step C: roll out production
 
 ```bash
@@ -493,6 +515,10 @@ git push
 > it in "Moderation", and every master picks it up on its next sync pass. A
 > game that is not in the catalog yet is submitted the same way. See
 > [deployment.md → Adding a game](deployment.md#adding-a-game-to-the-catalog).
+> Those two actions are the only thing between a published version and the
+> players, so the script repeats them per game in its closing "осталось"
+> list — with the lobby's address appended when `VIMP_LOBBY_URL` is set in
+> the environment.
 >
 > This is where `npm run release` gets its behaviour: on a run that publishes
 > games only, the plan's "прод" row reads **"нет (только sim)"**. The step
@@ -573,7 +599,7 @@ Both directions matter: without the reverse link the plugin's
 | --- | --- |
 | Crate on crates.io | Publish a fixed patch version; `cargo yank` the bad one so nobody resolves to it |
 | Engine or game package on npm | Publish a fixed patch version (npm never overwrites) |
-| Production runs a bad plugin version | Re-pin the previous `@vimp-games/tanks` in `package.json`/`package-lock.json`, commit, push |
+| Production runs a bad plugin version | Submit the previous version from the lobby ("My games" → "Update version") and approve it in "Moderation" — nothing checks that versions only go up. No release, no deploy: every master picks it up on its next sync pass |
 | Production runs a bad master build | `git revert` the deploy commit and push — CI rebuilds and redeploys the previous state |
 
 ---

@@ -1,5 +1,10 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+import { extract as tarExtract } from 'tar';
+
+import { checkGamePackage } from '../../packages/engine/src/master/gamePackageCheck.js';
 
 import * as ui from './ui.js';
 import { parseUnreleased, releaseUnreleased } from './changelog.js';
@@ -169,13 +174,10 @@ async function awaitRegistry(wait, label) {
 // engineApi установленной копии игры или null, если её манифест не читается
 // (не собрана, битая) — тогда пусть падает сам sim, с его собственным
 // сообщением.
-async function installedEngineApi(root, game) {
+async function installedEngineApi(gameDir) {
   try {
     const manifest = JSON.parse(
-      await readFile(
-        path.join(root, 'node_modules', game.name, 'dist', 'manifest.json'),
-        'utf8',
-      ),
+      await readFile(path.join(gameDir, 'dist', 'manifest.json'), 'utf8'),
     );
 
     return typeof manifest.engineApi === 'number' ? manifest.engineApi : null;
@@ -184,9 +186,71 @@ async function installedEngineApi(root, game) {
   }
 }
 
-// Прогон vimp-sim по игре, установленной в node_modules движка. Подтверждённый
-// чекаут может не быть зависимостью vimp — такую игру проверит шаг прода
-// после перепина.
+// Опубликованная копия игры для sim. Пина игр в корневом package.json
+// больше нет (master-game-registry, этап 5), и линки сняты на время
+// релиза, — значит копию, которую поставят пользователи, релиз ставит себе
+// сам: во временный каталог, не трогая ни node_modules репозитория, ни
+// локальные линки. installRoot задают тесты (и он же позволяет прогнать
+// сим по уже установленному дереву), тогда каталог не создаётся и не
+// удаляется.
+export async function withPublishedGame(
+  shell,
+  { name, version, installRoot = null, optional = false },
+  fn,
+) {
+  if (installRoot) {
+    return await fn(path.join(installRoot, 'node_modules', name));
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), 'vimp-release-sim-'));
+
+  try {
+    await writeFile(
+      path.join(dir, 'package.json'),
+      `${JSON.stringify({ name: 'vimp-release-sim', version: '0.0.0', private: true }, null, 2)}\n`,
+    );
+
+    try {
+      await shell.check(
+        `npm install ${name}@${version}`,
+        'npm',
+        ['install', '--no-save', '--no-audit', '--no-fund', `${name}@${version}`],
+        { cwd: dir },
+      );
+    } catch (error) {
+      // игра, которой в реестре ещё нет вовсе (её первый релиз идёт прямо
+      // сейчас), — это невозможность проверки, а не её провал. Отказом
+      // установка остаётся там, где копия обязана существовать: на проде
+      if (!optional) {
+        throw error;
+      }
+
+      throw new SkippedSim(`${name}@${version} не ставится: ${error.message}`);
+    }
+
+    return await fn(path.join(dir, 'node_modules', name));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// Отдельный тип, чтобы «нечего гонять» на шаге движка не читалось как
+// падение проверки: копии под этот движок может ещё физически не быть.
+class SkippedSim extends Error {}
+
+// Какую версию гонять симулятором. На шаге прода — ровно ту, что вышла в
+// этом прогоне; на шаге движка её ещё нет, и смысл имеет то, что стоит у
+// пользователей. Холостой прогон не публикует ничего, поэтому game.target в
+// реестре не появится — репетиция иначе падала бы на E404 ровно там, где
+// проверять нечего.
+export function simVersion(game, { strict = false, dryRun = false } = {}) {
+  return strict && !dryRun ? game.target : 'latest';
+}
+
+// Прогон vimp-sim по ОПУБЛИКОВАННОЙ копии игры: она ставится во временный
+// каталог (withPublishedGame) и сносится после прогона. Шаг движка берёт
+// то, что лежит в реестре сейчас (`latest`), шаг прода — версию, которую
+// этот прогон только что выпустил.
 //
 // ***** РАСХОЖДЕНИЕ engineApi *****
 //
@@ -201,18 +265,44 @@ async function installedEngineApi(root, game) {
 // движок в реестре ещё нет, и появится она только следующим шагом (games),
 // который пересоберёт игру и сверит манифест (checkManifest). Поэтому здесь
 // игра ПРОПУСКАЕТСЯ с объяснением, а на шаге прода (strict) — это отказ: там
-// игра уже переопубликована и перепинена (`npm i game@target`), и
-// расхождение значит, что её выпустили без пересборки. Покрытие при этом не
-// теряется: прод гоняет те же игры.
-async function simGame(shell, root, game, { engineApi = null, strict = false } = {}) {
-  const relative = path.join('node_modules', game.name);
+// игра уже переопубликована, и расхождение значит, что её выпустили без
+// пересборки. Покрытие при этом не теряется: прод гоняет те же игры.
+async function simGame(
+  shell,
+  root,
+  game,
+  { engineApi = null, strict = false, installRoot = null } = {},
+) {
+  const version = simVersion(game, { strict, dryRun: shell.dryRun });
 
-  if (!(await isDirectory(path.join(root, relative)))) {
-    ui.log(`  · sim пропущен: ${game.name} не установлен в vimp`);
-    return;
+  try {
+    await withPublishedGame(
+      shell,
+      { name: game.name, version, installRoot, optional: !strict },
+      dir => simInstalledGame(shell, root, game, dir, { engineApi, strict }),
+    );
+  } catch (error) {
+    if (!(error instanceof SkippedSim)) {
+      throw error;
+    }
+  }
+}
+
+async function simInstalledGame(shell, root, game, dir, { engineApi, strict }) {
+  if (!(await isDirectory(dir))) {
+    const missing = `${game.name} не удалось поставить из npm`;
+
+    if (strict) {
+      throw new Error(
+        `${missing}: прод обязан прогнать sim по опубликованной копии`,
+      );
+    }
+
+    ui.log(`  · sim пропущен: ${missing}`);
+    throw new SkippedSim(missing);
   }
 
-  const installed = await installedEngineApi(root, game);
+  const installed = await installedEngineApi(dir);
 
   if (engineApi !== null && installed !== null && installed !== engineApi) {
     const mismatch =
@@ -236,9 +326,9 @@ async function simGame(shell, root, game, { engineApi = null, strict = false } =
   }
 
   await shell.check(
-    `npm run sim -- --game ${relative} --no-write`,
+    `npm run sim -- --game ${dir} --no-write`,
     'npm',
-    ['run', 'sim', '--', '--game', relative, '--no-write'],
+    ['run', 'sim', '--', '--game', dir, '--no-write'],
     { cwd: root },
   );
 }
@@ -325,6 +415,7 @@ export async function publishEngine({
   games,
   report,
   engineApi = null,
+  installRoot = null,
 }) {
   const { target } = decision;
 
@@ -341,7 +432,7 @@ export async function publishEngine({
   await shell.check('npm run sim:check', 'npm', ['run', 'sim:check'], { cwd: root });
 
   for (const game of games) {
-    await simGame(shell, root, game, { engineApi });
+    await simGame(shell, root, game, { engineApi, installRoot });
   }
 
   if (decision.bump) {
@@ -466,21 +557,13 @@ export async function publishScaffold({ shell, root, decision, report }) {
 // entries.wasmNode, а `dist/`, `core/pkg-*` в игре под .gitignore — npm
 // применяет ignore-правила и внутри каталогов из files. Логика повторена
 // здесь, чтобы не зависеть от наличия check:pack у конкретной игры.
-export async function checkTarball({ shell, dir }) {
-  const { stdout } = await shell.check(
-    'npm pack --dry-run',
-    'npm',
-    ['pack', '--dry-run', '--json', '--ignore-scripts'],
-    { cwd: dir },
-  );
-
-  let files;
-
+//
+// npm ≤ 11 отдавал массив пакетов, npm ≥ 12 — объект «имя пакета → пакет».
+// Пакет здесь ровно один (npm pack в каталоге игры), поэтому берём первую
+// запись любой из форм, а не индекс.
+export function parsePackedEntry(stdout) {
   try {
     const parsed = JSON.parse(stdout);
-    // npm ≤ 11 отдавал массив пакетов, npm ≥ 12 — объект «имя пакета →
-    // пакет». Пакет здесь ровно один (npm pack в каталоге игры), поэтому
-    // берём первую запись любой из форм, а не индекс
     const entry = Array.isArray(parsed)
       ? parsed[0]
       : Object.values(parsed ?? {})[0];
@@ -492,11 +575,25 @@ export async function checkTarball({ shell, dir }) {
       throw new Error('в ответе нет списка files');
     }
 
-    files = entry.files.map(item => item.path);
+    return { files: entry.files.map(item => item.path), filename: entry.filename };
   } catch (error) {
     throw new Error(`не разобрать вывод npm pack --json: ${error.message}`);
   }
+}
 
+// Сборка тарбола — того самого файла, который уедет в npm и который мастер
+// скачает к себе. Раньше здесь был `--dry-run`: список файлов он даёт, а
+// содержимое — нет, и проверить манифест можно было только по рабочему
+// dist/, то есть не по тому, что реально доедет.
+export async function packGame({ shell, dir, destDir }) {
+  const { stdout } = await shell.check(
+    'npm pack',
+    'npm',
+    ['pack', '--json', '--ignore-scripts', '--pack-destination', destDir],
+    { cwd: dir },
+  );
+
+  const { files, filename } = parsePackedEntry(stdout);
   const missing = [];
 
   if (!files.includes('dist/manifest.json')) {
@@ -515,12 +612,27 @@ export async function checkTarball({ shell, dir }) {
     );
   }
 
-  return files.length;
+  return { files, tarball: filename ? path.join(destDir, path.basename(filename)) : null };
 }
 
-export async function checkManifest({ dir, engineApi }) {
-  const manifestPath = path.join(dir, 'dist', 'manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+// Распаковка ровно как у мастера (GameStore → npmRegistry): наружу выходит
+// содержимое package/dist, всё остальное в тарболе для раздачи не
+// существует.
+export async function extractDist(tarball, destDir) {
+  await mkdir(destDir, { recursive: true });
+  await tarExtract({
+    file: tarball,
+    cwd: destDir,
+    strip: 2, // срезает 'package/dist'
+    filter: entryPath => entryPath.startsWith('package/dist/'),
+    preservePaths: false,
+  });
+}
+
+export async function checkManifest({ distDir, engineApi }) {
+  const manifest = JSON.parse(
+    await readFile(path.join(distDir, 'manifest.json'), 'utf8'),
+  );
 
   if (engineApi !== null && manifest.engineApi !== engineApi) {
     throw new Error(
@@ -542,6 +654,54 @@ export async function checkManifest({ dir, engineApi }) {
   }
 }
 
+// Та же структурная проверка, которой мастер встречает пакет на
+// `POST /games/submit` и `POST /games/mine/:id/version`: entries внутри
+// dist/, карты из maps.list на диске, roomForm против roomDefaults. Модуль
+// импортируется, а не переписывается: разойтись этим двум проверкам нельзя,
+// иначе релиз пропустит то, что реестр отвергнет. А версия в npm
+// неперезаписываема — такой отказ сжигает её насовсем.
+export async function checkGameStructure({ distDir }) {
+  const verdict = checkGamePackage(distDir);
+
+  if (!verdict.ok) {
+    throw new Error(
+      `пакет не пройдёт проверку мастера (тот же gamePackageCheck):\n  - ${verdict.errors.join('\n  - ')}`,
+    );
+  }
+
+  return verdict.compat;
+}
+
+// Полная проверка того, что уедет в npm: pack → распаковка → манифест →
+// структура. Возвращает вердикт совместимости manifest.requires с
+// возможностями ЭТОГО чекаута движка.
+export async function checkPackedGame({ shell, dir, engineApi }) {
+  const tmp = await mkdtemp(path.join(tmpdir(), 'vimp-release-pack-'));
+
+  try {
+    const { files, tarball } = await packGame({ shell, dir, destDir: tmp });
+
+    // холостой прогон shell.check не гасит, но фиктивный shell в тестах
+    // тарбола не создаёт: без файла проверять нечего
+    if (!tarball) {
+      return null;
+    }
+
+    const distDir = path.join(tmp, 'dist');
+
+    await extractDist(tarball, distDir);
+    await checkManifest({ distDir, engineApi });
+
+    const compat = await checkGameStructure({ distDir });
+
+    ui.log(`  · тарбол проверен: ${files.length} файл(ов), структура как у мастера`);
+
+    return compat;
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
 export async function publishGame({
   shell,
   game,
@@ -549,6 +709,7 @@ export async function publishGame({
   engineVersion,
   engineApi,
   report,
+  assumeYes = false,
 }) {
   const dir = game.dir;
 
@@ -591,8 +752,25 @@ export async function publishGame({
     }
   }
 
-  await checkTarball({ shell, dir });
-  await checkManifest({ dir, engineApi });
+  const compat = await checkPackedGame({ shell, dir, engineApi });
+
+  // requires игры против capabilities этого чекаута. Отказом это не
+  // является: мастер такую игру из каталога не выбрасывает (plugin-forward-
+  // compat, этап 5), но в лобби она встанет неиграбельной — и узнать об
+  // этом надо до неперезаписываемой версии в npm, а не от игроков
+  if (compat && compat.ok === false) {
+    // битый manifest.requires — дефект пакета, а не разница поколений:
+    // публиковать его в неперезаписываемую версию нельзя ни с каким «да»
+    if (compat.reason === 'bad-manifest') {
+      throw new Error(`${game.name}: ${compat.text}`);
+    }
+
+    ui.error(`  ${game.name}: ${compat.text} (лобби покажет игру неиграбельной)`);
+
+    if (!assumeYes && !(await ui.confirm('Всё равно публиковать?', false))) {
+      throw new Error('публикация отменена: игра несовместима с движком');
+    }
+  }
 
   if (game.bump !== false) {
     await bumpJsonVersion(path.join(dir, 'package.json'), game.target, {
@@ -678,8 +856,11 @@ export async function rollOutProduction({
   tags,
   engineApi = null,
   push = true,
+  installRoot = null,
 }) {
   ui.log(push ? 'прод: пуш в main' : 'прод: проверка выпущенных игр');
+
+  report.remaining ??= [];
 
   // Пинов игр в корневом package.json больше нет (master-game-registry,
   // этап 5): каталог платформы приезжает из реестра auth-сервиса, а версию
@@ -694,6 +875,19 @@ export async function rollOutProduction({
     );
     ui.raw('  «Модерации»');
     ui.raw('');
+
+    // подсказка выше уедет вверх экрана за прогонами sim, а до игроков
+    // версия без этих двух действий не доедет вовсе — поэтому она же идёт
+    // в итоговую сводку, последнее, что видит разработчик
+    const lobby = process.env.VIMP_LOBBY_URL;
+
+    for (const game of games) {
+      report.remaining.push(
+        `${game.name}@${game.target}: подать версию в лобби ` +
+          '(«Мои игры» → «Обновить») и подтвердить в «Модерации»' +
+          (lobby ? ` — ${lobby}` : ''),
+      );
+    }
   }
 
   // strict: игры уже переопубликованы, поэтому расхождение версии API здесь —
@@ -701,7 +895,7 @@ export async function rollOutProduction({
   // обеих ветках: она единственное, ради чего шаг вообще выполняется, когда
   // движок не публикуется
   for (const game of games) {
-    await simGame(shell, root, game, { engineApi, strict: true });
+    await simGame(shell, root, game, { engineApi, strict: true, installRoot });
   }
 
   // релиз одних игр в этом репозитории не меняет ни файла: снимок пинов

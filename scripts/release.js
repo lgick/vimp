@@ -14,6 +14,7 @@ import {
   collect,
   decide,
   readEngineApiVersion,
+  repoProblems,
   CRATE_NAME,
   ENGINE_NAME,
   SCAFFOLD_NAME,
@@ -114,66 +115,59 @@ function parseFlags(argv) {
 // Всё, что не зависит от выбора игр: гоняется до опроса, чтобы не заставлять
 // отвечать на десяток вопросов ради «дерево не чистое». Проблемы контракта
 // заголовков приезжают сюда же — список отказа остаётся одним.
-async function preflightRepo(root, { changelog }) {
-  const problems = [...changelog];
-
-  // холостой npm из окружения: публикации молча не случатся, а теги и
-  // коммиты — да
-  if (npmDryRunEnv()) {
-    problems.push(
-      'в окружении выставлен npm_config_dry_run — `npm publish` пройдёт ' +
-        'вхолостую. Похоже на `npm run release --dry-run` без `--`: ' +
-        'холостой прогон запускается как `npm run release -- --dry-run`',
-    );
-  }
-
+//
+// writesRepo — пишет ли этот прогон в vimp (коммиты, теги, пуш). Когда нет
+// (релиз только игр), состояние дерева печатается замечанием, а не отказом:
+// решение принимает repoProblems, оно под тестами.
+async function preflightRepo(root, { changelog, writesRepo }) {
   const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
     cwd: root,
     allowFailure: true,
   });
 
-  if (branch.stdout.trim() !== 'main') {
-    problems.push(`ветка ${branch.stdout.trim()}, а релиз идёт с main`);
-  }
-
   const status = await capture('git', ['status', '--short'], { cwd: root });
-
-  if (status.stdout.trim() !== '') {
-    problems.push('рабочее дерево не чистое');
-  }
 
   await capture('git', ['fetch'], { cwd: root, allowFailure: true });
 
-  // симметрично проверке у игр: без upstream `git push` шага C упадёт
-  // последним действием — уже после всех необратимых публикаций, а до того
-  // `git log @{u}..HEAD` напечатает «нечего пушить», то есть обратное правде
   const upstream = await capture(
     'git',
     ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
     { cwd: root, allowFailure: true },
   );
 
-  if (upstream.code !== 0) {
-    problems.push('у main нет upstream (git push в шаге C не сработает)');
-  } else {
-    const behind = await capture('git', ['rev-list', '--count', 'HEAD..@{u}'], {
+  let behind = 0;
+
+  if (upstream.code === 0) {
+    const counted = await capture('git', ['rev-list', '--count', 'HEAD..@{u}'], {
       cwd: root,
       allowFailure: true,
     });
 
-    if (behind.code === 0 && Number(behind.stdout.trim()) > 0) {
-      problems.push(`отставание от remote на ${behind.stdout.trim()} коммит(ов)`);
+    if (counted.code === 0) {
+      behind = Number(counted.stdout.trim()) || 0;
     }
   }
 
-  // локальный [patch.crates-io] публикует ядро, собранное против крейта,
-  // которого нет ни у кого больше
-  problems.push(
-    ...(await findCratePatches(root, [
-      'Cargo.toml',
-      'packages/engine/core/Cargo.toml',
-    ])),
+  const { problems, notes } = repoProblems(
+    {
+      changelog,
+      npmDryRun: npmDryRunEnv(),
+      branch: branch.stdout.trim(),
+      dirty: status.stdout.trim() !== '',
+      upstream: upstream.code === 0,
+      behind,
+      cratePatches: await findCratePatches(root, [
+        'Cargo.toml',
+        'packages/engine/core/Cargo.toml',
+      ]),
+    },
+    { writesRepo },
   );
+
+  if (notes.length) {
+    ui.log('состояние репозитория (на этот релиз не влияет):');
+    notes.forEach(note => ui.raw(`  - ${note}`));
+  }
 
   return problems;
 }
@@ -424,9 +418,20 @@ async function main(argv) {
 
   // нарушения контракта заголовков [Unreleased] собраны в decide(), который
   // под тестами. Контракт описан в docs/en/publishing.md
-  const repoProblems = await preflightRepo(root, { changelog: artifacts.problems });
+  // vimp правят только шаги, которые в нём коммитят, тегают и пушат. Игры
+  // на это решение не влияют, поэтому раннего решения достаточно
+  const writesRepo =
+    artifacts.crate.publish ||
+    artifacts.engine.publish ||
+    artifacts.scaffold.publish ||
+    artifacts.prod.push;
 
-  if (reportProblems(repoProblems)) {
+  const problems = await preflightRepo(root, {
+    changelog: artifacts.problems,
+    writesRepo,
+  });
+
+  if (reportProblems(problems)) {
     return 1;
   }
 
@@ -644,6 +649,7 @@ async function main(argv) {
       await publishGame({
         shell,
         game,
+        assumeYes: args.yes,
         // не «что публикуется в этом прогоне», а что реально лежит в
         // реестрах: после прерванного прогона крейт уже опубликован, и игра
         // собралась бы на старом ядре со старым пином в тарболе
