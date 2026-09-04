@@ -877,7 +877,7 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     // игроков не доедет вовсе, пуш тегов рядом с этим — мелочь
     expect(report.remaining).toEqual([
       '@vimp-games/fresh@0.7.5: подать версию в лобби ' +
-        '(«Мои игры» → «Обновить») и подтвердить в «Модерации»',
+        '(«My games» → «Update») и подтвердить в «Moderation»',
       'пуш локальных коммитов и тегов этого репозитория',
     ]);
     expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);

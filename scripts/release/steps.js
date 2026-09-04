@@ -919,7 +919,7 @@ export async function rollOutProduction({
     ui.raw(
       '  прод: игры поднимает разработчик в лобби («My Games» → «Update»),',
     );
-    ui.raw(' админ подтверждает в «Модерации»');
+    ui.raw('  админ подтверждает в «Moderation»');
     ui.raw('');
 
     // подсказка выше уедет вверх экрана за прогонами sim, а до игроков
@@ -930,7 +930,7 @@ export async function rollOutProduction({
     for (const game of games) {
       report.remaining.push(
         `${game.name}@${game.target}: подать версию в лобби ` +
-          '(«Мои игры» → «Обновить») и подтвердить в «Модерации»' +
+          '(«My games» → «Update») и подтвердить в «Moderation»' +
           (lobby ? ` — ${lobby}` : ''),
       );
     }
