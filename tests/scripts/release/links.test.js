@@ -20,9 +20,9 @@ describe('buildLinkPlan', () => {
 
     expect(plan.unlink.map(step => step.args.join(' '))).toEqual([
       'unlink --no-save @vimp-games/tanks',
-      'install',
+      'install --no-audit --no-fund --prefer-offline',
       'unlink --no-save vimp-engine',
-      'install',
+      'install --no-audit --no-fund --prefer-offline',
     ]);
 
     // сначала регистрация обоих пакетов, потом сами связи
@@ -62,7 +62,7 @@ describe('buildLinkPlan', () => {
 
     expect(plan.unlink.filter(rootSteps).map(step => step.args)).toEqual([
       ['unlink', '--no-save', '@vimp-games/tanks', '@vimp-games/snakes'],
-      ['install'],
+      ['install', '--no-audit', '--no-fund', '--prefer-offline'],
     ]);
 
     expect(plan.relink.filter(rootSteps).map(step => step.args)).toEqual([
