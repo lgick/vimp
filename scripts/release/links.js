@@ -75,7 +75,7 @@ export function buildLinkPlan(observed, { root, engineDir }) {
       label: `npm install (vimp)`,
       cwd: root,
       command: 'npm',
-      args: ['install'],
+      args: ['install', '--no-audit', '--no-fund', '--prefer-offline'],
     });
   }
 
@@ -91,7 +91,7 @@ export function buildLinkPlan(observed, { root, engineDir }) {
         label: `npm install (${entry.name})`,
         cwd: entry.dir,
         command: 'npm',
-        args: ['install'],
+        args: ['install', '--no-audit', '--no-fund', '--prefer-offline'],
       });
     }
   }
