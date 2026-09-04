@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-09-04
+
 ### Added
 
 - **`ClientPlugin.serviceNames`** — an optional list of the service names
@@ -2038,6 +2040,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.30.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.30.0
 [0.29.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.29.0
 [0.28.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.28.0
 [0.27.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.27.0
