@@ -1,6 +1,6 @@
 [package]
 name = "vimp-engine-core"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2024"
 description = "VIMP — движковый каркас симуляции (физика, карта, снапшот-фрейминг, интерполяция/предикт/raycast-примитивы, нав-утилиты). Без wasm-bindgen — обёртки для WASM-ABI собирает game-crate."
 license = "MIT"

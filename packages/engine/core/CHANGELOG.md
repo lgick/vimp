@@ -13,6 +13,8 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-09-04
+
 ### ⚠️ Breaking
 
 - `MAX_LEVELS` is now **8** (ground plus seven overhead levels) and
@@ -423,6 +425,7 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.12.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.12.0
 [0.10.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.10.0
 [0.9.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.9.2
 [0.9.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.9.0
