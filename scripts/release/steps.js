@@ -214,7 +214,13 @@ export async function withPublishedGame(
       await shell.check(
         `npm install ${name}@${version}`,
         'npm',
-        ['install', '--no-save', '--no-audit', '--no-fund', `${name}@${version}`],
+        [
+          'install',
+          '--no-save',
+          '--no-audit',
+          '--no-fund',
+          `${name}@${version}`,
+        ],
         { cwd: dir },
       );
     } catch (error) {
@@ -305,8 +311,7 @@ async function simInstalledGame(shell, root, game, dir, { engineApi, strict }) {
   const installed = await installedEngineApi(dir);
 
   if (engineApi !== null && installed !== null && installed !== engineApi) {
-    const mismatch =
-      `${game.name}: engineApi=${installed}, у движка ${engineApi}`;
+    const mismatch = `${game.name}: engineApi=${installed}, у движка ${engineApi}`;
 
     if (strict) {
       throw new Error(
@@ -348,7 +353,9 @@ async function checkPublishable(shell, args, { cwd, bump }) {
       throw error;
     }
 
-    ui.log('  · dry-run: npm отказал «поверх опубликованной» — версия не поднята, это ожидаемо');
+    ui.log(
+      '  · dry-run: npm отказал «поверх опубликованной» — версия не поднята, это ожидаемо',
+    );
   }
 }
 
@@ -359,7 +366,9 @@ export async function publishCrate({ shell, root, decision, report }) {
 
   ui.log(`крейт ${CRATE_NAME}: релиз ${target}`);
 
-  await shell.check('npm run core:test', 'npm', ['run', 'core:test'], { cwd: root });
+  await shell.check('npm run core:test', 'npm', ['run', 'core:test'], {
+    cwd: root,
+  });
 
   if (decision.bump) {
     await bumpTomlVersion(
@@ -428,8 +437,12 @@ export async function publishEngine({
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
     cwd: root,
   });
-  await shell.check('npm run core:test', 'npm', ['run', 'core:test'], { cwd: root });
-  await shell.check('npm run sim:check', 'npm', ['run', 'sim:check'], { cwd: root });
+  await shell.check('npm run core:test', 'npm', ['run', 'core:test'], {
+    cwd: root,
+  });
+  await shell.check('npm run sim:check', 'npm', ['run', 'sim:check'], {
+    cwd: root,
+  });
 
   for (const game of games) {
     await simGame(shell, root, game, { engineApi, installRoot });
@@ -441,7 +454,11 @@ export async function publishEngine({
       target,
       { dryRun: shell.dryRun },
     );
-    await shell.write('npm', ['install'], { cwd: root });
+    await shell.write(
+      'npm',
+      ['install', '--no-audit', '--no-fund', '--prefer-offline'],
+      { cwd: root },
+    );
     // второй раз: снимок обязан уехать в тот же коммит, что и новая версия
     // движка, иначе коммит сам себе противоречит и `npm test` на нём красный
     await writePinSnapshot(shell, root);
@@ -512,14 +529,21 @@ export async function publishScaffold({ shell, root, decision, report }) {
       target,
       { dryRun: shell.dryRun },
     );
-    await shell.write('npm', ['install'], { cwd: root });
+    await shell.write(
+      'npm',
+      ['install', '--no-audit', '--no-fund', '--prefer-offline'],
+      { cwd: root },
+    );
   }
 
-  await dateChangelog(path.join(root, 'packages/create-vimp-game/CHANGELOG.md'), {
-    version: target,
-    artifact: SCAFFOLD_NAME,
-    dryRun: shell.dryRun,
-  });
+  await dateChangelog(
+    path.join(root, 'packages/create-vimp-game/CHANGELOG.md'),
+    {
+      version: target,
+      artifact: SCAFFOLD_NAME,
+      dryRun: shell.dryRun,
+    },
+  );
 
   // versions.generated.json под версионным контролем: без него в списке
   // снимок пинов остался бы незакоммиченной правкой, и preflight следующего
@@ -575,7 +599,10 @@ export function parsePackedEntry(stdout) {
       throw new Error('в ответе нет списка files');
     }
 
-    return { files: entry.files.map(item => item.path), filename: entry.filename };
+    return {
+      files: entry.files.map(item => item.path),
+      filename: entry.filename,
+    };
   } catch (error) {
     throw new Error(`не разобрать вывод npm pack --json: ${error.message}`);
   }
@@ -612,7 +639,10 @@ export async function packGame({ shell, dir, destDir }) {
     );
   }
 
-  return { files, tarball: filename ? path.join(destDir, path.basename(filename)) : null };
+  return {
+    files,
+    tarball: filename ? path.join(destDir, path.basename(filename)) : null,
+  };
 }
 
 // Распаковка ровно как у мастера (GameStore → npmRegistry): наружу выходит
@@ -694,7 +724,9 @@ export async function checkPackedGame({ shell, dir, engineApi }) {
 
     const compat = await checkGameStructure({ distDir });
 
-    ui.log(`  · тарбол проверен: ${files.length} файл(ов), структура как у мастера`);
+    ui.log(
+      `  · тарбол проверен: ${files.length} файл(ов), структура как у мастера`,
+    );
 
     return compat;
   } finally {
@@ -733,13 +765,24 @@ export async function publishGame({
   }
 
   if (engineVersion) {
-    await shell.write('npm', ['i', '-D', `${ENGINE_NAME}@^${engineVersion}`], {
-      cwd: dir,
-    });
+    // без --prefer-offline: версия движка могла уехать в реестр секунды назад
+    await shell.write(
+      'npm',
+      [
+        'i',
+        '-D',
+        '--no-audit',
+        '--no-fund',
+        `${ENGINE_NAME}@^${engineVersion}`,
+      ],
+      { cwd: dir },
+    );
   }
 
   // сборка всегда: `dist/` и `core/pkg-*` не в git, иначе уедет вчерашняя
-  await shell.check('npm run core:build', 'npm', ['run', 'core:build'], { cwd: dir });
+  await shell.check('npm run core:build', 'npm', ['run', 'core:build'], {
+    cwd: dir,
+  });
   await shell.check('npm run build', 'npm', ['run', 'build'], { cwd: dir });
 
   await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: dir });
@@ -748,7 +791,9 @@ export async function publishGame({
   // гоняем то, что объявлено
   for (const script of ['test', 'core:test', 'sim', 'sim:scenarios']) {
     if (game.scripts[script]) {
-      await shell.check(`npm run ${script}`, 'npm', ['run', script], { cwd: dir });
+      await shell.check(`npm run ${script}`, 'npm', ['run', script], {
+        cwd: dir,
+      });
     }
   }
 
@@ -765,7 +810,9 @@ export async function publishGame({
       throw new Error(`${game.name}: ${compat.text}`);
     }
 
-    ui.error(`  ${game.name}: ${compat.text} (лобби покажет игру неиграбельной)`);
+    ui.error(
+      `  ${game.name}: ${compat.text} (лобби покажет игру неиграбельной)`,
+    );
 
     if (!assumeYes && !(await ui.confirm('Всё равно публиковать?', false))) {
       throw new Error('публикация отменена: игра несовместима с движком');
@@ -834,7 +881,9 @@ export async function unpushedTags(shell, root, known) {
     allowFailure: true,
   });
   const alreadyPushed = new Set(
-    (pushed.code === 0 ? pushed.stdout : '').split('\n').map(line => line.trim()),
+    (pushed.code === 0 ? pushed.stdout : '')
+      .split('\n')
+      .map(line => line.trim()),
   );
 
   for (const line of contains.stdout.split('\n')) {
@@ -868,12 +917,9 @@ export async function rollOutProduction({
   if (games.length) {
     ui.raw('');
     ui.raw(
-      '  прод: игры больше не пинятся в package.json — новую версию поднимает',
+      '  прод: игры поднимает разработчик в лобби («My Games» → «Update»),',
     );
-    ui.raw(
-      '  разработчик в лобби («Мои игры» → «Обновить»), админ подтверждает в',
-    );
-    ui.raw('  «Модерации»');
+    ui.raw(' админ подтверждает в «Модерации»');
     ui.raw('');
 
     // подсказка выше уедет вверх экрана за прогонами sim, а до игроков

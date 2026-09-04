@@ -392,21 +392,23 @@ export async function collect(root) {
     npmVersion(SCAFFOLD_NAME),
   ]);
 
-  const crateBase = await findBase(root, {
-    tag: `${CRATE_NAME}@${crateLocal}`,
-    versionFile: 'packages/engine/core/Cargo.toml',
-    versionNeedle: `version = "${crateLocal}"`,
-  });
-  const engineBase = await findBase(root, {
-    tag: `${ENGINE_NAME}@${enginePkg.version}`,
-    versionFile: 'packages/engine/package.json',
-    versionNeedle: `"version": "${enginePkg.version}"`,
-  });
-  const scaffoldBase = await findBase(root, {
-    tag: `${SCAFFOLD_NAME}@${scaffoldPkg.version}`,
-    versionFile: 'packages/create-vimp-game/package.json',
-    versionNeedle: `"version": "${scaffoldPkg.version}"`,
-  });
+  const [crateBase, engineBase, scaffoldBase] = await Promise.all([
+    findBase(root, {
+      tag: `${CRATE_NAME}@${crateLocal}`,
+      versionFile: 'packages/engine/core/Cargo.toml',
+      versionNeedle: `version = "${crateLocal}"`,
+    }),
+    findBase(root, {
+      tag: `${ENGINE_NAME}@${enginePkg.version}`,
+      versionFile: 'packages/engine/package.json',
+      versionNeedle: `"version": "${enginePkg.version}"`,
+    }),
+    findBase(root, {
+      tag: `${SCAFFOLD_NAME}@${scaffoldPkg.version}`,
+      versionFile: 'packages/create-vimp-game/package.json',
+      versionNeedle: `"version": "${scaffoldPkg.version}"`,
+    }),
+  ]);
 
   const cratePaths = ['packages/engine/core'];
 

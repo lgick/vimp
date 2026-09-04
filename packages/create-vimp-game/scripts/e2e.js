@@ -135,7 +135,7 @@ async function main(argv) {
       repoRoot,
     );
 
-    run('npm', ['install'], gameDir);
+    run('npm', ['install', '--no-audit', '--no-fund'], gameDir);
     run('npm', ['run', 'core:build'], gameDir);
     run('npm', ['run', 'check:contract'], gameDir);
     run('npm', ['run', 'build'], gameDir);

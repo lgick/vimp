@@ -65,7 +65,10 @@ const FULL = [
 async function writeManifest(name, manifest) {
   const distDir = path.join(root, name, 'dist');
   await mkdir(distDir, { recursive: true });
-  await writeFile(path.join(distDir, 'manifest.json'), JSON.stringify(manifest));
+  await writeFile(
+    path.join(distDir, 'manifest.json'),
+    JSON.stringify(manifest),
+  );
   return distDir;
 }
 
@@ -88,13 +91,18 @@ describe.each(PACK_FORMS)('packGame: %s', (_form, packJson) => {
   });
 
   it('не спотыкается о предупреждение npm в stderr', async () => {
-    const shell = fakeShell(packJson(FULL), 'npm warn deprecated foo@1: use [bar]\n');
+    const shell = fakeShell(
+      packJson(FULL),
+      'npm warn deprecated foo@1: use [bar]\n',
+    );
 
     await expect(pack(shell)).resolves.toMatchObject({ files: FULL });
   });
 
   it('падает без dist/manifest.json', async () => {
-    const shell = fakeShell(packJson(FULL.filter(f => f !== 'dist/manifest.json')));
+    const shell = fakeShell(
+      packJson(FULL.filter(f => f !== 'dist/manifest.json')),
+    );
 
     await expect(pack(shell)).rejects.toThrow(/dist\/manifest\.json/);
   });
@@ -134,7 +142,9 @@ describe('checkManifest', () => {
       entries: { wasmNode: './core-node/vimp_tanks_core.js' },
     });
 
-    await expect(checkManifest({ distDir, engineApi: 3 })).resolves.toBeUndefined();
+    await expect(
+      checkManifest({ distDir, engineApi: 3 }),
+    ).resolves.toBeUndefined();
   });
 
   it('ловит расхождение engineApi', async () => {
@@ -154,13 +164,20 @@ describe('checkManifest', () => {
       entries: { wasmNode: '../core/pkg-node/core.js' },
     });
 
-    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
+    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(
+      /wasmNode/,
+    );
   });
 
   it('ловит отсутствующий wasmNode вместо TypeError', async () => {
-    const distDir = await writeManifest('missing', { engineApi: 3, entries: {} });
+    const distDir = await writeManifest('missing', {
+      engineApi: 3,
+      entries: {},
+    });
 
-    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(/wasmNode/);
+    await expect(checkManifest({ distDir, engineApi: 3 })).rejects.toThrow(
+      /wasmNode/,
+    );
   });
 });
 
@@ -223,7 +240,7 @@ describe('withPublishedGame', () => {
   it('ставит копию из npm во временный каталог и убирает его', async () => {
     const calls = [];
     const shell = {
-      check: async (label) => {
+      check: async label => {
         calls.push(label);
         return { code: 0, stdout: '', stderr: '', output: '' };
       },
@@ -240,9 +257,9 @@ describe('withPublishedGame', () => {
     );
 
     expect(calls).toEqual(['npm install @vimp-games/tanks@0.17.0']);
-    expect(handed.endsWith(path.join('node_modules', '@vimp-games/tanks'))).toBe(
-      true,
-    );
+    expect(
+      handed.endsWith(path.join('node_modules', '@vimp-games/tanks')),
+    ).toBe(true);
     // каталог живёт ровно на время прогона: релиз не оставляет мусора
     expect(existsSync(path.dirname(path.dirname(handed)))).toBe(false);
   });
@@ -433,7 +450,8 @@ function tagShell(byCommand) {
 describe('unpushedTags', () => {
   it('добавляет теги на коммитах, не уехавших в upstream', async () => {
     const shell = tagShell({
-      'git tag --contains @{u}': 'vimp-engine-core@0.10.0\nvimp-engine@0.29.0\n',
+      'git tag --contains @{u}':
+        'vimp-engine-core@0.10.0\nvimp-engine@0.29.0\n',
       'git tag --points-at @{u}': '',
     });
 
@@ -452,7 +470,9 @@ describe('unpushedTags', () => {
       'git tag --points-at @{u}': 'vimp-engine@0.28.0\n',
     });
 
-    expect(await unpushedTags(shell, '/repo', [])).toEqual(['vimp-engine@0.29.0']);
+    expect(await unpushedTags(shell, '/repo', [])).toEqual([
+      'vimp-engine@0.29.0',
+    ]);
   });
 
   it('без upstream отдаёт только теги текущего прогона', async () => {
@@ -511,16 +531,22 @@ describe('publishScaffold', () => {
 
     // снимок пинов снимается ДО проверок: шаг A2 уже поднял версию движка,
     // и versions.test.js сверяет снимок именно с ней
-    expect(shell.calls.indexOf(
-      'write node packages/create-vimp-game/scripts/write-versions.js',
-    )).toBeLessThan(shell.calls.indexOf('check npx eslint .'));
+    expect(
+      shell.calls.indexOf(
+        'write node packages/create-vimp-game/scripts/write-versions.js',
+      ),
+    ).toBeLessThan(shell.calls.indexOf('check npx eslint .'));
 
-    const publishAt = shell.calls.findIndex(call => call.startsWith('publish '));
+    const publishAt = shell.calls.findIndex(call =>
+      call.startsWith('publish '),
+    );
 
     expect(publishAt).toBeGreaterThan(
       shell.calls.indexOf('check npm run test:scaffold'),
     );
-    expect(shell.calls[publishAt]).toBe('publish npm publish -w create-vimp-game');
+    expect(shell.calls[publishAt]).toBe(
+      'publish npm publish -w create-vimp-game',
+    );
   });
 
   // холостой прогон не пишет версию в package.json, поэтому npm отвечает
@@ -537,7 +563,8 @@ describe('publishScaffold', () => {
           command: 'npm publish',
           cwd: '.',
           code: 1,
-          output: 'npm error You cannot publish over the previously published versions: 0.1.3.',
+          output:
+            'npm error You cannot publish over the previously published versions: 0.1.3.',
         });
       }
 
@@ -566,7 +593,8 @@ describe('publishScaffold', () => {
           command: 'npm publish',
           cwd: '.',
           code: 1,
-          output: 'npm error You cannot publish over the previously published versions: 0.1.4.',
+          output:
+            'npm error You cannot publish over the previously published versions: 0.1.4.',
         });
       }
 
@@ -642,9 +670,11 @@ describe('publishEngine', () => {
       report,
     });
 
-    expect(shell.calls.indexOf(
-      'write node packages/create-vimp-game/scripts/write-versions.js',
-    )).toBeLessThan(shell.calls.indexOf('check npm test -- --reporter=dot'));
+    expect(
+      shell.calls.indexOf(
+        'write node packages/create-vimp-game/scripts/write-versions.js',
+      ),
+    ).toBeLessThan(shell.calls.indexOf('check npm test -- --reporter=dot'));
 
     expect(shell.calls).toContain(
       'write git add -- packages/engine/package.json packages/engine/CHANGELOG.md package-lock.json packages/create-vimp-game/src/versions.generated.json',
@@ -668,10 +698,19 @@ describe('publishEngine', () => {
       .map((call, index) => ({ call, index }))
       .filter(({ call }) => call.endsWith('write-versions.js'))
       .map(({ index }) => index);
-    const bumpAt = shell.calls.indexOf('write npm install');
-    const commitAt = shell.calls.findIndex(call => call.startsWith('write git add --'));
+    // startsWith, а не точное равенство: у install есть флаги (--no-audit и
+    // прочие), и сверка по полной строке молча превратила бы bumpAt в -1 —
+    // тогда проверка порядка проходит при любом порядке
+    const bumpAt = shell.calls.findIndex(call =>
+      call.startsWith('write npm install'),
+    );
+    const commitAt = shell.calls.findIndex(call =>
+      call.startsWith('write git add --'),
+    );
 
     expect(snapshots).toHaveLength(2);
+    expect(bumpAt).toBeGreaterThan(-1);
+    expect(commitAt).toBeGreaterThan(-1);
     expect(snapshots[1]).toBeGreaterThan(bumpAt);
     expect(snapshots[1]).toBeLessThan(commitAt);
   });
@@ -861,8 +900,6 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       }),
     ).rejects.toThrow(/engineApi=3, у движка 4/);
 
-    // игры больше не пинятся в корневом package.json
-    // (master-game-registry, этап 5): версию раздачи поднимает лобби
     expect(
       shell.calls.filter(call => call.includes('@vimp-games/stale@')),
     ).toEqual([]);
