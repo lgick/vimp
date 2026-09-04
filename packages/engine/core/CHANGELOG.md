@@ -13,6 +13,81 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- `MAX_LEVELS` is now **8** (ground plus seven overhead levels) and
+  `level_group(level)` gives every level a bit of its own instead of folding
+  everything above ground into `GROUP_2`. Levels take bits 0..7,
+  `STATIC_LEVEL_GROUP` keeps bit 8; the values for levels 0 and 1 are
+  unchanged, so masks already built on two levels behave exactly as before. A
+  level out of range is clamped to the top one (`debug_assert!` in debug):
+  in release a shift of 32 or more would panic and take the round down.
+- `map::RampSample` gained `dir`, `slope`, `run` and `axis`. The uphill unit
+  vector and the steepness (levels per world unit) are what a game needs to
+  compute the grade under a heading, and `run`/`axis` are what tells entering
+  a run from its foot apart from driving onto it from the side.
+- `map::validate_levels` takes the ground level's `layers` and `volumes`
+  ahead of `levels`/`ramps`: the render-layer heights are validated for level
+  0 too, and level 0 lives in the root of the map config.
+- `GameMap::dynamic_map_data(world, with_levels, with_velocities)` — with
+  `with_levels` the row head becomes `[x, y, angle, z, level]`. The head, not
+  the optional tail: a missing tail unpacks as zeros, and a crate resting on
+  a bridge would land on the ground at the viewer. The engine turns it on
+  from the schema the game declared for the map set (fields 3 and 4 named `z`
+  and `level`), so a game with the old schema keeps the three fields it has.
+
+### Migration
+
+- A game crate that calls `map::validate_levels` passes the ground level's
+  `layers` and `volumes` first: `validate_levels(map, physics_static, layers,
+  volumes, levels, ramps)`. A client-side map config that has no render
+  layers passes two empty `IndexMap`s.
+- A game that calls `GameMap::dynamic_map_data` adds the `with_levels` flag
+  ahead of `with_velocities`; `false` keeps the previous three-field row.
+  To turn the levels on, declare `z` and `level` as fields 3 and 4 of the map
+  set's snapshot schema and set `optionalFrom` to 5 — the engine reads the
+  flag from the schema on its own.
+- Code that matched on `level_group` expecting `GROUP_2` for every overhead
+  level now gets one bit per level. Masks written as
+  `level_group(0) | level_group(1)` keep working; a mask meant to cover
+  everything above ground has to be built by folding `level_group(l)` over
+  the levels the map has.
+- `GameMap::dynamic_levels()` returns an owned `Vec<u8>` instead of a slice.
+
+### Added
+
+- `map::FallModel` — one fall trajectory for the whole ecosystem (tanks and
+  map bodies alike), linear in `z` but with a duration that grows with the
+  height: `duration`, `z_at` and its inverse `elapsed_at`, which a client
+  replica needs to restore the phase of a fall from an authoritative frame.
+  Its `time_per_level` comes from the new `EngineConfig.mapFallTime`
+  (`DEFAULT_FALL_TIME`, 0.35 s).
+- `map::MapLevels::landing_level(from, x, y)` — the nearest level strictly
+  below `from` with a floor in that cell. A slab under a ledge is a legal
+  landing, so ledges no longer have to end over walkable ground: the slab
+  edge check, the bot ledge edges and the fall rules all ask this.
+- Level rules for map bodies: `BodyLevelState`, `BodyLevelEvent`,
+  `step_body_level`, `body_collision_mask` and the host wiring
+  `GameMap::step_dynamic_levels` / `dynamic_level_state`, called by
+  `EngineSim::step_fixed` before the world step (a game only ever sees the
+  map by `&`). A crate that runs out of floor falls to its `landing_level`,
+  carries `STATIC_LEVEL_GROUP` while it falls and takes the group of the
+  level it lands on. Ramps are not for bodies — they are pushed, not driven —
+  so a body on a ramp cell keeps its level.
+- `volumes` on the map config and on every level config: the visual height of
+  a render layer in levels, `{ "<layers key>": 0.6 }`. The core does not use
+  it (it travels to the client and lives in the renderer) but validates it:
+  the key has to name a render layer of the same level and the height has to
+  be finite and within `(0, MAX_LEVELS]`.
+- `validate_levels` rejects a ramp that climbs through the floor of an
+  intermediate level, now that a ramp may span more than one level.
+
+### Changed
+
+- Ledge edges of the bot graph land on `landing_level` instead of always on
+  the ground, and `LEDGE_PENALTY` is multiplied by the height of the fall: a
+  jump two levels down costs twice a jump of one.
+
 ## [0.11.0] — 2026-09-04
 
 ### Added

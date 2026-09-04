@@ -703,6 +703,35 @@ describe('C. client', () => {
     ).toMatch(/solid tile 1 is not named by any render layer/);
   });
 
+  it('E5 walks every level, not just the ground and the first slab', () => {
+    // многоуровневая карта: стена уровня 3 названа так же молча, как стена
+    // земли, и на радаре её тоже не будет
+    const level = (walls, layers) => ({
+      map: [[0, 1]],
+      floor: [0, 1],
+      walls,
+      layers,
+    });
+
+    const map = {
+      map: [[0, 1]],
+      physicsStatic: [1],
+      layers: { 1: [0, 1] },
+      levels: {
+        1: level([1], { 2: [0, 1] }),
+        2: level([1], { 3: [0, 1] }),
+        3: level([1], { 4: [0] }),
+      },
+    };
+
+    expect(
+      violations('E5', {
+        ...base,
+        gameConfig: { ...base.gameConfig, maps: { m1: map } },
+      }),
+    ).toMatch(/level 3 solid tile 1 is not named by any render layer/);
+  });
+
   it('C4 accepts localPlayer — the fourth service of the pool', () => {
     expect(
       violations('C4', {

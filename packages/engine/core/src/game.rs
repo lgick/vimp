@@ -7,7 +7,7 @@ use crate::nav::navigation::NavigationSystem;
 use crate::nav::spatial::SpatialGrid;
 use crate::config::{EngineConfig, PLAYER_STATE_LEN};
 use crate::events::CoreEvent;
-use crate::map::{GameMap, MapConfig};
+use crate::map::{FallModel, GameMap, MapConfig};
 use crate::rng::Rng;
 use crate::sim::{GameDef, GameSim, SimCtx};
 use crate::snapshot::Block;
@@ -32,6 +32,9 @@ pub struct EngineSim<G: GameDef> {
 
     time_step: f32,
     accumulator: f32,
+
+    // геометрия падения тел карты и танков: одна на всю экосистему
+    fall_model: FallModel,
 
     // события для меты, дренируются в take_events
     pub events: Vec<CoreEvent>,
@@ -66,6 +69,9 @@ impl<G: GameDef> EngineSim<G> {
             rng: Rng::new(seed),
             time_step,
             accumulator: 0.0,
+            fall_model: FallModel {
+                time_per_level: cfg.map_fall_time,
+            },
             events: Vec::new(),
             bodies_to_destroy: Vec::new(),
             last_body_has_events: false,
@@ -241,6 +247,13 @@ impl<G: GameDef> EngineSim<G> {
 
     /// Один фиксированный шаг физики.
     fn step_fixed(&mut self) {
+        // правила уровня тел карты — до игровой логики и до шага мира:
+        // игра видит карту только по `&`, менять маски телам некому, кроме
+        // движка (`SimCtx.map` — `&Option<GameMap>`)
+        if let Some(map) = self.map.as_mut() {
+            map.step_dynamic_levels(&mut self.world, &self.fall_model, self.time_step);
+        }
+
         let mut ctx = SimCtx {
             world: &mut self.world,
             cfg: &self.cfg,
@@ -309,16 +322,22 @@ impl<G: GameDef> EngineSim<G> {
         // Хвост со скоростями пишется, только если схема набора карт его
         // объявила (`optionalFrom`): движок не навязывает игре ширину строки
         if let Some(map) = &self.map {
-            let with_velocities = self
-                .cfg
-                .snapshot
-                .keys
-                .get(&map.set_id)
-                .is_some_and(|schema| schema.optional_from.is_some());
+            let schema = self.cfg.snapshot.keys.get(&map.set_id);
+            let with_velocities = schema.is_some_and(|schema| schema.optional_from.is_some());
+            // `z`/`level` в голове строки — по объявленной игрой схеме:
+            // игра, не назвавшая эти поля, получает прежние три
+            let with_levels = schema.is_some_and(|schema| {
+                schema.fields.get(3).is_some_and(|field| field.name == "z")
+                    && schema.fields.get(4).is_some_and(|field| field.name == "level")
+            });
 
             blocks.push((
                 map.set_id.clone(),
-                Block::IndexedNoNull8(map.dynamic_map_data(&self.world, with_velocities)),
+                Block::IndexedNoNull8(map.dynamic_map_data(
+                    &self.world,
+                    with_levels,
+                    with_velocities,
+                )),
             ));
         }
 

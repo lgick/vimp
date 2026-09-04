@@ -3,7 +3,7 @@ use rapier2d::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::config::FieldValue;
-use crate::physics::{deg_to_rad, encode_map_object, round2};
+use crate::physics::{deg_to_rad, encode_map_object, lerp, round2};
 
 // параметры поверхности по умолчанию (дефолты planck/Box2D,
 // с которыми сбалансировано ощущение управления). Публичные: клиентская
@@ -16,10 +16,15 @@ pub const DEFAULT_RESTITUTION: f32 = 0.0;
 // скорость не стоит 12 байт на строку (Map.js REST_VELOCITY_EPSILON)
 const REST_VELOCITY_EPSILON: f32 = 0.01;
 
-/// Максимум поддерживаемых уровней: земля + одна эстакада. Больше двух
-/// упирается в 2.5D-модель (у луча/танка ровно один «текущий» уровень) и
-/// в бюджет масок Rapier, отведённый под уровни.
-pub const MAX_LEVELS: usize = 2;
+/// Максимум поддерживаемых уровней: земля (0) и надземные 1..7. Потолок —
+/// бюджет масок Rapier: уровню отведён свой бит, уровням достались биты
+/// 0..7, бит 8 занят `STATIC_LEVEL_GROUP`.
+pub const MAX_LEVELS: usize = 8;
+
+// девятый уровень наехал бы битом на STATIC_LEVEL_GROUP и стал бы для
+// маски неотличим от стены: расширять предел можно только вместе с
+// переездом статической группы на свободный бит
+const _: () = assert!(MAX_LEVELS <= 8);
 
 /// Динамический объект карты (physicsDynamic из src/data/maps/*).
 #[derive(Clone, Deserialize)]
@@ -60,6 +65,12 @@ pub struct MapLevelConfig {
     /// ядро его игнорирует.
     #[serde(default)]
     pub layers: IndexMap<String, Vec<i32>>,
+    /// Визуальная высота рендер-слоя в уровнях: { "<ключ layers>": 0.6 }.
+    /// Ядро её не использует — поле едет клиенту и живёт только в рендере,
+    /// но проверяется здесь: опечатка в ключе слоя иначе даёт плоскую карту
+    /// без единого сообщения.
+    #[serde(default)]
+    pub volumes: IndexMap<String, f32>,
 }
 
 /// Направление ПОДЪЁМА рампы (куда ехать, чтобы подняться).
@@ -125,6 +136,13 @@ pub struct MapConfig {
     /// (`GameMap::level_at`).
     #[serde(default)]
     pub respawns: IndexMap<String, Vec<Vec<f32>>>,
+    /// Рендер-слои земли (zIndex -> список тайлов). Ядру не нужны, но
+    /// нужны как область определения ключей `volumes`.
+    #[serde(default)]
+    pub layers: IndexMap<String, Vec<i32>>,
+    /// Визуальная высота рендер-слоёв земли (см. `MapLevelConfig::volumes`).
+    #[serde(default)]
+    pub volumes: IndexMap<String, f32>,
     /// Надземные уровни: ключ — номер уровня строкой ("1"). Отсутствие поля
     /// = одноуровневая карта.
     #[serde(default)]
@@ -143,6 +161,8 @@ pub struct MapConfig {
 pub fn validate_levels(
     map: &[Vec<i32>],
     physics_static: &[i32],
+    layers: &IndexMap<String, Vec<i32>>,
+    volumes: &IndexMap<String, f32>,
     levels: &IndexMap<String, MapLevelConfig>,
     ramps: &[RampConfig],
 ) -> Result<(), String> {
@@ -184,7 +204,11 @@ pub fn validate_levels(
         }
     }
 
+    validate_volumes("0", layers, volumes)?;
+
     for (key, level) in levels {
+        validate_volumes(key, &level.layers, &level.volumes)?;
+
         if level.map.len() != rows {
             return Err(format!(
                 "map levels: level {key} grid has {} rows, map has {rows}",
@@ -255,6 +279,36 @@ pub fn validate_levels(
                 ));
             }
         }
+
+        // рампа через несколько уровней не имеет права прошивать плиту
+        // промежуточного: танк на ней въехал бы внутрь чужого моста
+        let low = ramp.from.min(ramp.to);
+        let high = ramp.from.max(ramp.to);
+
+        for level in (low + 1)..high {
+            let Some(cfg) = levels.get(&level.to_string()) else {
+                continue;
+            };
+
+            for (y, row) in grid.iter().enumerate() {
+                for (x, tile) in row.iter().enumerate() {
+                    if *tile != ramp.tile {
+                        continue;
+                    }
+
+                    let over = cell_at(&cfg.map, x as i64, y as i64)
+                        .is_some_and(|tile| cfg.floor.contains(&tile));
+
+                    if over {
+                        return Err(format!(
+                            "map ramps: ramp {index} climbs {}->{} through level \
+                             {level} floor at ({x}, {y})",
+                            ramp.from, ramp.to
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     validate_level_edges(map, physics_static, levels)?;
@@ -262,11 +316,39 @@ pub fn validate_levels(
     Ok(())
 }
 
+/// Высоты рендер-слоёв: ключ обязан быть ключом `layers` того же уровня,
+/// значение — конечная высота в уровнях. Ядро высоты не использует, но
+/// молчаливая опечатка в ключе даёт плоскую карту и час поисков в рендере.
+fn validate_volumes(
+    key: &str,
+    layers: &IndexMap<String, Vec<i32>>,
+    volumes: &IndexMap<String, f32>,
+) -> Result<(), String> {
+    for (layer, &height) in volumes {
+        if !layers.contains_key(layer) {
+            return Err(format!(
+                "map levels: level {key} volumes names layer {layer}, which is not \
+                 a render layer"
+            ));
+        }
+
+        if !height.is_finite() || height <= 0.0 || height > MAX_LEVELS as f32 {
+            return Err(format!(
+                "map levels: level {key} volumes layer {layer} height {height} is \
+                 not in (0, {MAX_LEVELS}]"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 /// Край плиты: клетка `floor` уровня N, у которой сосед — не плита и не
 /// перила, это обрыв. Обрыв разрешён (падение — правило игры), но приземлиться
-/// с него нужно на проходимую землю: за краем карты или в стене уровня 0 танк
-/// либо уезжает за карту (стены уровня 0 плите не преграда), либо
-/// приземляется внутри стены, откуда его выталкивает рывком.
+/// с него нужно на проходимую поверхность — ближайшую плиту снизу, а если её
+/// нет, то на землю: за краем карты или в стене танк либо уезжает за карту
+/// (стены нижнего уровня плите не преграда), либо приземляется внутри стены,
+/// откуда его выталкивает рывком.
 fn validate_level_edges(
     map: &[Vec<i32>],
     physics_static: &[i32],
@@ -290,8 +372,13 @@ fn validate_level_edges(
                         continue;
                     }
 
-                    // сосед вне плиты — обрыв: под ним обязана быть земля
-                    if ground_walkable(map, physics_static, nx, ny) {
+                    // сосед вне плиты — обрыв: под ним обязана быть
+                    // проходимая поверхность того уровня, на который тело
+                    // приземлится (плита ниже этажом — законный обрыв)
+                    let level: u8 = key.parse().unwrap_or(0);
+                    let landing = config_landing_level(levels, level, nx, ny);
+
+                    if walkable(map, physics_static, levels, landing, nx, ny) {
                         continue;
                     }
 
@@ -306,6 +393,28 @@ fn validate_level_edges(
     }
 
     Ok(())
+}
+
+/// Уровень приземления по КОНФИГУ (у валидатора нет `MapLevels`): ближайший
+/// уровень строго ниже `from` с полом в клетке, иначе земля. Копия правила
+/// `MapLevels::landing_level` — обе стороны обязаны звать её на одних данных.
+fn config_landing_level(
+    levels: &IndexMap<String, MapLevelConfig>,
+    from: u8,
+    x: i64,
+    y: i64,
+) -> u8 {
+    for level in (1..from).rev() {
+        let Some(cfg) = levels.get(&level.to_string()) else {
+            continue;
+        };
+
+        if cell_at(&cfg.map, x, y).is_some_and(|tile| cfg.floor.contains(&tile)) {
+            return level;
+        }
+    }
+
+    0
 }
 
 fn cell_at(grid: &[Vec<i32>], x: i64, y: i64) -> Option<i32> {
@@ -408,7 +517,14 @@ impl MapConfig {
     pub fn validate(&self) -> Result<(), String> {
         let level_count = self.levels.len() + 1;
 
-        validate_levels(&self.map, &self.physics_static, &self.levels, &self.ramps)?;
+        validate_levels(
+            &self.map,
+            &self.physics_static,
+            &self.layers,
+            &self.volumes,
+            &self.levels,
+            &self.ramps,
+        )?;
 
         for (team, points) in &self.respawns {
             for (index, point) in points.iter().enumerate() {
@@ -441,31 +557,32 @@ impl MapConfig {
     }
 }
 
-/// Битовая маска слоя для InteractionGroups. Уровень 0 — GROUP_1,
-/// уровень 1 — GROUP_2. Тела за пределами реестра (не выставившие группы)
-/// остаются в `Group::ALL` и поэтому продолжают взаимодействовать с
-/// уровнем 0 — старые карты и старые игры не замечают появления слоёв.
+/// Битовая маска слоя для InteractionGroups: уровню `N` — бит `N`
+/// (уровень 0 — GROUP_1, уровень 1 — GROUP_2, и так до `MAX_LEVELS`).
+/// Тела за пределами реестра (не выставившие группы) остаются в
+/// `Group::ALL` и поэтому продолжают взаимодействовать с уровнем 0 —
+/// старые карты и старые игры не замечают появления слоёв.
 pub fn level_group(level: u8) -> Group {
-    // уровень вне `MAX_LEVELS` схлопнулся бы в уровень 1 молча: карта с
-    // тремя слоями не проходит `validate`, поэтому сюда он попасть может
+    // уровень вне `MAX_LEVELS` схлопывается в верхний молча: карта с
+    // лишними слоями не проходит `validate`, поэтому сюда он попасть может
     // только из кода, и ловить это должен разработчик, а не игрок
     debug_assert!(
         (level as usize) < MAX_LEVELS,
         "level_group: level {level} is out of range (MAX_LEVELS: {MAX_LEVELS})"
     );
 
-    match level {
-        0 => Group::GROUP_1,
-        _ => Group::GROUP_2,
-    }
+    // клампом, а не сдвигом как есть: в release `debug_assert!` выключен, а
+    // сдвиг на 32 и больше в Rust — паника, то есть падение раунда вместо
+    // одного тела не на своём уровне
+    Group::from_bits_truncate(1u32 << (level as u32).min(MAX_LEVELS as u32 - 1))
 }
 
 /// Группа статики карты: её несут стены ВСЕХ уровней в дополнение к своей
 /// `level_group`. Нужна телам, которым по правилам игры полагаются только
 /// стены и ни одного динамического тела (падающий с обрыва танк): маска
 /// `STATIC_LEVEL_GROUP` в одиночку видит стену любого уровня и не видит ни
-/// танков, ни ящиков. Уровни занимают GROUP_1..GROUP_2 (см. `MAX_LEVELS`),
-/// поэтому статика берёт заведомо свободный бит.
+/// танков, ни ящиков. Уровни занимают биты 0..7 (см. `MAX_LEVELS`),
+/// поэтому статика берёт следующий за ними бит 8.
 pub const STATIC_LEVEL_GROUP: Group = Group::GROUP_9;
 
 /// Маска «я на уровне `level` и вижу только его».
@@ -494,6 +611,16 @@ pub struct RampSample {
     pub progress: f32,
     pub from: u8,
     pub to: u8,
+    /// Единичный вектор «в горку» в мировых координатах.
+    pub dir: [f32; 2],
+    /// Крутизна: уровней на мировую единицу вдоль `dir`, всегда > 0.
+    /// Продольный уклон под курсом тела — `slope * dot(dir, heading)`.
+    pub slope: f32,
+    /// Индекс прогона в `MapLevels::runs` и его ось (0 = x, 1 = y). Нужны
+    /// игре, чтобы отличить заход на прогон с торца от заезда сбоку:
+    /// гейт сравнивает клетку входа с предыдущей клеткой тела вдоль оси.
+    pub run: u16,
+    pub axis: u8,
 }
 
 /// Прогон рампы: максимальная непрерывная линия тайлов одной рампы вдоль её
@@ -816,6 +943,19 @@ impl MapLevels {
         level
     }
 
+    /// Уровень, на который приземлится тело, сорвавшееся с `from` в точке
+    /// (x, y): ближайший уровень строго ниже `from`, у которого в этой
+    /// клетке есть пол. 0, если такого нет — земля есть везде внутри карты.
+    pub fn landing_level(&self, from: u8, x: f32, y: f32) -> u8 {
+        for level in (1..from).rev() {
+            if self.has_floor(level, x, y) {
+                return level;
+            }
+        }
+
+        0
+    }
+
     /// Рампа под точкой.
     pub fn ramp_at(&self, x: f32, y: f32) -> Option<RampSample> {
         let (cx, cy) = self.cell_at(x, y)?;
@@ -830,13 +970,163 @@ impl MapLevels {
         let span = run.max - run.min;
         let raw = if span <= 0.0 { 0.0 } else { (value - run.min) / span };
         let progress = if run.sign > 0 { raw } else { 1.0 - raw };
+        let rise = (run.to as f32 - run.from as f32).abs();
+        let sign = run.sign as f32;
 
         Some(RampSample {
             progress: progress.clamp(0.0, 1.0),
             from: run.from,
             to: run.to,
+            dir: if run.axis == 0 { [sign, 0.0] } else { [0.0, sign] },
+            slope: rise / span.max(f32::EPSILON),
+            run: index as u16,
+            axis: run.axis,
         })
     }
+}
+
+/// Геометрия падения — одна траектория на всю экосистему. Игра добавляет
+/// поверх свои правила (блокировка ввода, урон), но саму траекторию обязана
+/// брать здесь: иначе ящик и танк падают по-разному, и расходятся они молча.
+#[derive(Clone, Copy, Debug)]
+pub struct FallModel {
+    /// Секунды на уровень высоты: падение с уровня 3 втрое дольше падения
+    /// с уровня 1.
+    pub time_per_level: f32,
+}
+
+/// Дефолт падения (`EngineConfig::map_fall_time`).
+pub const DEFAULT_FALL_TIME: f32 = 0.35;
+
+impl Default for FallModel {
+    fn default() -> Self {
+        Self {
+            time_per_level: DEFAULT_FALL_TIME,
+        }
+    }
+}
+
+impl FallModel {
+    /// Длительность падения на высоту `height` уровней.
+    pub fn duration(&self, height: f32) -> f32 {
+        height.abs() * self.time_per_level.max(0.0)
+    }
+
+    /// Высота через `elapsed` секунд после срыва с `from` на `to`.
+    pub fn z_at(&self, from: f32, to: f32, elapsed: f32) -> f32 {
+        let duration = self.duration(from - to);
+        let t = if duration <= 0.0 {
+            1.0
+        } else {
+            (elapsed / duration).clamp(0.0, 1.0)
+        };
+
+        lerp(from, to, t)
+    }
+
+    /// Обратная к `z_at`: сколько уже длится падение, если высота `z`.
+    /// Клиентская реплика восстанавливает ею фазу падения из авторитетного
+    /// кадра, в котором есть только `z`.
+    pub fn elapsed_at(&self, from: f32, to: f32, z: f32) -> f32 {
+        let span = from - to;
+        let duration = self.duration(span);
+
+        if duration <= 0.0 || span == 0.0 {
+            return 0.0;
+        }
+
+        let t = ((from - z) / span).clamp(0.0, 1.0);
+
+        t * duration
+    }
+}
+
+/// Состояние уровня одного тела карты: где оно стоит и падает ли.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BodyLevelState {
+    /// Уровень опоры; во время падения — уровень, с которого сорвались.
+    pub level: u8,
+    /// Непрерывная высота 0.0..N для визуала.
+    pub z: f32,
+    /// Some((to, elapsed)) — падение на уровень `to`.
+    pub falling: Option<(u8, f32)>,
+}
+
+impl BodyLevelState {
+    /// Тело стоит на уровне `level`.
+    pub fn grounded(level: u8) -> Self {
+        Self {
+            level,
+            z: level as f32,
+            falling: None,
+        }
+    }
+}
+
+/// Что случилось с телом за шаг правил уровня.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyLevelEvent {
+    None,
+    Landed,
+}
+
+/// Маска тела: в падении — только статика (стены есть, тел нет), на опоре —
+/// свой уровень.
+pub fn body_collision_mask(state: &BodyLevelState) -> Group {
+    if state.falling.is_some() {
+        STATIC_LEVEL_GROUP
+    } else {
+        level_group(state.level)
+    }
+}
+
+/// Шаг правил уровня для ОДНОГО тела карты. Свободная функция, а не метод
+/// `GameMap`: её зовёт и хост (через `GameMap::step_dynamic_levels`), и
+/// клиентская реплика игры для предсказанных тел — иначе ящик у зрителя
+/// падает не туда, куда на хосте.
+///
+/// Правило: тело, под которым не осталось пола своего уровня, срывается на
+/// `landing_level`; пока падает — `z` идёт `from -> to` по `FallModel`.
+/// Рампы телам недоступны — их толкают, а не ведут: на клетке рампы тело
+/// сохраняет свой уровень.
+pub fn step_body_level(
+    state: &mut BodyLevelState,
+    x: f32,
+    y: f32,
+    levels: &MapLevels,
+    fall: &FallModel,
+    dt: f32,
+) -> BodyLevelEvent {
+    if let Some((to, elapsed)) = state.falling {
+        let elapsed = elapsed + dt;
+        let from = state.level as f32;
+        let target = to as f32;
+
+        if elapsed >= fall.duration(from - target) {
+            *state = BodyLevelState::grounded(to);
+
+            return BodyLevelEvent::Landed;
+        }
+
+        state.falling = Some((to, elapsed));
+        state.z = fall.z_at(from, target, elapsed);
+
+        return BodyLevelEvent::None;
+    }
+
+    if state.level == 0 || levels.has_floor(state.level, x, y) {
+        return BodyLevelEvent::None;
+    }
+
+    // клетка рампы — не обрыв: рампа принадлежит уровню `from`, пола уровня
+    // тела на ней нет, но сталкивать тело вниз она не должна
+    if levels.ramp_at(x, y).is_some() {
+        return BodyLevelEvent::None;
+    }
+
+    state.falling = Some((levels.landing_level(state.level, x, y), 0.0));
+
+    BodyLevelEvent::None
 }
 
 /// Карта в мире: порт физической части src/server/parts/Map.js +
@@ -858,8 +1148,10 @@ pub struct GameMap {
     /// Уровень каждого статического тела, параллелен `static_bodies`.
     static_levels: Vec<u8>,
     dynamic_bodies: Vec<RigidBodyHandle>,
-    /// Уровень каждого динамического тела, параллелен `dynamic_bodies`.
-    dynamic_levels: Vec<u8>,
+    /// Состояние уровня каждого динамического тела, параллелен
+    /// `dynamic_bodies`: тело карты живёт по тем же правилам уровня, что и
+    /// танк, — сорвавшись с плиты, оно падает, а не висит в воздухе.
+    dynamic_states: Vec<BodyLevelState>,
 }
 
 impl GameMap {
@@ -914,7 +1206,7 @@ impl GameMap {
             static_bodies: Vec::new(),
             static_levels: Vec::new(),
             dynamic_bodies: Vec::new(),
-            dynamic_levels: Vec::new(),
+            dynamic_states: Vec::new(),
         };
 
         map.create_static(world);
@@ -1007,7 +1299,7 @@ impl GameMap {
             );
 
             self.dynamic_bodies.push(body);
-            self.dynamic_levels.push(data.level);
+            self.dynamic_states.push(BodyLevelState::grounded(data.level));
         }
     }
 
@@ -1039,7 +1331,49 @@ impl GameMap {
 
     /// Уровень динамического тела по его индексу в блоке снапшота.
     pub fn dynamic_level(&self, index: usize) -> u8 {
-        self.dynamic_levels.get(index).copied().unwrap_or(0)
+        self.dynamic_states.get(index).map_or(0, |state| state.level)
+    }
+
+    /// Состояние уровня динамического тела (уровень, высота, фаза падения).
+    pub fn dynamic_level_state(&self, index: usize) -> BodyLevelState {
+        self.dynamic_states
+            .get(index)
+            .copied()
+            .unwrap_or(BodyLevelState::grounded(0))
+    }
+
+    /// Шаг правил уровня для всех тел карты: срыв с обрыва, падение, смена
+    /// маски по приземлении. Зовёт её движок (`EngineSim::step_fixed`) до
+    /// шага мира — у игры нет мутабельного доступа к карте (`SimCtx.map`).
+    pub fn step_dynamic_levels(&mut self, world: &mut PhysicsWorld, fall: &FallModel, dt: f32) {
+        if !self.levels.is_layered() {
+            return;
+        }
+
+        for (index, &handle) in self.dynamic_bodies.iter().enumerate() {
+            let Some(state) = self.dynamic_states.get_mut(index) else {
+                continue;
+            };
+            let Some(&collider) = world
+                .bodies
+                .get(handle)
+                .and_then(|body| body.colliders().first())
+            else {
+                continue;
+            };
+            // позиция тела — угол объекта, а не центр: клетку под телом
+            // спрашиваем у коллайдера, он стоит по центру
+            let pos = world.colliders[collider].translation();
+            let before = body_collision_mask(state);
+
+            step_body_level(state, pos.x, pos.y, &self.levels, fall, dt);
+
+            let after = body_collision_mask(state);
+
+            if after != before && let Some(collider) = world.colliders.get_mut(collider) {
+                collider.set_collision_groups(levels_interaction(after));
+            }
+        }
     }
 
     /// Уровни статических тел (отладочный дамп).
@@ -1048,8 +1382,8 @@ impl GameMap {
     }
 
     /// Уровни динамических тел (отладочный дамп).
-    pub fn dynamic_levels(&self) -> &[u8] {
-        &self.dynamic_levels
+    pub fn dynamic_levels(&self) -> Vec<u8> {
+        self.dynamic_states.iter().map(|state| state.level).collect()
     }
 
     // ***** отладочный дамп (crate::debug) ***** //
@@ -1073,12 +1407,19 @@ impl GameMap {
         }
 
         self.static_levels.clear();
-        self.dynamic_levels.clear();
+        self.dynamic_states.clear();
     }
 
     /// Краткие данные динамических элементов (Map.getDynamicMapData):
     /// индекс → [x, y, angle] (как поля строки блока), значения скруглены
     /// до 2 знаков.
+    ///
+    /// При `with_levels` в голову строки добавляются `z` и `level`
+    /// (позиции 3 и 4) — контракт схемы блока: игра, объявившая эти два
+    /// поля, получает слоёную строку, игра со старой схемой — прежние три
+    /// поля. Место в ГОЛОВЕ, а не в хвосте, обязательно: отсутствующий
+    /// хвост распаковывается нулями, и покоящийся ящик на мосту у зрителя
+    /// «упал» бы на землю.
     ///
     /// При `with_velocities` движущееся тело отдаёт ещё и хвост
     /// [vx, vy, angvel] (кадр v4, `optionalFrom` в схеме блока): клиент
@@ -1088,6 +1429,7 @@ impl GameMap {
     pub fn dynamic_map_data(
         &self,
         world: &PhysicsWorld,
+        with_levels: bool,
         with_velocities: bool,
     ) -> Vec<(u8, Vec<FieldValue>)> {
         self.dynamic_bodies
@@ -1102,6 +1444,13 @@ impl GameMap {
                         FieldValue::F32(round2(pos.y)),
                         FieldValue::F32(round2(body.rotation().angle())),
                     ];
+
+                    if with_levels {
+                        let state = self.dynamic_level_state(index);
+
+                        fields.push(FieldValue::F32(round2(state.z)));
+                        fields.push(FieldValue::U8(state.level));
+                    }
 
                     if with_velocities {
                         let linvel = body.linvel();
@@ -1514,6 +1863,356 @@ mod tests {
         let error = cfg.validate().unwrap_err();
 
         assert!(error.contains("out of range"), "{error}");
+    }
+
+    // карта 4×4 из трёх плит друг над другом: у каждой пол в клетке (1, 1)
+    fn stacked_config(levels: u8) -> MapConfig {
+        let mut cfg = serde_json::json!({
+            "step": 20.0,
+            "map": [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+            "physicsStatic": [],
+            "levels": {}
+        });
+
+        for level in 1..=levels {
+            let mut grid = vec![vec![0; 4]; 4];
+
+            grid[1][1] = 5;
+
+            cfg["levels"][level.to_string()] = serde_json::json!({
+                "map": grid,
+                "floor": [5]
+            });
+        }
+
+        serde_json::from_value(cfg).unwrap()
+    }
+
+    // земля со стеной в клетке (2, 1); плита уровня 1 накрывает (1, 1) и
+    // (2, 1), плита уровня 2 стоит только над (1, 1)
+    fn slab_over_slab_config() -> MapConfig {
+        serde_json::from_value(serde_json::json!({
+            "step": 20.0,
+            "map": [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+            "physicsStatic": [1],
+            "levels": {
+                "1": {
+                    "map": [[0, 0, 0, 0], [0, 5, 5, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                    "floor": [5]
+                },
+                "2": {
+                    "map": [[0, 0, 0, 0], [0, 6, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                    "floor": [6]
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    // рампа с земли на уровень 2: прогон из клеток (1, 2) и (2, 2),
+    // выход — клетка (3, 2) плиты уровня 2. `through_slab` кладёт плиту
+    // уровня 1 ровно на клетки прогона
+    fn long_ramp_config(through_slab: bool) -> MapConfig {
+        let mut level1 = vec![vec![0; 5]; 5];
+
+        if through_slab {
+            level1[2][1] = 8;
+            level1[2][2] = 8;
+        }
+
+        let mut level2 = vec![vec![0; 5]; 5];
+
+        level2[2][3] = 6;
+
+        let mut grid = vec![vec![0; 5]; 5];
+
+        grid[2][1] = 7;
+        grid[2][2] = 7;
+
+        serde_json::from_value(serde_json::json!({
+            "step": 20.0,
+            "map": grid,
+            "physicsStatic": [],
+            "levels": {
+                "1": { "map": level1, "floor": [8] },
+                "2": { "map": level2, "floor": [6] }
+            },
+            "ramps": [{ "tile": 7, "dir": "east", "from": 0, "to": 2 }]
+        }))
+        .unwrap()
+    }
+
+    fn as_f32(value: &FieldValue) -> f32 {
+        match *value {
+            FieldValue::F32(v) => v,
+            FieldValue::U8(v) => v as f32,
+            FieldValue::U16(v) => v as f32,
+            FieldValue::U32(v) => v as f32,
+        }
+    }
+
+    #[test]
+    fn level_group_gives_one_bit_per_level() {
+        let mut seen = Group::empty();
+
+        for level in 0..MAX_LEVELS as u8 {
+            let group = level_group(level);
+
+            assert_eq!(group.bits().count_ones(), 1, "level {level}: {group:?}");
+            assert!(!seen.contains(group), "level {level} повторил чужой бит");
+            assert!(
+                !group.intersects(STATIC_LEVEL_GROUP),
+                "level {level} наехал на группу статики"
+            );
+
+            seen |= group;
+        }
+
+        // значения уровней 0 и 1 — прежние: на них собраны все карты и все
+        // ожидания уже написанных тестов
+        assert_eq!(level_group(0), Group::GROUP_1);
+        assert_eq!(level_group(1), Group::GROUP_2);
+    }
+
+    #[test]
+    fn validate_accepts_three_levels_and_rejects_a_gap() {
+        stacked_config(3).validate().unwrap();
+
+        let mut cfg = stacked_config(3);
+
+        cfg.levels.shift_remove("2");
+
+        let error = cfg.validate().unwrap_err();
+
+        assert!(error.contains("without gaps"), "{error}");
+    }
+
+    #[test]
+    fn validate_rejects_more_levels_than_supported() {
+        let error = stacked_config(MAX_LEVELS as u8).validate().unwrap_err();
+
+        assert!(error.contains("at most"), "{error}");
+    }
+
+    #[test]
+    fn landing_level_picks_nearest_slab_below() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &slab_over_slab_config(), 1.0, "set");
+        let levels = map.levels();
+
+        // под клеткой (2, 1) плита уровня 1
+        assert_eq!(levels.landing_level(2, 50.0, 30.0), 1);
+        // над клеткой (0, 0) нет ничего, кроме земли
+        assert_eq!(levels.landing_level(2, 10.0, 10.0), 0);
+        assert_eq!(levels.landing_level(1, 50.0, 30.0), 0);
+    }
+
+    #[test]
+    fn open_edge_over_a_slab_is_valid() {
+        // край плиты уровня 2 выходит на плиту уровня 1, под которой стена
+        // земли: до появления `landing_level` это была ошибка «нет земли»
+        slab_over_slab_config().validate().unwrap();
+    }
+
+    #[test]
+    fn ramp_may_climb_two_levels_but_not_through_a_slab() {
+        long_ramp_config(false).validate().unwrap();
+
+        let error = long_ramp_config(true).validate().unwrap_err();
+
+        assert!(error.contains("through level 1 floor"), "{error}");
+    }
+
+    #[test]
+    fn ramp_sample_reports_slope_and_direction() {
+        let mut world = make_world();
+        // прогон из трёх клеток по 20 юнитов, подъём на один уровень
+        let north = GameMap::create(&mut world, &ramp_config("north"), 1.0, "set");
+        let sample = north.ramp_at(10.0, 30.0).unwrap();
+
+        assert_eq!(sample.dir, [0.0, -1.0]);
+        assert_eq!(sample.axis, 1);
+        assert_eq!(sample.run, 0);
+        assert!((sample.slope - 1.0 / 60.0).abs() < 1e-6, "{}", sample.slope);
+
+        // тот же подъём втрое короче — втрое круче
+        let mut cfg = ramp_config("north");
+
+        cfg.map[1][0] = 0;
+        cfg.map[2][0] = 0;
+
+        let mut world = make_world();
+        let short = GameMap::create(&mut world, &cfg, 1.0, "set");
+        let steep = short.ramp_at(10.0, 10.0).unwrap();
+
+        assert!(steep.slope > sample.slope * 2.9, "{}", steep.slope);
+
+        let mut world = make_world();
+        let east = GameMap::create(&mut world, &long_ramp_config(false), 1.0, "set");
+        let east = east.ramp_at(30.0, 50.0).unwrap();
+
+        assert_eq!(east.dir, [1.0, 0.0]);
+        assert_eq!(east.axis, 0);
+        // подъём на два уровня по двум клеткам — вдвое круче подъёма на один
+        assert!((east.slope - 2.0 / 40.0).abs() < 1e-6, "{}", east.slope);
+    }
+
+    #[test]
+    fn fall_model_duration_grows_with_height() {
+        let fall = FallModel::default();
+
+        assert!(fall.duration(3.0) > fall.duration(1.0));
+        assert_eq!(fall.duration(2.0), 2.0 * fall.duration(1.0));
+        assert_eq!(fall.duration(-2.0), fall.duration(2.0));
+    }
+
+    #[test]
+    fn fall_model_elapsed_is_inverse_of_z() {
+        let fall = FallModel::default();
+
+        for (from, to) in [(1.0_f32, 0.0_f32), (3.0, 1.0), (2.0, 0.0)] {
+            for step in 0..=10 {
+                let elapsed = fall.duration(from - to) * step as f32 / 10.0;
+                let z = fall.z_at(from, to, elapsed);
+
+                assert!(
+                    (fall.elapsed_at(from, to, z) - elapsed).abs() < 1e-4,
+                    "{from}->{to} на {elapsed}: z {z}"
+                );
+            }
+        }
+
+        // мгновенное падение (нулевая высота) фазы не имеет
+        assert_eq!(fall.elapsed_at(1.0, 1.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn body_off_the_slab_falls_to_the_landing_level() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &slab_over_slab_config(), 1.0, "set");
+        let levels = map.levels();
+        let fall = FallModel::default();
+        let mut state = BodyLevelState::grounded(2);
+
+        // клетка (2, 1): плиты уровня 2 нет, под ней плита уровня 1
+        step_body_level(&mut state, 50.0, 30.0, levels, &fall, 0.1);
+
+        assert_eq!(state.falling.map(|(to, _)| to), Some(1));
+        assert_eq!(body_collision_mask(&state), STATIC_LEVEL_GROUP);
+
+        let mut landed = false;
+
+        for _ in 0..100 {
+            if step_body_level(&mut state, 50.0, 30.0, levels, &fall, 0.1)
+                == BodyLevelEvent::Landed
+            {
+                landed = true;
+                break;
+            }
+
+            assert!(state.z < 2.0 && state.z > 1.0, "{}", state.z);
+        }
+
+        assert!(landed, "тело не приземлилось");
+        assert_eq!(state.level, 1);
+        assert_eq!(state.z, 1.0);
+        assert_eq!(body_collision_mask(&state), level_group(1));
+    }
+
+    #[test]
+    fn body_on_the_slab_and_on_a_ramp_stays_put() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &slab_over_slab_config(), 1.0, "set");
+        let fall = FallModel::default();
+        let mut state = BodyLevelState::grounded(2);
+
+        // в глубине плиты уровня 2
+        step_body_level(&mut state, 30.0, 30.0, map.levels(), &fall, 0.1);
+
+        assert_eq!(state, BodyLevelState::grounded(2));
+
+        // на клетке рампы тело сохраняет свой уровень: рампы телам
+        // недоступны, их толкают, а не ведут
+        let mut world = make_world();
+        let ramp = GameMap::create(&mut world, &long_ramp_config(false), 1.0, "set");
+        let mut state = BodyLevelState::grounded(1);
+
+        step_body_level(&mut state, 30.0, 50.0, ramp.levels(), &fall, 0.1);
+
+        assert_eq!(state, BodyLevelState::grounded(1));
+    }
+
+    #[test]
+    fn step_dynamic_levels_moves_the_body_group() {
+        let mut cfg = slab_over_slab_config();
+
+        // ящик 10×10 центром в клетке (0, 1): плиты уровня 1 под ним нет
+        cfg.physics_dynamic = vec![DynamicObjectConfig {
+            position: [5.0, 25.0],
+            angle: 0.0,
+            width: 10.0,
+            height: 10.0,
+            density: 1.0,
+            linear_damping: None,
+            angular_damping: None,
+            level: 1,
+        }];
+
+        let mut world = make_world();
+        let mut map = GameMap::create(&mut world, &cfg, 1.0, "set");
+        let fall = FallModel::default();
+
+        map.step_dynamic_levels(&mut world, &fall, 0.05);
+
+        assert!(map.dynamic_level_state(0).falling.is_some());
+        assert_eq!(
+            collision_groups(&world, map.dynamic_bodies[0]).memberships,
+            STATIC_LEVEL_GROUP
+        );
+
+        for _ in 0..100 {
+            map.step_dynamic_levels(&mut world, &fall, 0.05);
+        }
+
+        assert_eq!(map.dynamic_level(0), 0);
+        assert_eq!(map.dynamic_level_state(0).z, 0.0);
+        assert_eq!(
+            collision_groups(&world, map.dynamic_bodies[0]).memberships,
+            Group::GROUP_1
+        );
+    }
+
+    #[test]
+    fn dynamic_map_data_writes_levels_only_for_the_new_schema() {
+        let mut cfg = layered_config();
+
+        cfg.physics_dynamic = vec![DynamicObjectConfig {
+            position: [20.0, 20.0],
+            angle: 0.0,
+            width: 20.0,
+            height: 20.0,
+            density: 1.0,
+            linear_damping: None,
+            angular_damping: None,
+            level: 1,
+        }];
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+
+        let rows = map.dynamic_map_data(&world, true, true);
+        let (index, fields) = &rows[0];
+
+        // покоящееся тело хвоста скоростей не шлёт, но z/level в голове есть
+        assert_eq!(*index, 0);
+        assert_eq!(fields.len(), 5);
+        assert_eq!(as_f32(&fields[3]), 1.0);
+        assert_eq!(as_f32(&fields[4]), 1.0);
+
+        // игра со старой схемой получает прежние три поля
+        let rows = map.dynamic_map_data(&world, false, true);
+
+        assert_eq!(rows[0].1.len(), 3);
     }
 
     #[test]

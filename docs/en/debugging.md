@@ -326,8 +326,10 @@ Both cores expose a curated dump (raw rapier serde output is unreadable):
   `mass`, `bodyType`, `ccd`), `colliders` (`shape` +
   `halfExtents`/`radius`, `isSensor`, collision/solver groups in hex,
   `parent`), `map` (`setId`, `step`, grid size, static/dynamic body
-  counts, respawns), `nav` (nodes/edges/grid step), `spatial` (cell size,
-  per-cell counts), `rng.state`, `step.accumulator`;
+  counts, respawns, `dynamicLevels` — the level of every dynamic body,
+  which moves at runtime now that a body left without floor falls),
+  `nav` (nodes/edges/grid step), `spatial` (cell size, per-cell counts),
+  `rng.state`, `step.accumulator`;
 - **client core** — `ClientCore.debug_json()`: `myGameId`, `offset`,
   `hotLen`, `framesOut`, and `interpolator` (buffer depth, `seqWindow`,
   last frame `seq`/`serverTime`, `offset`, `lastRenderTime`).

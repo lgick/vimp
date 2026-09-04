@@ -637,7 +637,7 @@ function applyMapData(data, { notifyHost = true } = {}) {
   const staticData = {};
   let staticIndex = 0;
 
-  const pushLayers = (levelLayers, levelMap, level, solid, floor) => {
+  const pushLayers = (levelLayers, levelMap, level, solid, floor, volumes) => {
     for (const [layer, tiles] of Object.entries(levelLayers || {})) {
       staticData[`s${staticIndex}`] = {
         type: 'static',
@@ -649,6 +649,9 @@ function applyMapData(data, { notifyHost = true } = {}) {
         level,
         solid,
         floor,
+        // визуальная высота слоя в уровнях: ядро её не знает, поле едет из
+        // карты прямо в парт. 0 — слой плоский
+        volume: Number(volumes?.[layer]) || 0,
         // прежнее имя оставлено для парта, который его уже читает
         physicsStatic,
         scale,
@@ -658,7 +661,7 @@ function applyMapData(data, { notifyHost = true } = {}) {
     }
   };
 
-  pushLayers(layers, map, 0, physicsStatic, []);
+  pushLayers(layers, map, 0, physicsStatic, [], data.volumes);
 
   for (const [key, levelData] of Object.entries(data.levels || {})) {
     const level = Number(key);
@@ -669,6 +672,7 @@ function applyMapData(data, { notifyHost = true } = {}) {
       level,
       levelData.walls || [],
       levelData.floor || [],
+      levelData.volumes,
     );
   }
 

@@ -317,6 +317,25 @@ describe('RoundManager.overrideMapData', () => {
     expect(rm._scaledMapData.ramps).toEqual(ramps);
   });
 
+  it('поле, о котором хост не знает, доезжает до MAP_DATA как есть', () => {
+    // `volumes` (высоты рендер-слоёв) и любое будущее поле карты хост не
+    // читает и не масштабирует — он обязан довезти его до клиента. Ничем,
+    // кроме этого теста, свойство не закреплено: сломается оно молча
+    const rm = makeCtx();
+    const volumes = { 1: 0.6 };
+
+    rm.overrideMapData({
+      scale: 2,
+      step: 64,
+      respawns: { players: [[9, 9, 0]] },
+      volumes,
+      levels: { 1: { map: [[0, 1]], floor: [1], walls: [], volumes: { 2: 1 } } },
+    });
+
+    expect(rm._scaledMapData.volumes).toEqual(volumes);
+    expect(rm._scaledMapData.levels[1].volumes).toEqual({ 2: 1 });
+  });
+
   it('пустое значение игнорируется — карту нечем заменить', () => {
     const rm = makeCtx();
     const before = rm._scaledMapData;

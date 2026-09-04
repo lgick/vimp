@@ -386,6 +386,10 @@
       "since": "0.25.0"
     },
     {
+      "name": "map.levelsN",
+      "since": "0.31.0"
+    },
+    {
       "name": "stat.leaderboard",
       "since": "0.20.0"
     }
@@ -436,6 +440,7 @@
     "currentMap",
     "endlessRound",
     "initialVote",
+    "mapFallTime",
     "mapScale",
     "mapSetId",
     "maps",

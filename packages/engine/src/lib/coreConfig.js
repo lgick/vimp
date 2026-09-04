@@ -30,6 +30,7 @@ export const buildCoreConfig = (gameConfig, overrides = {}) => {
     friendlyFire: gameConfig.parts.friendlyFire,
     mapScale: gameConfig.mapScale,
     mapSetId: gameConfig.mapSetId,
+    mapFallTime: gameConfig.mapFallTime,
     models,
     weapons,
     playerKeys: gameConfig.playerKeys,
@@ -50,6 +51,9 @@ export const buildCoreConfig = (gameConfig, overrides = {}) => {
       timeStep: flat.timeStep,
       mapScale: flat.mapScale,
       mapSetId: flat.mapSetId,
+      // движковый ключ, а не coreParams: траектория падения одна на танки и
+      // на тела карты, подменять её игровой половиной нельзя
+      mapFallTime: flat.mapFallTime,
       snapshot: flat.snapshot,
       seed: flat.seed,
     },

@@ -38,6 +38,17 @@ describe('buildCoreConfig', () => {
     expect(config.game.friendlyFire).toBe(false);
   });
 
+  it('mapFallTime — движковый ключ, игровая половина его не видит', () => {
+    // траектория падения общая для танков и тел карты: подмена её игровым
+    // coreParams развела бы ящик и танк молча
+    const config = buildCoreConfig(
+      makeView({ mapFallTime: 0.5, coreParams: { mapFallTime: 9 } }),
+    );
+
+    expect(config.engine.mapFallTime).toBe(0.5);
+    expect(config.game.mapFallTime).toBe(9);
+  });
+
   it('карта без coreParams собирается как раньше', () => {
     const config = buildCoreConfig(makeView());
 

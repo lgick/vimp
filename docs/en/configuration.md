@@ -157,6 +157,20 @@ nor validates the rest — it only delivers it to `GameSim::new`, which is
 what lets a game add a parameter to its core without an engine release
 (`vimp-tanks`, for one, passes the 2.5D fall parameters this way).
 
+`mapFallTime` — seconds of falling per level of height (0.35 by default).
+Unlike `coreParams` it is an **engine** key: `buildCoreConfig` puts it in the
+`engine` half, because the trajectory (`FallModel` in the core) is shared by
+whatever the game drops and by the map's own dynamic bodies, which the engine
+steps itself. A map body that runs out of floor under it falls to the nearest
+slab below.
+
+`maps[].volumes` (and `maps[].levels[n].volumes`) — an optional
+`{ "<layers key>": height }` dictionary: the visual height of a render layer
+in levels. It is validated by the core and by contract rule **E4** (the key
+has to name a render layer of the same level, the height has to be within
+`(0, 8]`), travels through the host untouched and reaches the render part as
+`volume`; the geometry is the game's business.
+
 `spectatorKeys` — a spectator's commands (`nextPlayer`/`prevPlayer`); the
 set is engine-owned and lives in
 `packages/engine/src/config/hostDefaults.js`. `playerKeys` (a player's

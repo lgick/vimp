@@ -145,10 +145,12 @@ have to set their own prediction distance the same way.
 
 ## Layered maps (2.5D)
 
-A map may carry above-ground levels next to the ground. Level 0 stays in
-`map` / `physicsStatic` / `layers`, so a map without the new fields loads
-exactly as before. A second level arrives in the optional `levels` field and
-the transitions between levels in the optional `ramps` field:
+A map may carry above-ground levels next to the ground: level 0 is the
+ground, levels 1..7 are overhead (`MAX_LEVELS` = 8, one Rapier mask bit per
+level). Level 0 stays in `map` / `physicsStatic` / `layers`, so a map without
+the new fields loads exactly as before. The other levels arrive in the
+optional `levels` field and the transitions between them in the optional
+`ramps` field:
 
 ```json
 {
@@ -166,7 +168,12 @@ the transitions between levels in the optional `ramps` field:
   tile has to be part of `floor` too, otherwise it hangs in the air and does
   not shield the ray from below.
 * `dir` is the direction of the *climb* (`north` = `-y`, `south` = `+y`,
-  `west` = `-x`, `east` = `+x`); `from`/`to` default to `0`/`1`.
+  `west` = `-x`, `east` = `+x`); `from`/`to` default to `0`/`1` and may span
+  more than one level.
+* `volumes` — optional, next to `layers` at any level: the visual height of a
+  render layer in levels (`{ "<layers key>": 0.6 }`). The core never uses it;
+  it travels to the client and lives in the renderer, but is validated here,
+  because a typo in a layer key would otherwise give a flat map in silence.
 * `physicsDynamic[].level` places a dynamic body on a level; a respawn point
   may name its level as a 4th number (`[x, y, angleDeg, level]`) — without it
   the level is derived from the geometry (`GameMap::level_at`).
@@ -179,9 +186,13 @@ they are all silent. Two of the checks are about the geometry a level is for:
   to be drivable surface of the level it climbs to, or the tank reaches the
   top and falls in the same step;
 * a **slab edge must be railed or land somewhere** — a `floor` cell whose
-  neighbour is neither floor nor railing is a ledge, and the fall from it
-  has to land on walkable ground of level 0; over the grid border or over a
-  wall it is an error (level-0 walls are no obstacle to a tank on the slab).
+  neighbour is neither floor nor railing is a ledge, and the fall from it has
+  to land on the walkable surface of `MapLevels::landing_level` (the nearest
+  level below with a floor there, the ground if there is none); over the grid
+  border or over a wall it is an error (walls of a lower level are no
+  obstacle to a tank on the slab);
+* a **ramp must not climb through a slab** — a run of a `from -> to` ramp may
+  not pass under the floor of a level in between.
 
 The shape checks live in `map::validate_levels`, a free function taking the
 raw `levels`/`ramps` fields, so a game's client replica can run the very same
@@ -198,10 +209,38 @@ the same `MAP_DATA` fields, so both sides answer `level_at`, `has_floor`,
 would drift from the authoritative one silently.
 
 Physics separates the levels with Rapier masks: `level_interaction(level)`
-puts a body in `GROUP_1` (ground) or `GROUP_2` (overpass) and lets it see
-only its own level. A body that sets no groups keeps `Group::ALL` and still
-interacts with level 0, so single-level worlds and games that know nothing
-about levels are unaffected.
+puts a body in the group of its level (bit `N` for level `N`: `GROUP_1` is
+the ground, `GROUP_2` the first overpass) and lets it see only that level;
+`STATIC_LEVEL_GROUP` (bit 8) is the shared group of the walls. A body that
+sets no groups keeps `Group::ALL` and still interacts with level 0, so
+single-level worlds and games that know nothing about levels are unaffected.
+
+`ramp_at` returns the ramp under a point: `progress` along the run, `from` /
+`to`, the uphill unit vector `dir` and the steepness `slope` (levels per
+world unit — the grade under a heading is `slope * dot(dir, heading)`), plus
+`run` / `axis`, which tell entering a run from its foot apart from driving
+onto it from the side.
+
+Falling is one primitive for the whole ecosystem — `FallModel`, linear in `z`
+with a duration that grows with the height (`EngineConfig.mapFallTime`,
+0.35 s per level). A game adds its own rules on top (blocked input, damage)
+but has to take the trajectory from here, or a crate and a tank fall
+differently and diverge in silence. `elapsed_at` is the inverse of `z_at`: a
+client replica restores the phase of a fall from an authoritative frame.
+
+Map bodies live by the same rules: `GameMap::step_dynamic_levels` (called by
+`EngineSim::step_fixed` before the world step — a game only ever sees the map
+by `&`) runs `step_body_level` for every dynamic body. A crate that runs out
+of floor falls to its `landing_level`, carries `STATIC_LEVEL_GROUP` while it
+falls (walls yes, bodies no) and takes the group of the level it lands on.
+Ramps are not for bodies — they are pushed, not driven — so a body on a ramp
+cell keeps its level. With `dynamic_map_data(world, with_levels, ...)` the
+row of the map-dynamics block becomes `[x, y, angle, z, level]`; the engine
+turns it on when the game's schema for the map set names fields 3 and 4 `z`
+and `level`, so a game with the old schema keeps its three fields. The pair
+goes in the head and not in the optional tail: a missing tail unpacks as
+zeros, and a crate resting on a bridge would land on the ground at the
+viewer.
 
 A game reads a participant's level from `GameSim::set_actor_level` (the ABI
 method of the same name), which the engine calls right after
@@ -210,7 +249,8 @@ implementation is a no-op.
 
 Bot navigation on such a map is built by `NavigationSystem::generate_layered`:
 nodes on every level, two-way ramp edges, and one-way ledge edges (top →
-bottom only, with a penalty, because the jump costs the game's `fallDamage`).
+bottom only, to `landing_level`, with a penalty per level of height, because
+the jump costs the game's `fallDamage`).
 Paths are searched with `find_path_on(PathPoint, PathPoint)`; a level change
 between two neighbouring points of the path means a ramp or a ledge.
 

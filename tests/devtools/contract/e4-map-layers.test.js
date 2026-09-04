@@ -77,6 +77,44 @@ describe('E4 mapLayers', () => {
     }))).toMatch(/layer 2 names tile 99/);
   });
 
+  it('открытый край над плитой нижнего уровня — законный обрыв', () => {
+    // до `landing_level` край требовал проходимой ЗЕМЛИ: плита этажом ниже
+    // ошибкой не является, с неё просто падают на неё же
+    const row = (a, b, c, d, e) => [a, b, c, d, e];
+    const ground = Array.from({ length: 5 }, () => row(0, 0, 0, 0, 0));
+
+    // уровень 1 — плита 5x5, край закрыт перилами (тайл 1)
+    const slab = [
+      row(1, 1, 1, 1, 1),
+      row(1, 0, 0, 0, 1),
+      row(1, 0, 0, 0, 1),
+      row(1, 0, 0, 0, 1),
+      row(1, 1, 1, 1, 1),
+    ];
+
+    // уровень 2 — одинокая клетка без перил: все четыре её стороны открыты,
+    // и под ними плита уровня 1
+    const island = [
+      row(2, 2, 2, 2, 2),
+      row(2, 2, 2, 2, 2),
+      row(2, 2, 0, 2, 2),
+      row(2, 2, 2, 2, 2),
+      row(2, 2, 2, 2, 2),
+    ];
+
+    const map = {
+      map: ground,
+      physicsStatic: [],
+      layers: { 1: [0] },
+      levels: {
+        1: { map: slab, floor: [0, 1], walls: [1], layers: { 2: [0, 1] } },
+        2: { map: island, floor: [0], walls: [], layers: { 3: [0] } },
+      },
+    };
+
+    expect(check({ m1: map }).status).toBe(PASS);
+  });
+
   it('нарушения складываются, а не обрываются на первом', () => {
     const result = check(broken(m => {
       m.levels[1].walls = [8, 5];

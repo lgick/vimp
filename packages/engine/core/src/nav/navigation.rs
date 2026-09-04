@@ -9,9 +9,9 @@ use crate::rng::Rng;
 // коэффициент шага сетки
 const COEF_GRID_STEP: f32 = 2.0;
 
-/// Штраф ребра «спрыгнуть с обрыва» в единицах длины: бот выбирает
-/// прыжок, только если он экономит больше этого. Прыжок стоит здоровья
-/// (fallDamage игры), поэтому дешёвым он быть не должен.
+/// Штраф ребра «спрыгнуть с обрыва» в единицах длины НА УРОВЕНЬ высоты:
+/// бот выбирает прыжок, только если он экономит больше этого. Прыжок стоит
+/// здоровья (fallDamage игры), и стоит тем дороже, чем выше падать.
 const LEDGE_PENALTY: f32 = 1500.0;
 
 /// Точка пути с уровнем: смена уровня между соседними точками означает
@@ -324,9 +324,13 @@ impl NavigationSystem {
                             continue;
                         }
 
+                        // падают не обязательно на землю: под обрывом может
+                        // быть плита этажом ниже
+                        let landing = levels.landing_level(level, wx, wy);
+
                         let (Some(top), Some(bottom)) = (
                             self.closest_visible_node_on(level, [x, y]),
-                            self.closest_visible_node_on(0, [wx, wy]),
+                            self.closest_visible_node_on(landing, [wx, wy]),
                         ) else {
                             continue;
                         };
@@ -335,9 +339,12 @@ impl NavigationSystem {
                             continue;
                         }
 
+                        let height = (level - landing) as f32;
+
                         self.edges[top].push(Edge {
                             node: bottom,
-                            weight: distance(self.nodes[top], self.nodes[bottom]) + LEDGE_PENALTY,
+                            weight: distance(self.nodes[top], self.nodes[bottom])
+                                + LEDGE_PENALTY * height,
                         });
                         self.ledge_edges += 1;
                     }
@@ -677,6 +684,7 @@ mod tests {
                 floor: vec![9],
                 walls: vec![],
                 layers: IndexMap::new(),
+                volumes: IndexMap::new(),
             },
         );
 
@@ -791,6 +799,85 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    // две плиты друг над другом: уровень 1 занимает колонки `l1..8`,
+    // уровень 2 — `l2..8`. Меняя границы, получаем обрыв уровня 2 то на
+    // плиту уровня 1, то сразу на землю
+    fn stacked(l1: usize, l2: usize) -> MapLevels {
+        use crate::map::MapLevelConfig;
+
+        let grid0 = vec![vec![0; 8]; 8];
+        let mut levels = IndexMap::new();
+
+        for (level, from, tile) in [(1u8, l1, 9), (2, l2, 7)] {
+            levels.insert(
+                level.to_string(),
+                MapLevelConfig {
+                    map: (0..8)
+                        .map(|_| (0..8).map(|x| if x >= from { tile } else { 0 }).collect())
+                        .collect(),
+                    floor: vec![tile],
+                    walls: vec![],
+                    layers: IndexMap::new(),
+                    volumes: IndexMap::new(),
+                },
+            );
+        }
+
+        MapLevels::build(&grid0, &[], &levels, &[], 10.0)
+    }
+
+    // штрафы рёбер-обрывов, начинающихся на уровне `level`: вес минус
+    // геометрическая длина
+    fn ledge_penalties(nav: &NavigationSystem, level: u8) -> Vec<(u8, f32)> {
+        let mut out = Vec::new();
+
+        for (index, edges) in nav.edges.iter().enumerate() {
+            if nav.node_level(index) != level {
+                continue;
+            }
+
+            for edge in edges {
+                let to = nav.node_level(edge.node);
+
+                if to >= level {
+                    continue;
+                }
+
+                out.push((to, edge.weight - distance(nav.nodes[index], nav.nodes[edge.node])));
+            }
+        }
+
+        out
+    }
+
+    #[test]
+    fn ledge_edge_lands_on_the_slab_below() {
+        let nav = NavigationSystem::generate_layered(&stacked(3, 5), 10.0);
+        let penalties = ledge_penalties(&nav, 2);
+
+        assert!(!penalties.is_empty(), "обрывов уровня 2 не построено");
+
+        for (to, penalty) in penalties {
+            // под обрывом уровня 2 лежит плита уровня 1, а не земля
+            assert_eq!(to, 1);
+            assert!((penalty - LEDGE_PENALTY).abs() < 1.0, "{penalty}");
+        }
+    }
+
+    #[test]
+    fn ledge_penalty_grows_with_height() {
+        // плита уровня 2 нависает над голой землёй: падать вдвое выше
+        let nav = NavigationSystem::generate_layered(&stacked(6, 4), 10.0);
+        let penalties = ledge_penalties(&nav, 2);
+
+        assert!(!penalties.is_empty(), "обрывов уровня 2 не построено");
+
+        for (to, penalty) in penalties {
+            assert_eq!(to, 0);
+            assert!((penalty - 2.0 * LEDGE_PENALTY).abs() < 1.0, "{penalty}");
+        }
     }
 
     #[test]

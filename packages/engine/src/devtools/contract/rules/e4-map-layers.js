@@ -40,11 +40,24 @@ export default {
 
 const RAMP_DIRS = ['north', 'south', 'west', 'east'];
 
+// Зеркало `vimp_engine_core::map::MAX_LEVELS`: уровни занимают биты 0..7
+// маски Rapier, бит 8 отдан статике. Константа живёт в Rust, поэтому здесь
+// она — копия, и расходится она молча: сторожем стоит фикстура
+// `bad-levels-too-many.json` общего корпуса.
+const MAX_LEVELS = 8;
+
 function checkMap(name, map, violations) {
   const at = `map "${name}"`;
   const levels = map.levels ?? {};
   // уровень 0 живёт в map/physicsStatic/layers и в `levels` не значится
   const levelCount = Object.keys(levels).length + 1;
+
+  // 0. потолок уровней: больше битов у маски нет
+  if (levelCount > MAX_LEVELS) {
+    violations.push(
+      `${at}: ${levelCount} levels, at most ${MAX_LEVELS} supported`,
+    );
+  }
 
   // 1. ключи — целые >= 1, подряд от 1
   const keys = Object.keys(levels).map(Number);
@@ -68,6 +81,9 @@ function checkMap(name, map, violations) {
       );
     }
   });
+
+  // 11. высоты объёмов уровня 0 живут в корне карты, как и его слои
+  checkVolumes(at, '0', map.layers, map.volumes, violations);
 
   const grid = map.map ?? [];
 
@@ -106,6 +122,9 @@ function checkMap(name, map, violations) {
 
     // 8. тайл рендер-слоя обязан существовать в тайл-листе по индексу
     checkLayerFrames(at, `level ${key}`, level?.layers, map.spriteSheet, violations);
+
+    // 11. высоты объёмов уровня
+    checkVolumes(at, key, level?.layers, level?.volumes, violations);
   }
 
   for (const [index, ramp] of (map.ramps ?? []).entries()) {
@@ -154,6 +173,10 @@ function checkMap(name, map, violations) {
         );
       }
     }
+
+    // 12. рампа через несколько уровней не имеет права прошивать плиту
+    // промежуточного: танк на ней въехал бы внутрь чужого моста
+    checkRampSlabs(at, map, index, ramp, from, to, fromGrid ?? [], violations);
   }
 
   // 10. край плиты без перил — обрыв; приземлиться с него нужно на
@@ -309,7 +332,12 @@ function checkLevelEdges(at, map, violations) {
             continue;
           }
 
-          if (groundWalkable(map, nx, ny)) {
+          // сосед вне плиты — обрыв: под ним обязана быть проходимая
+          // поверхность того уровня, на который тело приземлится (плита
+          // этажом ниже — законный обрыв, а не дыра)
+          const landing = landingLevel(map, Number(key), nx, ny);
+
+          if (walkable(map, landing, nx, ny)) {
             continue;
           }
 
@@ -321,6 +349,76 @@ function checkLevelEdges(at, map, violations) {
         }
       });
     });
+  }
+}
+
+// зеркало `MapLevels::landing_level` (и `config_landing_level` валидатора
+// ядра): ближайший уровень строго ниже `from` с плитой в этой клетке, иначе
+// земля
+function landingLevel(map, from, x, y) {
+  for (let level = from - 1; level >= 1; level -= 1) {
+    const cfg = (map.levels ?? {})[String(level)];
+    const tile = cellAt(cfg?.map ?? [], x, y);
+
+    if (tile !== undefined && (cfg?.floor ?? []).includes(tile)) {
+      return level;
+    }
+  }
+
+  return 0;
+}
+
+// клетки прогона рампы не должны лежать под плитой промежуточного уровня:
+// иначе подъём прошивает чужой мост
+function checkRampSlabs(at, map, index, ramp, from, to, grid, violations) {
+  const low = Math.min(from, to);
+  const high = Math.max(from, to);
+
+  for (let level = low + 1; level < high; level += 1) {
+    const cfg = (map.levels ?? {})[String(level)];
+
+    if (!cfg) {
+      continue;
+    }
+
+    grid.forEach((row, y) => {
+      row.forEach((tile, x) => {
+        if (tile !== ramp?.tile) {
+          return;
+        }
+
+        const over = cellAt(cfg.map ?? [], x, y);
+
+        if (over !== undefined && (cfg.floor ?? []).includes(over)) {
+          violations.push(
+            `${at}: ramp ${index} climbs ${from}->${to} through level ` +
+              `${level} floor at (${x}, ${y})`,
+          );
+        }
+      });
+    });
+  }
+}
+
+// высота рендер-слоя: ключ обязан быть ключом `layers` того же уровня,
+// значение — конечная высота в уровнях. Ядро высоты не использует, поэтому
+// опечатка в ключе даёт плоскую карту и ни одной строки в консоли
+function checkVolumes(at, key, layers, volumes, violations) {
+  for (const [layer, height] of Object.entries(volumes ?? {})) {
+    if (!Object.hasOwn(layers ?? {}, layer)) {
+      violations.push(
+        `${at}: level ${key} volumes names layer ${layer}, which is not a ` +
+          'render layer',
+      );
+      continue;
+    }
+
+    if (!Number.isFinite(height) || height <= 0 || height > MAX_LEVELS) {
+      violations.push(
+        `${at}: level ${key} volumes layer ${layer} height ${height} is not ` +
+          `in (0, ${MAX_LEVELS}]`,
+      );
+    }
   }
 }
 

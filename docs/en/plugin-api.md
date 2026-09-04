@@ -647,11 +647,25 @@ number, its level (`[x, y, angle, level]`), and a `physicsDynamic` object a
 `level` field; both default to the ground. The whole format is validated in
 the core (`MapConfig::validate`) and, before the build, by contract rule
 **E4**. A game that cannot run without it declares `requires:
-['map.layers']`.
+['map.layers']`; a game that needs more than two levels declares
+`map.levelsN` as well.
+
+Up to `MAX_LEVELS` (8) levels are supported — the ground plus seven overhead
+ones, one collision bit each — and a ramp may span more than one of them.
+Every level (the ground included) may carry `volumes`, an optional
+`{ "<layers key>": height }` map: the visual height of that render layer in
+levels. The core does not use it — it travels to the client and is built by
+the game's renderer — but it is validated on both sides: the key has to name
+a render layer of the same level, the height has to be within `(0, 8]`. The
+dynamic bodies of the map now have level rules of their own: a body that runs
+out of floor under it falls to the nearest slab below (`landing_level`), one
+trajectory (`FallModel`, `gameConfig.mapFallTime`, 0.35 s per level by
+default) shared with whatever the game drops.
 
 On the client the same `levels` reach the render parts: `applyMapData`
 builds the static data per level and hands each part instance its `level`,
-`solid` (blocking tiles) and `floor` — see
+`solid` (blocking tiles), `floor` and `volume` (the height of that layer from
+`volumes`, `0` when flat) — see
 [client.md](client.md#mainjs--bootstrap-dispatcher-and-render-loop). `setId` is the snapshot key the map's dynamics
 travels under (`c1`/`c2`): without it a game cannot tell its own dynamics
 block from another map constructor's.
@@ -951,9 +965,11 @@ in the append-only capability registry `src/lib/capabilities.js`, and a name
 the registry does not know means the game is newer than the engine. Currently
 registered: `stat.leaderboard` (rank-period leaderboard), `accolades`
 (`ACCOLADES_DATA` port and the client service), `dispatch` (`dispatch` /
-`abi_describe` in the core) and `map.layers` (layered 2.5D maps: `levels` /
+`abi_describe` in the core), `map.layers` (layered 2.5D maps: `levels` /
 `ramps` in the map format, level masks in physics, `set_actor_level`, the
-layered navigation graph). A registered name is supported forever — a
+layered navigation graph) and `map.levelsN` (more than two levels, ramps
+that span several of them, level rules and falling for map bodies, `z` /
+`level` in the dynamic row, `volumes`). A registered name is supported forever — a
 published game may have written it, and its `dist/` will never be touched
 again.
 

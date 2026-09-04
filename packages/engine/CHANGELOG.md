@@ -9,6 +9,41 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- **Capability `map.levelsN`** — maps with more than two levels: up to
+  `MAX_LEVELS` (8) levels with a collision bit each, ramps that span more
+  than one level, level rules and falling for map bodies, `z`/`level` in the
+  dynamic row and `volumes` (the visual height of a render layer). A game
+  that needs any of it declares the name in `requires` of the manifest and of
+  both plugin halves; `map.layers` keeps meaning what it meant.
+- **`volumes` reaches the render part** — a static layer context gains
+  `volume`, the height of that layer in levels (`0` — flat). The map field
+  travels untouched through the host (`scaleMapData` scales coordinates and
+  copies everything else), so the geometry is built by the game.
+- **`gameConfig.mapFallTime`** (seconds per level of height, default 0.35)
+  goes to the engine half of the core config as `mapFallTime`: one fall
+  trajectory for tanks and for map bodies. It is an engine key, not
+  `coreParams` — a game cannot swap it out.
+
+### Changed
+
+- **Rule `E4`** gained the checks the core gained in 0.12.0 of the crate: the
+  ceiling of `MAX_LEVELS` levels (it lived only in Rust before), a ramp that
+  climbs through the floor of an intermediate level, and the heights in
+  `volumes` (the key has to name a render layer of the same level, the height
+  has to be within `(0, 8]`). The open-edge check is softer to match: a ledge
+  over a slab one level down is legal, only a ledge over nothing (or over a
+  wall) is not.
+
+## [0.30.1] — 2026-09-04
+
+### Changed
+
+- Housekeeping release: the version references shipped to a new game
+  (`create-vimp-game`, `versions.generated.json` and the links the release
+  scripts write) now point at `vimp-engine` 0.30.1. No engine code changed.
+
 ## [0.30.0] — 2026-09-04
 
 ### Added
@@ -2040,6 +2075,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.30.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.30.1
 [0.30.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.30.0
 [0.29.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.29.0
 [0.28.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.28.0

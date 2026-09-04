@@ -19,6 +19,10 @@ pub struct EngineConfig {
     #[serde(default = "default_map_set_id")]
     pub map_set_id: String,
     pub snapshot: SnapshotConfig,
+    /// Секунды падения на уровень высоты (`FallModel::time_per_level`):
+    /// одна траектория на танки и на тела карты.
+    #[serde(default = "default_map_fall_time")]
+    pub map_fall_time: f32,
     /// Сид PRNG ботов/разброса (детерминизм воспроизводим при равном сиде).
     #[serde(default = "default_seed")]
     pub seed: u64,
@@ -72,6 +76,10 @@ fn default_divergence_threshold() -> f32 {
 
 fn default_divergence_capacity() -> usize {
     64
+}
+
+fn default_map_fall_time() -> f32 {
+    crate::map::DEFAULT_FALL_TIME
 }
 
 fn default_map_scale() -> f32 {

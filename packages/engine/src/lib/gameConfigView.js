@@ -28,6 +28,9 @@ const FIELDS = {
   mapsInVote: { default: 1 },
   mapScale: { default: 1 },
   mapSetId: { default: null },
+  // секунды падения на уровень высоты (FallModel ядра): игра, не знающая о
+  // многоуровневых картах, получает движковое умолчание и не замечает поля
+  mapFallTime: { default: 0.35 },
 
   // лимит комнаты: без него берётся движковый (hostDefaults.maxPlayers)
   'roomDefaults.maxPlayers': { default: hostDefaults.maxPlayers },
