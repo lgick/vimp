@@ -306,6 +306,16 @@ as-is in the frame) and `fields` — the row's field schema (`name`, `ty`:
 order (`GameCore`/`ClientCore` reject the constructor on a mismatch), and
 `optionalFrom` (if present) must point at a non-empty tail inside `fields`.
 
+A field may also declare `role` — its role in the engine's own contract, as
+opposed to its game-owned `name`. Today there are two, and they come as a
+pair in the map-dynamics block: `role: 'z'` at index 3 and `role: 'level'`
+at index 4 make the dynamic row layered (the body's height above its level
+and its level). The engine used to detect that pair by field *name*, so
+renaming a field silently returned a flat row; now the roles are the only
+authority, and a map load fails loudly when a role sits at the wrong index,
+when only one of the pair is declared, or when fields named `z`/`level`
+occupy those two slots without declaring roles.
+
 When adding a new weapon/entity, its snapshot key **must** be registered in
 the game plugin's schema (`src/config/snapshot.js`, e.g. `vimp-tanks`'s) — with a full
 `fields` list for its `kind` — or `pack_body`/the core constructor will

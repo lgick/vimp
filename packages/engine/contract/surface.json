@@ -386,6 +386,10 @@
       "since": "0.25.0"
     },
     {
+      "name": "map.levelHeight",
+      "since": "0.32.0"
+    },
+    {
       "name": "map.levelsN",
       "since": "0.31.0"
     },

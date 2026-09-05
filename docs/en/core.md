@@ -170,6 +170,10 @@ optional `levels` field and the transitions between them in the optional
 * `dir` is the direction of the *climb* (`north` = `-y`, `south` = `+y`,
   `west` = `-x`, `east` = `+x`); `from`/`to` default to `0`/`1` and may span
   more than one level.
+* `levelHeight` — optional, at the root of the map: the height of ONE level
+  in world units (the tile size by default). It makes `RampSample::slope` a
+  dimensionless gradient (`rise * levelHeight / span`) instead of «levels per
+  pixel», which is what every climb constant is tuned against.
 * `volumes` — optional, next to `layers` at any level: the visual height of a
   render layer in levels (`{ "<layers key>": 0.6 }`). The core never uses it;
   it travels to the client and lives in the renderer, but is validated here,
@@ -192,7 +196,12 @@ they are all silent. Two of the checks are about the geometry a level is for:
   border or over a wall it is an error (walls of a lower level are no
   obstacle to a tank on the slab);
 * a **ramp must not climb through a slab** — a run of a `from -> to` ramp may
-  not pass under the floor of a level in between.
+  not pass under the floor of a level in between;
+* **two ramps must not share a cell** — the run that claims a shared cell is
+  picked arbitrarily (the first declared one), so the climb would stop
+  following from the map;
+* **`levelHeight`, when present, must be finite and greater than 0** — it
+  scales the whole ramp slope.
 
 The shape checks live in `map::validate_levels`, a free function taking the
 raw `levels`/`ramps` fields, so a game's client replica can run the very same
@@ -211,7 +220,15 @@ would drift from the authoritative one silently.
 Physics separates the levels with Rapier masks: `level_interaction(level)`
 puts a body in the group of its level (bit `N` for level `N`: `GROUP_1` is
 the ground, `GROUP_2` the first overpass) and lets it see only that level;
-`STATIC_LEVEL_GROUP` (bit 8) is the shared group of the walls. A body that
+`STATIC_LEVEL_GROUP` (bit 8) is the shared group of the walls;
+`RAMP_GUARD_GROUP` (bit 9) is the group of the ramp guards — the colliders
+along both sides of a run and across its far end, built by
+`GameMap::create_static` for layered maps only. A body's filter comes from
+`body_filter(mask, on_ramp)` (`levels_interaction` / the `_on_ramp` variant):
+a body standing on the level the run starts from sees the guards, a body
+legally climbing the run does not, and a body of another level never matches
+them at all. Building that filter by hand in a game would be a second copy
+of the rule. A body that
 sets no groups keeps `Group::ALL` and still interacts with level 0, so
 single-level worlds and games that know nothing about levels are unaffected.
 

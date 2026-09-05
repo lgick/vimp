@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::nav::navigation::NavigationSystem;
 use crate::nav::spatial::SpatialGrid;
-use crate::config::{EngineConfig, PLAYER_STATE_LEN};
+use crate::config::{BlockSchema, EngineConfig, PLAYER_STATE_LEN};
 use crate::events::CoreEvent;
 use crate::map::{FallModel, GameMap, MapConfig};
 use crate::rng::Rng;
@@ -87,6 +87,17 @@ impl<G: GameDef> EngineSim<G> {
         let map_cfg: MapConfig = serde_json::from_str(json).map_err(|e| format!("bad map json: {e}"))?;
 
         map_cfg.validate()?;
+
+        // контракт слоёной строки динамики: роли пары `z`/`level`. Проверка
+        // до создания тел — отказ обязан оставить мир нетронутым
+        let set_id = map_cfg
+            .set_id
+            .clone()
+            .unwrap_or_else(|| self.cfg.map_set_id.clone());
+
+        if let Some(schema) = self.cfg.snapshot.keys.get(&set_id) {
+            schema.validate_level_roles(&set_id)?;
+        }
 
         if let Some(mut old) = self.map.take() {
             old.destroy(&mut self.world);
@@ -324,12 +335,10 @@ impl<G: GameDef> EngineSim<G> {
         if let Some(map) = &self.map {
             let schema = self.cfg.snapshot.keys.get(&map.set_id);
             let with_velocities = schema.is_some_and(|schema| schema.optional_from.is_some());
-            // `z`/`level` в голове строки — по объявленной игрой схеме:
-            // игра, не назвавшая эти поля, получает прежние три
-            let with_levels = schema.is_some_and(|schema| {
-                schema.fields.get(3).is_some_and(|field| field.name == "z")
-                    && schema.fields.get(4).is_some_and(|field| field.name == "level")
-            });
+            // `z`/`level` в голове строки — по ролям полей схемы
+            // (`FieldRole`): игра, не объявившая роли, получает прежние три.
+            // Имена полей принадлежат игре и признаком служить не могут
+            let with_levels = schema.is_some_and(BlockSchema::with_levels);
 
             blocks.push((
                 map.set_id.clone(),
@@ -896,6 +905,124 @@ mod tests {
                 }
             }
         }"#
+    }
+
+    // движок с блоком динамики карты `layered`: пара z/level объявляется
+    // ролями полей, а не их именами
+    fn dynamics_engine_config(z: serde_json::Value, level: serde_json::Value) -> EngineConfig {
+        serde_json::from_value(serde_json::json!({
+            "timeStep": 1.0 / 120.0,
+            "snapshot": {
+                "version": 3,
+                "port": 5,
+                "keys": {
+                    "layered": { "id": 1, "kind": "indexedNoNull8", "class": "hot", "fields": [
+                        { "name": "x", "ty": "f32", "interp": "lerp" },
+                        { "name": "y", "ty": "f32", "interp": "lerp" },
+                        { "name": "angle", "ty": "f32", "interp": "lerpAngle" },
+                        z,
+                        level
+                    ] }
+                }
+            },
+            "seed": 42
+        }))
+        .unwrap()
+    }
+
+    fn layered_map_with_box() -> String {
+        layered_map_json().replace(
+            "\"physicsStatic\": [],",
+            "\"physicsStatic\": [], \"physicsDynamic\": [{ \"position\": [30, 30], \"angle\": 0, \"width\": 10, \"height\": 10, \"density\": 1, \"level\": 1 }],",
+        )
+    }
+
+    fn dynamics_row_len(sim: &mut EngineSim<TestGame>) -> usize {
+        sim.build_snapshot_blocks()
+            .into_iter()
+            .find_map(|(key, block)| match block {
+                Block::IndexedNoNull8(rows) if key == "layered" => Some(rows[0].1.len()),
+                _ => None,
+            })
+            .expect("блок динамики карты")
+    }
+
+    #[test]
+    fn dynamics_row_carries_levels_by_field_role() {
+        let mut sim = EngineSim::<TestGame>::new(
+            dynamics_engine_config(
+                serde_json::json!({ "name": "height", "ty": "f32", "interp": "lerp", "role": "z" }),
+                serde_json::json!({ "name": "floor", "ty": "u8", "role": "level" }),
+            ),
+            &TestConfig {},
+        );
+
+        sim.load_map(&layered_map_with_box()).unwrap();
+
+        // имена полей игровые, роли движковые: строка слоёная
+        assert_eq!(dynamics_row_len(&mut sim), 5);
+    }
+
+    #[test]
+    fn dynamics_row_stays_flat_without_roles() {
+        let mut sim = EngineSim::<TestGame>::new(
+            dynamics_engine_config(
+                serde_json::json!({ "name": "height", "ty": "f32", "interp": "lerp" }),
+                serde_json::json!({ "name": "floor", "ty": "u8" }),
+            ),
+            &TestConfig {},
+        );
+
+        sim.load_map(&layered_map_with_box()).unwrap();
+
+        assert_eq!(dynamics_row_len(&mut sim), 3);
+    }
+
+    #[test]
+    fn load_map_rejects_a_half_declared_level_pair() {
+        let mut sim = EngineSim::<TestGame>::new(
+            dynamics_engine_config(
+                serde_json::json!({ "name": "z", "ty": "f32", "interp": "lerp", "role": "z" }),
+                serde_json::json!({ "name": "level", "ty": "u8" }),
+            ),
+            &TestConfig {},
+        );
+
+        let error = sim.load_map(&layered_map_with_box()).unwrap_err();
+
+        assert!(error.contains("только парой"), "{error}");
+        // отказ до создания тел: мир остался нетронутым
+        assert!(sim.map.is_none());
+    }
+
+    #[test]
+    fn load_map_rejects_engine_names_without_roles() {
+        let mut sim = EngineSim::<TestGame>::new(
+            dynamics_engine_config(
+                serde_json::json!({ "name": "z", "ty": "f32", "interp": "lerp" }),
+                serde_json::json!({ "name": "level", "ty": "u8" }),
+            ),
+            &TestConfig {},
+        );
+
+        let error = sim.load_map(&layered_map_with_box()).unwrap_err();
+
+        assert!(error.contains("role: 'z'"), "{error}");
+    }
+
+    #[test]
+    fn load_map_rejects_a_misplaced_role() {
+        let mut sim = EngineSim::<TestGame>::new(
+            dynamics_engine_config(
+                serde_json::json!({ "name": "height", "ty": "f32", "interp": "lerp", "role": "level" }),
+                serde_json::json!({ "name": "floor", "ty": "u8", "role": "z" }),
+            ),
+            &TestConfig {},
+        );
+
+        let error = sim.load_map(&layered_map_with_box()).unwrap_err();
+
+        assert!(error.contains("позиции"), "{error}");
     }
 
     #[test]

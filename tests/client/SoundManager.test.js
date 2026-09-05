@@ -21,6 +21,7 @@ const makeCtx = sounds => {
     _listenerX: 0,
     _listenerY: 0,
     _activeInstances: new Map(),
+    _equalPowerIds: new Set(),
     _internalPlay: vi.fn(() => `play${counter++}`),
     _internalStop: vi.fn(),
     _updateSpatialSound: vi.fn(),
@@ -91,6 +92,7 @@ const makeRegistryCtx = (sounds = new Map()) => ({
   _sounds: sounds,
   _registeredSounds: new Map(),
   _activeInstances: new Map(),
+  _equalPowerIds: new Set(),
   _listenerX: 0,
   _listenerY: 0,
   _internalStop: vi.fn(),
@@ -275,5 +277,120 @@ describe('SoundManager.releaseSound', () => {
   it('игнорирует неизвестный id без ошибки', () => {
     const ctx = ctxWith(false);
     expect(() => ctx.releaseSound(Symbol('x'))).not.toThrow();
+  });
+});
+
+// Непространственный источник (свой танк): звук принадлежит игроку, а не
+// миру. HRTF на нулевой дистанции сворачивается в гребенчатую окраску
+// («гул»), поэтому у такого источника панорама выключается моделью, а не
+// подменой позиции.
+const makeSpatialCtx = () => ({
+  _listenerX: 100,
+  _listenerY: 100,
+  _equalPowerIds: new Set(),
+  _updateSpatialSound: P._updateSpatialSound,
+  _applyEqualPower: P._applyEqualPower,
+});
+
+const makeHowl = () => ({
+  pos: vi.fn(),
+  volume: vi.fn(),
+  rate: vi.fn(),
+  stop: vi.fn(),
+  pannerAttr: vi.fn(),
+});
+
+describe('SoundManager._updateSpatialSound', () => {
+  it('непространственный источник не позиционируется в мире', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 500, 700, 0.8, false);
+
+    expect(sound.pos).toHaveBeenCalledWith(0, 0, 0, 1);
+    expect(sound.volume).toHaveBeenCalledWith(0.8, 1);
+  });
+
+  it('непространственный источник получает equalpower ровно один раз', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 100, 100, 1, false);
+    ctx._updateSpatialSound(sound, 1, 100, 100, 1, false);
+    ctx._updateSpatialSound(sound, 1, 100, 100, 1, false);
+
+    expect(sound.pannerAttr).toHaveBeenCalledTimes(1);
+    expect(sound.pannerAttr).toHaveBeenCalledWith(
+      { panningModel: 'equalpower' },
+      1,
+    );
+  });
+
+  it('мировой источник по умолчанию панорамируется', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+
+    expect(sound.pannerAttr).not.toHaveBeenCalled();
+    expect(sound.pos).toHaveBeenCalledWith(300, 0, 0, 1);
+  });
+
+  it('внутри дед-зоны направления панорама не строится', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    // расхождение камеры и танка в пару пикселей — не повод для азимута
+    ctx._updateSpatialSound(sound, 1, 102, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(0, 0, 0, 1);
+  });
+});
+
+describe('SoundManager.updateActiveSounds', () => {
+  const makeLoopCtx = (regSound, sound) => ({
+    _registeredSounds: new Map([['owner', regSound]]),
+    _activeInstances: new Map([[7, { sound, ownerId: 'owner', loop: true }]]),
+    _equalPowerIds: new Set(),
+    _updateSpatialSound: vi.fn(),
+    updateActiveSounds: P.updateActiveSounds,
+  });
+
+  it('не зовёт rate повторно, если значение не изменилось', () => {
+    const sound = makeHowl();
+    const ctx = makeLoopCtx(
+      { position: { x: 0, y: 0 }, volume: 1, rate: 1.5, loop: true },
+      sound,
+    );
+
+    ctx.updateActiveSounds();
+    ctx.updateActiveSounds();
+
+    expect(sound.rate).toHaveBeenCalledTimes(1);
+  });
+
+  it('зовёт rate на изменение', () => {
+    const sound = makeHowl();
+    const reg = { position: { x: 0, y: 0 }, volume: 1, rate: 1.5, loop: true };
+    const ctx = makeLoopCtx(reg, sound);
+
+    ctx.updateActiveSounds();
+    reg.rate = 2;
+    ctx.updateActiveSounds();
+
+    expect(sound.rate).toHaveBeenCalledTimes(2);
+    expect(sound.rate).toHaveBeenLastCalledWith(2, 7);
+  });
+
+  it('пробрасывает spatial в позиционирование', () => {
+    const sound = makeHowl();
+    const ctx = makeLoopCtx(
+      { position: { x: 5, y: 6 }, volume: 1, spatial: false, loop: true },
+      sound,
+    );
+
+    ctx.updateActiveSounds();
+
+    expect(ctx._updateSpatialSound).toHaveBeenCalledWith(sound, 7, 5, 6, 1, false);
   });
 });

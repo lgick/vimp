@@ -9,8 +9,49 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- **Capability `map.levelHeight`** — the map field `levelHeight` (the height
+  of one level in world units, the tile size by default) and everything it
+  buys: a dimensionless ramp slope in the core, ramp guard colliders that
+  close a run from the side and from the wrong end, and two new fields in the
+  static part context. A game that needs any of it declares the name in
+  `requires`.
+- **`levelHeight` and `ramps` reach the render part** — a static layer
+  context gains `levelHeight` (world units per level, already scaled) and
+  `ramps` (the ramp configs of that level), so a part can draw the wedge of a
+  ramp over the grid it already has. `levelHeight` also travels to the client
+  core in the `set_map` payload: without it the client would build a
+  different slope than the host and prediction would drift in silence.
+- **`registerSound(name, { spatial: false })`** — a source that belongs to
+  the player rather than to the world (their own engine, their own shot).
+  The listener sits at the camera, so such a source lands right on top of it,
+  where HRTF folds a loop into comb filtering — heard as a hum, not as a
+  silent pan. A non-spatial instance is switched to `equalpower` once and
+  kept at the listener; the flag can be changed later through
+  `updateSoundData`.
+
+### Changed
+
+- `SoundManager` calls `sound.rate()` only when the rate actually changed
+  (Howler does two `seek()`s and rebuilds the loop-end timer on every call),
+  and `MIN_SPATIAL_DISTANCE` grew from 1 to 16 world pixels — it is a
+  dead-zone on the *direction* to the source, and a two-pixel gap between
+  camera and body used to give a full, jittering pan.
+
 ### Fixed
 
+- **One source for the fall duration.** A game that declares
+  `coreParams.levels.fallTime` now gets that value as the engine's
+  `mapFallTime` too (`buildCoreConfig`). The two fields were independent, so
+  a crate on the host and the same crate predicted by its own client fell at
+  different speeds as soon as a game changed its own number. The engine key
+  stays the default for games without levels, and an explicit override still
+  wins.
+- **Contract rule E4** also checks `levelHeight` (finite, greater than 0) and
+  rejects two ramps that share a cell — with the fixtures
+  `bad-level-height.json` and `bad-ramps-overlap.json` shared with the core's
+  validator.
 - The team dialog (`initialVote`) again opens right after a map change. The
   client answered a vote by sending the answer first and calling
   `complete()` second; with a synchronous transport (solo/standalone the

@@ -132,6 +132,20 @@ pub enum Interp {
     Discrete,
 }
 
+/// Роль поля в контракте движка. Имя поля принадлежит игре и меняется ею
+/// свободно; роль — это заявка на движковое поведение, поэтому и `z`, и
+/// `level` строки динамики карты объявляются ролью, а не именем: сравнение
+/// по именам возвращало плоскую строку молча, стоило игре переименовать
+/// поле.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FieldRole {
+    /// Высота тела над своим уровнем (падение), позиция 3 строки динамики.
+    Z,
+    /// Уровень тела, позиция 4 строки динамики.
+    Level,
+}
+
 /// Описание одного поля строки блока — порядок в векторе равен порядку
 /// байтов в раскладке (и порядку полей в конкретной Row-структуре
 /// core/src/snapshot.rs — молчаливый контракт, проверяемый тестами).
@@ -142,6 +156,9 @@ pub struct FieldSchema {
     pub ty: FieldType,
     #[serde(default = "default_interp")]
     pub interp: Interp,
+    /// Движковая роль поля (см. `FieldRole`). None — обычное игровое поле.
+    #[serde(default)]
+    pub role: Option<FieldRole>,
 }
 
 fn default_interp() -> Interp {
@@ -188,10 +205,76 @@ pub struct BlockSchema {
     pub optional_from: Option<usize>,
 }
 
+/// Позиции пары `z`/`level` в голове строки динамики карты: место в
+/// раскладке фиксировано движком (`GameMap::dynamic_map_data`), ролями
+/// объявляется только сам факт слоёной строки.
+const Z_FIELD_INDEX: usize = 3;
+const LEVEL_FIELD_INDEX: usize = 4;
+
 impl BlockSchema {
     /// Число полей, которые пишутся в строку всегда (без хвоста).
     pub fn required_len(&self) -> usize {
         self.optional_from.unwrap_or(self.fields.len())
+    }
+
+    /// Объявила ли игра слоёную строку динамики карты: роли `z` и `level`
+    /// на своих позициях. Не по именам полей — имя принадлежит игре.
+    pub fn with_levels(&self) -> bool {
+        self.role_at(Z_FIELD_INDEX) == Some(FieldRole::Z)
+            && self.role_at(LEVEL_FIELD_INDEX) == Some(FieldRole::Level)
+    }
+
+    fn role_at(&self, index: usize) -> Option<FieldRole> {
+        self.fields.get(index).and_then(|field| field.role)
+    }
+
+    /// Проверяет контракт слоёной строки блока динамики карты `key`.
+    /// Зовётся при загрузке карты: молчаливый отказ здесь — это плоская
+    /// строка вместо слоёной, то есть ящики без уровня у всех клиентов.
+    pub fn validate_level_roles(&self, key: &str) -> Result<(), String> {
+        for (index, field) in self.fields.iter().enumerate() {
+            let expected = match field.role {
+                Some(FieldRole::Z) => Z_FIELD_INDEX,
+                Some(FieldRole::Level) => LEVEL_FIELD_INDEX,
+                None => continue,
+            };
+
+            if index != expected {
+                return Err(format!(
+                    "[core snapshot] Ключ '{key}': поле '{}' с ролью {:?} стоит \
+                     на позиции {index}, движок ждёт его на позиции {expected}",
+                    field.name, field.role
+                ));
+            }
+        }
+
+        let z = self.role_at(Z_FIELD_INDEX);
+        let level = self.role_at(LEVEL_FIELD_INDEX);
+
+        if z.is_some() != level.is_some() {
+            return Err(format!(
+                "[core snapshot] Ключ '{key}': роли z и level объявляются \
+                 только парой — строка динамики либо слоёная, либо нет"
+            ));
+        }
+
+        // поле, названное движковым именем, но без роли: раньше эта пара
+        // работала по именам, и молчаливый возврат к плоской строке при
+        // обновлении движка — ровно тот отказ, ради которого роли и введены
+        if z.is_none()
+            && self.fields.get(Z_FIELD_INDEX).is_some_and(|f| f.name == "z")
+            && self
+                .fields
+                .get(LEVEL_FIELD_INDEX)
+                .is_some_and(|f| f.name == "level")
+        {
+            return Err(format!(
+                "[core snapshot] Ключ '{key}': поля z/level строки динамики \
+                 карты обязаны объявить role: 'z' и role: 'level'"
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -269,6 +352,7 @@ pub mod test_support {
             name: name.to_string(),
             ty,
             interp: Interp::Discrete,
+            role: None,
         }
     }
 
@@ -277,6 +361,17 @@ pub mod test_support {
             name: name.to_string(),
             ty,
             interp,
+            role: None,
+        }
+    }
+
+    /// Поле с движковой ролью (`z`/`level` слоёной строки динамики).
+    pub fn field_role(name: &str, ty: FieldType, interp: Interp, role: FieldRole) -> FieldSchema {
+        FieldSchema {
+            name: name.to_string(),
+            ty,
+            interp,
+            role: Some(role),
         }
     }
 

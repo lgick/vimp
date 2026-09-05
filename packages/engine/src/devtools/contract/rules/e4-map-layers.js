@@ -85,6 +85,18 @@ function checkMap(name, map, violations) {
   // 11. высоты объёмов уровня 0 живут в корне карты, как и его слои
   checkVolumes(at, '0', map.layers, map.volumes, violations);
 
+  // 13. высота уровня в мировых единицах: от неё зависит уклон рампы, а
+  // значит тяга в горку, наклон корпуса и пыль. Ноль превращает подъём в
+  // плоскость, NaN растекается по физике и по рендеру
+  if (map.levelHeight !== undefined) {
+    if (!Number.isFinite(map.levelHeight) || map.levelHeight <= 0) {
+      violations.push(
+        `${at}: levelHeight ${map.levelHeight} is not a finite number ` +
+          'greater than 0',
+      );
+    }
+  }
+
   const grid = map.map ?? [];
 
   for (const [key, level] of Object.entries(levels)) {
@@ -178,6 +190,11 @@ function checkMap(name, map, violations) {
     // промежуточного: танк на ней въехал бы внутрь чужого моста
     checkRampSlabs(at, map, index, ramp, from, to, fromGrid ?? [], violations);
   }
+
+  // 14. клетки разных рамп не пересекаются: ядро отдаёт общую клетку
+  // первой объявленной рампе, и поведение подъёма перестаёт выводиться
+  // из карты
+  checkRampOverlap(at, map, levels, grid, violations);
 
   // 10. край плиты без перил — обрыв; приземлиться с него нужно на
   // проходимую землю, иначе танк уезжает за карту (стены уровня 0 плите не
@@ -366,6 +383,36 @@ function landingLevel(map, from, x, y) {
   }
 
   return 0;
+}
+
+// зеркало проверки пересечения прогонов в `validate_levels`: клетка,
+// объявленная двумя рампами, достаётся первой из них — молча
+function checkRampOverlap(at, map, levels, grid, violations) {
+  const claimed = new Map();
+
+  for (const [index, ramp] of (map.ramps ?? []).entries()) {
+    const from = ramp?.from ?? 0;
+    const fromGrid = from === 0 ? grid : levels[String(from)]?.map;
+
+    (fromGrid ?? []).forEach((row, y) => {
+      row.forEach((tile, x) => {
+        if (tile !== ramp?.tile) {
+          return;
+        }
+
+        const key = `${x},${y}`;
+        const first = claimed.get(key);
+
+        if (first === undefined) {
+          claimed.set(key, index);
+        } else if (first !== index) {
+          violations.push(
+            `${at}: ramps ${first} and ${index} share cell (${x}, ${y})`,
+          );
+        }
+      });
+    });
+  }
 }
 
 // клетки прогона рампы не должны лежать под плитой промежуточного уровня:

@@ -149,6 +149,13 @@ pub struct MapConfig {
     pub levels: IndexMap<String, MapLevelConfig>,
     #[serde(default)]
     pub ramps: Vec<RampConfig>,
+    /// Высота ОДНОГО уровня в мировых единицах. Нужна, чтобы уклон рампы был
+    /// безразмерным (`rise * level_height / span`), а не «уровней на
+    /// пиксель»: без неё все константы подъёма (тяга в горку, наклон
+    /// корпуса, пыль) промахиваются на два порядка. None — размер тайла
+    /// (`step * scale`), то есть подъём «уровень на тайл» даёт уклон 1.0.
+    #[serde(default)]
+    pub level_height: Option<f32>,
 }
 
 /// Проверки формы слоёных полей карты (`levels`/`ramps`). Вынесены из
@@ -165,9 +172,21 @@ pub fn validate_levels(
     volumes: &IndexMap<String, f32>,
     levels: &IndexMap<String, MapLevelConfig>,
     ramps: &[RampConfig],
+    level_height: Option<f32>,
 ) -> Result<(), String> {
     let rows = map.len();
     let level_count = levels.len() + 1;
+
+    // высота уровня задаёт масштаб уклона рамп: ноль превращает подъём в
+    // плоскость, отрицательная или NaN — в мусор, который дальше молча
+    // растекается по физике и по рендеру
+    if let Some(height) = level_height
+        && (!height.is_finite() || height <= 0.0)
+    {
+        return Err(format!(
+            "map levelHeight: {height} is not a finite number greater than 0"
+        ));
+    }
 
     if !levels.is_empty() {
         if level_count > MAX_LEVELS {
@@ -306,6 +325,41 @@ pub fn validate_levels(
                             ramp.from, ramp.to
                         ));
                     }
+                }
+            }
+        }
+    }
+
+    // клетки разных рамп не имеют права пересекаться: `build_runs` отдаёт
+    // общую клетку первой объявленной рампе (детерминированно, но
+    // произвольно), и поведение подъёма перестаёт выводиться из карты
+    let mut claimed: IndexMap<(usize, usize), usize> = IndexMap::new();
+
+    for (index, ramp) in ramps.iter().enumerate() {
+        let grid = if ramp.from == 0 {
+            Some(map)
+        } else {
+            levels.get(&ramp.from.to_string()).map(|level| level.map.as_slice())
+        };
+
+        let Some(grid) = grid else {
+            continue;
+        };
+
+        for (y, row) in grid.iter().enumerate() {
+            for (x, tile) in row.iter().enumerate() {
+                if *tile != ramp.tile {
+                    continue;
+                }
+
+                if let Some(&first) = claimed.get(&(x, y)) {
+                    if first != index {
+                        return Err(format!(
+                            "map ramps: ramps {first} and {index} share cell ({x}, {y})"
+                        ));
+                    }
+                } else {
+                    claimed.insert((x, y), index);
                 }
             }
         }
@@ -524,6 +578,7 @@ impl MapConfig {
             &self.volumes,
             &self.levels,
             &self.ramps,
+            self.level_height,
         )?;
 
         for (team, points) in &self.respawns {
@@ -585,11 +640,25 @@ pub fn level_group(level: u8) -> Group {
 /// поэтому статика берёт следующий за ними бит 8.
 pub const STATIC_LEVEL_GROUP: Group = Group::GROUP_9;
 
-/// Маска «я на уровне `level` и вижу только его».
+/// Борта и «неправильный» торец прогона рампы. Отдельный бит, потому что
+/// тело, законно поднимающееся по прогону, обязано проходить сквозь торец
+/// наверху, оставаясь при этом в группах уровней прогона. Уровни держат
+/// биты 0..7, статика — бит 8, стражу достался следующий свободный.
+pub const RAMP_GUARD_GROUP: Group = Group::GROUP_10;
+
+/// Что видит тело с маской уровней `mask`. `on_ramp` — тело законно едет по
+/// прогону рампы: борта и верхний торец прогона оно не видит. Собирать этот
+/// фильтр битами в игре нельзя — правило одно, и копия расходится молча.
+pub fn body_filter(mask: Group, on_ramp: bool) -> Group {
+    if on_ramp { mask } else { mask | RAMP_GUARD_GROUP }
+}
+
+/// Маска «я на уровне `level` и вижу только его» (плюс стражей прогонов
+/// этого уровня).
 pub fn level_interaction(level: u8) -> InteractionGroups {
     let group = level_group(level);
 
-    InteractionGroups::new(group, group, InteractionTestMode::And)
+    InteractionGroups::new(group, body_filter(group, false), InteractionTestMode::And)
 }
 
 /// Маска стены уровня `level`: своя группа уровня плюс `STATIC_LEVEL_GROUP`.
@@ -599,9 +668,26 @@ pub fn static_level_interaction(level: u8) -> InteractionGroups {
     InteractionGroups::new(group, group, InteractionTestMode::And)
 }
 
-/// Маска «я вижу все уровни из `mask`» (танк на рампе).
+/// Маска «я вижу все уровни из `mask`» — тело НЕ на прогоне рампы: борта и
+/// верхний торец прогона своего уровня оно видит.
 pub fn levels_interaction(mask: Group) -> InteractionGroups {
-    InteractionGroups::new(mask, mask, InteractionTestMode::And)
+    InteractionGroups::new(mask, body_filter(mask, false), InteractionTestMode::And)
+}
+
+/// То же для тела, которое законно поднимается по прогону: стражей прогона
+/// оно проходит насквозь (иначе поднявшийся танк упрётся в верхний торец).
+pub fn levels_interaction_on_ramp(mask: Group) -> InteractionGroups {
+    InteractionGroups::new(mask, body_filter(mask, true), InteractionTestMode::And)
+}
+
+/// Маска стража прогона рампы: он существует только для тел уровня `low` —
+/// того, с которого прогон начинается.
+pub fn ramp_guard_interaction(low: u8) -> InteractionGroups {
+    InteractionGroups::new(
+        RAMP_GUARD_GROUP,
+        level_group(low),
+        InteractionTestMode::And,
+    )
 }
 
 /// Результат попадания точки на рампу.
@@ -613,7 +699,8 @@ pub struct RampSample {
     pub to: u8,
     /// Единичный вектор «в горку» в мировых координатах.
     pub dir: [f32; 2],
-    /// Крутизна: уровней на мировую единицу вдоль `dir`, всегда > 0.
+    /// Крутизна: БЕЗРАЗМЕРНЫЙ тангенс подъёма вдоль `dir`, всегда > 0
+    /// (`rise * level_height / span`).
     /// Продольный уклон под курсом тела — `slope * dot(dir, heading)`.
     pub slope: f32,
     /// Индекс прогона в `MapLevels::runs` и его ось (0 = x, 1 = y). Нужны
@@ -659,6 +746,9 @@ pub struct MapLevels {
     run_cells: Vec<Vec<i16>>,
     /// Размер тайла в МИРОВЫХ единицах (step * scale).
     tile_size: f32,
+    /// Высота ОДНОГО уровня в мировых единицах (`MapConfig::level_height`,
+    /// по умолчанию — размер тайла). Делает уклон рампы безразмерным.
+    level_height: f32,
 }
 
 /// Один прогон рампы: `from`..`to` — границы по своей оси в клетках,
@@ -722,14 +812,24 @@ fn push_run(
 impl MapLevels {
     /// `grid0`/`solid0` — грид и стены уровня 0; `levels` — конфиги
     /// надземных уровней (ключ — номер строкой); `ramps` — конфиги рамп;
-    /// `tile_size` — УЖЕ масштабированный размер тайла.
+    /// `tile_size` — УЖЕ масштабированный размер тайла; `level_height` —
+    /// высота уровня в мировых единицах (`MapConfig::level_height`), None —
+    /// размер тайла.
     pub fn build(
         grid0: &[Vec<i32>],
         solid0: &[i32],
         levels: &IndexMap<String, MapLevelConfig>,
         ramps: &[RampConfig],
         tile_size: f32,
+        level_height: Option<f32>,
     ) -> Self {
+        // невалидная высота сюда доехать не может (`validate_levels`), но
+        // клиентская реплика строится из сетевых данных: непроверенное
+        // значение обязано схлопнуться в дефолт, а не в NaN на весь матч
+        let level_height = level_height
+            .filter(|height| height.is_finite() && *height > 0.0)
+            .unwrap_or(tile_size);
+
         let mut out = Self {
             grids: vec![grid0.to_vec()],
             solid: vec![solid0.to_vec()],
@@ -737,6 +837,7 @@ impl MapLevels {
             runs: Vec::new(),
             run_cells: grid0.iter().map(|row| vec![-1i16; row.len()]).collect(),
             tile_size,
+            level_height,
         };
 
         // порядок уровней — по числовому ключу, а не по порядку в JSON:
@@ -863,6 +964,11 @@ impl MapLevels {
         self.tile_size
     }
 
+    /// Высота одного уровня в мировых единицах.
+    pub fn level_height(&self) -> f32 {
+        self.level_height
+    }
+
     pub fn grid(&self, level: u8) -> Option<&Vec<Vec<i32>>> {
         self.grids.get(level as usize)
     }
@@ -978,7 +1084,7 @@ impl MapLevels {
             from: run.from,
             to: run.to,
             dir: if run.axis == 0 { [sign, 0.0] } else { [0.0, sign] },
-            slope: rise / span.max(f32::EPSILON),
+            slope: rise * self.level_height / span.max(f32::EPSILON),
             run: index as u16,
             axis: run.axis,
         })
@@ -1171,6 +1277,9 @@ impl GameMap {
             &cfg.levels,
             &cfg.ramps,
             step,
+            // высота уровня — мировая величина, как и `step`: масштаб карты
+            // умножает её ровно так же (хост зовёт ядро уже с scale = 1)
+            cfg.level_height.map(|height| height * scale),
         );
 
         let mut map = Self {
@@ -1258,6 +1367,76 @@ impl GameMap {
                     }
                 }
             }
+        }
+
+        self.create_ramp_guards(world);
+    }
+
+    /// Борта и верхний торец каждого прогона рампы. Без них рампа физически
+    /// не существует: заезд сбоку и въезд под клин с «неправильного» торца
+    /// запрещены только логикой игры, которая ставит `climbing = false`, но
+    /// не мешает телу ехать по клеткам прогона.
+    ///
+    /// Стражи стоят в отдельной группе (`RAMP_GUARD_GROUP`): тело уровня, с
+    /// которого начинается прогон, их видит, законно поднимающееся по
+    /// прогону — нет (`levels_interaction_on_ramp`), тело другого уровня не
+    /// видит по своей группе.
+    fn create_ramp_guards(&mut self, world: &mut PhysicsWorld) {
+        // одноуровневая карта стражей не получает вовсе: порядок и число
+        // тел старой карты обязаны остаться прежними
+        if !self.levels.is_layered() {
+            return;
+        }
+
+        // толщина борта — доля тайла: борт обязан останавливать, а не
+        // отъедать проезжую часть прогона
+        let thickness = self.step * 0.1;
+        let guards: Vec<(Vector, f32, f32, u8)> = self
+            .levels
+            .runs()
+            .iter()
+            .flat_map(|run| {
+                let low = run.from.min(run.to);
+                let (half_main, half_cross) = (
+                    (run.max - run.min) / 2.0,
+                    (run.cross_max - run.cross_min) / 2.0,
+                );
+                let main = (run.min + run.max) / 2.0;
+                // «неправильный» торец — дальний по ходу подъёма: снизу
+                // вход законный и не закрывается никогда
+                let far = if run.sign > 0 { run.max } else { run.min };
+                let place = |main: f32, cross: f32, hm: f32, hc: f32| {
+                    let position = if run.axis == 0 {
+                        Vector::new(main, cross)
+                    } else {
+                        Vector::new(cross, main)
+                    };
+                    let (hx, hy) = if run.axis == 0 { (hm, hc) } else { (hc, hm) };
+
+                    (position, hx, hy, low)
+                };
+
+                [
+                    place(main, run.cross_min, half_main, thickness / 2.0),
+                    place(main, run.cross_max, half_main, thickness / 2.0),
+                    place(far, (run.cross_min + run.cross_max) / 2.0, thickness / 2.0, half_cross),
+                ]
+            })
+            .collect();
+
+        for (position, half_x, half_y, low) in guards {
+            let body = world.insert_body(RigidBodyBuilder::fixed().translation(position));
+
+            world.insert_collider(
+                ColliderBuilder::cuboid(half_x, half_y)
+                    .friction(DEFAULT_FRICTION)
+                    .restitution(DEFAULT_RESTITUTION)
+                    .collision_groups(ramp_guard_interaction(low)),
+                Some(body),
+            );
+
+            self.static_bodies.push(body);
+            self.static_levels.push(low);
         }
     }
 
@@ -2023,6 +2202,134 @@ mod tests {
         assert!(error.contains("through level 1 floor"), "{error}");
     }
 
+    // прогон 1×2 в колонке 0, подъём на юг: «неправильный» торец
+    // приходится на y = 40 — внутри карты, а не на её краю
+    fn guard_config() -> MapConfig {
+        serde_json::from_value(serde_json::json!({
+            "step": 20.0,
+            "map": [[7, 0, 0], [7, 0, 0], [0, 0, 0]],
+            "physicsStatic": [],
+            "levels": {
+                "1": { "map": [[0, 0, 0], [0, 0, 0], [0, 0, 0]], "floor": [] }
+            },
+            "ramps": [{ "tile": 7, "dir": "south" }],
+            "physicsDynamic": [{
+                "position": [30.0, 10.0],
+                "angle": 0.0,
+                "width": 10.0,
+                "height": 10.0,
+                "density": 1.0,
+                "level": 0
+            }]
+        }))
+        .unwrap()
+    }
+
+    // центр коллайдера тела карты (позиция тела — угол объекта)
+    fn body_center(world: &PhysicsWorld, body: RigidBodyHandle) -> Vector {
+        let collider = world.bodies[body].colliders()[0];
+
+        world.colliders[collider].translation()
+    }
+
+    fn drive(world: &mut PhysicsWorld, body: RigidBodyHandle, velocity: Vector) {
+        for _ in 0..90 {
+            world.bodies[body].set_linvel(velocity, true);
+            world.step();
+        }
+    }
+
+    #[test]
+    fn flat_map_interactions_are_unchanged() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &map_config(), 1.0, "set");
+
+        // группы одноуровневой карты прежние: страж живёт в фильтре, а не в
+        // членстве, и на карте без рамп его коллайдеров нет вовсе
+        assert_eq!(
+            collision_groups(&world, map.static_bodies[0]).memberships,
+            Group::GROUP_1 | STATIC_LEVEL_GROUP
+        );
+        assert_eq!(
+            collision_groups(&world, map.dynamic_bodies[0]).memberships,
+            Group::GROUP_1
+        );
+        // тело земли по-прежнему видит стены земли и другие тела земли
+        assert!(level_interaction(0).test(static_level_interaction(0)));
+        assert!(level_interaction(0).test(level_interaction(0)));
+        assert!(levels_interaction(level_group(0)).test(level_interaction(0)));
+    }
+
+    #[test]
+    fn ramp_guard_blocks_a_body_of_the_lower_level_from_the_side() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &guard_config(), 1.0, "set");
+
+        // два борта и торец сверху сверх стен уровней (стен тут нет)
+        assert_eq!(map.static_body_count(), 3);
+        assert_eq!(map.static_levels(), &[0, 0, 0]);
+
+        let body = map.dynamic_bodies[0];
+
+        drive(&mut world, body, Vector::new(-200.0, 0.0));
+
+        // борт прогона стоит на x = 20: тело уровня 0 сбоку не заезжает
+        assert!(body_center(&world, body).x > 24.0, "{}", body_center(&world, body));
+    }
+
+    #[test]
+    fn ramp_guard_lets_a_climbing_body_through() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &guard_config(), 1.0, "set");
+        let body = map.dynamic_bodies[0];
+        let collider = world.bodies[body].colliders()[0];
+
+        // тело внутри прогона, маска — уровни прогона без бита стража
+        world.bodies[body].set_translation(Vector::new(5.0, 5.0), true);
+        world.colliders[collider].set_collision_groups(levels_interaction_on_ramp(
+            level_group(0) | level_group(1),
+        ));
+
+        drive(&mut world, body, Vector::new(0.0, 200.0));
+
+        // торец прогона на y = 40 поднимающемуся не преграда
+        assert!(body_center(&world, body).y > 45.0, "{}", body_center(&world, body));
+    }
+
+    #[test]
+    fn ramp_guard_ignores_bodies_of_other_levels() {
+        let mut cfg = guard_config();
+
+        cfg.physics_dynamic[0].level = 1;
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+        let body = map.dynamic_bodies[0];
+
+        drive(&mut world, body, Vector::new(-200.0, 0.0));
+
+        // тело уровня 1 едет НАД клетками прогона 0 -> 1
+        assert!(body_center(&world, body).x < 15.0, "{}", body_center(&world, body));
+    }
+
+    #[test]
+    fn flat_map_has_no_ramp_guards() {
+        let mut world = make_world();
+        let mut cfg = map_config();
+
+        // рампа без надземных уровней — карта не слоёная, стражей нет
+        cfg.ramps = vec![serde_json::from_value(serde_json::json!({
+            "tile": 1,
+            "dir": "east"
+        }))
+        .unwrap()];
+
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+
+        assert!(!map.is_layered());
+        assert_eq!(map.static_body_count(), 1);
+    }
+
     #[test]
     fn ramp_sample_reports_slope_and_direction() {
         let mut world = make_world();
@@ -2033,7 +2340,9 @@ mod tests {
         assert_eq!(sample.dir, [0.0, -1.0]);
         assert_eq!(sample.axis, 1);
         assert_eq!(sample.run, 0);
-        assert!((sample.slope - 1.0 / 60.0).abs() < 1e-6, "{}", sample.slope);
+        // уклон безразмерный: уровень высотой в тайл (20) на прогон в три
+        // тайла (60) — это 1/3, а не 1/60 «уровней на пиксель»
+        assert!((sample.slope - 1.0 / 3.0).abs() < 1e-6, "{}", sample.slope);
 
         // тот же подъём втрое короче — втрое круче
         let mut cfg = ramp_config("north");
@@ -2054,7 +2363,41 @@ mod tests {
         assert_eq!(east.dir, [1.0, 0.0]);
         assert_eq!(east.axis, 0);
         // подъём на два уровня по двум клеткам — вдвое круче подъёма на один
-        assert!((east.slope - 2.0 / 40.0).abs() < 1e-6, "{}", east.slope);
+        assert!((east.slope - 1.0).abs() < 1e-6, "{}", east.slope);
+    }
+
+    #[test]
+    fn level_height_scales_the_slope() {
+        let mut cfg = ramp_config("north");
+
+        // уровень вдвое выше тайла — прогон вдвое круче
+        cfg.level_height = Some(40.0);
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+
+        assert!(
+            (map.ramp_at(10.0, 30.0).unwrap().slope - 2.0 / 3.0).abs() < 1e-6,
+            "{}",
+            map.ramp_at(10.0, 30.0).unwrap().slope
+        );
+
+        // масштаб карты умножает и высоту уровня, и длину прогона: уклон
+        // от масштаба не зависит
+        let mut world = make_world();
+        let scaled = GameMap::create(&mut world, &cfg, 2.0, "set");
+
+        assert!((scaled.ramp_at(20.0, 60.0).unwrap().slope - 2.0 / 3.0).abs() < 1e-6);
+
+        // мусорное значение схлопывается в размер тайла, а не в NaN
+        cfg.level_height = Some(0.0);
+
+        assert!(cfg.validate().unwrap_err().contains("map levelHeight"));
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+
+        assert!((map.ramp_at(10.0, 30.0).unwrap().slope - 1.0 / 3.0).abs() < 1e-6);
     }
 
     #[test]

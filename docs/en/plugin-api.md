@@ -632,7 +632,7 @@ ClientPlugin hooks call them; a game reaches its own half through
 tanks plugin serves the geometry of the predicted map dynamics that way).
 
 The `set_map` payload the engine hands to the core is `{map, step, scale,
-setId, physicsStatic, physicsDynamic, levels, ramps}` — the raw MAP_DATA
+setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight}` — the raw MAP_DATA
 fields, unscaled (the core scales them itself). `levels` and `ramps` are the
 layered (2.5D) map format and are optional: a map without them is exactly
 the single-level map the engine has always loaded. `levels` is keyed by the
@@ -650,6 +650,26 @@ the core (`MapConfig::validate`) and, before the build, by contract rule
 ['map.layers']`; a game that needs more than two levels declares
 `map.levelsN` as well.
 
+`levelHeight` is the height of ONE level in world units (unscaled, like
+`step` — the core multiplies it by the map scale itself). It is optional and
+defaults to the tile size, so a climb of one level per tile is a slope of
+1.0. It exists because everything but the level number is measured in world
+pixels: without it `RampSample::slope` would be «levels per pixel» and every
+constant tuned for a dimensionless gradient (climb thrust, hull pitch, dust)
+would miss by two orders of magnitude. The value has to be finite and
+greater than 0 — checked in the core and by rule **E4**. A game that needs
+it declares `requires: ['map.levelHeight']`.
+
+The run of a ramp is closed by physics, not by rules alone: the engine
+builds guard colliders along both sides of every run and across its far
+end (`RAMP_GUARD_GROUP`). A body standing on the level the run starts from
+sees them (it cannot drive onto the wedge from the side or under it from
+the wrong end), a body legally climbing the run does not
+(`levels_interaction_on_ramp`), and a body of another level never meets
+them at all. The foot of the run is never closed — that is the legal way in.
+Cells of two different ramps may not overlap: the run that claims a shared
+cell would be picked arbitrarily.
+
 Up to `MAX_LEVELS` (8) levels are supported — the ground plus seven overhead
 ones, one collision bit each — and a ramp may span more than one of them.
 Every level (the ground included) may carry `volumes`, an optional
@@ -664,8 +684,10 @@ default) shared with whatever the game drops.
 
 On the client the same `levels` reach the render parts: `applyMapData`
 builds the static data per level and hands each part instance its `level`,
-`solid` (blocking tiles), `floor` and `volume` (the height of that layer from
-`volumes`, `0` when flat) — see
+`solid` (blocking tiles), `floor`, `volume` (the height of that layer from
+`volumes`, `0` when flat), `levelHeight` (world units per level, already
+scaled) and `ramps` (the ramp configs of that level, so the part can draw
+the wedge over the grid it already has) — see
 [client.md](client.md#mainjs--bootstrap-dispatcher-and-render-loop). `setId` is the snapshot key the map's dynamics
 travels under (`c1`/`c2`): without it a game cannot tell its own dynamics
 block from another map constructor's.
@@ -969,7 +991,9 @@ registered: `stat.leaderboard` (rank-period leaderboard), `accolades`
 `ramps` in the map format, level masks in physics, `set_actor_level`, the
 layered navigation graph) and `map.levelsN` (more than two levels, ramps
 that span several of them, level rules and falling for map bodies, `z` /
-`level` in the dynamic row, `volumes`). A registered name is supported forever — a
+`level` in the dynamic row, `volumes`) and `map.levelHeight` (the map's
+`levelHeight`, a dimensionless ramp slope, ramp guard colliders,
+`levelHeight`/`ramps` in the part context). A registered name is supported forever — a
 published game may have written it, and its `dist/` will never be touched
 again.
 

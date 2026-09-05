@@ -25,12 +25,22 @@ import wsports from '../config/wsports.js';
 export const buildCoreConfig = (gameConfig, overrides = {}) => {
   const { models, weapons } = gameConfig.parts;
 
+  // длительность падения — одна на всю экосистему: траекторию ящика карты
+  // считает движок, траекторию танка и предсказание того же ящика на
+  // клиенте — ядро игры. Игра, объявившая своё `coreParams.levels.fallTime`,
+  // владеет обеими: иначе ящик у хоста и у его же клиента летит с разной
+  // скоростью, и расходятся они молча
+  const gameFallTime = Number(gameConfig.coreParams?.levels?.fallTime);
+
   const flat = {
     timeStep: hostDefaults.timers.timeStep / 1000,
     friendlyFire: gameConfig.parts.friendlyFire,
     mapScale: gameConfig.mapScale,
     mapSetId: gameConfig.mapSetId,
-    mapFallTime: gameConfig.mapFallTime,
+    mapFallTime:
+      Number.isFinite(gameFallTime) && gameFallTime > 0
+        ? gameFallTime
+        : gameConfig.mapFallTime,
     models,
     weapons,
     playerKeys: gameConfig.playerKeys,

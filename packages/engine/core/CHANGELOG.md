@@ -13,6 +13,71 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- `map::MapLevels::build` takes a sixth argument, `level_height:
+  Option<f32>` — the height of one level in world units, `None` for the tile
+  size. Everything that reads a ramp has to build the geometry with the same
+  number as the host, or the two sides compute different slopes in silence.
+- `map::RampSample::slope` is now a **dimensionless** gradient
+  (`rise * level_height / span`) instead of «levels per world unit». On a
+  real map (tile 12.8 world units, one level over nine tiles) the old value
+  was 0.0087 where the new one is 0.11: every constant tuned against a
+  gradient — climb thrust, hull pitch, dust — used to miss by two orders of
+  magnitude.
+- `map::validate_levels` takes a seventh argument, `level_height:
+  Option<f32>`, and rejects a value that is not finite and greater than 0.
+- The layered dynamic row is switched on by field **roles**, not field
+  names: `config::FieldSchema` gained `role` (`FieldRole::Z` /
+  `FieldRole::Level`), and `BlockSchema::with_levels()` reads it. `load_map`
+  fails loudly when a role sits at the wrong index, when only one of the pair
+  is declared, or when fields named `z`/`level` occupy indices 3 and 4
+  without declaring roles — comparing names meant that renaming a field
+  silently returned a flat row.
+- `level_interaction`/`levels_interaction` now also let a body see
+  `RAMP_GUARD_GROUP`. A body that legally climbs a ramp run has to use the
+  new `levels_interaction_on_ramp(mask)` instead, otherwise it stops at the
+  guard across the top of the run.
+
+### Migration
+
+- A game crate that calls `MapLevels::build` passes `cfg.level_height`
+  scaled by the map scale as the sixth argument (`None` keeps the previous
+  behaviour bit for bit — the slope changes anyway, see above).
+- A game that calls `validate_levels` passes `level_height` last (`None` if
+  its client replica does not carry the field).
+- A game that uses `RampSample::slope` recomputes its climb constants: the
+  value is now a gradient, and `levelHeight` (map field, tile size by
+  default) sets its scale.
+- A game whose map-set snapshot schema declares `z`/`level` at indices 3 and
+  4 adds `role: 'z'` and `role: 'level'` to those two fields; without them
+  `load_map` now returns an error instead of quietly shipping a flat row.
+- A game that puts a climbing body's mask together itself switches to
+  `levels_interaction_on_ramp(mask)` (or `body_filter(mask, true)`) while
+  the body is on a run; grounded bodies need no change.
+
+### Added
+
+- `MapConfig::level_height` (`levelHeight` in the map JSON) — the height of
+  one level in world units, optional, the tile size by default, scaled by the
+  map scale like `step`. `MapLevels::level_height()` exposes the effective
+  value.
+- `map::RAMP_GUARD_GROUP` (bit 9) and the ramp guard colliders:
+  `GameMap::create_static` closes both sides of every ramp run and its far
+  end on layered maps, so a run cannot be entered from the side or from the
+  wrong end any more. The foot of the run stays open. `body_filter(mask,
+  on_ramp)`, `levels_interaction_on_ramp(mask)` and
+  `ramp_guard_interaction(low)` are the one place the guard bit is put into a
+  filter.
+- `config::FieldRole` and `BlockSchema::with_levels()` /
+  `validate_level_roles(key)`.
+
+### Fixed
+
+- `validate_levels` rejects two ramps that share a cell: the run that claimed
+  it was picked arbitrarily (the first declared one), so the climb did not
+  follow from the map.
+
 ## [0.12.0] — 2026-09-04
 
 ### ⚠️ Breaking

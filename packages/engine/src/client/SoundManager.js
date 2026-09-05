@@ -3,8 +3,11 @@ import { Howl, Howler } from 'howler';
 // глобальный лимит звуков
 const WORLD_VOICE_LIMIT = 30;
 
-// минимальная дистанция для панорамирования
-const MIN_SPATIAL_DISTANCE = 1;
+// дед-зона панорамирования, в мировых пикселях (порядка половины тайла).
+// Порог по НАПРАВЛЕНИЮ, а не по громкости: азимут в Web Audio зависит от
+// вектора на источник, а не от расстояния до него, поэтому расхождение
+// камеры и источника в пару пикселей давало полную панораму и её рывки
+const MIN_SPATIAL_DISTANCE = 16;
 
 // настройки пространственного звука
 const PANNER_SETTINGS = {
@@ -35,6 +38,10 @@ export default class SoundManager {
 
     // реестр всех зарегистрированных звуковых источников
     this._registeredSounds = new Map();
+
+    // экземпляры, уже переведённые на equalpower (непространственные):
+    // pannerAttr ставится один раз на экземпляр, а не каждый кадр
+    this._equalPowerIds = new Set();
 
     // позиция слушателя
     this._listenerX = 0;
@@ -154,6 +161,10 @@ export default class SoundManager {
    * @param {object} data.position - { x: number, y: number }.
    * @param {number} [data?.rate] - Скорость воспроизведения.
    * @param {number} [data?.volume] - Громкость.
+   * @param {boolean} [data?.spatial=true] - Принадлежит ли звук миру.
+   *   `false` — источник игрока (двигатель и выстрел своего танка): он
+   *   стоит ровно на слушателе, и HRTF на нулевой дистанции сворачивается
+   *   в гребенчатую окраску («гул»), а не в тишину панорамы.
    * @param {function} [callback] - Функция, вызываемая по завершении.
    * @returns {symbol | null} Уникальный ID звука или null, если звук не найден.
    */
@@ -168,6 +179,7 @@ export default class SoundManager {
 
     const id = Symbol(soundName);
     const registration = {
+      spatial: true,
       ...soundData.config,
       ...data,
       sound: soundData.sound,
@@ -308,6 +320,7 @@ export default class SoundManager {
               candidate.position.x,
               candidate.position.y,
               candidate.volume,
+              candidate.spatial,
             );
           }
         }
@@ -334,15 +347,28 @@ export default class SoundManager {
       if (!regSound) {
         sound.stop(soundId);
         this._activeInstances.delete(soundId);
+        this._equalPowerIds.delete(soundId);
         continue;
       }
 
-      const { position, volume, rate } = regSound;
+      const { position, volume, rate, spatial } = regSound;
 
-      this._updateSpatialSound(sound, soundId, position.x, position.y, volume);
+      this._updateSpatialSound(
+        sound,
+        soundId,
+        position.x,
+        position.y,
+        volume,
+        spatial,
+      );
 
-      if (typeof rate === 'number') {
+      // rate только на изменение: Howler на каждый вызов делает два seek(),
+      // переписывает _rateSeek/_playStart и пересоздаёт таймер конца петли
+      // — на 60 Гц это лишняя нагрузка и лишние события 'end' на каждом
+      // обороте
+      if (typeof rate === 'number' && rate !== activeInstance.rate) {
         sound.rate(rate, soundId);
+        activeInstance.rate = rate;
       }
     }
   }
@@ -380,6 +406,7 @@ export default class SoundManager {
           }
 
           this._activeInstances.delete(soundId);
+          this._equalPowerIds.delete(soundId);
         },
         soundId,
       );
@@ -397,6 +424,7 @@ export default class SoundManager {
     if (instanceData) {
       instanceData.sound.stop(soundId);
       this._activeInstances.delete(soundId);
+      this._equalPowerIds.delete(soundId);
     }
   }
 
@@ -408,9 +436,21 @@ export default class SoundManager {
    * @param {number} x - Координата X источника звука.
    * @param {number} y - Координата Y источника звука.
    * @param {number} volume - Громкость звука.
+   * @param {boolean} [spatial=true] - Принадлежит ли звук миру.
    */
-  _updateSpatialSound(sound, soundId, x, y, volume) {
+  _updateSpatialSound(sound, soundId, x, y, volume, spatial = true) {
     if (!sound || typeof soundId !== 'number') {
+      return;
+    }
+
+    if (spatial === false) {
+      // источник игрока: звук не принадлежит миру, он принадлежит игроку.
+      // equalpower вместо HRTF — HRTF на нулевой дистанции даёт гребенчатую
+      // окраску («гул»), а не тишину панорамы
+      this._applyEqualPower(sound, soundId);
+      sound.pos(0, 0, 0, soundId);
+      sound.volume(volume, soundId);
+
       return;
     }
 
@@ -430,6 +470,19 @@ export default class SoundManager {
     } else {
       sound.pos(0, 0, 0, soundId); // отключение панорамирования
     }
+  }
+
+  /**
+   * @private Переводит экземпляр звука на equalpower — один раз на
+   * экземпляр: pannerAttr на каждом кадре пересобирал бы panner-узел.
+   */
+  _applyEqualPower(sound, soundId) {
+    if (this._equalPowerIds.has(soundId)) {
+      return;
+    }
+
+    sound.pannerAttr({ panningModel: 'equalpower' }, soundId);
+    this._equalPowerIds.add(soundId);
   }
 
   /**
@@ -467,6 +520,7 @@ export default class SoundManager {
   reset() {
     Howler.stop();
     this._activeInstances.clear();
+    this._equalPowerIds.clear();
 
     // луп переживает reset: его владелец жив, и ближайший
     // processAudibility() запустит звук заново. Одноразовый — нет:

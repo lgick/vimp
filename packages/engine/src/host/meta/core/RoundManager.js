@@ -27,6 +27,11 @@ function scaleMapData(mapData) {
     physicsDynamic,
     respawns,
     scale,
+    // высота уровня — мировая величина, как и step: ядро получает эти
+    // данные со scale: 1 и повторно её не масштабирует
+    ...(mapData.levelHeight === undefined
+      ? {}
+      : { levelHeight: mapData.levelHeight * scale }),
   };
 }
 

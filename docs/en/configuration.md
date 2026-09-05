@@ -164,6 +164,22 @@ whatever the game drops and by the map's own dynamic bodies, which the engine
 steps itself. A map body that runs out of floor under it falls to the nearest
 slab below.
 
+A game with levels of its own usually owns that number already, in
+`coreParams.levels.fallTime` — the value its core uses for tanks and for its
+client-side prediction of the very same crates. Two independent fields would
+send the host's crate and its own client's crate down at different speeds,
+silently, so `buildCoreConfig` takes `coreParams.levels.fallTime` (when it is
+a finite positive number) as `mapFallTime` too. The engine key stays the
+default for games without levels, and an explicit override still wins over
+both.
+
+`maps[].levelHeight` — the height of one level in world units (unscaled, the
+core applies the map scale itself; defaults to the tile size). It makes the
+ramp slope dimensionless — `rise * levelHeight / span` instead of «levels per
+pixel» — so climb constants (thrust, hull pitch, dust) can be tuned as
+gradients. Validated by the core and by rule **E4**: finite and greater
+than 0.
+
 `maps[].volumes` (and `maps[].levels[n].volumes`) — an optional
 `{ "<layers key>": height }` dictionary: the visual height of a render layer
 in levels. It is validated by the core and by contract rule **E4** (the key

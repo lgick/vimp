@@ -49,6 +49,36 @@ describe('buildCoreConfig', () => {
     expect(config.game.mapFallTime).toBe(9);
   });
 
+  it('игровой levels.fallTime становится движковым mapFallTime', () => {
+    // ящики на хосте падают по движковой траектории, танки и предсказание
+    // тех же ящиков на клиенте — по игровой: два независимых поля разводят
+    // хост и его же клиента молча
+    const config = buildCoreConfig(
+      makeView({ mapFallTime: 0.35, coreParams: { levels: { fallTime: 0.6 } } }),
+    );
+
+    expect(config.engine.mapFallTime).toBe(0.6);
+    // игровая половина своё поле не теряет
+    expect(config.game.levels).toEqual({ fallTime: 0.6 });
+  });
+
+  it('игра без levels.fallTime оставляет движковое умолчание', () => {
+    const config = buildCoreConfig(
+      makeView({ mapFallTime: 0.35, coreParams: { levels: { fallDamage: 15 } } }),
+    );
+
+    expect(config.engine.mapFallTime).toBe(0.35);
+  });
+
+  it('явный override сильнее игрового fallTime', () => {
+    const config = buildCoreConfig(
+      makeView({ mapFallTime: 0.35, coreParams: { levels: { fallTime: 0.6 } } }),
+      { mapFallTime: 0.2 },
+    );
+
+    expect(config.engine.mapFallTime).toBe(0.2);
+  });
+
   it('карта без coreParams собирается как раньше', () => {
     const config = buildCoreConfig(makeView());
 

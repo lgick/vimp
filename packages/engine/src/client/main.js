@@ -591,6 +591,10 @@ function applyMapData(data, { notifyHost = true } = {}) {
         // разъедется с авторитетным молча
         levels: data.levels,
         ramps: data.ramps,
+        // высота уровня в мировых единицах: от неё зависит уклон рампы, а
+        // значит и предсказание подъёма. Не доехав до клиентской `MapLevels`,
+        // она дала бы другой уклон, чем у хоста, — расхождение молчаливое
+        levelHeight: data.levelHeight,
       }),
     );
   } catch (e) {
@@ -637,6 +641,10 @@ function applyMapData(data, { notifyHost = true } = {}) {
   const staticData = {};
   let staticIndex = 0;
 
+  // мировых единиц на уровень: партам нужен для параллакса слоёв и
+  // экструзии объёмов. 0/undefined — движок подставил размер тайла
+  const levelHeight = (Number(data.levelHeight) || step) * scale;
+
   const pushLayers = (levelLayers, levelMap, level, solid, floor, volumes) => {
     for (const [layer, tiles] of Object.entries(levelLayers || {})) {
       staticData[`s${staticIndex}`] = {
@@ -652,6 +660,11 @@ function applyMapData(data, { notifyHost = true } = {}) {
         // визуальная высота слоя в уровнях: ядро её не знает, поле едет из
         // карты прямо в парт. 0 — слой плоский
         volume: Number(volumes?.[layer]) || 0,
+        levelHeight,
+        // прогоны рамп ЭТОГО уровня как объявлены в карте
+        // ({ tile, dir, from, to }): парт строит по ним клин с нарастающей
+        // высотой — грид уровня у него уже есть
+        ramps: (data.ramps || []).filter(ramp => (ramp.from ?? 0) === level),
         // прежнее имя оставлено для парта, который его уже читает
         physicsStatic,
         scale,

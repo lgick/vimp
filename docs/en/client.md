@@ -831,6 +831,19 @@ rather than the engine-bundled `/sounds/` static copy.
   })` → `processAudibility()` → `updateActiveSounds()` — the manager
   decides what's audible on its own, honoring a voice limit
   (`WORLD_VOICE_LIMIT = 30`) and priorities from the config.
+- **Non-spatial** (the player's own): `registerSound(name, { position,
+  spatial: false })` — the source belongs to the player, not to the world.
+  The listener sits at the camera, which is the predicted position of the
+  player's own tank, so their engine and their shot land right on top of it:
+  HRTF at zero distance folds the loop into comb filtering (heard as a
+  hum), not into a silent pan. `spatial: false` switches that instance to
+  `equalpower` (once per instance) and keeps it at the listener. The flag
+  can be changed later through `updateSoundData(id, { spatial })` — the
+  owner of a tank learns it is the local one after construction. World
+  sources keep a direction dead-zone (`MIN_SPATIAL_DISTANCE`, half a tile):
+  the azimuth in Web Audio follows the direction to the source, not the
+  distance, so a two-pixel gap between camera and body would otherwise give
+  a full, jittering pan.
 - **Unregistering**: `unregisterSound(id)` stops the sound instance and
   drops the registration — for an entity whose sound must die with it.
   `releaseSound(id)` drops the registration but lets an already playing

@@ -699,7 +699,7 @@ mod tests {
             vec![]
         };
 
-        MapLevels::build(&grid0, &[], &levels, &ramps, 10.0)
+        MapLevels::build(&grid0, &[], &levels, &ramps, 10.0, None)
     }
 
     #[test]
@@ -825,7 +825,7 @@ mod tests {
             );
         }
 
-        MapLevels::build(&grid0, &[], &levels, &[], 10.0)
+        MapLevels::build(&grid0, &[], &levels, &[], 10.0, None)
     }
 
     // штрафы рёбер-обрывов, начинающихся на уровне `level`: вес минус
