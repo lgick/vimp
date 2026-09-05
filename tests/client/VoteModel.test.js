@@ -14,6 +14,7 @@ const makeModel = () =>
     ],
     templates: {
       kick: ['Кикнуть {0}?', ['yes', 'no'], 0],
+      teamChange: ['Выбери команду', 'team:list', 1],
     },
   });
 
@@ -133,6 +134,44 @@ describe('VoteModel.update: обработка клавиш', () => {
     expect(
       events.find(e => e.type === 'mode' && e.data.status === 'closed'),
     ).toBeDefined();
+  });
+
+  // Транспорт бывает синхронным (solo/standalone): ответ хоста приходит
+  // прямо внутри emit('socket'). Смена карты сразу присылает новое
+  // голосование «выбери команду», и оно не должно погибнуть от complete()
+  // своего предшественника
+  it('новое голосование, пришедшее внутри отправки ответа, выживает', () => {
+    const model = makeModel();
+
+    model.createVote('map', 'Карта?', ['canopy'], false);
+
+    const events = collect(model);
+
+    // синхронный «хост»: на ответ немедленно присылает следующее
+    // голосование со строковыми значениями (их ещё надо запросить)
+    model.publisher.on('socket', data => {
+      if (Array.isArray(data)) {
+        model.createWithTemplate({ name: 'teamChange' });
+      }
+    });
+
+    model.update(digit(1));
+
+    // ответ ушёл, и запрос значений нового голосования — тоже
+    expect(events.find(e => e.type === 'socket').data).toEqual([
+      'map',
+      'canopy',
+    ]);
+    expect(events.some(e => e.data === 'team:list')).toBe(true);
+
+    // значения приезжают ПОСЛЕ complete() предшественника: голосование
+    // обязано открыться
+    model.updateValues(['team1', 'team2']);
+
+    const vote = events.filter(e => e.type === 'vote').pop();
+
+    expect(vote.data.title).toBe('Выбери команду');
+    expect(vote.data.list).toEqual(['team1', 'team2']);
   });
 
   it('0 завершает голосование (exit)', () => {

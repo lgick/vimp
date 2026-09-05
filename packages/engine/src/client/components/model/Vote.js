@@ -167,8 +167,19 @@ export default class VoteModel {
           const value = this._currentValues[number];
 
           if (value) {
-            this.publisher.emit('socket', [this._voteName, value]);
+            const name = this._voteName;
+
+            // Своё голосование закрывается ДО отправки ответа. Транспорт
+            // бывает синхронным (solo/standalone — хост живёт в том же
+            // потоке), и тогда ответ хоста приходит прямо внутри
+            // emit('socket'): смена карты сразу присылает новое
+            // голосование (initialVote, «выбери команду»), оно ставит
+            // _waitingValues и запрашивает значения. Прежний порядок
+            // «отправить, потом complete()» сбрасывал этот флаг уже
+            // ПОСЛЕ создания нового голосования, и пришедшие значения
+            // отбрасывались в updateValues — диалог не открывался вовсе
             this.complete();
+            this.publisher.emit('socket', [name, value]);
           }
         }
       }

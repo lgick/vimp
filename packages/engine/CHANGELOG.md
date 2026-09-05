@@ -9,6 +9,19 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- The team dialog (`initialVote`) again opens right after a map change. The
+  client answered a vote by sending the answer first and calling
+  `complete()` second; with a synchronous transport (solo/standalone the
+  host runs in the same thread) the host's reaction — the map change and the
+  new `initialVote` — arrived inside that `emit('socket')`, so `complete()`
+  cleared the `_waitingValues` flag of the vote that had just been created
+  and its values were dropped in `updateValues`. The player stayed a
+  spectator with no dialog and no way to spawn short of opening the menu by
+  hand. `VoteModel.update` now closes its own vote before sending the
+  answer.
+
 ## [0.31.0] — 2026-09-04
 
 ### Added
