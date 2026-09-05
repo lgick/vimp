@@ -22,6 +22,7 @@ const makeCtx = sounds => {
     _listenerY: 0,
     _activeInstances: new Map(),
     _equalPowerIds: new Set(),
+    _pannedIds: new Set(),
     _internalPlay: vi.fn(() => `play${counter++}`),
     _internalStop: vi.fn(),
     _updateSpatialSound: vi.fn(),
@@ -93,6 +94,7 @@ const makeRegistryCtx = (sounds = new Map()) => ({
   _registeredSounds: new Map(),
   _activeInstances: new Map(),
   _equalPowerIds: new Set(),
+  _pannedIds: new Set(),
   _listenerX: 0,
   _listenerY: 0,
   _internalStop: vi.fn(),
@@ -282,13 +284,17 @@ describe('SoundManager.releaseSound', () => {
 
 // Непространственный источник (свой танк): звук принадлежит игроку, а не
 // миру. HRTF на нулевой дистанции сворачивается в гребенчатую окраску
-// («гул»), поэтому у такого источника панорама выключается моделью, а не
-// подменой позиции.
+// («гул»), поэтому такому источнику PannerNode не создаётся вовсе: Howler
+// заводит узел лениво, на первом pos()/pannerAttr(id), и заканчивает
+// создание парой pause()/play() — то есть щелчком, а сам узел вдобавок
+// схлопывает стерео сэмпла в моно.
 const makeSpatialCtx = () => ({
   _listenerX: 100,
   _listenerY: 100,
   _equalPowerIds: new Set(),
+  _pannedIds: new Set(),
   _updateSpatialSound: P._updateSpatialSound,
+  _recenterIfPanned: P._recenterIfPanned,
   _applyEqualPower: P._applyEqualPower,
 });
 
@@ -301,24 +307,32 @@ const makeHowl = () => ({
 });
 
 describe('SoundManager._updateSpatialSound', () => {
-  it('непространственный источник не позиционируется в мире', () => {
+  it('непространственный источник не создаёт паннер вовсе', () => {
     const ctx = makeSpatialCtx();
     const sound = makeHowl();
 
     ctx._updateSpatialSound(sound, 1, 500, 700, 0.8, false);
 
-    expect(sound.pos).toHaveBeenCalledWith(0, 0, 0, 1);
+    // ни pos(), ни pannerAttr(): PannerNode не появляется, сигнал идёт
+    // прямо в gain и остаётся стерео
+    expect(sound.pos).not.toHaveBeenCalled();
+    expect(sound.pannerAttr).not.toHaveBeenCalled();
     expect(sound.volume).toHaveBeenCalledWith(0.8, 1);
   });
 
-  it('непространственный источник получает equalpower ровно один раз', () => {
+  it('уже панорамированный источник, ставший непространственным, возвращается в центр на equalpower ровно один раз', () => {
     const ctx = makeSpatialCtx();
     const sound = makeHowl();
 
-    ctx._updateSpatialSound(sound, 1, 100, 100, 1, false);
+    // паннер уже создан: источник побывал в стороне от слушателя
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+    sound.pos.mockClear();
+
     ctx._updateSpatialSound(sound, 1, 100, 100, 1, false);
     ctx._updateSpatialSound(sound, 1, 100, 100, 1, false);
 
+    expect(sound.pos).toHaveBeenCalledTimes(2);
+    expect(sound.pos).toHaveBeenLastCalledWith(0, 0, 0, 1);
     expect(sound.pannerAttr).toHaveBeenCalledTimes(1);
     expect(sound.pannerAttr).toHaveBeenCalledWith(
       { panningModel: 'equalpower' },
@@ -340,10 +354,24 @@ describe('SoundManager._updateSpatialSound', () => {
     const ctx = makeSpatialCtx();
     const sound = makeHowl();
 
-    // расхождение камеры и танка в пару пикселей — не повод для азимута
+    // расхождение камеры и танка в пару пикселей — не повод для азимута.
+    // Узла ещё нет — и заводить его здесь незачем
     ctx._updateSpatialSound(sound, 1, 102, 100, 1);
 
-    expect(sound.pos).toHaveBeenCalledWith(0, 0, 0, 1);
+    expect(sound.pos).not.toHaveBeenCalled();
+    expect(sound.volume).toHaveBeenCalledWith(1, 1);
+  });
+
+  it('мировой источник в дед-зоне возвращается в центр, но HRTF сохраняет', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+    ctx._updateSpatialSound(sound, 1, 102, 100, 1);
+
+    expect(sound.pos).toHaveBeenLastCalledWith(0, 0, 0, 1);
+    // equalpower — только для источника игрока: миру HRTF ещё понадобится
+    expect(sound.pannerAttr).not.toHaveBeenCalled();
   });
 });
 

@@ -9,6 +9,19 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- A sound sitting on the listener no longer gets a `PannerNode` at all — it
+  runs straight into the gain and keeps its stereo. `spatial: false` used to
+  switch the instance to `equalpower` and call `pos(0, 0, 0)`, but both of
+  those are what MAKES Howler build the node (`setupPanner`), and the node
+  downmixes the sample to mono; building it also ends in a
+  `pause()`/`play()` pair, audible as a click when the source appears. The
+  same now applies inside the direction dead-zone: an instance that has a
+  node is recentred (keeping HRTF, which it needs on the way out), one that
+  has none does not get one. Player-owned loops — an own engine sound — were
+  the audible case: a hum instead of an engine.
+
 ## [0.32.0] — 2026-09-05
 
 ### Added

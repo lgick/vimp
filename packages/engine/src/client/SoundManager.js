@@ -43,6 +43,13 @@ export default class SoundManager {
     // pannerAttr ставится один раз на экземпляр, а не каждый кадр
     this._equalPowerIds = new Set();
 
+    // экземпляры, у которых PannerNode УЖЕ создан. Howler создаёт узел
+    // лениво — на первом pos()/pannerAttr(id) — и заканчивает создание
+    // парой pause()/play() (setupPanner в howler.js), то есть щелчком.
+    // Пока источник стоит в точке слушателя, паннер не нужен вовсе:
+    // сигнал идёт прямо в gain, сохраняя стерео сэмпла
+    this._pannedIds = new Set();
+
     // позиция слушателя
     this._listenerX = 0;
     this._listenerY = 0;
@@ -164,7 +171,9 @@ export default class SoundManager {
    * @param {boolean} [data?.spatial=true] - Принадлежит ли звук миру.
    *   `false` — источник игрока (двигатель и выстрел своего танка): он
    *   стоит ровно на слушателе, и HRTF на нулевой дистанции сворачивается
-   *   в гребенчатую окраску («гул»), а не в тишину панорамы.
+   *   в гребенчатую окраску («гул»), а не в тишину панорамы. Такому звуку
+   *   PannerNode не создаётся вовсе — он идёт прямо в gain и остаётся
+   *   стерео.
    * @param {function} [callback] - Функция, вызываемая по завершении.
    * @returns {symbol | null} Уникальный ID звука или null, если звук не найден.
    */
@@ -348,6 +357,7 @@ export default class SoundManager {
         sound.stop(soundId);
         this._activeInstances.delete(soundId);
         this._equalPowerIds.delete(soundId);
+        this._pannedIds.delete(soundId);
         continue;
       }
 
@@ -407,6 +417,7 @@ export default class SoundManager {
 
           this._activeInstances.delete(soundId);
           this._equalPowerIds.delete(soundId);
+          this._pannedIds.delete(soundId);
         },
         soundId,
       );
@@ -425,6 +436,7 @@ export default class SoundManager {
       instanceData.sound.stop(soundId);
       this._activeInstances.delete(soundId);
       this._equalPowerIds.delete(soundId);
+      this._pannedIds.delete(soundId);
     }
   }
 
@@ -445,11 +457,14 @@ export default class SoundManager {
 
     if (spatial === false) {
       // источник игрока: звук не принадлежит миру, он принадлежит игроку.
-      // equalpower вместо HRTF — HRTF на нулевой дистанции даёт гребенчатую
-      // окраску («гул»), а не тишину панорамы
-      this._applyEqualPower(sound, soundId);
-      sound.pos(0, 0, 0, soundId);
+      // Паннер ему не нужен ни в каком виде — ни HRTF (на нулевой
+      // дистанции это не тишина панорамы, а фронтальная свёртка:
+      // гребенчатая окраска, из-за которой двигатель слышен как гул), ни
+      // equalpower (тот схлопывает стерео сэмпла в моно). Пока узла нет,
+      // pos() не зовётся вовсе: Howler создал бы паннер и щёлкнул
+      // pause()/play()
       sound.volume(volume, soundId);
+      this._recenterIfPanned(sound, soundId, true);
 
       return;
     }
@@ -467,9 +482,34 @@ export default class SoundManager {
     // если дистанция позволяет панорамировать звук
     if (distance > MIN_SPATIAL_DISTANCE) {
       sound.pos(x - this._listenerX, 0, y - this._listenerY, soundId);
+      this._pannedIds.add(soundId);
     } else {
-      sound.pos(0, 0, 0, soundId); // отключение панорамирования
+      // внутри дед-зоны звук идёт по центру. Экземпляру, у которого паннер
+      // ещё не создан, здесь не место его заводить: узел появится на
+      // первом же выходе из дед-зоны
+      this._recenterIfPanned(sound, soundId);
     }
+  }
+
+  /**
+   * @private Возвращает в центр экземпляр, у которого PannerNode УЖЕ есть
+   * (источник успел побывать в стороне от слушателя). Экземпляр без узла
+   * не трогается: создание паннера — это лишний узел в цепочке, потеря
+   * стерео и щелчок от pause()/play() внутри setupPanner Howler'а.
+   * @param {boolean} [equalPower=false] - Перевести узел на equalpower:
+   *   так делается только для источника игрока, миру HRTF сохраняется —
+   *   он снова понадобится, как только источник выйдет из дед-зоны.
+   */
+  _recenterIfPanned(sound, soundId, equalPower = false) {
+    if (!this._pannedIds.has(soundId)) {
+      return;
+    }
+
+    if (equalPower) {
+      this._applyEqualPower(sound, soundId);
+    }
+
+    sound.pos(0, 0, 0, soundId);
   }
 
   /**
@@ -521,6 +561,7 @@ export default class SoundManager {
     Howler.stop();
     this._activeInstances.clear();
     this._equalPowerIds.clear();
+    this._pannedIds.clear();
 
     // луп переживает reset: его владелец жив, и ближайший
     // processAudibility() запустит звук заново. Одноразовый — нет:

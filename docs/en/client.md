@@ -836,14 +836,21 @@ rather than the engine-bundled `/sounds/` static copy.
   The listener sits at the camera, which is the predicted position of the
   player's own tank, so their engine and their shot land right on top of it:
   HRTF at zero distance folds the loop into comb filtering (heard as a
-  hum), not into a silent pan. `spatial: false` switches that instance to
-  `equalpower` (once per instance) and keeps it at the listener. The flag
-  can be changed later through `updateSoundData(id, { spatial })` — the
-  owner of a tank learns it is the local one after construction. World
-  sources keep a direction dead-zone (`MIN_SPATIAL_DISTANCE`, half a tile):
-  the azimuth in Web Audio follows the direction to the source, not the
-  distance, so a two-pixel gap between camera and body would otherwise give
-  a full, jittering pan.
+  hum), not into a silent pan. Such an instance gets **no `PannerNode` at
+  all** — it runs straight into the gain and keeps the sample's stereo.
+  Howler builds the node lazily, on the first `pos()`/`pannerAttr(id)`, and
+  finishes building it with a `pause()`/`play()` pair, i.e. a click; so as
+  long as the source sits on the listener, neither call is made. An instance
+  that has already been panned (it was out in the world before) is recentred
+  on `equalpower` instead. The flag can be changed later through
+  `updateSoundData(id, { spatial })` — the owner of a tank learns it is the
+  local one after construction. World sources keep a direction dead-zone
+  (`MIN_SPATIAL_DISTANCE`, half a tile): the azimuth in Web Audio follows
+  the direction to the source, not the distance, so a two-pixel gap between
+  camera and body would otherwise give a full, jittering pan. Inside the
+  dead-zone a source that has a node is recentred and keeps HRTF — it will
+  need it again on the way out — while one that has no node yet does not get
+  one.
 - **Unregistering**: `unregisterSound(id)` stops the sound instance and
   drops the registration — for an entity whose sound must die with it.
   `releaseSound(id)` drops the registration but lets an already playing
