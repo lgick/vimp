@@ -336,7 +336,7 @@ must not drift from them.
   inside its `GameClientDef` implementation, and call the engine primitives.
 
   `collision` and `rigid_body` let a client predict contacts the way the
-  host resolves them: `obb_vs_obb` / `collect_block_contacts` produce the
+  host resolves them: `obb_manifold` / `collect_block_contacts` produce the
   `Contact`s (they read the map through the same `Box2` as `raycast`, so a
   ray and a contact can never disagree about a wall). Walls are read as the
   **glued blocks** of `MapLevels::static_blocks` — the very list the host
@@ -345,7 +345,37 @@ must not drift from them.
   meet several contacts where the host has one, and a tangential hit on a
   corner is then resolved along a different axis on each side — a silent
   drift.
-  `separate_bodies` + `apply_contact_impulse` resolve the contacts, `separate_bodies` + `apply_contact_impulse` resolve them on
+
+  Three details make the replica behave like Rapier rather than merely
+  resemble it, and a game that skips any of them drifts on tangential hits:
+
+  - **Speculative contacts.** `obb_vs_obb_within(a, b, prediction)` and
+    `obb_manifold(a, b, prediction)` return a contact while the bodies are
+    still apart, up to a gap of `prediction`; `Contact::depth` is signed
+    (`> 0` penetration, `< 0` gap). `prediction` must be the body's
+    `soft_ccd_prediction` on the host — the same number on both sides,
+    or the two see the contact on different steps. Without it a body moving
+    at a few hundred units per second is already inside the wall by the time
+    it reacts, and its lever is not the host's. `obb_vs_obb` is the wrapper
+    with no prediction.
+  - **Two-point manifolds.** Rapier clips the two support faces of a
+    cuboid pair, so a face contact carries two points with their own
+    depths. A single point blended to the middle of the face has no lever at
+    all, and the hull does not turn where the server turns it. `Manifold`
+    holds up to two `Contact`s; `Manifold::deepest()` is the one point that
+    gets the positional correction (`separate_bodies` once per **pair**,
+    never per point).
+  - **Accumulated impulses.** `apply_contact_impulse` takes
+    `&mut ContactImpulses` — one per contact, living from the solver's first
+    iteration to its last — and clamps the *accumulated* impulse, not the
+    iteration's increment. Applying increments lets the first point of a
+    manifold take the whole normal impulse, spin the hull on its lever and
+    leave the second point separating, with no way back; accumulation gives
+    the excess back. It also takes `dt`, which a speculative contact needs:
+    the gap closes at `-depth / dt`, and only what closes it faster is
+    cancelled, so a body stops **at** the wall instead of inside it.
+
+  `separate_bodies` + `apply_contact_impulse` resolve the contacts on
   `Body` values, and `MAP_SURFACE` reuses `map::DEFAULT_FRICTION` /
   `DEFAULT_RESTITUTION` — the same figures the host builds its colliders
   with. This is an approximation of Rapier, not a copy; the remaining drift

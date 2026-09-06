@@ -19,7 +19,13 @@ use crate::map::StaticBlock;
 const CONTACT_MANIFOLD_RATIO: f32 = 0.15;
 
 /// Контакт двух OBB: минимальный вектор выталкивания (нормаль направлена от
-/// центра `a` к центру `b`), глубина проникновения и мировая точка контакта.
+/// центра `a` к центру `b`), ЗНАКОВАЯ глубина и мировая точка контакта.
+///
+/// `depth > 0` — проникновение (тела уже перекрыты), `depth < 0` — зазор:
+/// спекулятивный контакт, найденный до перекрытия
+/// (`obb_vs_obb_within`). Решатель обязан различать эти случаи:
+/// разводить по зазору нечего, а импульс считается от скорости, которая
+/// закрывает зазор быстрее, чем за шаг (`rigid_body::apply_contact_impulse`).
 #[derive(Clone, Copy, Debug)]
 pub struct Contact {
     pub nx: f32,
@@ -36,6 +42,47 @@ pub struct TileContact {
     pub contact: Contact,
     pub tile_x: f32,
     pub tile_y: f32,
+}
+
+/// Манифольд пары OBB: до ДВУХ точек с общей нормалью и своими глубинами.
+/// Одна точка на пару — приближение, которое расходится с Rapier ровно там,
+/// где важно: у него манифольд «куб — куб» строится клиппингом опорных
+/// граней, и на касательном ударе две точки дают другое плечо, чем середина
+/// грани. Отсюда и брался разъезд `angle`/`angvel` предсказания с сервером.
+#[derive(Clone, Copy, Debug)]
+pub struct Manifold {
+    points: [Contact; 2],
+    len: usize,
+}
+
+impl Manifold {
+    /// Точки манифольда (одна или две).
+    pub fn as_slice(&self) -> &[Contact] {
+        &self.points[..self.len]
+    }
+
+    /// Самая глубокая точка — ею делается позиционная коррекция: развод
+    /// по каждой точке пары растолкал бы тела кратно их числу.
+    pub fn deepest(&self) -> Contact {
+        let mut best = self.points[0];
+
+        for point in &self.points[1..self.len] {
+            if point.depth > best.depth {
+                best = *point;
+            }
+        }
+
+        best
+    }
+}
+
+/// Манифольд OBB со склеенным блоком стен уровня.
+/// `block_x`/`block_y` — центр блока (плечо статики).
+#[derive(Clone, Copy, Debug)]
+pub struct BlockContact {
+    pub manifold: Manifold,
+    pub block_x: f32,
+    pub block_y: f32,
 }
 
 /// Переводит «угол объекта» (позиция тела Rapier для динамики карты —
@@ -99,7 +146,127 @@ fn contact_point(corners: &[[f32; 2]; 4], nx: f32, ny: f32, tolerance: f32) -> [
 
 /// SAT-тест двух повёрнутых прямоугольников (OBB).
 /// `None` — пересечения нет (касание вплотную тоже промах).
+/// Обёртка над `obb_vs_obb_within` без предсказания: контакт рождается по
+/// факту перекрытия.
 pub fn obb_vs_obb(a: &Box2, b: &Box2) -> Option<Contact> {
+    obb_vs_obb_within(a, b, 0.0)
+}
+
+/// SAT-тест с предсказанием: контакт возвращается, пока зазор между телами
+/// не больше `prediction`. Это клиентский аналог `soft_ccd_prediction`
+/// Rapier — хост строит контакт, пока тела ещё разведены, ведёт его через
+/// шаг и решает скорости ДО интеграции позиции. Реплика без предсказания
+/// успевала уйти в стену на несколько юнитов за шаг и реагировала уже
+/// изнутри: точка контакта и плечо получались другими, и предсказание
+/// молча расходилось с сервером на касательных ударах.
+///
+/// Выигрывает ось с наибольшим зазором (она же — ось минимального
+/// перекрытия при проникновении), `Contact::depth` знаковый.
+/// `prediction = 0.0` даёт прежнее поведение бит в бит.
+pub fn obb_vs_obb_within(a: &Box2, b: &Box2, prediction: f32) -> Option<Contact> {
+    let (axis, corners_a, _) = separating_axis(a, b, prediction)?;
+    let contact = contact_point(
+        &corners_a,
+        axis.nx,
+        axis.ny,
+        CONTACT_MANIFOLD_RATIO * (a.half_w + a.half_h),
+    );
+
+    Some(Contact {
+        nx: axis.nx,
+        ny: axis.ny,
+        depth: axis.depth,
+        cx: contact[0],
+        cy: contact[1],
+    })
+}
+
+/// Манифольд пары OBB: до двух точек контакта, как их строит Rapier.
+/// Ось берётся тем же SAT, что и в `obb_vs_obb_within`; опорная грань тела,
+/// которому ось принадлежит, отсекает встречную грань второго тела
+/// (Sutherland—Hodgman по двум боковым плоскостям), и каждая уцелевшая точка
+/// получает СВОЮ глубину. Пара «грань — грань» даёт две точки и честное
+/// плечо разворота, «угол — грань» — одну.
+/// `prediction` — тот же зазор спекулятивного контакта.
+/// Вырожденный случай (грани не перекрываются вовсе) откатывается к
+/// смешанной точке `obb_vs_obb_within`: манифольда там нет, а контакт есть.
+pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
+    let (axis, _, owner_is_a) = separating_axis(a, b, prediction)?;
+    let normal = [axis.nx, axis.ny];
+    let flipped = [-axis.nx, -axis.ny];
+
+    // опорная грань тела, которому принадлежит ось, — референсная;
+    // встречная грань второго тела — падающая
+    let (reference, incident) = if owner_is_a {
+        (support_face(a, normal), support_face(b, flipped))
+    } else {
+        (support_face(b, flipped), support_face(a, normal))
+    };
+
+    let (ref_face, ref_normal) = reference;
+    let (incident_face, _) = incident;
+    let tangent = [-ref_normal[1], ref_normal[0]];
+    let t0 = ref_face[0][0] * tangent[0] + ref_face[0][1] * tangent[1];
+    let t1 = ref_face[1][0] * tangent[0] + ref_face[1][1] * tangent[1];
+
+    let clipped = clip_segment(&incident_face, tangent, t0.min(t1), t0.max(t1));
+
+    let Some(clipped) = clipped else {
+        return obb_vs_obb_within(a, b, prediction).map(|contact| Manifold {
+            points: [contact, contact],
+            len: 1,
+        });
+    };
+
+    let mut points = [Contact {
+        nx: axis.nx,
+        ny: axis.ny,
+        depth: axis.depth,
+        cx: 0.0,
+        cy: 0.0,
+    }; 2];
+    let mut len = 0;
+
+    for point in &clipped {
+        // глубина точки — насколько она зашла ЗА плоскость референсной
+        // грани; знак тот же, что у `Contact::depth`
+        let depth = -((point[0] - ref_face[0][0]) * ref_normal[0]
+            + (point[1] - ref_face[0][1]) * ref_normal[1]);
+
+        if depth < -prediction {
+            continue;
+        }
+
+        points[len] = Contact {
+            nx: axis.nx,
+            ny: axis.ny,
+            depth,
+            cx: point[0],
+            cy: point[1],
+        };
+        len += 1;
+    }
+
+    if len == 0 {
+        return obb_vs_obb_within(a, b, prediction).map(|contact| Manifold {
+            points: [contact, contact],
+            len: 1,
+        });
+    }
+
+    Some(Manifold { points, len })
+}
+
+// ось SAT пары: нормаль от центра `a` к центру `b`, знаковая глубина,
+// признак «ось принадлежит телу a». Общая часть одноточечного контакта и
+// манифольда — оба обязаны выбирать одну и ту же ось
+struct Axis {
+    nx: f32,
+    ny: f32,
+    depth: f32,
+}
+
+fn separating_axis(a: &Box2, b: &Box2, prediction: f32) -> Option<(Axis, [[f32; 2]; 4], bool)> {
     let (a_sin, a_cos) = a.angle.sin_cos();
     let (b_sin, b_cos) = b.angle.sin_cos();
     let axes = [
@@ -115,8 +282,9 @@ pub fn obb_vs_obb(a: &Box2, b: &Box2) -> Option<Contact> {
     let mut min_overlap = f32::INFINITY;
     let mut normal_x = 0.0;
     let mut normal_y = 0.0;
+    let mut owner_is_a = true;
 
-    for [ax, ay] in axes {
+    for (index, [ax, ay]) in axes.into_iter().enumerate() {
         let mut min_a = f32::INFINITY;
         let mut max_a = f32::NEG_INFINITY;
         let mut min_b = f32::INFINITY;
@@ -138,12 +306,14 @@ pub fn obb_vs_obb(a: &Box2, b: &Box2) -> Option<Contact> {
 
         let overlap = max_a.min(max_b) - min_a.max(min_b);
 
-        if overlap <= 0.0 {
+        // зазор больше предсказания — разделяющая ось найдена, контакта нет
+        if overlap <= -prediction {
             return None;
         }
 
         if overlap < min_overlap {
             min_overlap = overlap;
+            owner_is_a = index < 2;
 
             // нормаль ориентируется от центра a к центру b
             let cx = b.x - a.x;
@@ -155,20 +325,89 @@ pub fn obb_vs_obb(a: &Box2, b: &Box2) -> Option<Contact> {
         }
     }
 
-    let contact = contact_point(
-        &corners_a,
-        normal_x,
-        normal_y,
-        CONTACT_MANIFOLD_RATIO * (a.half_w + a.half_h),
-    );
+    Some((
+        Axis {
+            nx: normal_x,
+            ny: normal_y,
+            depth: min_overlap,
+        },
+        corners_a,
+        owner_is_a,
+    ))
+}
 
-    Some(Contact {
-        nx: normal_x,
-        ny: normal_y,
-        depth: min_overlap,
-        cx: contact[0],
-        cy: contact[1],
-    })
+// опорная грань OBB в направлении `dir`: два её мировых конца и внешняя
+// нормаль грани
+fn support_face(b: &Box2, dir: [f32; 2]) -> ([[f32; 2]; 2], [f32; 2]) {
+    let (sin, cos) = b.angle.sin_cos();
+    let u = [cos, sin];
+    let v = [-sin, cos];
+    let du = dir[0] * u[0] + dir[1] * u[1];
+    let dv = dir[0] * v[0] + dir[1] * v[1];
+
+    let (axis, half, along, along_half, projection) = if du.abs() >= dv.abs() {
+        (u, b.half_w, v, b.half_h, du)
+    } else {
+        (v, b.half_h, u, b.half_w, dv)
+    };
+    let sign = if projection < 0.0 { -1.0 } else { 1.0 };
+    let normal = [axis[0] * sign, axis[1] * sign];
+    let center = [b.x + normal[0] * half, b.y + normal[1] * half];
+
+    (
+        [
+            [
+                center[0] - along[0] * along_half,
+                center[1] - along[1] * along_half,
+            ],
+            [
+                center[0] + along[0] * along_half,
+                center[1] + along[1] * along_half,
+            ],
+        ],
+        normal,
+    )
+}
+
+// отсечение отрезка боковыми плоскостями референсной грани: остаётся его
+// часть, чья проекция на касательную лежит в [min, max]
+fn clip_segment(
+    segment: &[[f32; 2]; 2],
+    tangent: [f32; 2],
+    min: f32,
+    max: f32,
+) -> Option<[[f32; 2]; 2]> {
+    let t0 = segment[0][0] * tangent[0] + segment[0][1] * tangent[1];
+    let t1 = segment[1][0] * tangent[0] + segment[1][1] * tangent[1];
+    let span = t1 - t0;
+
+    // грань перпендикулярна касательной (вырожденная проекция) — отсекать
+    // нечем: точка внутри диапазона или манифольда нет
+    if span.abs() < f32::EPSILON {
+        return (t0 >= min && t0 <= max).then_some(*segment);
+    }
+
+    let s_min = ((min - t0) / span).clamp(0.0, 1.0);
+    let s_max = ((max - t0) / span).clamp(0.0, 1.0);
+    let (low, high) = if s_min <= s_max {
+        (s_min, s_max)
+    } else {
+        (s_max, s_min)
+    };
+
+    // отрезок целиком вне диапазона грани — чистый угловой случай
+    if (t0.min(t1) > max) || (t0.max(t1) < min) {
+        return None;
+    }
+
+    let at = |s: f32| {
+        [
+            segment[0][0] + (segment[1][0] - segment[0][0]) * s,
+            segment[0][1] + (segment[1][1] - segment[0][1]) * s,
+        ]
+    };
+
+    Some([at(low), at(high)])
 }
 
 /// Список контактов OBB со сплошными клетками тайловой сетки.
@@ -235,18 +474,26 @@ pub fn collect_tile_contacts(
 /// ровно ту геометрию, по которой хост поставил коллайдеры: на длинной стене
 /// SAT выбирает ту же ось выталкивания, что Rapier, и касательный удар об
 /// угол не разводит предсказание с сервером.
-pub fn collect_block_contacts(obb: &Box2, blocks: &[StaticBlock]) -> Vec<TileContact> {
+/// `prediction` — дистанция спекулятивного контакта (см. `obb_vs_obb_within`);
+/// она обязана совпадать с `soft_ccd_prediction` тела у хоста.
+pub fn collect_block_contacts(
+    obb: &Box2,
+    blocks: &[StaticBlock],
+    prediction: f32,
+) -> Vec<BlockContact> {
     let mut contacts = Vec::new();
 
     if blocks.is_empty() {
         return contacts;
     }
 
-    // консервативный AABB OBB (для отбора кандидатных блоков)
+    // консервативный AABB OBB (для отбора кандидатных блоков), раздутый на
+    // дистанцию предсказания — иначе спекулятивный контакт отсеялся бы
+    // грубым тестом, не дойдя до SAT
     let (sin, cos) = obb.angle.sin_cos();
     let (sin, cos) = (sin.abs(), cos.abs());
-    let extent_x = obb.half_w * cos + obb.half_h * sin;
-    let extent_y = obb.half_w * sin + obb.half_h * cos;
+    let extent_x = obb.half_w * cos + obb.half_h * sin + prediction;
+    let extent_y = obb.half_w * sin + obb.half_h * cos + prediction;
 
     for block in blocks {
         if (block.x - obb.x).abs() > block.half_w + extent_x
@@ -263,11 +510,11 @@ pub fn collect_block_contacts(obb: &Box2, blocks: &[StaticBlock]) -> Vec<TileCon
             half_h: block.half_h,
         };
 
-        if let Some(contact) = obb_vs_obb(obb, &box2) {
-            contacts.push(TileContact {
-                contact,
-                tile_x: block.x,
-                tile_y: block.y,
+        if let Some(manifold) = obb_manifold(obb, &box2, prediction) {
+            contacts.push(BlockContact {
+                manifold,
+                block_x: block.x,
+                block_y: block.y,
             });
         }
     }
@@ -303,18 +550,21 @@ mod tests {
         };
         let obb = box2(74.906, 395.07, 0.0, 3.0, 3.0);
 
-        let by_block = collect_block_contacts(&obb, &[block]);
+        let by_block = collect_block_contacts(&obb, &[block], 0.0);
 
         // одно тело у хоста — один контакт у реплики
         assert_eq!(by_block.len(), 1);
+
+        let deepest = by_block[0].manifold.deepest();
+
         // нормаль и глубина — те же, что даёт Rapier на этом коллайдере
         // (parry: normal (1, 0), dist -1.10599)
-        assert!((by_block[0].contact.nx - 1.0).abs() < 1e-3);
-        assert!(by_block[0].contact.ny.abs() < 1e-3);
-        assert!((by_block[0].contact.depth - 1.106).abs() < 1e-2);
+        assert!((deepest.nx - 1.0).abs() < 1e-3);
+        assert!(deepest.ny.abs() < 1e-3);
+        assert!((deepest.depth - 1.106).abs() < 1e-2);
         // плечо статики — центр ОДНОГО тела хоста, а не центр тайла
-        assert_eq!(by_block[0].tile_x, block.x);
-        assert_eq!(by_block[0].tile_y, block.y);
+        assert_eq!(by_block[0].block_x, block.x);
+        assert_eq!(by_block[0].block_y, block.y);
     }
 
     #[test]
@@ -339,7 +589,7 @@ mod tests {
             half_h: 6.4,
         }];
 
-        assert_eq!(collect_block_contacts(&obb, &blocks).len(), 1);
+        assert_eq!(collect_block_contacts(&obb, &blocks, 0.0).len(), 1);
         assert_eq!(collect_tile_contacts(&obb, &map, &[1], tile).len(), 2);
     }
 
@@ -373,6 +623,147 @@ mod tests {
         let b = box2(10.0, 0.0, 0.0, 5.0, 5.0);
 
         assert!(obb_vs_obb(&a, &b).is_none());
+    }
+
+    #[test]
+    fn prediction_finds_the_contact_before_the_overlap() {
+        // зазор 0.5 по x: без предсказания промах, с предсказанием 1.0 —
+        // контакт с ОТРИЦАТЕЛЬНОЙ глубиной, равной зазору
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let b = box2(10.5, 0.0, 0.0, 5.0, 5.0);
+
+        assert!(obb_vs_obb(&a, &b).is_none());
+
+        let contact = obb_vs_obb_within(&a, &b, 1.0).expect("спекулятивный контакт");
+
+        assert!((contact.nx - 1.0).abs() < 1e-5);
+        assert!(contact.ny.abs() < 1e-5);
+        assert!((contact.depth + 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn prediction_keeps_the_normal_of_the_overlapping_pair() {
+        // та же пара, сдвинутая до перекрытия: нормаль обязана совпасть —
+        // иначе спекулятивный контакт решался бы по другой оси, чем реальный
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let gap = box2(10.5, 0.0, 0.0, 5.0, 5.0);
+        let hit = box2(9.0, 0.0, 0.0, 5.0, 5.0);
+
+        let speculative = obb_vs_obb_within(&a, &gap, 1.0).expect("спекулятивный контакт");
+        let real = obb_vs_obb(&a, &hit).expect("контакт");
+
+        assert!((speculative.nx - real.nx).abs() < 1e-5);
+        assert!((speculative.ny - real.ny).abs() < 1e-5);
+    }
+
+    #[test]
+    fn gap_wider_than_the_prediction_is_a_miss() {
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let b = box2(12.0, 0.0, 0.0, 5.0, 5.0);
+
+        assert!(obb_vs_obb_within(&a, &b, 1.0).is_none());
+    }
+
+    #[test]
+    fn zero_prediction_repeats_the_plain_overlap_test() {
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+
+        // касание вплотную — промах в обоих вариантах
+        assert!(obb_vs_obb_within(&a, &box2(10.0, 0.0, 0.0, 5.0, 5.0), 0.0).is_none());
+
+        let b = box2(8.0, 0.0, 0.0, 5.0, 5.0);
+        let plain = obb_vs_obb(&a, &b).expect("контакт");
+        let within = obb_vs_obb_within(&a, &b, 0.0).expect("контакт");
+
+        assert_eq!(plain.nx, within.nx);
+        assert_eq!(plain.ny, within.ny);
+        assert_eq!(plain.depth, within.depth);
+        assert_eq!(plain.cx, within.cx);
+        assert_eq!(plain.cy, within.cy);
+    }
+
+    #[test]
+    fn manifold_of_a_flush_face_contact_has_two_points() {
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let b = box2(8.0, 0.0, 0.0, 5.0, 5.0);
+        let manifold = obb_manifold(&a, &b, 0.0).expect("манифольд");
+        let points = manifold.as_slice();
+
+        assert_eq!(points.len(), 2);
+        // грани совпадают целиком — точки на концах общей грани, плеча нет
+        assert!((points[0].cy + points[1].cy).abs() < 1e-4);
+        assert!(points.iter().all(|p| (p.depth - 2.0).abs() < 1e-4));
+        assert!(points.iter().all(|p| (p.nx - 1.0).abs() < 1e-5));
+    }
+
+    #[test]
+    fn manifold_is_clipped_to_the_overlapping_part_of_the_faces() {
+        // стена вдвое ниже корпуса и сдвинута вниз: Rapier ведёт манифольд
+        // только по перекрытию граней, и обе точки лежат НИЖЕ центра
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let b = box2(8.0, 5.0, 0.0, 5.0, 2.5);
+        let manifold = obb_manifold(&a, &b, 0.0).expect("манифольд");
+        let points = manifold.as_slice();
+
+        assert_eq!(points.len(), 2);
+        assert!(points.iter().all(|p| p.cy > 0.0), "{points:?}");
+        // середина грани корпуса (0) в манифольд не попадает — она вне стены
+        let middle = (points[0].cy + points[1].cy) / 2.0;
+
+        assert!(middle > 2.0, "плечо разворота: {middle}");
+    }
+
+    #[test]
+    fn manifold_of_a_corner_contact_keeps_one_point() {
+        let a = box2(0.0, 0.0, core::f32::consts::FRAC_PI_4, 5.0, 5.0);
+        let b = box2(9.0, 0.0, 0.0, 3.0, 3.0);
+        let manifold = obb_manifold(&a, &b, 0.0).expect("манифольд");
+
+        assert_eq!(manifold.as_slice().len(), 1);
+
+        let point = manifold.as_slice()[0];
+        let distance = point.cx.hypot(point.cy);
+
+        assert!((distance - 5.0 * core::f32::consts::SQRT_2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn manifold_and_single_point_agree_on_the_axis() {
+        let a = box2(0.0, 0.0, 0.3, 5.0, 3.0);
+        let b = box2(0.0, -7.0, 0.0, 5.0, 5.0);
+        let single = obb_vs_obb(&a, &b).expect("контакт");
+        let manifold = obb_manifold(&a, &b, 0.0).expect("манифольд");
+
+        assert!((manifold.deepest().nx - single.nx).abs() < 1e-5);
+        assert!((manifold.deepest().ny - single.ny).abs() < 1e-5);
+        assert!((manifold.deepest().depth - single.depth).abs() < 1e-4);
+    }
+
+    #[test]
+    fn block_collection_sees_the_wall_through_the_prediction_gap() {
+        let block = StaticBlock {
+            x: 345.6,
+            y: 403.2,
+            half_w: 268.8,
+            half_h: 6.4,
+        };
+        // корпус ещё не дошёл до западного торца блока: зазор по x 0.19
+        let obb = box2(72.61, 395.07, 0.0, 4.0, 3.0);
+
+        assert!(collect_block_contacts(&obb, &[block], 0.0).is_empty());
+
+        let hits = collect_block_contacts(&obb, &[block], 6.0);
+
+        assert_eq!(hits.len(), 1);
+
+        let deepest = hits[0].manifold.deepest();
+
+        assert!(deepest.depth < 0.0);
+        assert!((deepest.nx - 1.0).abs() < 1e-3);
+        // корпус стоит грань-в-грань с торцом блока: две точки, обе НИЖЕ
+        // центра корпуса — плечо разворота, которое видит Rapier
+        assert_eq!(hits[0].manifold.as_slice().len(), 2);
+        assert!(hits[0].manifold.as_slice().iter().all(|p| p.cy > obb.y));
     }
 
     #[test]

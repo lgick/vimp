@@ -13,6 +13,72 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- **`client::collision::collect_block_contacts(obb, blocks, prediction)`**
+  takes a third argument, the speculative-contact distance, and returns
+  `Vec<BlockContact>` (a `Manifold` plus the block centre) instead of
+  `Vec<TileContact>` (a single `Contact` plus `tile_x`/`tile_y`).
+- **`client::rigid_body::apply_contact_impulse(a, b, contact, surface, dt,
+  acc)`** takes two more arguments: the step `dt` and
+  `&mut ContactImpulses`, the impulses accumulated over the solver's
+  iterations for that one contact.
+- **`client::collision::Contact::depth` is now signed.** `> 0` is
+  penetration as before, `< 0` is a gap — a speculative contact found before
+  the overlap. `separate_bodies` ignores such a contact (there is nothing to
+  push apart); any game code that reads `depth` directly has to expect the
+  sign.
+
+### Migration
+
+- `collect_block_contacts(&obb, blocks)` →
+  `collect_block_contacts(&obb, blocks, prediction)`, where `prediction` is
+  the body's `soft_ccd_prediction` on the host — literally the same number
+  on both sides, taken from one shared formula, never a duplicated literal.
+  `0.0` reproduces the old behaviour bit for bit.
+- A hit is now a manifold: `hit.contact` → `hit.manifold.deepest()` for the
+  positional correction, `hit.manifold.as_slice()` for the impulses;
+  `hit.tile_x`/`tile_y` → `hit.block_x`/`block_y`. Feed **every** point of
+  the manifold to `apply_contact_impulse` and only the deepest one to
+  `separate_bodies`, once per pair.
+- `apply_contact_impulse(a, b, contact, surface)` →
+  `apply_contact_impulse(a, b, contact, surface, dt, acc)`. Store one
+  `ContactImpulses::default()` next to each contact when the step's contacts
+  are collected and pass the same `&mut` on every solver iteration; a fresh
+  value per iteration turns the accumulated clamp back into an increment
+  clamp and brings the drift back.
+- A replica that resolved contacts **after** integrating the position has to
+  swap the order: collect contacts on the pose at the **start** of the step
+  with `prediction`, solve the impulses, and only then integrate. That is
+  the order Rapier uses, and the speculative contact is meaningless without
+  it.
+
+### Added
+
+- **`client::collision::obb_vs_obb_within(a, b, prediction)`** — the SAT test
+  with speculative contacts: a contact is returned while the bodies are still
+  apart, up to a gap of `prediction`. `obb_vs_obb` is now the wrapper with
+  `prediction = 0.0` and is unchanged bit for bit.
+- **`client::collision::obb_manifold(a, b, prediction)` and `Manifold`** —
+  up to two contact points per pair, built by clipping the support faces
+  (Sutherland—Hodgman) the way Rapier builds a cuboid manifold, each with its
+  own depth. `Manifold::deepest()` is the point for the positional
+  correction. A degenerate pair falls back to the single blended point.
+- **`client::rigid_body::ContactImpulses`** — the normal and tangent
+  impulses accumulated by the solver for one contact.
+
+### Fixed
+
+- **A client replica no longer drifts from the server on tangential hits.**
+  Three things went wrong at once and only together: the replica saw a
+  contact only after it had already moved into the wall (up to 1.24 units in
+  one step at 148 u/s), it put a single contact point in the middle of the
+  hull's face — no lever, so the hull did not turn where the server turned
+  it — and its solver clamped per-iteration increments, letting the first
+  point of a manifold take the whole impulse. Measured on the game's debug
+  scenarios: `angle` was off by 0.21 rad and `angvel` by 2.8 rad/s against
+  thresholds of 0.06 and 1.5.
+
 ## [0.14.1] — 2026-09-06
 
 ### Fixed

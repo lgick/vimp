@@ -115,11 +115,13 @@ pub fn integrate(body: &mut Body, dt: f32) {
 /// Вызывается ОДИН раз на контакт за шаг: повторное применение той же глубины
 /// на каждой итерации решателя расталкивало бы тела кратно числу итераций.
 /// Нормаль контакта направлена ОТ тела `a`.
+/// Спекулятивный контакт (`depth < 0`, тела ещё разведены) позиций не
+/// трогает: разводить нечего, его дело — импульс.
 pub fn separate_bodies(a: &mut Body, b: &mut Body, contact: &Contact) {
     let total = a.inv_mass + b.inv_mass;
 
     // два статических тела — разводить нечего
-    if total == 0.0 {
+    if total == 0.0 || contact.depth <= 0.0 {
         return;
     }
 
@@ -129,11 +131,45 @@ pub fn separate_bodies(a: &mut Body, b: &mut Body, contact: &Contact) {
     b.y += (contact.ny * contact.depth * b.inv_mass) / total;
 }
 
+/// Накопленные за шаг импульсы одного контакта. Решатель проходит по
+/// контактам несколько раз, и клампится НАКОПЛЕННАЯ величина, а не приращение
+/// итерации: иначе первая же точка манифольда забирает весь нормальный
+/// импульс себе, разворачивает корпус плечом и следующая точка уже
+/// расходится — исправить это приращением решателю нечем. Так же устроен
+/// решатель Rapier, и без накопления реплика разъезжалась с ним на
+/// касательных ударах вдвое по `angvel`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ContactImpulses {
+    /// суммарный нормальный импульс (неотрицателен: контакт не притягивает)
+    pub normal: f32,
+    /// суммарный касательный импульс (зажат конусом Кулона)
+    pub tangent: f32,
+    // целевая скорость отскока, снятая на ПЕРВОЙ итерации: пересчёт на
+    // каждой множил бы восстановление
+    bounce: f32,
+    started: bool,
+}
+
 /// Нормальный импульс с отскоком плюс кулоновское трение по касательной.
-/// Итерируется решателем (sequential impulse) по всем контактам шага.
-/// Мутирует скорости обоих тел, позиций не трогает.
+/// Итерируется решателем (sequential impulse) по всем контактам шага; `acc`
+/// живёт от первой итерации до последней и обязан быть свой у каждого
+/// контакта. Мутирует скорости обоих тел, позиций не трогает.
 /// Нормаль контакта направлена ОТ тела `a`.
-pub fn apply_contact_impulse(a: &mut Body, b: &mut Body, contact: &Contact, surface: &Surface) {
+///
+/// `dt` нужен спекулятивному контакту (`depth < 0`): зазор закрывается за
+/// шаг со скоростью `-depth / dt`, и импульс гасит только то, что закрывает
+/// зазор БЫСТРЕЕ. Тело, летящее в стену, останавливается У неё, а не внутри
+/// (это и делает `soft_ccd_prediction` у хоста). Восстановление
+/// (`restitution`) считается от того же избытка, иначе тело отскочило бы,
+/// не коснувшись. При `depth >= 0` поправка нулевая — прежнее поведение.
+pub fn apply_contact_impulse(
+    a: &mut Body,
+    b: &mut Body,
+    contact: &Contact,
+    surface: &Surface,
+    dt: f32,
+    acc: &mut ContactImpulses,
+) {
     let Contact { nx, ny, cx, cy, .. } = *contact;
 
     if a.inv_mass + b.inv_mass == 0.0 {
@@ -146,21 +182,6 @@ pub fn apply_contact_impulse(a: &mut Body, b: &mut Body, contact: &Contact, surf
     let rbx = cx - b.x;
     let rby = cy - b.y;
 
-    // скорости материальных точек контакта (v + ω × r)
-    let vax = a.vx - a.angvel * ray;
-    let vay = a.vy + a.angvel * rax;
-    let vbx = b.vx - b.angvel * rby;
-    let vby = b.vy + b.angvel * rbx;
-
-    let vrel_x = vbx - vax;
-    let vrel_y = vby - vay;
-    let vn = vrel_x * nx + vrel_y * ny;
-
-    // точки уже расходятся — импульс не нужен, коррекция позиции остаётся
-    if vn >= 0.0 {
-        return;
-    }
-
     let rn_a = rax * ny - ray * nx;
     let rn_b = rbx * ny - rby * nx;
     let eff_n = a.inv_mass + b.inv_mass + rn_a * rn_a * a.inv_inertia + rn_b * rn_b * b.inv_inertia;
@@ -169,7 +190,27 @@ pub fn apply_contact_impulse(a: &mut Body, b: &mut Body, contact: &Contact, surf
         return;
     }
 
-    let jn = (-(1.0 + surface.restitution) * vn) / eff_n;
+    // скорость закрытия зазора за шаг: на проникновении — ноль
+    let bias = if contact.depth < 0.0 && dt > 0.0 {
+        -contact.depth / dt
+    } else {
+        0.0
+    };
+
+    let closing = normal_velocity(a, b, rax, ray, rbx, rby, nx, ny) + bias;
+
+    if !acc.started {
+        acc.started = true;
+        acc.bounce = surface.restitution * closing.min(0.0);
+    }
+
+    // клампится НАКОПЛЕННЫЙ импульс: приращение может быть отрицательным,
+    // пока сумма неотрицательна — так решатель забирает у первой точки
+    // манифольда лишнее, отданное ей на прошлой итерации
+    let total = (acc.normal - (closing + acc.bounce) / eff_n).max(0.0);
+    let jn = total - acc.normal;
+
+    acc.normal = total;
 
     a.vx -= nx * jn * a.inv_mass;
     a.vy -= ny * jn * a.inv_mass;
@@ -178,11 +219,10 @@ pub fn apply_contact_impulse(a: &mut Body, b: &mut Body, contact: &Contact, surf
     b.vy += ny * jn * b.inv_mass;
     b.angvel += rn_b * jn * b.inv_inertia;
 
-    // трение по касательной, зажатое кулоновским конусом
+    // трение по касательной, зажатое кулоновским конусом от НАКОПЛЕННОГО
+    // нормального импульса и посчитанное по скоростям ПОСЛЕ него
     let tx = -ny;
     let ty = nx;
-    let vt = vrel_x * tx + vrel_y * ty;
-
     let rt_a = rax * ty - ray * tx;
     let rt_b = rbx * ty - rby * tx;
     let eff_t = a.inv_mass + b.inv_mass + rt_a * rt_a * a.inv_inertia + rt_b * rt_b * b.inv_inertia;
@@ -191,8 +231,12 @@ pub fn apply_contact_impulse(a: &mut Body, b: &mut Body, contact: &Contact, surf
         return;
     }
 
-    let max_friction = surface.friction * jn;
-    let jt = clamp(-vt / eff_t, -max_friction, max_friction);
+    let vt = normal_velocity(a, b, rax, ray, rbx, rby, tx, ty);
+    let max_friction = surface.friction * acc.normal;
+    let clamped = clamp(acc.tangent - vt / eff_t, -max_friction, max_friction);
+    let jt = clamped - acc.tangent;
+
+    acc.tangent = clamped;
 
     a.vx -= tx * jt * a.inv_mass;
     a.vy -= ty * jt * a.inv_mass;
@@ -202,15 +246,37 @@ pub fn apply_contact_impulse(a: &mut Body, b: &mut Body, contact: &Contact, surf
     b.angvel += rt_b * jt * b.inv_inertia;
 }
 
+// относительная скорость точек контакта (v + ω × r) вдоль оси (nx, ny)
+#[allow(clippy::too_many_arguments)]
+fn normal_velocity(
+    a: &Body,
+    b: &Body,
+    rax: f32,
+    ray: f32,
+    rbx: f32,
+    rby: f32,
+    nx: f32,
+    ny: f32,
+) -> f32 {
+    let vax = a.vx - a.angvel * ray;
+    let vay = a.vy + a.angvel * rax;
+    let vbx = b.vx - b.angvel * rby;
+    let vby = b.vy + b.angvel * rbx;
+
+    (vbx - vax) * nx + (vby - vay) * ny
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DT: f32 = 1.0 / 120.0;
 
     // разрешение одиночного контакта ровно в том порядке, в каком его делает
     // решатель игрового предиктора
     fn resolve_contact(a: &mut Body, b: &mut Body, contact: &Contact, surface: &Surface) {
         separate_bodies(a, b, contact);
-        apply_contact_impulse(a, b, contact, surface);
+        apply_contact_impulse(a, b, contact, surface, DT, &mut ContactImpulses::default());
     }
 
     fn body() -> Body {
@@ -503,7 +569,7 @@ mod tests {
         let mut a = Body { vx: 10.0, ..body() };
         let mut b = Body { x: 8.0, ..body() };
 
-        apply_contact_impulse(&mut a, &mut b, &head_on(), &smooth(0.0));
+        apply_contact_impulse(&mut a, &mut b, &head_on(), &smooth(0.0), DT, &mut ContactImpulses::default());
 
         assert_eq!(a.x, 0.0);
         assert_eq!(b.x, 8.0);
@@ -523,11 +589,172 @@ mod tests {
         let (ax, bx) = (a.x, b.x);
 
         for _ in 0..4 {
-            apply_contact_impulse(&mut a, &mut b, &head_on(), &smooth(0.0));
+            apply_contact_impulse(&mut a, &mut b, &head_on(), &smooth(0.0), DT, &mut ContactImpulses::default());
         }
 
         assert_eq!(a.x, ax);
         assert_eq!(b.x, bx);
+    }
+
+    // — спекулятивный контакт (зазор) —
+
+    // зазор 0.5 по x между телом и стеной
+    fn speculative(depth: f32) -> Contact {
+        Contact {
+            nx: 1.0,
+            ny: 0.0,
+            depth,
+            cx: 5.0,
+            cy: 0.0,
+        }
+    }
+
+    #[test]
+    fn separate_bodies_ignores_a_gap() {
+        let mut a = body();
+        let mut b = static_body();
+
+        separate_bodies(&mut a, &mut b, &speculative(-0.5));
+
+        assert_eq!(a.x, 0.0, "разводить нечего — тела ещё не перекрыты");
+        assert_eq!(b.x, 0.0);
+    }
+
+    #[test]
+    fn a_gap_closed_slower_than_a_step_gets_no_impulse() {
+        // зазор 0.5, за шаг тело проходит 0.5/2 — контакта в этом шаге нет
+        let mut a = Body {
+            vx: 0.5 / DT / 2.0,
+            ..body()
+        };
+        let mut b = static_body();
+
+        apply_contact_impulse(&mut a, &mut b, &speculative(-0.5), &smooth(0.0), DT, &mut ContactImpulses::default());
+
+        assert!((a.vx - 0.5 / DT / 2.0).abs() < 1e-3, "импульс лишний");
+    }
+
+    #[test]
+    fn a_body_flying_into_the_wall_stops_at_it() {
+        // зазор 0.5, скорость закрывает его вчетверо быстрее шага: импульс
+        // обязан оставить ровно ту скорость, что доводит тело до стены и
+        // не дальше — иначе следующий шаг начнётся уже изнутри стены
+        let gap = 0.5;
+        let mut a = Body {
+            vx: 4.0 * gap / DT,
+            ..body()
+        };
+        let mut b = static_body();
+
+        apply_contact_impulse(&mut a, &mut b, &speculative(-gap), &smooth(0.0), DT, &mut ContactImpulses::default());
+        integrate(&mut a, DT);
+
+        assert!(
+            (a.x - gap).abs() < 1e-3,
+            "тело обязано встать у стены, получено {}",
+            a.x
+        );
+    }
+
+    #[test]
+    fn restitution_on_a_gap_bounces_only_the_excess() {
+        // упругость применяется к ИЗБЫТКУ над скоростью закрытия зазора:
+        // иначе тело отскочило бы на полной скорости, не коснувшись стены
+        let gap = 0.5;
+        let speed = 2.0 * gap / DT;
+        let mut a = Body { vx: speed, ..body() };
+        let mut b = static_body();
+
+        apply_contact_impulse(&mut a, &mut b, &speculative(-gap), &smooth(1.0), DT, &mut ContactImpulses::default());
+
+        // на контакте вплотную та же скорость развернулась бы целиком
+        let mut flush = Body { vx: speed, ..body() };
+        let mut wall = static_body();
+
+        apply_contact_impulse(&mut flush, &mut wall, &speculative(0.0), &smooth(1.0), DT, &mut ContactImpulses::default());
+
+        assert!((flush.vx + speed).abs() < 1e-2, "вплотную — полный отскок");
+        // избыток = speed − gap/dt = gap/dt, разворот оставляет
+        // (gap/dt) − 2·(gap/dt) = −gap/dt относительно точки касания,
+        // то есть ровно ноль в мире
+        assert!(a.vx.abs() < 1e-2, "получено {}", a.vx);
+        assert!(a.vx > flush.vx, "зазор обязан смягчить отскок");
+    }
+
+    #[test]
+    fn penetration_ignores_the_prediction_bias() {
+        // depth > 0 — прежняя формула бит в бит, dt ни на что не влияет
+        let mut a = Body { vx: 10.0, ..body() };
+        let mut b = static_body();
+        let mut a_other = a;
+        let mut b_other = b;
+
+        apply_contact_impulse(&mut a, &mut b, &head_on(), &smooth(0.0), DT, &mut ContactImpulses::default());
+        apply_contact_impulse(&mut a_other, &mut b_other, &head_on(), &smooth(0.0), 1.0, &mut ContactImpulses::default());
+
+        assert_eq!(a.vx, a_other.vx);
+    }
+
+    #[test]
+    fn a_two_point_manifold_satisfies_both_points() {
+        // манифольд грани, целиком лежащей по одну сторону от центра: без
+        // накопления первая точка забирает весь импульс и разворачивает
+        // корпус так, что вторая улетает от стены. С накоплением решатель
+        // возвращает лишнее, и обе точки приходят к допустимому решению
+        let point = |cy: f32| Contact {
+            nx: 1.0,
+            ny: 0.0,
+            depth: 0.5,
+            cx: 5.0,
+            cy,
+        };
+        let contacts = [point(1.0), point(3.0)];
+        let surface = smooth(0.0);
+        let props = box_mass_properties(8.0, 6.0, 200.0);
+
+        let mut a = Body {
+            vx: 100.0,
+            inv_mass: props.inv_mass,
+            inv_inertia: props.inv_inertia,
+            ..Body::default()
+        };
+        let mut wall = static_body();
+        let mut acc = [ContactImpulses::default(); 2];
+
+        for _ in 0..8 {
+            for (contact, state) in contacts.iter().zip(acc.iter_mut()) {
+                apply_contact_impulse(&mut a, &mut wall, contact, &surface, DT, state);
+            }
+        }
+
+        for contact in &contacts {
+            let vn = -(a.vx - a.angvel * (contact.cy - a.y));
+
+            assert!(vn > -1e-3, "точка {} всё ещё сближается: {vn}", contact.cy);
+        }
+    }
+
+    #[test]
+    fn the_accumulated_impulse_can_be_given_back() {
+        // это и отличает накопление от применения приращений: итерация,
+        // увидевшая тело уже расходящимся, снимает лишнее, отданное на
+        // прошлой, — но не уводит сумму ниже нуля (контакт не притягивает)
+        let mut a = Body { vx: 100.0, ..body() };
+        let mut wall = static_body();
+        let mut acc = ContactImpulses::default();
+
+        apply_contact_impulse(&mut a, &mut wall, &head_on(), &smooth(0.0), DT, &mut acc);
+
+        let after_first = acc.normal;
+
+        assert!(after_first > 0.0);
+
+        // сторонняя сила расталкивает тела сильнее, чем нужно
+        a.vx = -50.0;
+        apply_contact_impulse(&mut a, &mut wall, &head_on(), &smooth(0.0), DT, &mut acc);
+
+        assert!(acc.normal < after_first, "лишнее обязано вернуться");
+        assert!(acc.normal >= 0.0, "контакт не притягивает");
     }
 
     #[test]
