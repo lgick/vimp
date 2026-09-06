@@ -257,11 +257,16 @@ impl NavigationSystem {
         nav
     }
 
-    // рёбра рамп: подножие прогона на уровне `from` ↔ вершина на `to`
+    // рёбра рамп: подножие прогона на уровне `from` ↔ вершина на `to`.
+    // Обе точки — СОБСТВЕННЫЕ узлы прогона по центру его полосы, а не
+    // ближайшие узлы общей сетки: шаг сетки кратен двум тайлам и её узел
+    // легко ложится на борт прогона, где стоит страж (`create_ramp_guards`).
+    // Бот шёл бы тогда ровно по борту и упирался бы в невидимую для графа
+    // преграду.
     fn connect_ramps(&mut self, levels: &MapLevels) {
         let half = levels.tile_size() / 2.0;
 
-        for run in levels.runs() {
+        for run in levels.runs().to_vec() {
             let cross = (run.cross_min + run.cross_max) / 2.0;
             // точки подключения берутся ЗА кромками прогона: подножие — на
             // земле перед рампой, вершина — уже на плите за ней; внутри
@@ -280,25 +285,57 @@ impl NavigationSystem {
                 }
             };
 
+            let (foot_point, top_point) = (point(bottom_along), point(top_along));
+
+            if !self.is_walkable_on(run.from, foot_point[0], foot_point[1])
+                || !self.is_walkable_on(run.to, top_point[0], top_point[1])
+            {
+                continue;
+            }
+
+            // якоря ищутся ДО добавления новых узлов, иначе точка прогона
+            // нашла бы саму себя
             let (Some(bottom), Some(top)) = (
-                self.closest_visible_node_on(run.from, point(bottom_along)),
-                self.closest_visible_node_on(run.to, point(top_along)),
+                self.closest_visible_node_on(run.from, foot_point),
+                self.closest_visible_node_on(run.to, top_point),
             ) else {
                 continue;
             };
 
-            let weight = distance(self.nodes[bottom], self.nodes[top]);
+            let foot = self.add_node(run.from, foot_point);
+            let peak = self.add_node(run.to, top_point);
 
-            self.edges[bottom].push(Edge {
-                node: top,
-                weight,
-            });
-            self.edges[top].push(Edge {
-                node: bottom,
-                weight,
-            });
+            self.link(bottom, foot);
+            self.link(foot, peak);
+            self.link(peak, top);
             self.ramp_edges += 2;
         }
+    }
+
+    // узел графа сверх расставленных по сетке (точки прогонов рамп)
+    fn add_node(&mut self, level: u8, pos: [f32; 2]) -> usize {
+        let index = self.nodes.len();
+
+        self.nodes.push(pos);
+        self.node_levels.push(level);
+        self.edges.push(Vec::new());
+
+        if self.node_grid_cell_size > 0.0 {
+            let cx = (pos[0] / self.node_grid_cell_size).floor() as i32;
+            let cy = (pos[1] / self.node_grid_cell_size).floor() as i32;
+
+            self.node_grid.entry((cx, cy)).or_default().push(index);
+        }
+
+        index
+    }
+
+    // двустороннее ребро по расстоянию между узлами
+    fn link(&mut self, a: usize, b: usize) {
+        let weight = distance(self.nodes[a], self.nodes[b]);
+
+        self.edges[a].push(Edge { node: b, weight });
+        self.edges[b].push(Edge { node: a, weight });
     }
 
     // рёбра обрывов: односторонние, только сверху вниз
@@ -811,6 +848,41 @@ mod tests {
     }
 
     #[test]
+    fn ramp_edge_runs_through_the_middle_of_the_run() {
+        let levels = layered(true);
+        let nav = NavigationSystem::generate_layered(&levels, 10.0);
+        let run = &levels.runs()[0];
+        let cross = (run.cross_min + run.cross_max) / 2.0;
+
+        // у прогона свои узлы по центру полосы: подножие перед кромкой и
+        // вершина за ней. Узел общей сетки (шаг — два тайла) лёг бы на борт
+        // прогона, где стоит страж, и бот шёл бы вплотную к нему
+        let path = nav
+            .find_path_on(
+                PathPoint {
+                    pos: [15.0, 15.0],
+                    level: 0,
+                },
+                PathPoint {
+                    pos: [75.0, 45.0],
+                    level: 1,
+                },
+            )
+            .expect("путь через рампу не найден");
+
+        assert!(
+            path.iter()
+                .any(|point| point.level == 0 && point.pos[1] == cross),
+            "{path:?}"
+        );
+        assert!(
+            path.iter()
+                .any(|point| point.level == 1 && point.pos[1] == cross),
+            "{path:?}"
+        );
+    }
+
+    #[test]
     fn no_path_between_levels_without_ramp() {
         let nav = NavigationSystem::generate_layered(&layered(false), 10.0);
 
@@ -989,3 +1061,4 @@ mod tests {
         assert_eq!(path, vec![[45.0, 45.0]]);
     }
 }
+

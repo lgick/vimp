@@ -13,6 +13,16 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A ramp edge no longer hugs the guard of the run.** `connect_ramps`
+  attached the foot and the top of a run to the nearest node of the common
+  grid, whose step is two tiles: on a one-tile-wide run that node lands on
+  the run's border, exactly where `create_ramp_guards` puts a side guard. A
+  bot then drove along the guard and was pushed off a ramp it had a path
+  through. The run now gets its own two nodes, on the centre line of its
+  lane just outside either edge, wired to the level graph and to each other.
+
 ## [0.14.0] — 2026-09-06
 
 ### ⚠️ Breaking

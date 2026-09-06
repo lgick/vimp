@@ -275,7 +275,10 @@ between two neighbouring points of the path means a ramp or a ledge.
 The cells of a ramp run are **not walkable** on the level the run starts
 from: a bot gets onto the wedge only through the ramp edge, never by
 stepping onto it from the side or from the far end — which is exactly what
-the ramp guard colliders enforce in the physics. Such a cell is marked `2`
+the ramp guard colliders enforce in the physics. The ramp edge itself hangs
+on two nodes of the run's own, on the centre line of its lane just outside
+either edge — a node of the common grid (its step is two tiles) would land on
+the run's border, where the guard stands. Such a cell is marked `2`
 in the walkability grid, not `1`: `is_walkable_on` treats only `0` as free,
 while `has_obstacle_between_on` treats only `1` as an obstacle, so bots keep
 seeing and shooting each other through a ramp.
