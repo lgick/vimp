@@ -13,6 +13,8 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-09-06
+
 ### ⚠️ Breaking
 
 - `map::RampRun` gains a public field, `block: u16` — the number of the ramp
@@ -555,6 +557,7 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.14.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.14.0
 [0.13.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.13.0
 [0.12.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.12.0
 [0.10.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.10.0
