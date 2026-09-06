@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.32.1] — 2026-09-06
+
 ### Changed
 
 - The bundled crate moves to `vimp-engine-core 0.14.0`: ramp guards fence a
@@ -2155,6 +2157,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.32.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.32.1
 [0.32.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.32.0
 [0.31.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.31.0
 [0.30.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.30.1
