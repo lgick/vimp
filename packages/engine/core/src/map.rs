@@ -727,6 +727,27 @@ pub struct RampRun {
     /// узлы у подножия и на вершине по центру прогона).
     pub cross_min: f32,
     pub cross_max: f32,
+    /// Номер БЛОКА горки: широкая рампа режется на параллельные полосы, и
+    /// полосы одной горки несут один номер. Признак один на всю экосистему —
+    /// физика огораживает блок целиком (а не каждую полосу жёлобом), игра
+    /// сравнивает `block`, решая, сменил ли танк полосу той же горки.
+    pub block: u16,
+}
+
+/// Прямоугольный блок сплошных тайлов одного уровня в МИРОВЫХ единицах:
+/// результат жадной склейки (`search_static_block`). Строится один раз в
+/// `MapLevels::build` и отдаётся обеим сторонам — хост ставит по нему
+/// коллайдеры, клиентская реплика считает по нему контакты. Пока стороны
+/// считали геометрию по-разному (хост — блоками, реплика — поклеточно),
+/// касательный удар об угол длинной стены разрешался по разным осям, и
+/// предсказание молча расходилось.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StaticBlock {
+    /// Центр блока.
+    pub x: f32,
+    pub y: f32,
+    pub half_w: f32,
+    pub half_h: f32,
 }
 
 /// Слоистая геометрия карты без физического мира: гриды уровней, списки
@@ -742,6 +763,11 @@ pub struct MapLevels {
     /// Тайлы-пол по уровням (для 0 — пусто: земля есть везде внутри карты).
     floor: Vec<Vec<i32>>,
     runs: Vec<RampRun>,
+    /// Склеенные блоки стен по индексу уровня — единственная геометрия
+    /// статики в экосистеме (`static_blocks`). Порядок внутри уровня —
+    /// порядок обхода `create_static`: строки сверху вниз, колонки слева
+    /// направо.
+    static_blocks: Vec<Vec<StaticBlock>>,
     /// Параллелен `grids[0]`: индекс прогона рампы в клетке либо -1.
     run_cells: Vec<Vec<i16>>,
     /// Размер тайла в МИРОВЫХ единицах (step * scale).
@@ -796,16 +822,35 @@ fn push_run(
     }
 
     let size = tile_size;
+    let (min, max) = (from as f32 * size, to as f32 * size);
+    let (cross_min, cross_max) = (cross0 as f32 * size, cross1 as f32 * size);
+
+    // полосы одной широкой горки склеиваются в блок: та же ось, знак,
+    // перепад и границы вдоль оси, а поперёк — смежный интервал
+    let block = runs
+        .iter()
+        .find(|other| {
+            other.axis == axis
+                && other.sign == sign
+                && other.from == ramp.from
+                && other.to == ramp.to
+                && other.min == min
+                && other.max == max
+                && (other.cross_max == cross_min || other.cross_min == cross_max)
+        })
+        .map(|other| other.block)
+        .unwrap_or_else(|| runs.iter().map(|run| run.block + 1).max().unwrap_or(0));
 
     runs.push(RampRun {
         axis,
         sign,
         from: ramp.from,
         to: ramp.to,
-        min: from as f32 * size,
-        max: to as f32 * size,
-        cross_min: cross0 as f32 * size,
-        cross_max: cross1 as f32 * size,
+        min,
+        max,
+        cross_min,
+        cross_max,
+        block,
     });
 }
 
@@ -835,6 +880,7 @@ impl MapLevels {
             solid: vec![solid0.to_vec()],
             floor: vec![Vec::new()],
             runs: Vec::new(),
+            static_blocks: Vec::new(),
             run_cells: grid0.iter().map(|row| vec![-1i16; row.len()]).collect(),
             tile_size,
             level_height,
@@ -860,8 +906,49 @@ impl MapLevels {
         }
 
         out.build_runs(ramps);
+        out.build_static_blocks();
 
         out
+    }
+
+    // склейка сплошных тайлов в прямоугольные блоки — по уровням, внутри
+    // уровня строки сверху вниз, колонки слева направо
+    fn build_static_blocks(&mut self) {
+        let size = self.tile_size;
+
+        self.static_blocks = (0..self.level_count() as u8)
+            .map(|level| {
+                let mut blocks = Vec::new();
+                let Some(grid) = self.grid(level) else {
+                    return blocks;
+                };
+                let solid = self.solid(level).to_vec();
+
+                let mut work: Vec<Vec<Option<i32>>> = grid
+                    .iter()
+                    .map(|row| row.iter().map(|&tile| Some(tile)).collect())
+                    .collect();
+
+                for y in 0..work.len() {
+                    for x in 0..work[y].len() {
+                        if !work[y][x].is_some_and(|tile| solid.contains(&tile)) {
+                            continue;
+                        }
+
+                        let (width, height) = search_static_block(&mut work, &solid, size, y, x);
+
+                        blocks.push(StaticBlock {
+                            x: x as f32 * size + width / 2.0,
+                            y: y as f32 * size + height / 2.0,
+                            half_w: width / 2.0,
+                            half_h: height / 2.0,
+                        });
+                    }
+                }
+
+                blocks
+            })
+            .collect();
     }
 
     // прогоны рамп: непрерывные линии одинаковых тайлов вдоль оси рампы
@@ -983,6 +1070,14 @@ impl MapLevels {
 
     pub fn runs(&self) -> &[RampRun] {
         &self.runs
+    }
+
+    /// Склеенные блоки стен уровня. Хост ставит по ним коллайдеры, реплика
+    /// считает контакты — обе стороны обязаны видеть ОДНУ геометрию.
+    pub fn static_blocks(&self, level: u8) -> &[StaticBlock] {
+        self.static_blocks
+            .get(level as usize)
+            .map_or(&[], |list| list)
     }
 
     /// (колонка, строка) по мировой точке; None вне карты.
@@ -1325,47 +1420,28 @@ impl GameMap {
     }
 
     /// Статические стены (Map.createStatic) — по уровням, в порядке 0, 1, …
-    /// Внутри уровня обход прежний (строки сверху вниз, колонки слева
+    /// Геометрия не считается здесь: тела ставятся по склеенным блокам
+    /// `MapLevels::static_blocks`, которые видит и клиентская реплика.
+    /// Порядок внутри уровня прежний (строки сверху вниз, колонки слева
     /// направо), поэтому у одноуровневой карты порядок вставки тел
     /// не меняется вовсе.
     fn create_static(&mut self, world: &mut PhysicsWorld) {
         for level in 0..self.levels.level_count() as u8 {
-            let Some(grid) = self.levels.grid(level) else {
-                continue;
-            };
-            let solid = self.levels.solid(level).to_vec();
+            for block in self.levels.static_blocks(level).to_vec() {
+                let body = world.insert_body(
+                    RigidBodyBuilder::fixed().translation(Vector::new(block.x, block.y)),
+                );
 
-            let mut work: Vec<Vec<Option<i32>>> = grid
-                .iter()
-                .map(|row| row.iter().map(|&tile| Some(tile)).collect())
-                .collect();
+                world.insert_collider(
+                    ColliderBuilder::cuboid(block.half_w, block.half_h)
+                        .friction(DEFAULT_FRICTION)
+                        .restitution(DEFAULT_RESTITUTION)
+                        .collision_groups(static_level_interaction(level)),
+                    Some(body),
+                );
 
-            for y in 0..work.len() {
-                for x in 0..work[y].len() {
-                    let is_static = work[y][x].is_some_and(|tile| solid.contains(&tile));
-
-                    if is_static {
-                        let (width, height) =
-                            search_static_block(&mut work, &solid, self.step, y, x);
-                        let pos_x = x as f32 * self.step + width / 2.0;
-                        let pos_y = y as f32 * self.step + height / 2.0;
-
-                        let body = world.insert_body(
-                            RigidBodyBuilder::fixed().translation(Vector::new(pos_x, pos_y)),
-                        );
-
-                        world.insert_collider(
-                            ColliderBuilder::cuboid(width / 2.0, height / 2.0)
-                                .friction(DEFAULT_FRICTION)
-                                .restitution(DEFAULT_RESTITUTION)
-                                .collision_groups(static_level_interaction(level)),
-                            Some(body),
-                        );
-
-                        self.static_bodies.push(body);
-                        self.static_levels.push(level);
-                    }
-                }
+                self.static_bodies.push(body);
+                self.static_levels.push(level);
             }
         }
 
@@ -1391,11 +1467,24 @@ impl GameMap {
         // толщина борта — доля тайла: борт обязан останавливать, а не
         // отъедать проезжую часть прогона
         let thickness = self.step * 0.1;
-        let guards: Vec<(Vector, f32, f32, u8)> = self
-            .levels
-            .runs()
+        // огораживается БЛОК горки, а не каждая полоса: у широкой рампы
+        // внутренние границы полос общие, и борт на каждой превратил бы блок
+        // в набор жёлобов шириной в тайл — танк упирался бы в них ещё до
+        // кромки, потому что до входа он не поднимается и стражей видит
+        let mut blocks: Vec<(u16, RampRun)> = Vec::new();
+
+        for run in self.levels.runs() {
+            if let Some((_, block)) = blocks.iter_mut().find(|(id, _)| *id == run.block) {
+                block.cross_min = block.cross_min.min(run.cross_min);
+                block.cross_max = block.cross_max.max(run.cross_max);
+            } else {
+                blocks.push((run.block, run.clone()));
+            }
+        }
+
+        let guards: Vec<(Vector, f32, f32, u8)> = blocks
             .iter()
-            .flat_map(|run| {
+            .flat_map(|(_, run)| {
                 let low = run.from.min(run.to);
                 let (half_main, half_cross) = (
                     (run.max - run.min) / 2.0,
@@ -1833,6 +1922,37 @@ mod tests {
     }
 
     #[test]
+    fn static_blocks_match_the_host_colliders() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &layered_config(), 1.0, "set");
+
+        let mut index = 0;
+
+        for level in 0..map.level_count() as u8 {
+            for block in map.levels().static_blocks(level) {
+                let body = map.static_bodies[index];
+                let handle = world.bodies[body].colliders()[0];
+                let cuboid = world.colliders[handle]
+                    .shape()
+                    .as_cuboid()
+                    .expect("статика — куб");
+
+                assert_eq!(map.static_levels()[index], level);
+                assert_eq!(
+                    world.bodies[body].translation(),
+                    Vector::new(block.x, block.y)
+                );
+                assert_eq!(cuboid.half_extents.x, block.half_w);
+                assert_eq!(cuboid.half_extents.y, block.half_h);
+
+                index += 1;
+            }
+        }
+
+        assert!(index > 0);
+    }
+
+    #[test]
     fn static_group_sees_walls_but_no_bodies() {
         let falling = InteractionGroups::new(
             STATIC_LEVEL_GROUP,
@@ -2225,6 +2345,42 @@ mod tests {
         .unwrap()
     }
 
+    // широкая горка: блок 3 × 2 тайла (колонки 0..3, строки 1..3), подъём на
+    // юг; колонка 3 — свободная земля сбоку от блока
+    fn wide_guard_config() -> MapConfig {
+        serde_json::from_value(serde_json::json!({
+            "step": 20.0,
+            "map": [
+                [0, 0, 0, 0],
+                [7, 7, 7, 0],
+                [7, 7, 7, 0],
+                [0, 0, 0, 0]
+            ],
+            "physicsStatic": [],
+            "levels": {
+                "1": {
+                    "map": [
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0]
+                    ],
+                    "floor": []
+                }
+            },
+            "ramps": [{ "tile": 7, "dir": "south" }],
+            "physicsDynamic": [{
+                "position": [15.0, 5.0],
+                "angle": 0.0,
+                "width": 10.0,
+                "height": 10.0,
+                "density": 1.0,
+                "level": 0
+            }]
+        }))
+        .unwrap()
+    }
+
     // центр коллайдера тела карты (позиция тела — угол объекта)
     fn body_center(world: &PhysicsWorld, body: RigidBodyHandle) -> Vector {
         let collider = world.bodies[body].colliders()[0];
@@ -2294,6 +2450,58 @@ mod tests {
 
         // торец прогона на y = 40 поднимающемуся не преграда
         assert!(body_center(&world, body).y > 45.0, "{}", body_center(&world, body));
+    }
+
+    #[test]
+    fn wide_ramp_is_fenced_as_one_block() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &wide_guard_config(), 1.0, "set");
+
+        // три полосы одной горки — один блок: два внешних борта и торец,
+        // а не по три стража на полосу
+        assert_eq!(map.levels().runs().len(), 3);
+        assert!(map.levels().runs().iter().all(|run| run.block == 0));
+        assert_eq!(map.static_body_count(), 3);
+        assert_eq!(map.static_levels(), &[0, 0, 0]);
+    }
+
+    #[test]
+    fn wide_ramp_lets_a_body_in_along_a_lane_border() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &wide_guard_config(), 1.0, "set");
+        let body = map.dynamic_bodies[0];
+
+        // тело стоит ровно на границе полос (x = 20) перед подножием
+        drive(&mut world, body, Vector::new(0.0, 200.0));
+
+        // внутренних бортов больше нет: тело заезжает на клин и доходит до
+        // торца блока (y = 60), а не упирается в жёлоб на входе
+        assert!(
+            body_center(&world, body).y > 50.0,
+            "{}",
+            body_center(&world, body)
+        );
+    }
+
+    #[test]
+    fn wide_ramp_still_blocks_a_side_entry() {
+        let mut cfg = wide_guard_config();
+
+        // тело сбоку от блока, на свободной колонке 3
+        cfg.physics_dynamic[0].position = [65.0, 25.0];
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+        let body = map.dynamic_bodies[0];
+
+        drive(&mut world, body, Vector::new(-200.0, 0.0));
+
+        // внешний борт блока стоит на x = 60
+        assert!(
+            body_center(&world, body).x > 64.0,
+            "{}",
+            body_center(&world, body)
+        );
     }
 
     #[test]
@@ -2593,3 +2801,4 @@ mod tests {
         assert!(predicted < 2.0, "с предсказанием перекрытие {predicted}");
     }
 }
+

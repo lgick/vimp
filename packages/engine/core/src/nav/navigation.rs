@@ -26,6 +26,10 @@ pub struct PathPoint {
 /// (порт src/server/modules/bots/NavigationSystem.js).
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct NavigationSystem {
+    /// Сетка проходимости уровня 0. Значения: 0 — свободно, 1 — стена
+    /// (непроходима И непрозрачна для луча), 2 — клетка прогона рампы
+    /// (непроходима, но луч сквозь неё идёт: боты видят друг друга через
+    /// рампу и стреляют сквозь неё).
     nav_grid: Vec<Vec<u8>>,
     grid_step: f32,
     nodes: Vec<[f32; 2]>,
@@ -37,7 +41,7 @@ pub struct NavigationSystem {
     #[serde(default)]
     node_levels: Vec<u8>,
     /// Сетки проходимости надземных уровней (индекс 0 = уровень 1).
-    /// `nav_grid` остаётся сеткой уровня 0.
+    /// `nav_grid` остаётся сеткой уровня 0; значения те же, включая 2.
     #[serde(default)]
     upper_grids: Vec<Vec<Vec<u8>>>,
     /// Число рёбер рамп и обрывов (отладочный дамп).
@@ -173,6 +177,12 @@ impl NavigationSystem {
                     .collect(),
             );
         }
+
+        // клетки прогонов рамп непроходимы для уровня, с которого начинается
+        // подъём: на клин можно попасть только через ребро рампы
+        // (`connect_ramps`), а не сойдя на него с любой стороны. Метка — 2,
+        // а не 1: единица сделала бы рампу ещё и непрострельной
+        nav.block_ramp_runs(levels);
 
         let node_placement_step = step * COEF_GRID_STEP;
         let map_width = nav.nav_grid[0].len() as f32 * step;
@@ -388,6 +398,49 @@ impl NavigationSystem {
             Some(&self.nav_grid)
         } else {
             self.upper_grids.get(level as usize - 1)
+        }
+    }
+
+    /// Изменяемая сетка проходимости уровня.
+    fn grid_of_mut(&mut self, level: u8) -> Option<&mut Vec<Vec<u8>>> {
+        if level == 0 {
+            Some(&mut self.nav_grid)
+        } else {
+            self.upper_grids.get_mut(level as usize - 1)
+        }
+    }
+
+    /// Помечает клетки прогонов рамп непроходимыми (значение 2) в сетке
+    /// уровня, с которого прогон начинается. Верхний уровень трогать не
+    /// нужно: плиты уровня `high` в клетках прогона нет, и в `upper_grids`
+    /// они и так непроходимы.
+    fn block_ramp_runs(&mut self, levels: &MapLevels) {
+        let tile = levels.tile_size();
+
+        if tile <= 0.0 || levels.runs().is_empty() {
+            return;
+        }
+
+        for cy in 0..self.nav_grid.len() {
+            for cx in 0..self.nav_grid[cy].len() {
+                let x = (cx as f32 + 0.5) * tile;
+                let y = (cy as f32 + 0.5) * tile;
+
+                let Some(sample) = levels.ramp_at(x, y) else {
+                    continue;
+                };
+
+                let low = sample.from.min(sample.to);
+
+                if let Some(cell) = self
+                    .grid_of_mut(low)
+                    .and_then(|grid| grid.get_mut(cy))
+                    .and_then(|row| row.get_mut(cx))
+                    && *cell == 0
+                {
+                    *cell = 2;
+                }
+            }
         }
     }
 
@@ -744,6 +797,17 @@ mod tests {
 
         assert!(path.iter().any(|point| point.level == 1));
         assert!(path.iter().any(|point| point.level == 0));
+    }
+
+    #[test]
+    fn ramp_run_cells_are_not_walkable_but_stay_transparent() {
+        let nav = NavigationSystem::generate_layered(&layered(true), 10.0);
+        // клетка рампы — (колонка 3, строка 4), тайл 10
+        let (x, y) = (35.0, 45.0);
+
+        assert!(!nav.is_walkable_on(0, x, y));
+        // луч сквозь прогон идёт: боты видят друг друга через рампу
+        assert!(!nav.has_obstacle_between_on(0, [15.0, 45.0], [55.0, 45.0]));
     }
 
     #[test]

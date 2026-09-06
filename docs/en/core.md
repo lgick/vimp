@@ -222,8 +222,9 @@ puts a body in the group of its level (bit `N` for level `N`: `GROUP_1` is
 the ground, `GROUP_2` the first overpass) and lets it see only that level;
 `STATIC_LEVEL_GROUP` (bit 8) is the shared group of the walls;
 `RAMP_GUARD_GROUP` (bit 9) is the group of the ramp guards — the colliders
-along both sides of a run and across its far end, built by
-`GameMap::create_static` for layered maps only. A body's filter comes from
+along both sides of a **block** of ramp lanes and across its far end, built
+by `GameMap::create_static` for layered maps only (lanes of one wide ramp
+share `RampRun::block` and are fenced together, never one by one). A body's filter comes from
 `body_filter(mask, on_ramp)` (`levels_interaction` / the `_on_ramp` variant):
 a body standing on the level the run starts from sees the guards, a body
 legally climbing the run does not, and a body of another level never matches
@@ -270,6 +271,14 @@ bottom only, to `landing_level`, with a penalty per level of height, because
 the jump costs the game's `fallDamage`).
 Paths are searched with `find_path_on(PathPoint, PathPoint)`; a level change
 between two neighbouring points of the path means a ramp or a ledge.
+
+The cells of a ramp run are **not walkable** on the level the run starts
+from: a bot gets onto the wedge only through the ramp edge, never by
+stepping onto it from the side or from the far end — which is exactly what
+the ramp guard colliders enforce in the physics. Such a cell is marked `2`
+in the walkability grid, not `1`: `is_walkable_on` treats only `0` as free,
+while `has_obstacle_between_on` treats only `1` as an obstacle, so bots keep
+seeing and shooting each other through a ramp.
 
 `client::raycast::walk_ray_cells` walks the ray's cells and hands each one to
 a callback, so a game can change the ray's level at a slab edge instead of
@@ -324,10 +333,16 @@ must not drift from them.
   inside its `GameClientDef` implementation, and call the engine primitives.
 
   `collision` and `rigid_body` let a client predict contacts the way the
-  host resolves them: `obb_vs_obb` / `collect_tile_contacts` produce the
-  `Contact`s (they read the map through the same `Box2` and the same tile
-  grid as `raycast`, so a ray and a contact can never disagree about a
-  wall), `separate_bodies` + `apply_contact_impulse` resolve them on
+  host resolves them: `obb_vs_obb` / `collect_block_contacts` produce the
+  `Contact`s (they read the map through the same `Box2` as `raycast`, so a
+  ray and a contact can never disagree about a wall). Walls are read as the
+  **glued blocks** of `MapLevels::static_blocks` — the very list the host
+  puts its colliders by. Collecting them tile by tile (`collect_tile_contacts`,
+  kept for a grid a game holds itself) makes a body straddling a long wall
+  meet several contacts where the host has one, and a tangential hit on a
+  corner is then resolved along a different axis on each side — a silent
+  drift.
+  `separate_bodies` + `apply_contact_impulse` resolve the contacts, `separate_bodies` + `apply_contact_impulse` resolve them on
   `Body` values, and `MAP_SURFACE` reuses `map::DEFAULT_FRICTION` /
   `DEFAULT_RESTITUTION` — the same figures the host builds its colliders
   with. This is an approximation of Rapier, not a copy; the remaining drift

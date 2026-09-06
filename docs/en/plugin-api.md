@@ -667,6 +667,12 @@ sees them (it cannot drive onto the wedge from the side or under it from
 the wrong end), a body legally climbing the run does not
 (`levels_interaction_on_ramp`), and a body of another level never meets
 them at all. The foot of the run is never closed — that is the legal way in.
+A wide ramp is cut into parallel lane runs, but the guards fence the **block**
+of lanes, not every lane: only the outer sides of the block get a guard, and
+its far end gets one across the full width. Lanes of one block share
+`RampRun::block`, the number a game compares to tell a lane change from a new
+ramp; a guard per lane would turn a wide ramp into a set of tile-wide troughs
+and stop a body entering along a lane border, since it is not climbing yet.
 Cells of two different ramps may not overlap: the run that claims a shared
 cell would be picked arbitrarily.
 

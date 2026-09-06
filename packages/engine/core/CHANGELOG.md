@@ -13,6 +13,69 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- `map::RampRun` gains a public field, `block: u16` — the number of the ramp
+  **block** a lane run belongs to. A wide ramp is cut into parallel lanes,
+  and every consumer needed its own answer to «is this the same hill?»; the
+  crate now gives one (`a.block == b.block`) and builds the physics by it.
+  A struct literal of `RampRun` outside the crate has to name the field.
+
+### Migration
+
+- A game that built `RampRun` values by hand (fixtures, tests) adds
+  `block: 0`. A game with its own «is this the same hill?» rule — comparing
+  axis, sign, levels and the along-axis bounds of two runs — replaces it with
+  `a.block == b.block`; two definitions of one thing is exactly how the
+  physics and the game rules drifted apart.
+- A client replica that resolved walls with `collect_tile_contacts` over the
+  level grid switches to `collect_block_contacts(&obb,
+  levels.static_blocks(level))`. Keeping the tile-by-tile collection means
+  keeping the drift it causes on long walls.
+
+### Added
+
+- **`map::StaticBlock` and `MapLevels::static_blocks(level)`** — the glued
+  rectangles of solid tiles, in world units, built once in `MapLevels::build`
+  and handed to both sides.
+- **`client::collision::collect_block_contacts(obb, blocks)`** — contacts of
+  an OBB with those blocks, the replica's counterpart of the host's
+  colliders. `collect_tile_contacts` stays for a grid a game holds itself.
+
+### Fixed
+
+- **Ramp guards fence a block of lanes, not every lane.** `create_ramp_guards`
+  put two side guards and a far-end guard on every run, and a wide ramp is cut
+  into one run per lane: the inner lane borders got two guards each, turning
+  the block into tile-wide troughs whose walls reach the entry line. A body
+  entering along a lane border is not climbing yet, so it sees those guards
+  and stops short of the wedge — a wide hill could only be driven dead centre
+  of a lane. Runs are now grouped by `RampRun::block`: only the outer sides of
+  a block are fenced, and its far end gets one guard across the full width.
+  Driving in from the side and under the wedge from the wrong end stay closed.
+- **The host and the replica read the same wall geometry.** The host glued
+  solid tiles into rectangular blocks while the client replica collected
+  contacts tile by tile. On a tangential hit into the corner of a long wall
+  (overlap 1.11 across against 1.27 along) the two sides picked different
+  push-out axes, and prediction drifted silently — one reconciliation in
+  ~350, enough to break the games' drift contracts. `MapLevels::build` now
+  glues the blocks once (`static_blocks`), `GameMap::create_static` only
+  places colliders by that list (the insertion order is unchanged, so a
+  single-level map is bit-for-bit the same), and a replica reads them through
+  `collect_block_contacts`.
+- **The bot nav graph knows about ramp runs.** `NavigationSystem::
+  generate_layered` marked a ramp run's cells walkable on the lower level:
+  the run's tiles are not solid, so nodes were placed inside the run and
+  paths were routed across it — straight into the ramp guard colliders,
+  which are invisible to the graph. A bot spawned on the ground would nudge
+  the guard, time out on `stuck_timer`, shoot at the obstacle and rebuild
+  the same path forever. The run's cells are now marked `2` in the
+  walkability grid of the level the run starts from: `is_walkable_on` reads
+  only `0` as free, so the cells are impassable, while
+  `has_obstacle_between_on` reads only `1` as an obstacle, so line of sight
+  and fire still pass through a ramp. A bot gets onto the wedge through the
+  ramp edge of `connect_ramps`, as it already did.
+
 ## [0.13.0] — 2026-09-05
 
 ### ⚠️ Breaking

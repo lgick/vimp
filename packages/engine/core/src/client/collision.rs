@@ -7,6 +7,7 @@
 //! `client::rigid_body`.
 
 use super::raycast::Box2;
+use crate::map::StaticBlock;
 
 /// Ширина контактного пятна как доля габарита тела. Одиночная опорная вершина
 /// при почти плоском контакте даёт автоколебание: импульс перекидывает корпус
@@ -229,6 +230,51 @@ pub fn collect_tile_contacts(
     contacts
 }
 
+/// Список контактов OBB со склеенными блоками стен уровня
+/// (`MapLevels::static_blocks`). В отличие от `collect_tile_contacts` видит
+/// ровно ту геометрию, по которой хост поставил коллайдеры: на длинной стене
+/// SAT выбирает ту же ось выталкивания, что Rapier, и касательный удар об
+/// угол не разводит предсказание с сервером.
+pub fn collect_block_contacts(obb: &Box2, blocks: &[StaticBlock]) -> Vec<TileContact> {
+    let mut contacts = Vec::new();
+
+    if blocks.is_empty() {
+        return contacts;
+    }
+
+    // консервативный AABB OBB (для отбора кандидатных блоков)
+    let (sin, cos) = obb.angle.sin_cos();
+    let (sin, cos) = (sin.abs(), cos.abs());
+    let extent_x = obb.half_w * cos + obb.half_h * sin;
+    let extent_y = obb.half_w * sin + obb.half_h * cos;
+
+    for block in blocks {
+        if (block.x - obb.x).abs() > block.half_w + extent_x
+            || (block.y - obb.y).abs() > block.half_h + extent_y
+        {
+            continue;
+        }
+
+        let box2 = Box2 {
+            x: block.x,
+            y: block.y,
+            angle: 0.0,
+            half_w: block.half_w,
+            half_h: block.half_h,
+        };
+
+        if let Some(contact) = obb_vs_obb(obb, &box2) {
+            contacts.push(TileContact {
+                contact,
+                tile_x: block.x,
+                tile_y: block.y,
+            });
+        }
+    }
+
+    contacts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +287,60 @@ mod tests {
             half_w,
             half_h,
         }
+    }
+
+    #[test]
+    fn block_contact_matches_the_host_collider_on_the_long_wall() {
+        // разобранный случай: юго-западный угол перил уровня 1 карты
+        // overpass. Хост склеивает строку в ОДНО тело 537.6 × 12.8, реплика
+        // раньше собирала контакты потайлово. Танк входит в угол по
+        // касательной: перекрытие по x 1.106, по y 1.27.
+        let block = StaticBlock {
+            x: 345.6,
+            y: 403.2,
+            half_w: 268.8,
+            half_h: 6.4,
+        };
+        let obb = box2(74.906, 395.07, 0.0, 3.0, 3.0);
+
+        let by_block = collect_block_contacts(&obb, &[block]);
+
+        // одно тело у хоста — один контакт у реплики
+        assert_eq!(by_block.len(), 1);
+        // нормаль и глубина — те же, что даёт Rapier на этом коллайдере
+        // (parry: normal (1, 0), dist -1.10599)
+        assert!((by_block[0].contact.nx - 1.0).abs() < 1e-3);
+        assert!(by_block[0].contact.ny.abs() < 1e-3);
+        assert!((by_block[0].contact.depth - 1.106).abs() < 1e-2);
+        // плечо статики — центр ОДНОГО тела хоста, а не центр тайла
+        assert_eq!(by_block[0].tile_x, block.x);
+        assert_eq!(by_block[0].tile_y, block.y);
+    }
+
+    #[test]
+    fn block_and_tile_collection_differ_on_a_long_wall() {
+        // тот же кусок стены, но собранный потайлово: корпус лежит на двух
+        // тайлах сразу и получает ДВА контакта с разными плечами — импульсы
+        // разворачивают танк не так, как единственный контакт хоста
+        let tile = 12.8;
+        let map: Vec<Vec<i32>> = (0..34)
+            .map(|y| {
+                (0..48)
+                    .map(|x| i32::from(y == 31 && (6..48).contains(&x)))
+                    .collect()
+            })
+            .collect();
+        let obb = box2(89.6, 395.07, 0.0, 6.0, 3.0);
+
+        let blocks = [StaticBlock {
+            x: 345.6,
+            y: 403.2,
+            half_w: 268.8,
+            half_h: 6.4,
+        }];
+
+        assert_eq!(collect_block_contacts(&obb, &blocks).len(), 1);
+        assert_eq!(collect_tile_contacts(&obb, &map, &[1], tile).len(), 2);
     }
 
     #[test]

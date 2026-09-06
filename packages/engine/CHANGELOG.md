@@ -9,6 +9,15 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- The bundled crate moves to `vimp-engine-core 0.14.0`: ramp guards fence a
+  block of ramp lanes instead of every lane, the host and a client replica
+  read walls as the same glued blocks (`MapLevels::static_blocks`), and the
+  bot nav graph no longer routes paths across a ramp run. A game crate
+  repeats the bump by hand in its own `Cargo.toml`; the crate journal carries
+  the migration.
+
 ### Fixed
 
 - A sound sitting on the listener no longer gets a `PannerNode` at all — it
