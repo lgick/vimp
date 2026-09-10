@@ -51,15 +51,15 @@
 
 | № | Этап | Репозиторий | Статус |
 | --- | --- | --- | --- |
-| 1 | [Дефолты движка (`clientDefaults.js`)](stage_1.md) | vimp-engine | |
-| 2 | [`SoundManager`: профили, санитаризация, геометрия](stage_2.md) | vimp-engine | |
-| 3 | [Проброс зума камеры](stage_3.md) | vimp-engine | |
-| 4 | [Правило контракта E6](stage_4.md) | vimp-engine | |
-| 5 | [Тесты движка](stage_5.md) | vimp-engine | |
-| 6 | [Документация движка](stage_6.md) | vimp-engine | |
-| 7 | [`vimp-tanks`](stage_7.md) | vimp-tanks | |
-| 8 | [`vimp-snakes`](stage_8.md) | vimp-snakes | |
-| 9 | [Changelog, релизное влияние, финальная проверка](stage_9.md) | все три | |
+| 1 | [Дефолты движка (`clientDefaults.js`)](stage_1.md) | vimp-engine | ✅ выполнен |
+| 2 | [`SoundManager`: профили, санитаризация, геометрия](stage_2.md) | vimp-engine | ✅ выполнен |
+| 3 | [Проброс зума камеры](stage_3.md) | vimp-engine | ✅ выполнен |
+| 4 | [Правило контракта E6](stage_4.md) | vimp-engine | ✅ выполнен |
+| 5 | [Тесты движка](stage_5.md) | vimp-engine | ✅ выполнен |
+| 6 | [Документация движка](stage_6.md) | vimp-engine | ✅ выполнен |
+| 7 | [`vimp-tanks`](stage_7.md) | vimp-tanks | ✅ выполнен |
+| 8 | [`vimp-snakes`](stage_8.md) | vimp-snakes | ✅ выполнен |
+| 9 | [Changelog, релизное влияние, финальная проверка](stage_9.md) | все три | ✅ выполнен |
 
 Этапы 1–6 выполняются по порядку (2 зависит от 1, 5 — от 2–4, 6 — от всего
 предыдущего). Этапы 7 и 8 независимы друг от друга, но требуют этапов 1–4.

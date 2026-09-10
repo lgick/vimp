@@ -4,7 +4,7 @@ Verify a generated plugin against this list before declaring it done. Almost
 every item here fails **silently** or with an error far from its cause.
 
 Items marked ⚙ are checked by machine: run `npx vimp-contract` in your
-package and the rule id in the marker (`A1` … `E3`) is the one that will
+package and the rule id in the marker (`A1` … `E6`) is the one that will
 name the violation. Do not verify those by eye — run the tool
 (`13-debugging.md` → *Step zero*). The rest of the list is still yours.
 
@@ -237,6 +237,10 @@ name the violation. Do not verify those by eye — run the tool
       respawns); do not scale again in a part.
 - [ ] At most 30 simultaneous world voices; ranking is
       `priority² / max(distance², 1)`.
+- [ ] ⚙ `E6` A typo in a `parts.sounds.spatial` key, or a `mode` the engine
+      does not know, gives neither an error nor an audible hint: the engine
+      falls back to the default in silence. Statically only rule `E6`
+      (`npx vimp-contract`) catches it.
 - [ ] A `levels.<n>.map` grid whose dimensions differ from `map` is silent at
       runtime: the tank drives into nothing and nothing reaches the console.
       `MapConfig::validate` is the only place that catches it — do not skip it

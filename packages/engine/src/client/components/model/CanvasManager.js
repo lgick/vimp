@@ -14,6 +14,8 @@ export default class CanvasManagerModel {
     canvasManagerModel = this;
 
     this._data = {};
+    // хотя бы одно полотно с динамической камерой
+    this._hasDynamicCamera = false;
     this._coordX = 0; // текущая координата X игрока
     this._coordY = 0; // текущая координата Y игрока
 
@@ -79,6 +81,8 @@ export default class CanvasManagerModel {
           dynamicCamera: !!canvasData.dynamicCamera,
           shakeCamera: !!canvasData.shakeCamera,
         };
+
+        this._hasDynamicCamera ||= !!canvasData.dynamicCamera;
       }
     }
 
@@ -87,6 +91,14 @@ export default class CanvasManagerModel {
 
   get pointerCanvasId() {
     return this._pointerCanvasId;
+  }
+
+  // множитель динамического зума для позиции слушателя звука. Если ни
+  // одно полотно динамическую камеру не использует, зум обязан быть 1:
+  // сам модификатор считается всегда, и звук «отъезжал» бы там, где
+  // картинка стоит на месте
+  getCameraZoom() {
+    return this._hasDynamicCamera ? this._camZoomModifier : 1;
   }
 
   // рассчитывает размеры элементов с учетом пропорций

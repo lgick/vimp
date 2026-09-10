@@ -1,4 +1,4 @@
-# Этап 1. Дефолты движка (`clientDefaults.js`)
+# Этап 1. Дефолты движка (`clientDefaults.js`) ✅ выполнен
 
 Репозиторий: `/Users/dmitry/Sites/my/vimp`.
 Предварительное чтение: [`README.md`](README.md) — единицы измерения и схема

@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import SoundManager from '../../packages/engine/src/client/SoundManager.js';
 
 // processAudibility использует множество внутренних полей и методов.
 // Тестируем через прототип, подставляя минимальный `this` с моками.
-// (maxDistance = 1000 → maxDistSquared = 1_000_000; WORLD_VOICE_LIMIT = 30)
+// (maxDistance берётся из _spatial: в хелпере 100; WORLD_VOICE_LIMIT = 30)
 const snd = (id, x, priority = 1, opts = {}) => ({
   id,
   position: { x, y: 0 },
@@ -20,9 +20,11 @@ const makeCtx = sounds => {
     _registeredSounds: new Map(sounds.map(s => [s.id, s])),
     _listenerX: 0,
     _listenerY: 0,
+    _spatial: { maxDistance: 100 },
     _activeInstances: new Map(),
     _equalPowerIds: new Set(),
     _pannedIds: new Set(),
+    _pannerPos: new Map(),
     _internalPlay: vi.fn(() => `play${counter++}`),
     _internalStop: vi.fn(),
     _updateSpatialSound: vi.fn(),
@@ -33,7 +35,7 @@ const makeCtx = sounds => {
 
 describe('SoundManager.processAudibility', () => {
   it('удаляет далёкий одноразовый звук', () => {
-    const ctx = makeCtx([snd('a', 2000)]); // дальше maxDistance
+    const ctx = makeCtx([snd('a', 200)]); // дальше maxDistance
     ctx.processAudibility();
 
     expect(ctx._registeredSounds.has('a')).toBe(false);
@@ -41,7 +43,7 @@ describe('SoundManager.processAudibility', () => {
   });
 
   it('сохраняет далёкий зацикленный звук и проигрывает его', () => {
-    const ctx = makeCtx([snd('a', 2000, 1, { loop: true })]);
+    const ctx = makeCtx([snd('a', 200, 1, { loop: true })]);
     ctx.processAudibility();
 
     expect(ctx._registeredSounds.has('a')).toBe(true);
@@ -95,6 +97,7 @@ const makeRegistryCtx = (sounds = new Map()) => ({
   _activeInstances: new Map(),
   _equalPowerIds: new Set(),
   _pannedIds: new Set(),
+  _pannerPos: new Map(),
   _listenerX: 0,
   _listenerY: 0,
   _internalStop: vi.fn(),
@@ -288,14 +291,18 @@ describe('SoundManager.releaseSound', () => {
 // заводит узел лениво, на первом pos()/pannerAttr(id), и заканчивает
 // создание парой pause()/play() — то есть щелчком, а сам узел вдобавок
 // схлопывает стерео сэмпла в моно.
-const makeSpatialCtx = () => ({
+const makeSpatialCtx = (spatial, scale = 1) => ({
   _listenerX: 100,
   _listenerY: 100,
+  _listenerScale: scale,
   _equalPowerIds: new Set(),
   _pannedIds: new Set(),
+  _pannerPos: new Map(),
+  _spatial: P._resolveSpatialConfig.call({}, spatial),
   _updateSpatialSound: P._updateSpatialSound,
   _recenterIfPanned: P._recenterIfPanned,
   _applyEqualPower: P._applyEqualPower,
+  _resolveSpatialConfig: P._resolveSpatialConfig,
 });
 
 const makeHowl = () => ({
@@ -347,31 +354,227 @@ describe('SoundManager._updateSpatialSound', () => {
     ctx._updateSpatialSound(sound, 1, 400, 100, 1);
 
     expect(sound.pannerAttr).not.toHaveBeenCalled();
-    expect(sound.pos).toHaveBeenCalledWith(300, 0, 0, 1);
+    expect(sound.pos).toHaveBeenCalledWith(300, -180, 0, 1);
   });
 
-  it('внутри дед-зоны направления панорама не строится', () => {
+  it('источник вплотную к слушателю звучит из-под него', () => {
     const ctx = makeSpatialCtx();
     const sound = makeHowl();
 
-    // расхождение камеры и танка в пару пикселей — не повод для азимута.
-    // Узла ещё нет — и заводить его здесь незачем
+    // расхождение камеры и танка в пару единиц — не повод для азимута:
+    // вектор гасится smoothstep'ом почти в ноль, а высота держит источник
+    // под слушателем
     ctx._updateSpatialSound(sound, 1, 102, 100, 1);
 
-    expect(sound.pos).not.toHaveBeenCalled();
+    expect(sound.pos.mock.calls[0][0]).toBeCloseTo(0.0145, 3);
+    expect(sound.pos.mock.calls[0][1]).toBe(-180);
     expect(sound.volume).toHaveBeenCalledWith(1, 1);
   });
 
-  it('мировой источник в дед-зоне возвращается в центр, но HRTF сохраняет', () => {
+  it('источник ровно под слушателем звучит из-под него', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 100, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(0, -180, 0, 1);
+  });
+
+  it('вблизи слушателя панорама мягкая', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 120, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(10, -180, 0, 1);
+    // угол на источник — единицы градусов, а не крайнее ухо
+    expect(Math.atan2(10, 180)).toBeLessThan(0.1);
+  });
+
+  it('панорама непрерывна там, где раньше была ступенька', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    // прежний порог MIN_SPATIAL_DISTANCE = 16 давал здесь разрыв
+    for (const x of [114, 115, 116, 117, 118]) {
+      ctx._updateSpatialSound(sound, 1, x, 100, 1);
+    }
+
+    const xs = sound.pos.mock.calls.map(call => call[0]);
+
+    for (let i = 1; i < xs.length; i += 1) {
+      expect(xs[i]).toBeGreaterThan(xs[i - 1]);
+      expect(xs[i] - xs[i - 1]).toBeLessThan(1.5);
+    }
+  });
+
+  it('за радиусом рассеивания вектор не гасится', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 200, 180, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(100, -180, 80, 1);
+  });
+
+  it('мировой источник не переводится на equalpower', () => {
     const ctx = makeSpatialCtx();
     const sound = makeHowl();
 
     ctx._updateSpatialSound(sound, 1, 400, 100, 1);
-    ctx._updateSpatialSound(sound, 1, 102, 100, 1);
 
-    expect(sound.pos).toHaveBeenLastCalledWith(0, 0, 0, 1);
     // equalpower — только для источника игрока: миру HRTF ещё понадобится
     expect(sound.pannerAttr).not.toHaveBeenCalled();
+  });
+
+  it('зум камеры поднимает уши', () => {
+    const ctx = makeSpatialCtx(undefined, 0.5);
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+
+    expect(sound.pos).toHaveBeenLastCalledWith(300, -360, 0, 1);
+
+    // радиус рассеивания растянут тем же зумом
+    ctx._updateSpatialSound(sound, 1, 140, 100, 1);
+
+    expect(sound.pos).toHaveBeenLastCalledWith(20, -360, 0, 1);
+  });
+
+  it('за maxDistance источник глушится', () => {
+    const sound = makeHowl();
+
+    makeSpatialCtx()._updateSpatialSound(sound, 1, 1400, 100, 1);
+
+    expect(sound.volume).toHaveBeenCalledWith(0, 1);
+    expect(sound.pos).not.toHaveBeenCalled();
+
+    // отсечка в мировых координатах: зумом она не масштабируется
+    const zoomed = makeHowl();
+
+    makeSpatialCtx(undefined, 0.5)._updateSpatialSound(zoomed, 1, 1400, 100, 1);
+
+    expect(zoomed.volume).toHaveBeenCalledWith(0, 1);
+    expect(zoomed.pos).not.toHaveBeenCalled();
+  });
+
+  it('профиль sideScroller кладёт вертикаль на ось Y', () => {
+    const ctx = makeSpatialCtx({ mode: 'sideScroller' });
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 300, 300, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(200, -40, -180, 1);
+  });
+
+  it('профиль cockpit кладёт вертикаль полностью', () => {
+    const ctx = makeSpatialCtx({ mode: 'cockpit' });
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 300, 300, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(200, -200, -180, 1);
+  });
+
+  it('innerRadius: 0 не даёт NaN', () => {
+    const ctx = makeSpatialCtx({ innerRadius: 0 });
+    const sound = makeHowl();
+
+    ctx._updateSpatialSound(sound, 1, 101, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledWith(1, -180, 0, 1);
+    expect(sound.pos.mock.calls[0].every(Number.isFinite)).toBe(true);
+  });
+});
+
+describe('SoundManager._resolveSpatialConfig', () => {
+  const resolve = custom => P._resolveSpatialConfig.call({}, custom);
+
+  let warn;
+
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it('без объявления игры отдаёт дефолты молча', () => {
+    for (const custom of [undefined, {}]) {
+      const cfg = resolve(custom);
+
+      expect(cfg.mode).toBe('topDown');
+      expect(cfg.virtualElevation).toBe(180);
+      expect(cfg.innerRadius).toBe(40);
+      expect(cfg.panningModel).toBe('HRTF');
+      expect(cfg.refDistance).toBe(200);
+      expect(cfg.maxDistance).toBe(1200);
+    }
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('неизвестный профиль падает на topDown с предупреждением', () => {
+    expect(resolve({ mode: 'side-scroller' }).mode).toBe('topDown');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('битое число падает на дефолт с предупреждением', () => {
+    expect(resolve({ virtualElevation: -1 }).virtualElevation).toBe(180);
+    expect(resolve({ innerRadius: NaN }).innerRadius).toBe(40);
+    expect(resolve({ refDistance: '200' }).refDistance).toBe(200);
+    expect(warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('неизвестная модель панорамирования падает на дефолт профиля', () => {
+    expect(resolve({ panningModel: 'stereo' }).panningModel).toBe('HRTF');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sideScroller приносит свой equalpower молча', () => {
+    expect(resolve({ mode: 'sideScroller' }).panningModel).toBe('equalpower');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('maxDistance не больше refDistance откатывает обе дистанции', () => {
+    const cfg = resolve({ refDistance: 500, maxDistance: 400 });
+
+    expect(cfg.refDistance).toBe(200);
+    expect(cfg.maxDistance).toBe(1200);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('innerRadius: 0 легален', () => {
+    expect(resolve({ innerRadius: 0 }).innerRadius).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('SoundManager.setListenerPosition: зум', () => {
+  const makeZoomCtx = () => ({
+    _listenerX: 0,
+    _listenerY: 0,
+    _listenerScale: 1,
+    setListenerPosition: P.setListenerPosition,
+  });
+
+  it('мусорный зум не доходит до геометрии', () => {
+    for (const args of [[0, 0], [0, 0, 0], [0, 0, NaN], [0, 0, -1]]) {
+      const ctx = makeZoomCtx();
+
+      ctx.setListenerPosition(...args);
+
+      expect(ctx._listenerScale).toBe(1);
+    }
+  });
+
+  it('корректный зум сохраняется', () => {
+    const ctx = makeZoomCtx();
+
+    ctx.setListenerPosition(0, 0, 0.5);
+
+    expect(ctx._listenerScale).toBe(0.5);
   });
 });
 
@@ -380,6 +583,9 @@ describe('SoundManager.updateActiveSounds', () => {
     _registeredSounds: new Map([['owner', regSound]]),
     _activeInstances: new Map([[7, { sound, ownerId: 'owner', loop: true }]]),
     _equalPowerIds: new Set(),
+    _pannedIds: new Set(),
+    _pannerPos: new Map(),
+    _lastPositionWrite: -Infinity,
     _updateSpatialSound: vi.fn(),
     updateActiveSounds: P.updateActiveSounds,
   });
@@ -420,5 +626,115 @@ describe('SoundManager.updateActiveSounds', () => {
     ctx.updateActiveSounds();
 
     expect(ctx._updateSpatialSound).toHaveBeenCalledWith(sound, 7, 5, 6, 1, false);
+  });
+});
+
+// Поток pos() — главная стоимость мирового звука: каждый вызов внутри
+// Howler это три setValueAtTime на positionX/Y/Z плюс событие 'pos'. На
+// 60 Гц и лимите голосов WebKit отвечает артефактами, клиппингом и
+// обрывами, поэтому запись позиции ограничена с двух сторон: порогом
+// смещения (неподвижный источник) и гейтом частоты (движущийся).
+describe('SoundManager: экономия записей позиции', () => {
+  const makeLoopCtx = (regSound, sound) => ({
+    _registeredSounds: new Map([['owner', regSound]]),
+    _activeInstances: new Map([[7, { sound, ownerId: 'owner', loop: true }]]),
+    _equalPowerIds: new Set(),
+    _pannedIds: new Set(),
+    _pannerPos: new Map(),
+    _lastPositionWrite: -Infinity,
+    _updateSpatialSound: vi.fn(),
+    updateActiveSounds: P.updateActiveSounds,
+  });
+
+  it('неподвижный источник переписывает позицию один раз', () => {
+    const sound = makeHowl();
+    const ctx = makeSpatialCtx();
+
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledTimes(1);
+  });
+
+  it('смещение за порогом снова пишет позицию', () => {
+    const sound = makeHowl();
+    const ctx = makeSpatialCtx();
+
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+    ctx._updateSpatialSound(sound, 1, 500, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledTimes(2);
+    expect(sound.pos).toHaveBeenLastCalledWith(400, -180, 0, 1);
+  });
+
+  it('возврат в центр запоминается: порог не сравнивает со старым', () => {
+    const sound = makeHowl();
+    const ctx = makeSpatialCtx();
+
+    // источник побывал в стороне, затем стал непространственным
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1, false);
+    sound.pos.mockClear();
+
+    // снова мировой и снова там же — позиция в узле сейчас (0, 0, 0),
+    // поэтому запись обязана произойти
+    ctx._updateSpatialSound(sound, 1, 400, 100, 1);
+
+    expect(sound.pos).toHaveBeenCalledTimes(1);
+    expect(sound.pos).toHaveBeenLastCalledWith(300, -180, 0, 1);
+  });
+
+  it('гейт частоты: внутри интервала позиция не трогается', () => {
+    const sound = makeHowl();
+    const ctx = makeLoopCtx(
+      { position: { x: 5, y: 6 }, volume: 1, loop: true },
+      sound,
+    );
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1000);
+
+    ctx.updateActiveSounds();
+    nowSpy.mockReturnValue(1010); // < 1000/30 мс
+    ctx.updateActiveSounds();
+
+    expect(ctx._updateSpatialSound).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockRestore();
+  });
+
+  it('гейт частоты: за интервалом позиция пишется снова', () => {
+    const sound = makeHowl();
+    const ctx = makeLoopCtx(
+      { position: { x: 5, y: 6 }, volume: 1, loop: true },
+      sound,
+    );
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1000);
+
+    ctx.updateActiveSounds();
+    nowSpy.mockReturnValue(1040); // > 1000/30 мс
+    ctx.updateActiveSounds();
+
+    expect(ctx._updateSpatialSound).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockRestore();
+  });
+
+  it('гейт частоты не задерживает уборку мёртвого экземпляра', () => {
+    const sound = makeHowl();
+    const ctx = makeLoopCtx(
+      { position: { x: 5, y: 6 }, volume: 1, loop: true },
+      sound,
+    );
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1000);
+
+    ctx.updateActiveSounds();
+    ctx._registeredSounds.delete('owner');
+    nowSpy.mockReturnValue(1010); // гейт закрыт, уборка всё равно обязана
+    ctx.updateActiveSounds();
+
+    expect(sound.stop).toHaveBeenCalledWith(7);
+    expect(ctx._activeInstances.has(7)).toBe(false);
+
+    nowSpy.mockRestore();
   });
 });

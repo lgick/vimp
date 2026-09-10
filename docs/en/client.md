@@ -844,13 +844,12 @@ rather than the engine-bundled `/sounds/` static copy.
   that has already been panned (it was out in the world before) is recentred
   on `equalpower` instead. The flag can be changed later through
   `updateSoundData(id, { spatial })` — the owner of a tank learns it is the
-  local one after construction. World sources keep a direction dead-zone
-  (`MIN_SPATIAL_DISTANCE`, half a tile): the azimuth in Web Audio follows
-  the direction to the source, not the distance, so a two-pixel gap between
-  camera and body would otherwise give a full, jittering pan. Inside the
-  dead-zone a source that has a node is recentred and keeps HRTF — it will
-  need it again on the way out — while one that has no node yet does not get
-  one.
+  local one after construction. A **world** source, by contrast, gets its
+  node on the very first frame and keeps it: the click Howler makes inside
+  `setupPanner` then falls on the start of the sample, where it is
+  inaudible. There is no dead-zone and no distance threshold any more — the
+  position is one continuous formula (see below), so nothing switches
+  between "no node, dry stereo" and "HRTF hard in one ear" mid-sound.
 - **Unregistering**: `unregisterSound(id)` stops the sound instance and
   drops the registration — for an entity whose sound must die with it.
   `releaseSound(id)` drops the registration but lets an already playing
@@ -866,6 +865,134 @@ rather than the engine-bundled `/sounds/` static copy.
   so the registration of a sample that already played would survive and be
   started over from the beginning. Only `destroy()` clears the registry
   outright.
+
+### Virtual elevation and spread
+
+The listener always sits at `(0, 0, 0)` and a world source is placed by the
+vector from it. The listener is lifted `virtualElevation` above the plane of
+the game, and inside `innerRadius` that vector is faded out with a
+`smoothstep`, so the position is **one continuous formula per frame** — no
+threshold, no step, no click:
+
+```
+dx  = x - listenerX
+dy  = y - listenerY
+d2d = Math.hypot(dx, dy)
+
+zoom = camera zoom multiplier (1 = at rest, < 1 = zoomed out)
+H    = virtualElevation / zoom
+R    = innerRadius      / zoom
+
+spread = smoothstep(0, R, d2d)     // 0 at the centre, 1 past the radius
+sx = dx * spread
+sy = dy * spread
+```
+
+The projection profile (`mode`) maps `(sx, sy, H)` onto the Web Audio axes.
+World `x` grows right and world `y` grows **down**, while the listener's up
+vector (`Howler.orientation(0, 0, -1, 0, 1, 0)`) is +Y — hence the minus
+sign wherever world `y` lands on axis Y:
+
+| Profile | `X` | `Y` | `Z` | default `panningModel` |
+| --- | --- | --- | --- | --- |
+| `topDown` | `sx` | `-H` | `sy` | `HRTF` |
+| `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower` |
+| `cockpit` | `sx` | `-sy` | `-H` | `HRTF` |
+
+At `d2d = 0` a `topDown` source sits at exactly `(0, -H, 0)`: straight below
+the listener, equal in both ears, with no ear filtering. At `dx = 20`,
+`H = 180` the azimuth is `atan(20/180) ≈ 6.3°`; at `dx = 600` it is `≈ 73°`.
+The real 3D distance is never shorter than `H`, which is why `refDistance`
+sits above it (`200 > 180`) — a source right next to the player still plays
+at full volume. `equalpower` is the default of `sideScroller` because
+front/back is physically meaningless in a side view while a clean left/right
+timbre is not, and `verticalFactor` (`0.2`) holds the vertical down for the
+same reason a platformer's height is barely readable by ear.
+
+**Camera zoom divides the elevation and the spread radius, but not the
+attenuation distances.** `setListenerPosition(x, y, scale)` carries the zoom
+multiplier, so zooming out narrows the stereo base together with the
+picture. `refDistance` / `maxDistance` / `rolloffFactor`, however, are
+attributes of the `PannerNode` itself: they are set once through
+`pannerAttr` at the `Howl` level and are never recomputed per frame.
+Scaling only the JS cut-off (in `_updateSpatialSound` and the candidate
+filter of `processAudibility`) would open a window where the engine counts a
+source as audible while the node already returns silence — invisible to
+every test and heard as sounds that randomly disappear. `maxDistance`
+therefore stays in world coordinates.
+
+### `parts.sounds.spatial`
+
+The block is optional: a game that declares nothing gets the engine defaults
+([config/clientDefaults.js](../../packages/engine/src/config/clientDefaults.js))
+and sounds right. Every key is validated on its own and falls back to its
+default with a console warning, so a bad value cannot break the audio
+context:
+
+```javascript
+parts: {
+  sounds: {
+    codecList: ['webm', 'mp3'],
+    spatial: {
+      mode: 'topDown',          // 'topDown' | 'sideScroller' | 'cockpit'
+      virtualElevation: 180,    // world units, ear height above the plane
+      innerRadius: 40,          // world units, the player's own size
+      verticalFactor: 0.2,      // sideScroller only: vertical contribution
+      panningModel: 'HRTF',     // 'HRTF' | 'equalpower' (profile default)
+      distanceModel: 'inverse', // 'linear' | 'inverse' | 'exponential'
+      refDistance: 200,         // world units, full volume up to here
+      maxDistance: 1200,        // world units, silence past it
+      rolloffFactor: 0.9,
+    },
+    sounds: { /* the catalog */ },
+  },
+}
+```
+
+**The numbers are world units, not screen pixels.** The manager is fed world
+coordinates (the camera from the core's hot buffer, `regSound.position` from
+the game's parts), while the screen scale is a separate factor of
+[CanvasManager](../../packages/engine/src/client/components/model/CanvasManager.js):
+`currentScale = baseScale * (window width / 1920)`. In `vimp-tanks`
+(`mapScale 0.3`, `baseScale 5`) one world unit is 5 screen px; in
+`vimp-snakes` (`mapScale 1`, `baseScale 1`) it is exactly one.
+
+- `innerRadius` is **the player's own size in world units**: everything
+  sounding inside it is folded smoothly to the centre and spread evenly over
+  both ears. Tanks: a hull of `8 × 6` units, half-diagonal `≈ 5`. Snakes:
+  `baseRadius 14`. The engine default `40` is only right for a game whose
+  world unit equals a screen pixel.
+- `virtualElevation` is calibrated off the **visible half-height of the
+  screen**: `H ≈ (canvas height / 2) / currentScale`. Bigger `H` is softer
+  panning near the player, smaller is a more aggressive ear separation. For
+  a game with `mapScale 0.3` and `baseScale 5` in a 1920×1080 window that
+  gives `H ≈ 540 / 5 = 108`, and half the screen across is `960 / 5 = 192`
+  units — an azimuth of `atan(192/108) ≈ 60°` at the edge of the screen,
+  while at the size of the player it is a few degrees.
+
+A typo in a key, or a `mode` the engine does not know, is a **silent**
+fallback to the default. Statically that is caught only by `vimp-contract`
+rule **E6** — see [debugging.md](debugging.md).
+
+### How often the position is written
+
+The geometry above is recomputed every frame, but it reaches the
+`PannerNode` under two guards, and both exist for the same reason: inside
+Howler one `pos()` is three `setValueAtTime` calls on `positionX/Y/Z` plus
+a `'pos'` event, and at 60 Hz across the voice limit that is thousands of
+automation writes per second. WebKit answers such a stream with artefacts,
+clipping and dropouts — its HRTF is a real convolution per node, not a
+cheap approximation — while the panorama itself gains nothing from the
+extra writes.
+
+- **A movement threshold.** The last position written into the node is
+  remembered per instance; a source that has not moved past it is not
+  rewritten. Most world sources are stationary — a burning wreck, an
+  ambience, a dropped item.
+- **A rate gate.** Positions are written at most every `1000 / 30` ms —
+  30 Hz is the usual update rate for game audio, and the ear does not hear
+  the difference from 60. Only the position is gated: reaping instances
+  whose source is gone, and the `rate` update, still run every frame.
 
 ## InputListener
 

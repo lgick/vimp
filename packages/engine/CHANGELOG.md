@@ -9,6 +9,30 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- A game's client config can declare the geometry of spatial sound
+  (`parts.sounds.spatial`): the projection profile — `topDown`,
+  `sideScroller` or `cockpit` — the virtual elevation of the listener, the
+  near-field spread radius and the `PannerNode` attributes. The block is
+  optional: a game that omits it gets the engine defaults.
+  `setListenerPosition` takes the camera zoom multiplier as its third
+  argument. The new contract rule `E6` checks the block statically.
+
+### Fixed
+
+- World sound near the listener no longer switches in a jump: the
+  `MIN_SPATIAL_DISTANCE` dead-zone is gone, the position is one continuous
+  formula, and a source under the player sounds from below them instead of
+  inside one ear.
+- Spatial sound no longer floods the `PannerNode` with automation writes.
+  One Howler `pos()` is three `setValueAtTime` calls plus an event, and it
+  used to run every frame for every world voice; a movement threshold now
+  skips a source that has not moved, and a rate gate holds position writes
+  to 30 Hz. Reaping dead instances and the `rate` update stay per-frame.
+  Safari was the audible case — its HRTF is a real convolution per node,
+  and the stream of writes came out as artefacts, clipping and dropouts.
+
 ## [0.32.1] — 2026-09-06
 
 ### Changed

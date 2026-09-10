@@ -903,8 +903,14 @@ function applyGameData(game) {
 // применяет данные камеры (позиция слушателя звука + полотно)
 function applyCamera(camera) {
   if (camera && camera !== 0) {
-    soundManager.setListenerPosition(camera[0], camera[1]);
+    // порядок важен: зум пересчитывается внутри updateCoords, а слушателю
+    // нужен зум ЭТОГО кадра, а не прошлого
     modules.canvasManager.updateCoords(camera);
+    soundManager.setListenerPosition(
+      camera[0],
+      camera[1],
+      modules.canvasManager.getCameraZoom(),
+    );
   }
 }
 

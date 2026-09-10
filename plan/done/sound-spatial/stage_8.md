@@ -1,4 +1,4 @@
-# Этап 8. `vimp-snakes`
+# Этап 8. `vimp-snakes` ✅ выполнен
 
 Репозиторий: `/Users/dmitry/Sites/my/vimp-snakes` (пакет
 `@vimp-games/snakes`).

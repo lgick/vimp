@@ -204,6 +204,8 @@ Declare each sound in your client config:
 ```js
 sounds: {
   codecList: ['webm', 'mp3'],
+  // optional: spatial geometry; omit it and the engine defaults apply
+  spatial: { mode: 'topDown', virtualElevation: 108, innerRadius: 5 },
   sounds: {
     shot:   { file: 'shot',   priority: 60, volume: 0.6 },
     engine: { file: 'engine', loop: true,   volume: 0.3 },

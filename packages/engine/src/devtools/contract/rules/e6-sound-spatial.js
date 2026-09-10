@@ -1,26 +1,3 @@
-# Этап 4. Правило контракта E6
-
-Репозиторий: `/Users/dmitry/Sites/my/vimp`.
-Предварительное чтение: [`README.md`](README.md) — схема конфигурации.
-Зависит от: [этапа 1](stage_1.md) (набор ключей).
-
-## Зачем
-
-Блок `parts.sounds.spatial` необязателен, но объявленный блок с опечаткой —
-тихий отказ: `deepMerge` молча положит `innrRadius` в конфиг, `SoundManager`
-молча его проигнорирует, разработчик услышит «звук как был» и не поймёт
-почему. Уровень `warn`, а не `error`: отсутствие блока и мелкая ошибка в
-нём не должны валить сборку игры (под `--strict` warn становится ошибкой).
-
-## Новый файл
-
-`packages/engine/src/devtools/contract/rules/e6-sound-spatial.js`
-
-Образец стиля — соседний `e3-sound-registry.js`: уровень `WARN`, хелперы
-`skip`/`verdict` из `../result.js`, сообщения по-английски, комментарий
-сверху объясняет *почему* правило существует.
-
-```javascript
 import { WARN, skip, verdict } from '../result.js';
 
 const MODES = ['topDown', 'sideScroller', 'cockpit'];
@@ -135,28 +112,3 @@ export default {
     return verdict(violations);
   },
 };
-```
-
-## Регистрация
-
-`packages/engine/src/devtools/contract/rules/index.js`:
-
-- импорт `import e6 from './e6-sound-spatial.js';` после строки с `e5`;
-- `e6` в конец массива `rules` (порядок групп = порядок отчёта: A пакет,
-  B host, C client, D снапшот, E ассеты).
-
-## Чего НЕ делать
-
-`packages/engine/contract/surface.json` **не трогать**. Правила контракта в
-нём не перечислены; `parts.*` клиентского конфига представлены там только
-тремя игровыми ключами. Из замороженной поверхности ничего не удаляется —
-поводов останавливаться и обсуждать нет.
-
-## Готово, когда
-
-- `npx eslint .` зелёный;
-- `node packages/engine/bin/vimp-contract.js --game ../vimp-tanks` выводит
-  строку `E6` со статусом `skip` (блок ещё не объявлен — это этап 7);
-- `npm test` не даёт новых падений, кроме уже известных из этапа 2
-  (`tests/devtools/contract/report.test.js:138` сверяет длину отчёта с
-  `rules.length` и правится сам).

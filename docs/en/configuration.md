@@ -523,7 +523,10 @@ documented in its own repo's docs.
 The sound catalog (file names, priorities, volumes, loop flags, codec
 list) is game data, served under the game's `assetsBase`. Playback
 mechanics (voice limits, priorities) are engine-owned — see
-[client.md](client.md#soundmanager).
+[client.md](client.md#soundmanager). The optional `parts.sounds.spatial`
+block (projection profile, virtual elevation, spread radius, `PannerNode`
+attributes) is documented there too; a game that omits it gets the engine
+defaults. No `.env` variable is involved.
 
 ## packages/engine/src/config/wsports.js and packages/engine/src/config/opcodes.js
 

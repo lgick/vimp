@@ -1243,6 +1243,61 @@ describe('E. assets', () => {
   });
 });
 
+describe('E6. spatial sound block', () => {
+  const withSpatial = spatial => ({
+    ...base,
+    clientConfig: withParts(base, {
+      sounds: {
+        codecList: ['webm', 'mp3'],
+        sounds: { shot: { file: 'shot' } },
+        ...(spatial === undefined ? {} : { spatial }),
+      },
+    }),
+  });
+
+  it('E6 skips a game without client sound config', () => {
+    expect(check('E6', base).status).toBe(SKIP);
+  });
+
+  it('E6 skips a sound config without the optional spatial block', () => {
+    expect(check('E6', withSpatial()).status).toBe(SKIP);
+  });
+
+  it('E6 passes a well-formed block', () => {
+    expect(
+      check('E6', withSpatial({ mode: 'topDown', innerRadius: 5 })).status,
+    ).toBe(PASS);
+  });
+
+  it('E6 catches an unknown mode', () => {
+    const result = check('E6', withSpatial({ mode: 'side-scroller' }));
+
+    expect(result.status).toBe(FAIL);
+    expect(result.violations.join('\n')).toMatch(/valid modes/);
+  });
+
+  it('E6 catches a typo in a key', () => {
+    const result = check('E6', withSpatial({ innrRadius: 40 }));
+
+    expect(result.status).toBe(FAIL);
+    expect(result.violations.join('\n')).toMatch(/unknown key/);
+  });
+
+  it('E6 catches broken numbers, models and distances', () => {
+    expect(check('E6', withSpatial({ virtualElevation: -1 })).status).toBe(FAIL);
+    expect(check('E6', withSpatial({ panningModel: 'stereo' })).status).toBe(
+      FAIL,
+    );
+    expect(
+      check('E6', withSpatial({ refDistance: 500, maxDistance: 400 })).status,
+    ).toBe(FAIL);
+  });
+
+  it('E6 only warns: the block is optional and the engine falls back', () => {
+    expect(rule('E6').level).toBe('warn');
+  });
+});
+
 describe('runRules: уровень вердикта', () => {
   const fake = (level, id = 'X1') => ({
     id,

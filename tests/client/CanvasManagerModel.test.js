@@ -71,6 +71,24 @@ describe('CanvasManagerModel: конструктор', () => {
   });
 });
 
+describe('CanvasManagerModel.getCameraZoom', () => {
+  it('без динамической камеры зум всегда 1', () => {
+    const model = makeModel({
+      canvases: { radar: { baseScale: '1:1', fixSize: '200:100' } },
+    });
+    model._camZoomModifier = 0.5;
+
+    expect(model.getCameraZoom()).toBe(1);
+  });
+
+  it('с динамической камерой отдаёт текущий модификатор', () => {
+    const model = makeModel();
+    model._camZoomModifier = 0.5;
+
+    expect(model.getCameraZoom()).toBe(0.5);
+  });
+});
+
 describe('CanvasManagerModel.resize', () => {
   it('по соотношению сторон вписывает в ширину экрана', () => {
     const model = makeModel();

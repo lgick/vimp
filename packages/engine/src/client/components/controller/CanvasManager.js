@@ -19,6 +19,11 @@ export default class CanvasManagerCtrl {
     this._model.updateCoords(x, y, cameraReset, shakeData);
   }
 
+  // текущий множитель зума камеры (для позиции слушателя звука)
+  getCameraZoom() {
+    return this._model.getCameraZoom();
+  }
+
   // экранная точка указателя -> мировая (в координатах игрового полотна)
   toWorld(clientX, clientY) {
     return this._view.toWorld(this._model.pointerCanvasId, clientX, clientY);

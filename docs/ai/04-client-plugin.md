@@ -566,6 +566,18 @@ list the same names.
 parts: {
   sounds: {
     codecList: ['webm', 'mp3'],
+    // optional; every key falls back to an engine default
+    spatial: {
+      mode: 'topDown',          // 'topDown' | 'sideScroller' | 'cockpit'
+      virtualElevation: 180,    // world units, ear height above the plane
+      innerRadius: 40,          // world units, the player's own size
+      verticalFactor: 0.2,      // sideScroller only: vertical contribution
+      panningModel: 'HRTF',     // 'HRTF' | 'equalpower' (profile default)
+      distanceModel: 'inverse', // 'linear' | 'inverse' | 'exponential'
+      refDistance: 200,         // world units, full volume up to here
+      maxDistance: 1200,        // world units, silence past it
+      rolloffFactor: 0.9,
+    },
     sounds: {
       shot:    { file: 'shot',    priority: 60, volume: 0.6 },
       engine:  { file: 'engine',  loop: true,   volume: 0.3 },
@@ -578,8 +590,27 @@ parts: {
   set it.
 - Per-sound defaults: `priority: 50`, `volume: 0.5`, `loop: false`.
 - Master volume is `0.7`.
-- Spatial audio: HRTF panner, `refDistance 150 px` (full volume),
-  `maxDistance 1000 px` (silence).
+- Spatial audio: the listener is lifted `virtualElevation` above the plane
+  of the game and a source inside `innerRadius` is faded smoothly to the
+  centre, so there is no threshold and no click. Attenuation defaults:
+  `refDistance 200` (full volume), `maxDistance 1200` (silence).
+- **All of these numbers are world units, not screen pixels.** The screen
+  scale is a separate factor (`baseScale * window width / 1920`), so in a
+  game where one world unit is 5 screen px the defaults must be divided by
+  5: `innerRadius` is the player's own size (a `8 × 6` hull → `≈ 5`) and
+  `virtualElevation ≈ (canvas height / 2) / currentScale`.
+- The projection profile decides how the world vector maps onto the Web
+  Audio axes (`sx`, `sy` are the faded world offsets, `H` the elevation):
+
+| `mode` | `X` | `Y` | `Z` | default `panningModel` |
+| --- | --- | --- | --- | --- |
+| `topDown` | `sx` | `-H` | `sy` | `HRTF` |
+| `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower` |
+| `cockpit` | `sx` | `-sy` | `-H` | `HRTF` |
+
+- Camera zoom divides `virtualElevation` and `innerRadius`; it does **not**
+  scale the attenuation distances, which are `PannerNode` attributes set
+  once per `Howl`.
 - At most **30 simultaneous world voices** (`WORLD_VOICE_LIMIT`). When more
   compete, they are ranked by `priority² / max(distance², 1)` and the top 30
   play.

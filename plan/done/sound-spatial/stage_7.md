@@ -1,4 +1,4 @@
-# Этап 7. `vimp-tanks`
+# Этап 7. `vimp-tanks` ✅ выполнен
 
 Репозиторий: `/Users/dmitry/Sites/my/vimp-tanks` (пакет
 `@vimp-games/tanks`).
