@@ -13,7 +13,28 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
-## [0.17.0] — UNRELEASED
+## [0.18.0] — UNRELEASED
+
+### ⚠️ Breaking
+
+- **`client::rigid_body::separate_bodies` takes `dt`** and no longer pushes
+  the bodies apart by the full penetration depth. It now moves them by what
+  the host's contact spring removes in one step — the new
+  `penetration_correction(depth, dt)`, which is Rapier's own law:
+  `min(erp(dt) * (depth - allowed_error), max_corrective_velocity * dt)`,
+  with `contact_erp`, `ALLOWED_LINEAR_ERROR` and `MAX_CORRECTIVE_VELOCITY`
+  exported next to it. A deep overlap (a falling body landing inside a
+  crate) used to be undone by the replica in a single step while Rapier
+  crept out of it over dozens — a jump of several units in the predicted
+  position, enough to break a prediction-drift budget.
+
+### Migration
+
+- Pass the step length to every `separate_bodies` call:
+  `separate_bodies(a, b, contact, dt)` — the same `dt` the step's
+  `apply_contact_impulse` already gets.
+
+## [0.17.0] — 2026-09-11
 
 ### Changed
 

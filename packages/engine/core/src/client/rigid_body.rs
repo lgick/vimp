@@ -111,24 +111,72 @@ pub fn integrate(body: &mut Body, dt: f32) {
     body.angvel *= angular;
 }
 
-/// Разводит тела на глубину проникновения пропорционально обратным массам.
+/// Допуск проникновения, который позиционная коррекция не трогает:
+/// `IntegrationParameters::normalized_allowed_linear_error` Rapier,
+/// умноженный на `length_unit`. Хост карту строит на параметрах по
+/// умолчанию (`map::GameMap` правит только `dt`), поэтому `length_unit`
+/// здесь единица.
+pub const ALLOWED_LINEAR_ERROR: f32 = 0.001;
+
+/// Предел скорости расталкивания, юнитов в секунду:
+/// `normalized_max_corrective_velocity` Rapier на том же `length_unit`.
+/// За шаг он даёт потолок коррекции `MAX_CORRECTIVE_VELOCITY * dt`.
+pub const MAX_CORRECTIVE_VELOCITY: f32 = 10.0;
+
+// контактная пружина Rapier (`SpringCoefficients::contact_defaults`):
+// собственная частота в герцах и коэффициент затухания
+const CONTACT_NATURAL_FREQUENCY: f32 = 30.0;
+const CONTACT_DAMPING_RATIO: f32 = 5.0;
+
+/// Доля проникновения, которую контактная пружина Rapier снимает за шаг
+/// длиной `dt` (его `IntegrationParameters::erp`).
+pub fn contact_erp(dt: f32) -> f32 {
+    let angular_frequency = CONTACT_NATURAL_FREQUENCY * std::f32::consts::TAU;
+
+    dt * angular_frequency / (dt * angular_frequency + 2.0 * CONTACT_DAMPING_RATIO)
+}
+
+/// Насколько тела разводятся за ОДИН шаг при проникновении `depth`.
+/// Это закон Rapier, а не полная глубина: у него позиционная ошибка
+/// снимается смещением `rhs_bias` контактного ограничения —
+/// `clamp(erp_inv_dt * (depth - allowed_error), 0, max_corrective_velocity)`,
+/// то есть за шаг уходит лишь часть перекрытия, и не быстрее потолка.
+/// Реплика обязана растаскивать тела так же: выталкивание на всю глубину за
+/// один шаг давало рывок на несколько юнитов там, где хост расходился на
+/// доли (глубокое перекрытие — упавший на ящик танк), и предсказание
+/// пробивало порог расхождения.
+/// Зазор (`depth <= 0`) и нулевой шаг коррекции не дают вовсе.
+pub fn penetration_correction(depth: f32, dt: f32) -> f32 {
+    let excess = depth - ALLOWED_LINEAR_ERROR;
+
+    if excess <= 0.0 || dt <= 0.0 {
+        return 0.0;
+    }
+
+    (contact_erp(dt) * excess).min(MAX_CORRECTIVE_VELOCITY * dt)
+}
+
+/// Разводит тела пропорционально обратным массам на ту часть проникновения,
+/// которую за шаг снимает контактная пружина хоста
+/// (`penetration_correction`).
 /// Вызывается ОДИН раз на контакт за шаг: повторное применение той же глубины
 /// на каждой итерации решателя расталкивало бы тела кратно числу итераций.
 /// Нормаль контакта направлена ОТ тела `a`.
 /// Спекулятивный контакт (`depth < 0`, тела ещё разведены) позиций не
 /// трогает: разводить нечего, его дело — импульс.
-pub fn separate_bodies(a: &mut Body, b: &mut Body, contact: &Contact) {
+pub fn separate_bodies(a: &mut Body, b: &mut Body, contact: &Contact, dt: f32) {
     let total = a.inv_mass + b.inv_mass;
+    let correction = penetration_correction(contact.depth, dt);
 
     // два статических тела — разводить нечего
-    if total == 0.0 || contact.depth <= 0.0 {
+    if total == 0.0 || correction == 0.0 {
         return;
     }
 
-    a.x -= (contact.nx * contact.depth * a.inv_mass) / total;
-    a.y -= (contact.ny * contact.depth * a.inv_mass) / total;
-    b.x += (contact.nx * contact.depth * b.inv_mass) / total;
-    b.y += (contact.ny * contact.depth * b.inv_mass) / total;
+    a.x -= (contact.nx * correction * a.inv_mass) / total;
+    a.y -= (contact.ny * correction * a.inv_mass) / total;
+    b.x += (contact.nx * correction * b.inv_mass) / total;
+    b.y += (contact.ny * correction * b.inv_mass) / total;
 }
 
 /// Накопленные за шаг импульсы одного контакта. Решатель проходит по
@@ -275,7 +323,7 @@ mod tests {
     // разрешение одиночного контакта ровно в том порядке, в каком его делает
     // решатель игрового предиктора
     fn resolve_contact(a: &mut Body, b: &mut Body, contact: &Contact, surface: &Surface) {
-        separate_bodies(a, b, contact);
+        separate_bodies(a, b, contact, DT);
         apply_contact_impulse(a, b, contact, surface, DT, &mut ContactImpulses::default());
     }
 
@@ -408,8 +456,8 @@ mod tests {
         assert_eq!(wall.vx, 0.0);
         assert_eq!(wall.angvel, 0.0);
 
-        // всё выталкивание досталось подвижному телу
-        assert!((a.x + 2.0).abs() < 1e-5);
+        // всё выталкивание шага досталось подвижному телу
+        assert!((a.x + penetration_correction(2.0, DT)).abs() < 1e-5);
         assert!(a.vx.abs() < 1e-5);
     }
 
@@ -440,8 +488,10 @@ mod tests {
         assert_eq!(a.vx, -5.0);
         assert_eq!(b.vx, 5.0);
         // позиционная коррекция делится поровну между равными массами
-        assert!((a.x + 1.0).abs() < 1e-5);
-        assert!((b.x - 9.0).abs() < 1e-5);
+        let half = penetration_correction(2.0, DT) / 2.0;
+
+        assert!((a.x + half).abs() < 1e-5);
+        assert!((b.x - (8.0 + half)).abs() < 1e-5);
     }
 
     #[test]
@@ -455,8 +505,10 @@ mod tests {
         resolve_contact(&mut light, &mut heavy, &head_on(), &smooth(0.0));
 
         // лёгкое тело уезжает вчетверо дальше тяжёлого
-        assert!((light.x + 1.6).abs() < 1e-5);
-        assert!((heavy.x - 8.4).abs() < 1e-5);
+        let correction = penetration_correction(2.0, DT);
+
+        assert!((light.x + correction * 0.8).abs() < 1e-5);
+        assert!((heavy.x - (8.0 + correction * 0.2)).abs() < 1e-5);
     }
 
     #[test]
@@ -555,13 +607,61 @@ mod tests {
     fn separate_bodies_touches_positions_only() {
         let mut a = Body { vx: 10.0, ..body() };
         let mut b = Body { x: 8.0, ..body() };
+        // равные массы: каждому телу достаётся половина коррекции шага
+        let half = penetration_correction(2.0, DT) / 2.0;
 
-        separate_bodies(&mut a, &mut b, &head_on());
+        separate_bodies(&mut a, &mut b, &head_on(), DT);
 
-        assert!((a.x + 1.0).abs() < 1e-6);
-        assert!((b.x - 9.0).abs() < 1e-6);
+        assert!((a.x + half).abs() < 1e-6);
+        assert!((b.x - (8.0 + half)).abs() < 1e-6);
         assert_eq!(a.vx, 10.0);
         assert_eq!(b.vx, 0.0);
+    }
+
+    // регресс: развод на ВСЮ глубину за шаг. Хост (Rapier) растаскивает
+    // глубокое перекрытие постепенно, реплика выталкивала за один шаг —
+    // на упавшем в ящик танке предсказание рвало порог расхождения
+    #[test]
+    fn separate_bodies_corrects_a_fraction_of_a_deep_overlap() {
+        let mut a = body();
+        let mut b = Body {
+            x: 8.0,
+            ..static_body()
+        };
+
+        separate_bodies(&mut a, &mut b, &head_on(), DT);
+
+        assert!(a.x < 0.0, "развод идёт");
+        assert!(
+            a.x.abs() < 2.0 * 0.2,
+            "за шаг уходит малая часть глубины, а не вся"
+        );
+    }
+
+    #[test]
+    fn penetration_correction_is_capped_by_the_corrective_velocity() {
+        // глубина, которую пружина сняла бы быстрее потолка
+        let deep = MAX_CORRECTIVE_VELOCITY * DT / contact_erp(DT) * 2.0;
+
+        assert!((penetration_correction(deep, DT) - MAX_CORRECTIVE_VELOCITY * DT).abs() < 1e-6);
+    }
+
+    #[test]
+    fn penetration_correction_follows_the_spring_below_the_cap() {
+        let shallow = 0.1;
+
+        assert!(
+            (penetration_correction(shallow, DT)
+                - contact_erp(DT) * (shallow - ALLOWED_LINEAR_ERROR))
+                .abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn penetration_correction_ignores_the_allowed_error() {
+        assert_eq!(penetration_correction(ALLOWED_LINEAR_ERROR, DT), 0.0);
+        assert_eq!(penetration_correction(1.0, 0.0), 0.0, "шага нет — коррекции нет");
     }
 
     #[test]
@@ -584,7 +684,7 @@ mod tests {
         let mut a = Body { vx: 10.0, ..body() };
         let mut b = Body { x: 8.0, ..body() };
 
-        separate_bodies(&mut a, &mut b, &head_on());
+        separate_bodies(&mut a, &mut b, &head_on(), DT);
 
         let (ax, bx) = (a.x, b.x);
 
@@ -614,7 +714,7 @@ mod tests {
         let mut a = body();
         let mut b = static_body();
 
-        separate_bodies(&mut a, &mut b, &speculative(-0.5));
+        separate_bodies(&mut a, &mut b, &speculative(-0.5), DT);
 
         assert_eq!(a.x, 0.0, "разводить нечего — тела ещё не перекрыты");
         assert_eq!(b.x, 0.0);

@@ -362,7 +362,7 @@ must not drift from them.
   `collect_block_contacts_into` is the same collection into a caller-owned
   buffer, for a step that collects several times per frame.
 
-  Three details make the replica behave like Rapier rather than merely
+  Four details make the replica behave like Rapier rather than merely
   resemble it, and a game that skips any of them drifts on tangential hits:
 
   - **Speculative contacts.** `obb_vs_obb_within(a, b, prediction)` and
@@ -390,6 +390,19 @@ must not drift from them.
     the excess back. It also takes `dt`, which a speculative contact needs:
     the gap closes at `-depth / dt`, and only what closes it faster is
     cancelled, so a body stops **at** the wall instead of inside it.
+
+  - **Metered positional correction.** `separate_bodies(a, b, contact, dt)`
+    does not undo the whole penetration in one step: it moves the pair by
+    `penetration_correction(depth, dt)` —
+    `min(contact_erp(dt) * (depth - ALLOWED_LINEAR_ERROR),
+    MAX_CORRECTIVE_VELOCITY * dt)`, the law of Rapier's contact spring
+    (`contact_natural_frequency` 30 Hz, `contact_damping_ratio` 5,
+    `normalized_allowed_linear_error` and
+    `normalized_max_corrective_velocity` on `length_unit = 1`, the host's
+    defaults). A deep overlap — a body that fell inside a crate — is
+    something Rapier creeps out of over dozens of steps, fractions of a
+    unit at a time; a replica pushing it out at once jumps several units
+    and blows the game's prediction-drift budget.
 
   `separate_bodies` + `apply_contact_impulse` resolve the contacts on
   `Body` values, and `MAP_SURFACE` reuses `map::DEFAULT_FRICTION` /
