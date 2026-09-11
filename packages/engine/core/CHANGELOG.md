@@ -13,6 +13,14 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- **`map::ramp_rail_span(&RampRun, tile) -> Option<(f32, f32)>`**: the side
+  rails' bounds along a run's axis, `None` when the run gets no rails (one
+  cell long — all foot, no middle). `ramp_guards` is built on it, and a game
+  that draws the run's wedge takes the same call instead of re-deriving the
+  offset: a second copy shows a wall where the physics lets a body through.
+
 ## [0.18.0] — UNRELEASED
 
 ### ⚠️ Breaking

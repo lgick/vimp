@@ -718,6 +718,25 @@ pub struct RampGuard {
 /// у него нет середины. Выезд с прогона борт не держит никогда —
 /// поднимающееся тело проходит стражей насквозь
 /// (`levels_interaction_on_ramp`).
+/// Границы БОРТОВ прогона по его оси в мировых единицах, `None` — бортов
+/// нет вовсе. Клетка подножия остаётся открытой со всех сторон (въезд на
+/// горку законен с любого направления), поэтому борт начинается на клетку
+/// дальше неё; у прогона длиной в одну клетку середины нет, и борта ему не
+/// полагаются.
+///
+/// Формула ОДНА на всех: коллайдеры-стражи хоста (`ramp_guards`), их
+/// реплика у клиента и юбка клина в рендере игры. Вторая копия расходится
+/// молча — картинка показывает стену там, где физика пускает.
+pub fn ramp_rail_span(run: &RampRun, tile: f32) -> Option<(f32, f32)> {
+    let (min, max) = if run.sign > 0 {
+        (run.min + tile, run.max)
+    } else {
+        (run.min, run.max - tile)
+    };
+
+    (max - min > tile / 2.0).then_some((min, max))
+}
+
 pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
     if !levels.is_layered() {
         return Vec::new();
@@ -751,12 +770,8 @@ pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
             // «неправильный» торец — дальний по ходу подъёма: снизу
             // вход законный и не закрывается никогда
             let far = if run.sign > 0 { run.max } else { run.min };
-            // клетка подножия остаётся открытой со всех сторон
-            let (rail_min, rail_max) = if run.sign > 0 {
-                (run.min + tile, run.max)
-            } else {
-                (run.min, run.max - tile)
-            };
+            // борта — по той же формуле, что отдаётся игре для рендера
+            let rails = ramp_rail_span(run, tile);
             let place = |main: f32, cross: f32, hm: f32, hc: f32| {
                 let (x, y) = if run.axis == 0 {
                     (main, cross)
@@ -777,7 +792,7 @@ pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
             let mut guards = Vec::with_capacity(3);
 
             // прогон в одну клетку — это одно подножие: бортов у него нет
-            if rail_max - rail_min > tile / 2.0 {
+            if let Some((rail_min, rail_max)) = rails {
                 let half_rail = (rail_max - rail_min) / 2.0;
                 let rail = (rail_min + rail_max) / 2.0;
 

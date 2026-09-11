@@ -234,7 +234,10 @@ cell is open from every direction, so a body may drive onto the hill head-on,
 at an angle or from the side, and it is the GAME that judges whether that
 entry counts as a climb (in tanks, `level::entry_is_legal`). The rails hold
 the MIDDLE of the run only, and a one-cell run — all foot, no middle — gets
-no rails at all. Leaving a run is never held: a legally climbing body passes
+no rails at all. Those bounds are a call of their own,
+`map::ramp_rail_span(run, tile) -> Option<(f32, f32)>`: a game that DRAWS
+the run (the wedge's skirt) takes them from it rather than repeating the
+offset, or the picture grows a wall where the physics lets a body through. Leaving a run is never held: a legally climbing body passes
 the guards through. A body's filter comes from
 `body_filter(mask, on_ramp)` (`levels_interaction` / the `_on_ramp` variant):
 a body standing on the level the run starts from sees the guards, a body
