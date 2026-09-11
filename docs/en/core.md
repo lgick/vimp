@@ -229,7 +229,13 @@ geometry lives in one place, `map::ramp_guards(&MapLevels) -> Vec<RampGuard>`:
 the host builds its colliders from it, and a game's client replica is expected
 to build its own guards from the same call rather than re-derive the boxes —
 the two copies drift silently, and predicted movement up a ramp is exactly
-where that shows. A body's filter comes from
+where that shows. A side rail starts ONE CELL past the run's foot: the foot
+cell is open from every direction, so a body may drive onto the hill head-on,
+at an angle or from the side, and it is the GAME that judges whether that
+entry counts as a climb (in tanks, `level::entry_is_legal`). The rails hold
+the MIDDLE of the run only, and a one-cell run — all foot, no middle — gets
+no rails at all. Leaving a run is never held: a legally climbing body passes
+the guards through. A body's filter comes from
 `body_filter(mask, on_ramp)` (`levels_interaction` / the `_on_ramp` variant):
 a body standing on the level the run starts from sees the guards, a body
 legally climbing the run does not, and a body of another level never matches

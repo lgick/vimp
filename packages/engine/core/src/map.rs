@@ -709,6 +709,15 @@ pub struct RampGuard {
 /// Борта и «неправильный» торец каждого БЛОКА горки. Одноуровневая карта
 /// даёт пустой список: число и порядок тел старой карты обязаны остаться
 /// прежними.
+///
+/// Борт начинается НА КЛЕТКУ дальше подножия: въезд на горку законен с
+/// любого направления — в лоб, наискось, сбоку в клетку подножия, — и борт
+/// не должен ловить того, кто заходит не строго по оси. Законность входа
+/// судит игра (у танков — гейт `level::entry_is_legal`), борт держит только
+/// СЕРЕДИНУ прогона. Прогон длиной в одну клетку бортов не получает вовсе:
+/// у него нет середины. Выезд с прогона борт не держит никогда —
+/// поднимающееся тело проходит стражей насквозь
+/// (`levels_interaction_on_ramp`).
 pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
     if !levels.is_layered() {
         return Vec::new();
@@ -732,18 +741,22 @@ pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
         }
     }
 
+    let tile = levels.tile_size();
+
     blocks
         .iter()
         .flat_map(|(_, run)| {
             let low = run.from.min(run.to);
-            let (half_main, half_cross) = (
-                (run.max - run.min) / 2.0,
-                (run.cross_max - run.cross_min) / 2.0,
-            );
-            let main = (run.min + run.max) / 2.0;
+            let half_cross = (run.cross_max - run.cross_min) / 2.0;
             // «неправильный» торец — дальний по ходу подъёма: снизу
             // вход законный и не закрывается никогда
             let far = if run.sign > 0 { run.max } else { run.min };
+            // клетка подножия остаётся открытой со всех сторон
+            let (rail_min, rail_max) = if run.sign > 0 {
+                (run.min + tile, run.max)
+            } else {
+                (run.min, run.max - tile)
+            };
             let place = |main: f32, cross: f32, hm: f32, hc: f32| {
                 let (x, y) = if run.axis == 0 {
                     (main, cross)
@@ -761,16 +774,25 @@ pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
                 }
             };
 
-            [
-                place(main, run.cross_min, half_main, thickness / 2.0),
-                place(main, run.cross_max, half_main, thickness / 2.0),
-                place(
-                    far,
-                    (run.cross_min + run.cross_max) / 2.0,
-                    thickness / 2.0,
-                    half_cross,
-                ),
-            ]
+            let mut guards = Vec::with_capacity(3);
+
+            // прогон в одну клетку — это одно подножие: бортов у него нет
+            if rail_max - rail_min > tile / 2.0 {
+                let half_rail = (rail_max - rail_min) / 2.0;
+                let rail = (rail_min + rail_max) / 2.0;
+
+                guards.push(place(rail, run.cross_min, half_rail, thickness / 2.0));
+                guards.push(place(rail, run.cross_max, half_rail, thickness / 2.0));
+            }
+
+            guards.push(place(
+                far,
+                (run.cross_min + run.cross_max) / 2.0,
+                thickness / 2.0,
+                half_cross,
+            ));
+
+            guards
         })
         .collect()
 }
@@ -2450,8 +2472,13 @@ mod tests {
 
     #[test]
     fn ramp_guard_blocks_a_body_of_the_lower_level_from_the_side() {
+        let mut cfg = guard_config();
+
+        // сбоку от СЕРЕДИНЫ прогона: клетка подножия (y от 0 до 20) открыта
+        cfg.physics_dynamic[0].position = [30.0, 30.0];
+
         let mut world = make_world();
-        let map = GameMap::create(&mut world, &guard_config(), 1.0, "set");
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
 
         // два борта и торец сверху сверх стен уровней (стен тут нет)
         assert_eq!(map.static_body_count(), 3);
@@ -2463,6 +2490,24 @@ mod tests {
 
         // борт прогона стоит на x = 20: тело уровня 0 сбоку не заезжает
         assert!(body_center(&world, body).x > 24.0, "{}", body_center(&world, body));
+    }
+
+    #[test]
+    fn ramp_guard_lets_a_body_into_the_foot_cell_from_the_side() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &guard_config(), 1.0, "set");
+        let body = map.dynamic_bodies[0];
+
+        // тело стоит сбоку от клетки подножия (y от 0 до 20) и едет в неё:
+        // борт начинается на клетку дальше, поэтому заход сбоку и наискось
+        // законен — судит его игра, а не физика
+        drive(&mut world, body, Vector::new(-200.0, 0.0));
+
+        assert!(
+            body_center(&world, body).x < 15.0,
+            "{}",
+            body_center(&world, body)
+        );
     }
 
     #[test]
@@ -2519,8 +2564,9 @@ mod tests {
     fn wide_ramp_still_blocks_a_side_entry() {
         let mut cfg = wide_guard_config();
 
-        // тело сбоку от блока, на свободной колонке 3
-        cfg.physics_dynamic[0].position = [65.0, 25.0];
+        // тело сбоку от блока, на свободной колонке 3, против СЕРЕДИНЫ
+        // прогона: строка подножия (y от 20 до 40) открыта
+        cfg.physics_dynamic[0].position = [65.0, 50.0];
 
         let mut world = make_world();
         let map = GameMap::create(&mut world, &cfg, 1.0, "set");

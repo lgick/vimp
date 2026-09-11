@@ -642,8 +642,12 @@ function applyMapData(data, { notifyHost = true } = {}) {
   const staticData = {};
   let staticIndex = 0;
 
-  // мировых единиц на уровень: партам нужен для параллакса слоёв и
-  // экструзии объёмов. 0/undefined — движок подставил размер тайла
+  // мировых единиц на уровень — величина ФИЗИКИ: по ней ядро считает
+  // уклон рампы и падение. Вертикальный масштаб КАРТИНКИ задаёт игра
+  // (у танков — `parallax.shear`) и намеренно не зависит от карты, иначе
+  // слои разных карт разъезжались бы по виду. Поле едет в парт как есть —
+  // партам, которые мерят высоту в мировых единицах.
+  // 0/undefined — движок подставил размер тайла
   const levelHeight = (Number(data.levelHeight) || step) * scale;
 
   const pushLayers = (levelLayers, levelMap, level, solid, floor, volumes) => {

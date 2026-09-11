@@ -13,6 +13,20 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.17.0] — UNRELEASED
+
+### Changed
+
+- **`map::ramp_guards` opens the foot cell of every run.** A side rail now
+  starts one cell past the run's foot, so a body may drive onto a hill
+  head-on, at an angle or from the side, and the GAME decides whether that
+  entry counts as a climb; the rails hold the middle of the run only. A
+  run one cell long gets no rails at all — it is all foot and no middle.
+  Leaving a run is unaffected: a legally climbing body passes the guards
+  through (`levels_interaction_on_ramp`). Games that build their replica's
+  guards from this function (as they must) inherit the change; a game that
+  kept its own copy of the formula drifts from the host here.
+
 ## [0.16.0] — 2026-09-11
 
 ### Added
