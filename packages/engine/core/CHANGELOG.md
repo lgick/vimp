@@ -13,6 +13,28 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- **`map::ramp_guards(&MapLevels) -> Vec<RampGuard>`** and the `map::RampGuard`
+  struct: the single source of ramp-guard geometry (the side rails and the
+  "wrong" end cap of every ramp block). `GameMap::create_ramp_guards` is now a
+  loop over it, and a game's client-side replica is expected to build its
+  guards from the same function instead of re-deriving the formula — a copy
+  drifts silently.
+- **`client::collision::collect_block_contacts_into(obb, blocks, prediction,
+  out)`**: the same collection, writing into a caller-owned buffer instead of
+  allocating a `Vec` per call. `collect_block_contacts` is a thin wrapper over
+  it and is unchanged. The buffer is not cleared — the caller decides whether
+  it accumulates a step's contacts or starts over.
+
+### Fixed
+
+- **NaN contact point on a degenerate OBB with `prediction > 0`.** With a
+  speculative gap, SAT no longer rejects a box with zero half-extents, and
+  `contact_point` divided by a zero tolerance, leaking `NaN` into the
+  replica's velocities without a single line in the console.
+  `obb_vs_obb_within` and `obb_manifold` now return `None` for such a body.
+
 ## [0.15.0] — 2026-09-06
 
 ### ⚠️ Breaking

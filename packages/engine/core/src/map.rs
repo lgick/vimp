@@ -690,6 +690,91 @@ pub fn ramp_guard_interaction(low: u8) -> InteractionGroups {
     )
 }
 
+/// Один страж прогона рампы: бокс без поворота и уровень, для тел которого
+/// он существует (`ramp_guard_interaction`). Формула ОДНА на хост и на
+/// клиентскую реплику: копия расходится молча — ровно так расходилось
+/// предсказание до этой функции.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RampGuard {
+    /// центр бокса в мировых единицах
+    pub x: f32,
+    pub y: f32,
+    pub half_w: f32,
+    pub half_h: f32,
+    /// уровень, с которого начинается прогон: страж существует только для
+    /// тел этого уровня
+    pub low: u8,
+}
+
+/// Борта и «неправильный» торец каждого БЛОКА горки. Одноуровневая карта
+/// даёт пустой список: число и порядок тел старой карты обязаны остаться
+/// прежними.
+pub fn ramp_guards(levels: &MapLevels) -> Vec<RampGuard> {
+    if !levels.is_layered() {
+        return Vec::new();
+    }
+
+    // толщина борта — доля тайла: борт обязан останавливать, а не
+    // отъедать проезжую часть прогона
+    let thickness = levels.tile_size() * 0.1;
+    // огораживается БЛОК горки, а не каждая полоса: у широкой рампы
+    // внутренние границы полос общие, и борт на каждой превратил бы блок
+    // в набор жёлобов шириной в тайл — танк упирался бы в них ещё до
+    // кромки, потому что до входа он не поднимается и стражей видит
+    let mut blocks: Vec<(u16, RampRun)> = Vec::new();
+
+    for run in levels.runs() {
+        if let Some((_, block)) = blocks.iter_mut().find(|(id, _)| *id == run.block) {
+            block.cross_min = block.cross_min.min(run.cross_min);
+            block.cross_max = block.cross_max.max(run.cross_max);
+        } else {
+            blocks.push((run.block, run.clone()));
+        }
+    }
+
+    blocks
+        .iter()
+        .flat_map(|(_, run)| {
+            let low = run.from.min(run.to);
+            let (half_main, half_cross) = (
+                (run.max - run.min) / 2.0,
+                (run.cross_max - run.cross_min) / 2.0,
+            );
+            let main = (run.min + run.max) / 2.0;
+            // «неправильный» торец — дальний по ходу подъёма: снизу
+            // вход законный и не закрывается никогда
+            let far = if run.sign > 0 { run.max } else { run.min };
+            let place = |main: f32, cross: f32, hm: f32, hc: f32| {
+                let (x, y) = if run.axis == 0 {
+                    (main, cross)
+                } else {
+                    (cross, main)
+                };
+                let (half_w, half_h) = if run.axis == 0 { (hm, hc) } else { (hc, hm) };
+
+                RampGuard {
+                    x,
+                    y,
+                    half_w,
+                    half_h,
+                    low,
+                }
+            };
+
+            [
+                place(main, run.cross_min, half_main, thickness / 2.0),
+                place(main, run.cross_max, half_main, thickness / 2.0),
+                place(
+                    far,
+                    (run.cross_min + run.cross_max) / 2.0,
+                    thickness / 2.0,
+                    half_cross,
+                ),
+            ]
+        })
+        .collect()
+}
+
 /// Результат попадания точки на рампу.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RampSample {
@@ -1458,74 +1543,21 @@ impl GameMap {
     /// прогону — нет (`levels_interaction_on_ramp`), тело другого уровня не
     /// видит по своей группе.
     fn create_ramp_guards(&mut self, world: &mut PhysicsWorld) {
-        // одноуровневая карта стражей не получает вовсе: порядок и число
-        // тел старой карты обязаны остаться прежними
-        if !self.levels.is_layered() {
-            return;
-        }
-
-        // толщина борта — доля тайла: борт обязан останавливать, а не
-        // отъедать проезжую часть прогона
-        let thickness = self.step * 0.1;
-        // огораживается БЛОК горки, а не каждая полоса: у широкой рампы
-        // внутренние границы полос общие, и борт на каждой превратил бы блок
-        // в набор жёлобов шириной в тайл — танк упирался бы в них ещё до
-        // кромки, потому что до входа он не поднимается и стражей видит
-        let mut blocks: Vec<(u16, RampRun)> = Vec::new();
-
-        for run in self.levels.runs() {
-            if let Some((_, block)) = blocks.iter_mut().find(|(id, _)| *id == run.block) {
-                block.cross_min = block.cross_min.min(run.cross_min);
-                block.cross_max = block.cross_max.max(run.cross_max);
-            } else {
-                blocks.push((run.block, run.clone()));
-            }
-        }
-
-        let guards: Vec<(Vector, f32, f32, u8)> = blocks
-            .iter()
-            .flat_map(|(_, run)| {
-                let low = run.from.min(run.to);
-                let (half_main, half_cross) = (
-                    (run.max - run.min) / 2.0,
-                    (run.cross_max - run.cross_min) / 2.0,
-                );
-                let main = (run.min + run.max) / 2.0;
-                // «неправильный» торец — дальний по ходу подъёма: снизу
-                // вход законный и не закрывается никогда
-                let far = if run.sign > 0 { run.max } else { run.min };
-                let place = |main: f32, cross: f32, hm: f32, hc: f32| {
-                    let position = if run.axis == 0 {
-                        Vector::new(main, cross)
-                    } else {
-                        Vector::new(cross, main)
-                    };
-                    let (hx, hy) = if run.axis == 0 { (hm, hc) } else { (hc, hm) };
-
-                    (position, hx, hy, low)
-                };
-
-                [
-                    place(main, run.cross_min, half_main, thickness / 2.0),
-                    place(main, run.cross_max, half_main, thickness / 2.0),
-                    place(far, (run.cross_min + run.cross_max) / 2.0, thickness / 2.0, half_cross),
-                ]
-            })
-            .collect();
-
-        for (position, half_x, half_y, low) in guards {
-            let body = world.insert_body(RigidBodyBuilder::fixed().translation(position));
+        for guard in ramp_guards(&self.levels) {
+            let body = world.insert_body(
+                RigidBodyBuilder::fixed().translation(Vector::new(guard.x, guard.y)),
+            );
 
             world.insert_collider(
-                ColliderBuilder::cuboid(half_x, half_y)
+                ColliderBuilder::cuboid(guard.half_w, guard.half_h)
                     .friction(DEFAULT_FRICTION)
                     .restitution(DEFAULT_RESTITUTION)
-                    .collision_groups(ramp_guard_interaction(low)),
+                    .collision_groups(ramp_guard_interaction(guard.low)),
                 Some(body),
             );
 
             self.static_bodies.push(body);
-            self.static_levels.push(low);
+            self.static_levels.push(guard.low);
         }
     }
 
@@ -2536,6 +2568,55 @@ mod tests {
 
         assert!(!map.is_layered());
         assert_eq!(map.static_body_count(), 1);
+    }
+
+    #[test]
+    fn ramp_guards_match_the_created_colliders() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &wide_guard_config(), 1.0, "set");
+        let guards = ramp_guards(map.levels());
+
+        // стражи ставятся после статики уровней и идут в хвосте списка
+        let blocks: usize = (0..map.level_count() as u8)
+            .map(|level| map.levels().static_blocks(level).len())
+            .sum();
+
+        assert!(!guards.is_empty());
+        assert_eq!(map.static_body_count(), blocks + guards.len());
+
+        for (offset, guard) in guards.iter().enumerate() {
+            let body = map.static_bodies[blocks + offset];
+            let handle = world.bodies[body].colliders()[0];
+            let cuboid = world.colliders[handle]
+                .shape()
+                .as_cuboid()
+                .expect("страж — куб");
+
+            assert_eq!(
+                world.bodies[body].translation(),
+                Vector::new(guard.x, guard.y)
+            );
+            assert_eq!(cuboid.half_extents.x, guard.half_w);
+            assert_eq!(cuboid.half_extents.y, guard.half_h);
+            assert_eq!(map.static_levels()[blocks + offset], guard.low);
+        }
+    }
+
+    #[test]
+    fn ramp_guards_of_a_flat_map_are_empty() {
+        let mut world = make_world();
+        let mut cfg = map_config();
+
+        cfg.ramps = vec![serde_json::from_value(serde_json::json!({
+            "tile": 1,
+            "dir": "east"
+        }))
+        .unwrap()];
+
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+
+        assert!(!map.is_layered());
+        assert!(ramp_guards(map.levels()).is_empty());
     }
 
     #[test]

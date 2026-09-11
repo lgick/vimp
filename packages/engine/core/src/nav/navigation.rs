@@ -266,7 +266,7 @@ impl NavigationSystem {
     fn connect_ramps(&mut self, levels: &MapLevels) {
         let half = levels.tile_size() / 2.0;
 
-        for run in levels.runs().to_vec() {
+        for run in levels.runs() {
             let cross = (run.cross_min + run.cross_max) / 2.0;
             // точки подключения берутся ЗА кромками прогона: подножие — на
             // земле перед рампой, вершина — уже на плите за ней; внутри

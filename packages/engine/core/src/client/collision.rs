@@ -118,8 +118,8 @@ fn obb_corners(b: &Box2) -> [[f32; 2]; 4] {
 
 // точка контакта: вершины a вдоль нормали, смешанные по близости к самой
 // глубокой (см. CONTACT_MANIFOLD_RATIO)
-// tolerance строго положителен: тело с нулевыми полуразмерами проецируется
-// в точку, и obb_vs_obb отсеивает его как промах, не дойдя сюда
+// tolerance строго положителен: вырожденное тело отсекается ранним выходом
+// у вызывающих (obb_vs_obb_within и obb_manifold), не дойдя сюда
 fn contact_point(corners: &[[f32; 2]; 4], nx: f32, ny: f32, tolerance: f32) -> [f32; 2] {
     let mut best = f32::NEG_INFINITY;
 
@@ -165,12 +165,15 @@ pub fn obb_vs_obb(a: &Box2, b: &Box2) -> Option<Contact> {
 /// `prediction = 0.0` даёт прежнее поведение бит в бит.
 pub fn obb_vs_obb_within(a: &Box2, b: &Box2, prediction: f32) -> Option<Contact> {
     let (axis, corners_a, _) = separating_axis(a, b, prediction)?;
-    let contact = contact_point(
-        &corners_a,
-        axis.nx,
-        axis.ny,
-        CONTACT_MANIFOLD_RATIO * (a.half_w + a.half_h),
-    );
+    let tolerance = CONTACT_MANIFOLD_RATIO * (a.half_w + a.half_h);
+
+    // вырожденный бокс: допуск нулевой, точка контакта выродилась бы в NaN и
+    // молча разошлась бы по скоростям реплики
+    if tolerance <= f32::EPSILON {
+        return None;
+    }
+
+    let contact = contact_point(&corners_a, axis.nx, axis.ny, tolerance);
 
     Some(Contact {
         nx: axis.nx,
@@ -192,6 +195,13 @@ pub fn obb_vs_obb_within(a: &Box2, b: &Box2, prediction: f32) -> Option<Contact>
 /// смешанной точке `obb_vs_obb_within`: манифольда там нет, а контакт есть.
 pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
     let (axis, _, owner_is_a) = separating_axis(a, b, prediction)?;
+
+    // вырожденный бокс: точка контакта выродилась бы в NaN (см.
+    // `obb_vs_obb_within`) — путь из клиппинга сюда тоже приводит
+    if CONTACT_MANIFOLD_RATIO * (a.half_w + a.half_h) <= f32::EPSILON {
+        return None;
+    }
+
     let normal = [axis.nx, axis.ny];
     let flipped = [-axis.nx, -axis.ny];
 
@@ -415,6 +425,12 @@ fn clip_segment(
 /// импульсного решателя (`client::rigid_body`), он же естественно отрабатывает
 /// внутренний угол из нескольких тайлов.
 /// Сетка описывается той же тройкой, что и в `raycast::ray_vs_grid`.
+///
+/// ВНИМАНИЕ: предсказания (`soft_ccd_prediction` хоста) этот сбор НЕ
+/// поддерживает — контакт рождается только по факту перекрытия, и на
+/// быстром касательном ударе он разойдётся с сервером. Слоёная карта
+/// обязана собирать стены через `collect_block_contacts`: он видит ту же
+/// склеенную геометрию, по которой хост поставил коллайдеры.
 pub fn collect_tile_contacts(
     obb: &Box2,
     map: &[Vec<i32>],
@@ -483,8 +499,23 @@ pub fn collect_block_contacts(
 ) -> Vec<BlockContact> {
     let mut contacts = Vec::new();
 
+    collect_block_contacts_into(obb, blocks, prediction, &mut contacts);
+
+    contacts
+}
+
+/// То же, что `collect_block_contacts`, но пишет в переданный буфер:
+/// клиентский шаг зовёт сбор по несколько раз за кадр, и вектор на каждый
+/// вызов — чистая нагрузка на аллокатор. Буфер НЕ очищается — вызывающий
+/// решает, копит он контакты шага или начинает заново.
+pub fn collect_block_contacts_into(
+    obb: &Box2,
+    blocks: &[StaticBlock],
+    prediction: f32,
+    out: &mut Vec<BlockContact>,
+) {
     if blocks.is_empty() {
-        return contacts;
+        return;
     }
 
     // консервативный AABB OBB (для отбора кандидатных блоков), раздутый на
@@ -511,15 +542,13 @@ pub fn collect_block_contacts(
         };
 
         if let Some(manifold) = obb_manifold(obb, &box2, prediction) {
-            contacts.push(BlockContact {
+            out.push(BlockContact {
                 manifold,
                 block_x: block.x,
                 block_y: block.y,
             });
         }
     }
-
-    contacts
 }
 
 #[cfg(test)]
@@ -767,6 +796,28 @@ mod tests {
     }
 
     #[test]
+    fn block_collection_into_appends_to_the_buffer() {
+        let block = StaticBlock {
+            x: 10.0,
+            y: 10.0,
+            half_w: 5.0,
+            half_h: 5.0,
+        };
+        let obb = box2(3.0, 10.0, 0.0, 3.0, 3.0);
+        let mut out = collect_block_contacts(&obb, &[block], 0.0);
+
+        assert_eq!(out.len(), 1);
+
+        // буфер не очищается: вызывающий сам решает, копит он контакты шага
+        // или начинает заново
+        collect_block_contacts_into(&obb, &[block], 0.0, &mut out);
+
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].block_x, out[1].block_x);
+        assert_eq!(out[0].manifold.deepest().depth, out[1].manifold.deepest().depth);
+    }
+
+    #[test]
     fn overlap_normal_points_from_a_to_b() {
         let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
         let b = box2(8.0, 0.0, 0.0, 5.0, 5.0);
@@ -838,6 +889,11 @@ mod tests {
 
         assert!(obb_vs_obb(&degenerate, &b).is_none());
         assert!(obb_vs_obb(&b, &degenerate).is_none());
+
+        // со спекулятивным зазором SAT вырожденный бокс уже не отсекает
+        // (`overlap <= -prediction`), и промахом его делает ранний выход
+        assert!(obb_vs_obb_within(&degenerate, &b, 6.0).is_none());
+        assert!(obb_manifold(&degenerate, &b, 6.0).is_none());
     }
 
     #[test]

@@ -224,7 +224,12 @@ the ground, `GROUP_2` the first overpass) and lets it see only that level;
 `RAMP_GUARD_GROUP` (bit 9) is the group of the ramp guards — the colliders
 along both sides of a **block** of ramp lanes and across its far end, built
 by `GameMap::create_static` for layered maps only (lanes of one wide ramp
-share `RampRun::block` and are fenced together, never one by one). A body's filter comes from
+share `RampRun::block` and are fenced together, never one by one). Their
+geometry lives in one place, `map::ramp_guards(&MapLevels) -> Vec<RampGuard>`:
+the host builds its colliders from it, and a game's client replica is expected
+to build its own guards from the same call rather than re-derive the boxes —
+the two copies drift silently, and predicted movement up a ramp is exactly
+where that shows. A body's filter comes from
 `body_filter(mask, on_ramp)` (`levels_interaction` / the `_on_ramp` variant):
 a body standing on the level the run starts from sees the guards, a body
 legally climbing the run does not, and a body of another level never matches
@@ -344,7 +349,12 @@ must not drift from them.
   kept for a grid a game holds itself) makes a body straddling a long wall
   meet several contacts where the host has one, and a tangential hit on a
   corner is then resolved along a different axis on each side — a silent
-  drift.
+  drift. `collect_tile_contacts` also has **no speculative contacts**: it
+  finds a contact only once the boxes already overlap, so on a fast
+  tangential hit it parts ways with the host's `soft_ccd_prediction`. A
+  layered map must read its walls through `collect_block_contacts`.
+  `collect_block_contacts_into` is the same collection into a caller-owned
+  buffer, for a step that collects several times per frame.
 
   Three details make the replica behave like Rapier rather than merely
   resemble it, and a game that skips any of them drifts on tangential hits:
