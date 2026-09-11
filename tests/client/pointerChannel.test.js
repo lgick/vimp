@@ -239,7 +239,8 @@ describe('ControlsModel: канал указателя', () => {
 
 describe('CanvasManagerView.toWorld', () => {
   const makeApp = (overrides = {}) => ({
-    renderer: { resize: vi.fn() },
+    // `screen` — единицы сцены: в них же переводит указатель `toWorld`
+    renderer: { resize: vi.fn(), screen: { width: 800, height: 600 } },
     canvas: {
       width: 800,
       height: 600,
@@ -283,7 +284,7 @@ describe('CanvasManagerView.toWorld', () => {
       { vimp: app },
     );
 
-    // 100 CSS-пикселей от левого края = 200 пикселей буфера
+    // 100 CSS-пикселей от левого края = 200 единиц сцены
     expect(view.toWorld('vimp', 200, 50)).toEqual({ x: -100, y: -150 });
   });
 

@@ -604,6 +604,20 @@ What each component does:
   scaling (a 1920px reference width), `aspectRatio`/`fixSize`/`baseScale`,
   a dynamic camera (look-ahead, speed-based zoom), and shake — parameters
   in [configuration.md](configuration.md#modulescanvasmanager--canvases-and-camera).
+  The camera frame only MOVES the scene (`updateCoords`: `stage.position`,
+  `stage.scale`) and never draws — the canvas is drawn by the ticker
+  (`TickerPlugin` keeps `app.render` on `Ticker.shared` at priority LOW,
+  that is after `renderTick`), once per tick, on a frame that has been
+  applied in full. A draw of its own would mean one per CAMERA frame, and a
+  tick carries several (the discrete frame's camera first, the predicted one
+  after it): two or three full passes over the scene per visible frame, each
+  running every part's `onRender` on a half-applied frame. Both `updateCoords`
+  and `toWorld` measure in `renderer.screen` units — the ones the scene's
+  transform lives in — never in canvas buffer pixels: the two coincide only
+  while the renderer's `resolution` is 1, and the drift would be silent
+  (the picture stays put while the camera centre a game reconstructs from
+  the scene transform — the 2.5D height projection in `vimp-tanks` — moves
+  off by half a screen).
 - **Controls** — keyboard capture (`InputListener`), the active key set
   dictated by the server (port 17), `chat`/`vote`/`stat` modes, input sent
   as `"seq:action:name"`. Optionally a **pointer channel** as well (mouse,

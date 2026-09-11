@@ -9,6 +9,28 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- A camera frame no longer draws the canvas. `CanvasManagerView.updateCoords`
+  only moves the scene; the drawing belongs to the ticker, which
+  `TickerPlugin` runs once per tick at priority LOW, that is after
+  `renderTick`, on a frame applied in full. Its own `app.render()` meant one
+  draw per CAMERA frame, and a tick carries several (the discrete frame's
+  camera first, the predicted one after it): two or three full passes over
+  the scene per visible frame, each running every part's `onRender` on a
+  half-applied frame.
+
+### Fixed
+
+- The scene is centred in `renderer.screen` units, not in canvas buffer
+  pixels — in `updateCoords` and in the pointer's `toWorld` alike. The two
+  coincide only while the renderer's `resolution` is 1, so turning on
+  `resolution`/`autoDensity` would have moved the camera centre by half a
+  screen without touching the picture: a game that reconstructs that centre
+  from the scene transform (the 2.5D height projection in `vimp-tanks`) drew
+  every raised object from a foreign point, and the pointer's world position
+  missed by the same factor.
+
 ## [0.33.0] — 2026-09-11
 
 ### Added
