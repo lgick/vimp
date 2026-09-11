@@ -94,6 +94,7 @@ import {
 import lobbyConfig from '../config/lobby.js';
 import authClientConfig from '../config/authClient.js';
 import clientDefaults from '../config/clientDefaults.js';
+import applyCamera from './lib/applyCamera.js';
 
 // Динамическая загрузка игры по каталогу мастера (Этап 6.3): ClientPlugin
 // (parts, bakers, игровой CSS, хуки ядра) грузится по entries.client манифеста
@@ -900,24 +901,10 @@ function applyGameData(game) {
   });
 }
 
-// применяет данные камеры (позиция слушателя звука + полотно)
-function applyCamera(camera) {
-  if (camera && camera !== 0) {
-    // порядок важен: зум пересчитывается внутри updateCoords, а слушателю
-    // нужен зум ЭТОГО кадра, а не прошлого
-    modules.canvasManager.updateCoords(camera);
-    soundManager.setListenerPosition(
-      camera[0],
-      camera[1],
-      modules.canvasManager.getCameraZoom(),
-    );
-  }
-}
-
 // применяет кадр целиком (первый кадр и дискретные кадры интерполяции)
 function applyShot(game, camera) {
   applyGameData(game);
-  applyCamera(camera);
+  applyCamera(modules.canvasManager, soundManager, camera);
 }
 
 // рендер-тик: ядро выдаёт пересечённые кадры (события, создания/удаления)
@@ -955,7 +942,7 @@ function renderTick() {
 
   if (flags & HOT_FLAGS.CAMERA) {
     // камера уже разрешена ядром: предсказанная позиция либо интерполированная
-    applyCamera([hot[1], hot[2]]);
+    applyCamera(modules.canvasManager, soundManager, [hot[1], hot[2]]);
   }
 
   soundManager.processAudibility();

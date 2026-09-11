@@ -598,7 +598,7 @@ parts: {
   scale is a separate factor (`baseScale * window width / 1920`), so in a
   game where one world unit is 5 screen px the defaults must be divided by
   5: `innerRadius` is the player's own size (a `8 × 6` hull → `≈ 5`) and
-  `virtualElevation ≈ (canvas height / 2) / currentScale`.
+  `virtualElevation ≈ (canvas height / 2) / baseScale` in the design window.
 - The projection profile decides how the world vector maps onto the Web
   Audio axes (`sx`, `sy` are the faded world offsets, `H` the elevation):
 
@@ -608,9 +608,11 @@ parts: {
 | `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower` |
 | `cockpit` | `sx` | `-sy` | `-H` | `HRTF` |
 
-- Camera zoom divides `virtualElevation` and `innerRadius`; it does **not**
-  scale the attenuation distances, which are `PannerNode` attributes set
-  once per `Howl`.
+- The scene scale — the canvas's share of the design width 1920 times the
+  dynamic camera zoom — divides `virtualElevation` and `innerRadius`, so
+  calibrate them for a 1920×1080 window and the engine handles every other
+  size. It does **not** scale the attenuation distances, which are
+  `PannerNode` attributes set once per `Howl`.
 - At most **30 simultaneous world voices** (`WORLD_VOICE_LIMIT`). When more
   compete, they are ranked by `priority² / max(distance², 1)` and the top 30
   play.

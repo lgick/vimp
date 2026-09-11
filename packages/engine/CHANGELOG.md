@@ -16,8 +16,7 @@ bumps the minor version).
   `sideScroller` or `cockpit` — the virtual elevation of the listener, the
   near-field spread radius and the `PannerNode` attributes. The block is
   optional: a game that omits it gets the engine defaults.
-  `setListenerPosition` takes the camera zoom multiplier as its third
-  argument. The new contract rule `E6` checks the block statically.
+  `setListenerPosition` takes the scene scale as its third argument. The new contract rule `E6` checks the block statically.
 
 ### Fixed
 
@@ -29,9 +28,26 @@ bumps the minor version).
   One Howler `pos()` is three `setValueAtTime` calls plus an event, and it
   used to run every frame for every world voice; a movement threshold now
   skips a source that has not moved, and a rate gate holds position writes
-  to 30 Hz. Reaping dead instances and the `rate` update stay per-frame.
-  Safari was the audible case — its HRTF is a real convolution per node,
-  and the stream of writes came out as artefacts, clipping and dropouts.
+  to 30 Hz. Only the position write is gated: volume, the `rate` update and
+  the reaping of dead instances stay per-frame, so a game driving volume
+  from speed keeps a 60 Hz ramp and the `maxDistance` mute still lands in
+  the frame the source leaves the radius. Safari was the audible case — its
+  HRTF is a real convolution per node, and the stream of writes came out as
+  artefacts, clipping and dropouts.
+- The listener's scale now follows the whole scene, not only the dynamic
+  camera zoom: `CanvasManager.getCameraZoom()` multiplies the canvas's share
+  of the design width (1920) by the zoom modifier. A window narrower than
+  the design width used to leave the stereo base wider than the picture —
+  a game's `virtualElevation` is calibrated for 1920×1080 and the engine now
+  scales it for every other size itself.
+- A source that stopped being spatial no longer rewrites its centred
+  position into the panner every frame; the movement threshold covers that
+  path too. It is the player's own engine loop, which plays continuously —
+  the last source that should have been exempt from the fix above.
+- `spatial.maxDistance` is compared against the **resolved**
+  `spatial.refDistance`, so declaring one distance against the engine
+  default of the other is caught as well; the warning now names both keys it
+  resets. Contract rule `E6` performs the same comparison statically.
 
 ## [0.32.1] — 2026-09-06
 

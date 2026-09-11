@@ -1,31 +1,24 @@
+import {
+  SPATIAL_DEFAULTS,
+  SPATIAL_NUMERIC,
+  SPATIAL_MODES,
+  SPATIAL_KEYS,
+  PANNING_MODELS,
+  DISTANCE_MODELS,
+} from '../../../config/spatialDefaults.js';
 import { WARN, skip, verdict } from '../result.js';
 
-const MODES = ['topDown', 'sideScroller', 'cockpit'];
-const PANNING_MODELS = ['HRTF', 'equalpower'];
-const DISTANCE_MODELS = ['linear', 'inverse', 'exponential'];
-
-// ключ -> требуемый знак; список закрыт, потому что лишний ключ здесь
-// всегда опечатка: deepMerge молча положит его в конфиг, а SoundManager
-// молча проигнорирует — не проявится вообще никак
-const NUMERIC = {
-  virtualElevation: 'positive',
-  innerRadius: 'non-negative',
-  verticalFactor: 'non-negative',
-  refDistance: 'positive',
-  maxDistance: 'positive',
-  rolloffFactor: 'non-negative',
-};
-
-const KNOWN = [
-  'mode',
-  'panningModel',
-  'distanceModel',
-  ...Object.keys(NUMERIC),
-];
-
+// verticalFactor, объявленный не при sideScroller, здесь НЕ отмечается: он
+// входит в полный блок дефолтов, который документация показывает как
+// образец, и правило кричало бы на честный копипаст из неё. Лишний ключ
+// безвреден, а неверное число ловится проверкой знака.
+//
 // Блок spatial необязателен: игра без него получает движковые дефолты и
 // звучит правильно. Но объявленный блок с опечаткой — это тихий отказ:
-// движок падает на дефолт и ничего не говорит.
+// движок падает на дефолт и ничего не говорит. Списки допустимых значений,
+// знаки чисел и сами дефолты берутся из src/config/spatialDefaults.js —
+// того же модуля, что читает SoundManager, иначе правило и рантайм
+// разошлись бы и проверка пропускала бы то, что движок молча откатывает.
 export default {
   id: 'E6',
   name: 'soundSpatial',
@@ -52,16 +45,16 @@ export default {
     const violations = [];
 
     for (const key of Object.keys(spatial)) {
-      if (!KNOWN.includes(key)) {
+      if (!SPATIAL_KEYS.includes(key)) {
         violations.push(
-          `unknown key "${key}": valid keys are ${KNOWN.join(', ')}`,
+          `unknown key "${key}": valid keys are ${SPATIAL_KEYS.join(', ')}`,
         );
       }
     }
 
-    if (spatial.mode !== undefined && !MODES.includes(spatial.mode)) {
+    if (spatial.mode !== undefined && !SPATIAL_MODES.includes(spatial.mode)) {
       violations.push(
-        `mode "${spatial.mode}" is unknown: valid modes are ${MODES.join(', ')}`,
+        `mode "${spatial.mode}" is unknown: valid modes are ${SPATIAL_MODES.join(', ')}`,
       );
     }
 
@@ -83,7 +76,7 @@ export default {
       );
     }
 
-    for (const [key, sign] of Object.entries(NUMERIC)) {
+    for (const [key, sign] of Object.entries(SPATIAL_NUMERIC)) {
       const value = spatial[key];
 
       if (value === undefined) {
@@ -99,13 +92,21 @@ export default {
       }
     }
 
-    if (
-      Number.isFinite(spatial.refDistance) &&
-      Number.isFinite(spatial.maxDistance) &&
-      spatial.maxDistance <= spatial.refDistance
-    ) {
+    // Сравниваются РАЗРЕШЁННЫЕ значения, как в
+    // SoundManager._resolveSpatialConfig: объявить одну дистанцию против
+    // дефолта второй — то же нарушение, и рантайм откатит обе молча
+    const refDistance = Number.isFinite(spatial.refDistance)
+      ? spatial.refDistance
+      : SPATIAL_DEFAULTS.refDistance;
+    const maxDistance = Number.isFinite(spatial.maxDistance)
+      ? spatial.maxDistance
+      : SPATIAL_DEFAULTS.maxDistance;
+
+    if (maxDistance <= refDistance) {
       violations.push(
-        `maxDistance (${spatial.maxDistance}) must be greater than refDistance (${spatial.refDistance})`,
+        `maxDistance (${maxDistance}) must be greater than refDistance ` +
+          `(${refDistance}); an undeclared distance falls back to the ` +
+          `engine default, and the engine resets both at runtime`,
       );
     }
 

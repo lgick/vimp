@@ -71,13 +71,24 @@ describe('CanvasManagerModel: конструктор', () => {
   });
 });
 
+// Зум для слушателя звука — это ВЕСЬ масштаб сцены: и размер полотна, и
+// динамический зум. Пока учитывался только второй, на окне вполовину
+// расчётного панорама оказывалась заметно шире картинки — ровно тот дефект,
+// ради которого зум и пробрасывали в SoundManager.
 describe('CanvasManagerModel.getCameraZoom', () => {
-  it('без динамической камеры зум всегда 1', () => {
+  it('до первого resize зум равен 1', () => {
+    const model = makeModel();
+
+    expect(model.getCameraZoom()).toBe(1);
+  });
+
+  it('без динамической камеры отдаёт только масштаб полотна', () => {
     const model = makeModel({
       canvases: { radar: { baseScale: '1:1', fixSize: '200:100' } },
     });
     model._camZoomModifier = 0.5;
 
+    // fixSize: currentScale остаётся baseScale, масштаб полотна равен 1
     expect(model.getCameraZoom()).toBe(1);
   });
 
@@ -86,6 +97,30 @@ describe('CanvasManagerModel.getCameraZoom', () => {
     model._camZoomModifier = 0.5;
 
     expect(model.getCameraZoom()).toBe(0.5);
+  });
+
+  it('узкое окно сжимает стереобазу вместе с картинкой', () => {
+    const model = makeModel();
+
+    model.resize({ width: 960, height: 540 });
+    model._camZoomModifier = 1;
+
+    // полотно вдвое уже расчётных 1920: видно вдвое больше мира, и
+    // виртуальная высота обязана вырасти во столько же
+    expect(model.getCameraZoom()).toBeCloseTo(0.5);
+
+    model._camZoomModifier = 0.5;
+
+    // динамический зум умножается на масштаб полотна, как и finalScale
+    expect(model.getCameraZoom()).toBeCloseTo(0.25);
+  });
+
+  it('расчётное окно 1920 даёт ровно 1', () => {
+    const model = makeModel();
+
+    model.resize({ width: 1920, height: 1080 });
+
+    expect(model.getCameraZoom()).toBeCloseTo(1);
   });
 });
 

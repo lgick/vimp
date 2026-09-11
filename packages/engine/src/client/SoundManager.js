@@ -1,23 +1,15 @@
 import { Howl, Howler } from 'howler';
 
+import {
+  SPATIAL_DEFAULTS,
+  SPATIAL_NUMERIC,
+  SPATIAL_MODES,
+  PANNING_MODELS,
+  DISTANCE_MODELS,
+} from '../config/spatialDefaults.js';
+
 // глобальный лимит звуков
 const WORLD_VOICE_LIMIT = 30;
-
-// Дефолты пространственного звука. Второй экземпляр этих значений живёт в
-// src/config/clientDefaults.js (parts.sounds.spatial) и приезжает сюда
-// через CONFIG_DATA; здешний нужен на случай пустого или битого конфига —
-// SoundManager обязан звучать и без объявления игры. Значения должны
-// совпадать.
-const SPATIAL_DEFAULTS = {
-  mode: 'topDown',
-  virtualElevation: 180,
-  innerRadius: 40,
-  verticalFactor: 0.2,
-  distanceModel: 'inverse',
-  refDistance: 200,
-  maxDistance: 1200,
-  rolloffFactor: 0.9,
-};
 
 // Позиция паннера переписывается не чаще 30 Гц. Каждый pos() внутри
 // Howler — это три setValueAtTime на positionX/Y/Z плюс событие 'pos'; на
@@ -27,6 +19,12 @@ const SPATIAL_DEFAULTS = {
 // не дешёвая аппроксимация), а на слух панорама между 30 и 60 Гц не
 // различается: 30 Гц — обычный темп обновления позиций в игровом звуке
 const POSITION_UPDATE_INTERVAL = 1000 / 30;
+
+// Допуск к границе интервала. Кадр 60 Гц приходит каждые ~16.7 мс, и без
+// допуска кадр, опоздавший к границе на доли миллисекунды, уезжает на
+// следующий: такт скачет между 30 и 20 Гц, а шаг панорамы становится
+// неравномерным — ровно то, ради чего гейт и ставился
+const POSITION_UPDATE_TOLERANCE = 2;
 
 // Порог смещения, ниже которого позиция не переписывается. Снимает поток
 // pos() с неподвижных источников — их большинство: горящий остов,
@@ -45,7 +43,7 @@ const CONE_SETTINGS = {
 // ложатся на оси Web Audio. Слушатель смотрит в -Z (верх экрана), его
 // «вверх» — +Y, поэтому мировой y (растёт вниз) входит со знаком минус
 // везде, где попадает на ось Y.
-const SPATIAL_PROFILES = {
+export const SPATIAL_PROFILES = {
   // вид сверху 360°: уши над полем боя, источник под ними
   topDown: {
     panningModel: 'HRTF',
@@ -64,10 +62,6 @@ const SPATIAL_PROFILES = {
     mapCoords: (sx, sy, h) => [sx, -sy, -h],
   },
 };
-
-const SPATIAL_MODES = Object.keys(SPATIAL_PROFILES);
-const PANNING_MODELS = ['HRTF', 'equalpower'];
-const DISTANCE_MODELS = ['linear', 'inverse', 'exponential'];
 
 /**
  * Кубическая интерполяция Эрмита: 0 при value <= min, 1 при value >= max,
@@ -278,7 +272,10 @@ export default class SoundManager {
    *   стоит ровно на слушателе, и HRTF на нулевой дистанции сворачивается
    *   в гребенчатую окраску («гул»), а не в тишину панорамы. Такому звуку
    *   PannerNode не создаётся вовсе — он идёт прямо в gain и остаётся
-   *   стерео.
+   *   стерео. Флаг рассчитан на ОДНОКРАТНОЕ переключение (владелец
+   *   узнаёт, что танк локальный, уже после конструктора): экземпляр,
+   *   который успел побывать мировым, переводится на equalpower
+   *   необратимо — HRTF обратно не возвращается.
    * @param {function} [callback] - Функция, вызываемая по завершении.
    * @returns {symbol | null} Уникальный ID звука или null, если звук не найден.
    */
@@ -428,14 +425,30 @@ export default class SoundManager {
 
           if (newSoundId !== null) {
             candidate.activeSoundId = newSoundId;
-            this._updateSpatialSound(
-              this._activeInstances.get(newSoundId)?.sound,
-              newSoundId,
-              candidate.position.x,
-              candidate.position.y,
-              candidate.volume,
-              candidate.spatial,
-            );
+
+            const started = this._activeInstances.get(newSoundId)?.sound;
+            const { x, y } = candidate.position;
+
+            // на старте звука гейт частоты не применяется: позиция обязана
+            // попасть в узел сразу, иначе первый кадр сэмпла звучит из центра
+            if (
+              this._applyVolume(
+                started,
+                newSoundId,
+                x,
+                y,
+                candidate.volume,
+                candidate.spatial,
+              )
+            ) {
+              this._updateSpatialSound(
+                started,
+                newSoundId,
+                x,
+                y,
+                candidate.spatial,
+              );
+            }
           }
         }
       }
@@ -450,12 +463,15 @@ export default class SoundManager {
    * Вызывается каждый кадр после `processAudibility`.
    */
   updateActiveSounds() {
-    // гейт частоты: позиции пишутся не чаще POSITION_UPDATE_INTERVAL.
-    // Уборка мёртвых экземпляров и rate под гейт не попадают — они
-    // обязаны отрабатывать каждый кадр
+    // гейт частоты: под него попадает ТОЛЬКО запись позиции в паннер.
+    // Громкость, уборка мёртвых экземпляров и rate идут каждый кадр —
+    // громкость игра ведёт от скорости (двигатель), и ступенька в 30 Гц
+    // была бы слышна, а глушение за maxDistance обязано срабатывать в том
+    // же кадре, в котором источник ушёл за радиус
     const now = performance.now();
     const writePosition =
-      now - this._lastPositionWrite >= POSITION_UPDATE_INTERVAL;
+      now - this._lastPositionWrite >=
+      POSITION_UPDATE_INTERVAL - POSITION_UPDATE_TOLERANCE;
 
     if (writePosition) {
       this._lastPositionWrite = now;
@@ -471,22 +487,26 @@ export default class SoundManager {
 
       if (!regSound) {
         sound.stop(soundId);
-        this._activeInstances.delete(soundId);
-        this._equalPowerIds.delete(soundId);
-        this._pannedIds.delete(soundId);
-        this._pannerPos.delete(soundId);
+        this._forgetInstance(soundId);
         continue;
       }
 
       const { position, volume, rate, spatial } = regSound;
+      const audible = this._applyVolume(
+        sound,
+        soundId,
+        position.x,
+        position.y,
+        volume,
+        spatial,
+      );
 
-      if (writePosition) {
+      if (audible && writePosition) {
         this._updateSpatialSound(
           sound,
           soundId,
           position.x,
           position.y,
-          volume,
           spatial,
         );
       }
@@ -534,10 +554,7 @@ export default class SoundManager {
             this._registeredSounds.delete(id);
           }
 
-          this._activeInstances.delete(soundId);
-          this._equalPowerIds.delete(soundId);
-          this._pannedIds.delete(soundId);
-          this._pannerPos.delete(soundId);
+          this._forgetInstance(soundId);
         },
         soundId,
       );
@@ -554,11 +571,22 @@ export default class SoundManager {
 
     if (instanceData) {
       instanceData.sound.stop(soundId);
-      this._activeInstances.delete(soundId);
-      this._equalPowerIds.delete(soundId);
-      this._pannedIds.delete(soundId);
-      this._pannerPos.delete(soundId);
+      this._forgetInstance(soundId);
     }
+  }
+
+  /**
+   * @private Забывает всё, что менеджер помнил про экземпляр Howler.
+   * Единственная точка уборки: набор коллекций растёт, а пропущенная точка
+   * — это утечка, которую видно только по памяти, ни один тест её не
+   * поймает.
+   * @param {number} soundId - ID экземпляра от Howler.
+   */
+  _forgetInstance(soundId) {
+    this._activeInstances.delete(soundId);
+    this._equalPowerIds.delete(soundId);
+    this._pannedIds.delete(soundId);
+    this._pannerPos.delete(soundId);
   }
 
   /**
@@ -579,8 +607,9 @@ export default class SoundManager {
         )}, using ${JSON.stringify(fallback)}`,
       );
 
-    // число нужного знака, иначе дефолт
-    const num = (key, positiveOnly) => {
+    // число нужного знака, иначе дефолт. Знак объявлен в SPATIAL_NUMERIC —
+    // там же, откуда его читает правило контракта E6
+    const num = key => {
       const value = source[key];
       const fallback = SPATIAL_DEFAULTS[key];
 
@@ -589,7 +618,8 @@ export default class SoundManager {
       }
 
       const ok =
-        Number.isFinite(value) && (positiveOnly ? value > 0 : value >= 0);
+        Number.isFinite(value) &&
+        (SPATIAL_NUMERIC[key] === 'positive' ? value > 0 : value >= 0);
 
       if (!ok) {
         warn(key, value, fallback);
@@ -618,21 +648,30 @@ export default class SoundManager {
     const mode = pick('mode', SPATIAL_MODES, SPATIAL_DEFAULTS.mode);
     const profile = SPATIAL_PROFILES[mode];
 
-    let refDistance = num('refDistance', true);
-    let maxDistance = num('maxDistance', true);
+    let refDistance = num('refDistance');
+    let maxDistance = num('maxDistance');
 
-    // PannerNode с maxDistance <= refDistance ведёт себя неопределённо
+    // PannerNode с maxDistance <= refDistance ведёт себя неопределённо.
+    // Откатываются ОБА ключа: пара обязана остаться согласованной, а
+    // починка одной половины дала бы геометрию, которую не просил никто.
+    // Сравниваются разрешённые значения, поэтому объявить одну дистанцию
+    // против дефолта второй тоже нарушение — то же условие проверяет
+    // статически правило контракта E6
     if (maxDistance <= refDistance) {
-      warn('maxDistance', maxDistance, SPATIAL_DEFAULTS.maxDistance);
+      console.warn(
+        `[SoundManager] spatial.maxDistance (${maxDistance}) must exceed ` +
+          `spatial.refDistance (${refDistance}); both fall back to ` +
+          `${SPATIAL_DEFAULTS.refDistance}/${SPATIAL_DEFAULTS.maxDistance}`,
+      );
       refDistance = SPATIAL_DEFAULTS.refDistance;
       maxDistance = SPATIAL_DEFAULTS.maxDistance;
     }
 
     return {
       mode,
-      virtualElevation: num('virtualElevation', true),
-      innerRadius: num('innerRadius', false),
-      verticalFactor: num('verticalFactor', false),
+      virtualElevation: num('virtualElevation'),
+      innerRadius: num('innerRadius'),
+      verticalFactor: num('verticalFactor'),
       distanceModel: pick(
         'distanceModel',
         DISTANCE_MODELS,
@@ -641,28 +680,71 @@ export default class SoundManager {
       panningModel: pick('panningModel', PANNING_MODELS, profile.panningModel),
       refDistance,
       maxDistance,
-      rolloffFactor: num('rolloffFactor', false),
+      rolloffFactor: num('rolloffFactor'),
       mapCoords: profile.mapCoords,
     };
   }
 
   /**
-   * Обновляет громкость и 3D-позицию источника. Позиция считается ОДНОЙ
-   * непрерывной формулой на каждом кадре: слушатель поднят над плоскостью
-   * игры на virtualElevation, а внутри innerRadius вектор на источник
-   * плавно гасится к нулю (smoothstep). Прежняя дед-зона по направлению
-   * (MIN_SPATIAL_DISTANCE) убрана: она переключала источник между двумя
-   * разными состояниями — «узла нет, сухое стерео» и «HRTF в крайнем ухе»
-   * — и этот разрыв тембра был слышен на дистанции в пару единиц.
-   * @private
+   * @private Применяет громкость и решает, слышим ли источник. Отделено от
+   * записи позиции нарочно: позиция пишется под гейтом 30 Гц, а громкость
+   * обязана идти каждый кадр — игра ведёт её от скорости (двигатель), и
+   * ступенька в 30 Гц слышна, а глушение за maxDistance должно срабатывать
+   * в том же кадре, в котором источник ушёл за радиус.
    * @param {Howl} sound - Экземпляр Howl.
    * @param {number} soundId - ID конкретного проигрываемого экземпляра.
    * @param {number} x - Мировая координата X источника.
    * @param {number} y - Мировая координата Y источника.
    * @param {number} volume - Громкость.
    * @param {boolean} [spatial=true] - Принадлежит ли звук миру.
+   * @returns {boolean} `false`, если источник заглушен и позицию писать
+   * незачем.
    */
-  _updateSpatialSound(sound, soundId, x, y, volume, spatial = true) {
+  _applyVolume(sound, soundId, x, y, volume, spatial = true) {
+    if (!sound || typeof soundId !== 'number') {
+      return false;
+    }
+
+    if (spatial === false) {
+      sound.volume(volume, soundId);
+
+      return true;
+    }
+
+    const dx = x - this._listenerX;
+    const dy = y - this._listenerY;
+
+    // отсечка в мировых координатах: она обязана совпадать с maxDistance
+    // самого PannerNode, поэтому зумом НЕ масштабируется — иначе движок
+    // считал бы источник слышимым там, где узел уже отдал тишину
+    if (Math.hypot(dx, dy) >= this._spatial.maxDistance) {
+      sound.volume(0, soundId);
+
+      return false;
+    }
+
+    sound.volume(volume, soundId);
+
+    return true;
+  }
+
+  /**
+   * Обновляет 3D-позицию источника. Позиция считается ОДНОЙ непрерывной
+   * формулой на каждом кадре: слушатель поднят над плоскостью игры на
+   * virtualElevation, а внутри innerRadius вектор на источник плавно
+   * гасится к нулю (smoothstep). Прежняя дед-зона по направлению
+   * (MIN_SPATIAL_DISTANCE) убрана: она переключала источник между двумя
+   * разными состояниями — «узла нет, сухое стерео» и «HRTF в крайнем ухе»
+   * — и этот разрыв тембра был слышен на дистанции в пару единиц.
+   * Громкость здесь не трогается — ей занимается `_applyVolume`.
+   * @private
+   * @param {Howl} sound - Экземпляр Howl.
+   * @param {number} soundId - ID конкретного проигрываемого экземпляра.
+   * @param {number} x - Мировая координата X источника.
+   * @param {number} y - Мировая координата Y источника.
+   * @param {boolean} [spatial=true] - Принадлежит ли звук миру.
+   */
+  _updateSpatialSound(sound, soundId, x, y, spatial = true) {
     if (!sound || typeof soundId !== 'number') {
       return;
     }
@@ -675,7 +757,6 @@ export default class SoundManager {
       // equalpower (тот схлопывает стерео сэмпла в моно). Пока узла нет,
       // pos() не зовётся вовсе: Howler создал бы паннер и щёлкнул
       // pause()/play()
-      sound.volume(volume, soundId);
       this._recenterIfPanned(sound, soundId, true);
 
       return;
@@ -684,17 +765,6 @@ export default class SoundManager {
     const dx = x - this._listenerX;
     const dy = y - this._listenerY;
     const distance = Math.hypot(dx, dy);
-
-    // отсечка в мировых координатах: она обязана совпадать с maxDistance
-    // самого PannerNode, поэтому зумом НЕ масштабируется — иначе движок
-    // считал бы источник слышимым там, где узел уже отдал тишину
-    if (distance >= this._spatial.maxDistance) {
-      sound.volume(0, soundId);
-
-      return;
-    }
-
-    sound.volume(volume, soundId);
 
     // зум камеры поднимает уши вместе с камерой: при отдалении картинка
     // сжимается, и стереобаза обязана сжаться так же, иначе звук шире
@@ -710,21 +780,42 @@ export default class SoundManager {
       this._spatial,
     );
 
+    this._writePos(sound, soundId, px, py, pz);
+  }
+
+  /**
+   * @private Пишет позицию в паннер, если она изменилась заметнее
+   * POSITION_EPSILON. Единственная точка записи: у неподвижного источника
+   * позиция уже в узле, и повторная запись — только лишняя автоматизация,
+   * а именно её поток WebKit и не переносит.
+   * @param {Howl} sound - Экземпляр Howl.
+   * @param {number} soundId - ID конкретного проигрываемого экземпляра.
+   * @param {number} px - Координата X в осях Web Audio.
+   * @param {number} py - Координата Y в осях Web Audio.
+   * @param {number} pz - Координата Z в осях Web Audio.
+   */
+  _writePos(sound, soundId, px, py, pz) {
     const written = this._pannerPos.get(soundId);
 
-    // порог смещения: у неподвижного источника позиция уже в узле, и
-    // повторная запись — только лишняя автоматизация на паннере
-    if (
-      written !== undefined &&
-      Math.abs(written[0] - px) < POSITION_EPSILON &&
-      Math.abs(written[1] - py) < POSITION_EPSILON &&
-      Math.abs(written[2] - pz) < POSITION_EPSILON
-    ) {
-      return;
+    if (written !== undefined) {
+      if (
+        Math.abs(written[0] - px) < POSITION_EPSILON &&
+        Math.abs(written[1] - py) < POSITION_EPSILON &&
+        Math.abs(written[2] - pz) < POSITION_EPSILON
+      ) {
+        return;
+      }
+
+      // массив переиспользуется: до WORLD_VOICE_LIMIT записей в 33 мс —
+      // это сотни лишних аллокаций в секунду на ровном месте
+      written[0] = px;
+      written[1] = py;
+      written[2] = pz;
+    } else {
+      this._pannerPos.set(soundId, [px, py, pz]);
     }
 
     sound.pos(px, py, pz, soundId);
-    this._pannerPos.set(soundId, [px, py, pz]);
     this._pannedIds.add(soundId);
   }
 
@@ -733,9 +824,12 @@ export default class SoundManager {
    * (источник успел побывать в стороне от слушателя). Экземпляр без узла
    * не трогается: создание паннера — это лишний узел в цепочке, потеря
    * стерео и щелчок от pause()/play() внутри setupPanner Howler'а.
-   * @param {boolean} [equalPower=false] - Перевести узел на equalpower:
-   *   так делается только для источника игрока, миру HRTF сохраняется —
-   *   он снова понадобится, как только источник выйдет из дед-зоны.
+   * @param {boolean} [equalPower=false] - Перевести узел на equalpower.
+   *   Так делается только для источника игрока, и перевод ОДНОСТОРОННИЙ:
+   *   HRTF обратно не возвращается. Рассчитано на однократное
+   *   переключение флага `spatial` (владелец узнаёт, что танк локальный,
+   *   уже после конструктора); обратный переход потребовал бы явного
+   *   восстановления HRTF.
    */
   _recenterIfPanned(sound, soundId, equalPower = false) {
     if (!this._pannedIds.has(soundId)) {
@@ -746,11 +840,10 @@ export default class SoundManager {
       this._applyEqualPower(sound, soundId);
     }
 
-    sound.pos(0, 0, 0, soundId);
-
-    // центр — это тоже записанная позиция: иначе порог смещения сравнивал
-    // бы следующий кадр со старевшим значением и мог бы пропустить запись
-    this._pannerPos.set(soundId, [0, 0, 0]);
+    // через тот же порог: собственный двигатель игрока звучит непрерывно и
+    // всегда, и переписывать ему центр каждый кадр — последнее, что стоит
+    // оставлять в потоке, который чинится ради WebKit
+    this._writePos(sound, soundId, 0, 0, 0);
   }
 
   /**

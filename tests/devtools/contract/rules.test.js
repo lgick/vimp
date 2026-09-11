@@ -1293,6 +1293,16 @@ describe('E6. spatial sound block', () => {
     ).toBe(FAIL);
   });
 
+  it('E6 compares resolved distances, not only declared ones', () => {
+    // maxDistance 150 при движковом refDistance 200: рантайм откатит обе
+    // дистанции молча, поэтому контракт обязан сказать об этом заранее
+    expect(check('E6', withSpatial({ maxDistance: 150 })).status).toBe(FAIL);
+
+    // а объявленная одна дистанция, согласованная с дефолтом второй, — нет
+    expect(check('E6', withSpatial({ refDistance: 50 })).status).toBe(PASS);
+    expect(check('E6', withSpatial({ maxDistance: 5000 })).status).toBe(PASS);
+  });
+
   it('E6 only warns: the block is optional and the engine falls back', () => {
     expect(rule('E6').level).toBe('warn');
   });

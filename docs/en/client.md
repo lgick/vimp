@@ -909,10 +909,15 @@ front/back is physically meaningless in a side view while a clean left/right
 timbre is not, and `verticalFactor` (`0.2`) holds the vertical down for the
 same reason a platformer's height is barely readable by ear.
 
-**Camera zoom divides the elevation and the spread radius, but not the
-attenuation distances.** `setListenerPosition(x, y, scale)` carries the zoom
-multiplier, so zooming out narrows the stereo base together with the
-picture. `refDistance` / `maxDistance` / `rolloffFactor`, however, are
+**The scene scale divides the elevation and the spread radius, but not the
+attenuation distances.** `setListenerPosition(x, y, scale)` carries the
+scale of the scene — `CanvasManager.getCameraZoom()`, which is the canvas's
+own scale (`currentScale / baseScale`, i.e. the fraction of the design width
+1920 the canvas occupies) **times** the dynamic camera zoom: exactly the two
+factors whose product is the canvas's `finalScale`. A narrower window and a
+zoomed-out camera both shrink the picture, so both have to shrink the stereo
+base with it — otherwise the panorama is wider than what the eye sees.
+`refDistance` / `maxDistance` / `rolloffFactor`, however, are
 attributes of the `PannerNode` itself: they are set once through
 `pannerAttr` at the `Howl` level and are never recomputed per frame.
 Scaling only the JS cut-off (in `_updateSpatialSound` and the candidate
@@ -963,12 +968,15 @@ the game's parts), while the screen scale is a separate factor of
   `baseRadius 14`. The engine default `40` is only right for a game whose
   world unit equals a screen pixel.
 - `virtualElevation` is calibrated off the **visible half-height of the
-  screen**: `H ≈ (canvas height / 2) / currentScale`. Bigger `H` is softer
-  panning near the player, smaller is a more aggressive ear separation. For
-  a game with `mapScale 0.3` and `baseScale 5` in a 1920×1080 window that
-  gives `H ≈ 540 / 5 = 108`, and half the screen across is `960 / 5 = 192`
-  units — an azimuth of `atan(192/108) ≈ 60°` at the edge of the screen,
-  while at the size of the player it is a few degrees.
+  screen in the design window (1920×1080)**: `H ≈ (canvas height / 2) /
+  baseScale`. Bigger `H` is softer panning near the player, smaller is a
+  more aggressive ear separation. For a game with `mapScale 0.3` and
+  `baseScale 5` that gives `H ≈ 540 / 5 = 108`, and half the screen across
+  is `960 / 5 = 192` units — an azimuth of `atan(192/108) ≈ 60°` at the edge
+  of the screen, while at the size of the player it is a few degrees. Only
+  the design window needs to be calibrated: on any other window size the
+  engine scales `H` itself through the scene scale above, so the number a
+  game declares stays correct on a laptop and on a 4K display alike.
 
 A typo in a key, or a `mode` the engine does not know, is a **silent**
 fallback to the default. Statically that is caught only by `vimp-contract`
@@ -989,10 +997,17 @@ extra writes.
   remembered per instance; a source that has not moved past it is not
   rewritten. Most world sources are stationary — a burning wreck, an
   ambience, a dropped item.
-- **A rate gate.** Positions are written at most every `1000 / 30` ms —
-  30 Hz is the usual update rate for game audio, and the ear does not hear
-  the difference from 60. Only the position is gated: reaping instances
-  whose source is gone, and the `rate` update, still run every frame.
+- **A rate gate.** Positions are written at most every `1000 / 30` ms,
+  with a two-millisecond tolerance at the boundary so that a 60 Hz frame
+  arriving a hair early does not push the write to the next one and drop the
+  effective rate to 20 Hz. 30 Hz is the usual update rate for game audio,
+  and the ear does not hear the difference from 60.
+
+**Only the position write is gated.** Volume goes through `_applyVolume`
+every frame, and so do the `rate` update and the reaping of instances whose
+source is gone. Volume has to: a game drives it from speed (an engine loop),
+where a 30 Hz staircase would be audible, and the `maxDistance` mute has to
+land in the same frame the source leaves the radius, not 33 ms later.
 
 ## InputListener
 
