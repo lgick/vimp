@@ -974,6 +974,89 @@ mod tests {
     }
 
     #[test]
+    fn dynamics_rows_with_state_keep_schema_width() {
+        // схема `c1` со слоями и байтом состояния: 9 полей, хвост скоростей
+        // с 6. Ключ 1 — тот же, что у строк render_rows фикстуры
+        let config = serde_json::json!({
+            "timeStepMs": 1000.0 / 120.0,
+            "snapshot": {
+                "version": 3,
+                "port": 5,
+                "keys": {
+                    "c1": { "id": 1, "kind": "indexedNoNull8", "class": "hot", "optionalFrom": 6, "fields": [
+                        { "name": "x", "ty": "f32", "interp": "lerp" },
+                        { "name": "y", "ty": "f32", "interp": "lerp" },
+                        { "name": "angle", "ty": "f32", "interp": "lerpAngle" },
+                        { "name": "z", "ty": "f32", "interp": "lerp", "role": "z" },
+                        { "name": "level", "ty": "u8", "role": "level" },
+                        { "name": "state", "ty": "u8", "role": "state" },
+                        { "name": "vx", "ty": "f32", "interp": "lerp" },
+                        { "name": "vy", "ty": "f32", "interp": "lerp" },
+                        { "name": "angvel", "ty": "f32", "interp": "lerp" }
+                    ] }
+                }
+            },
+            "interpolation": { "delay": 100, "maxFrameAge": 1000 }
+        });
+        let cfg: EngineClientConfig = serde_json::from_value(config).unwrap();
+        let mut state = ClientState::<TestClient>::new(cfg.clone(), &TestConfig {});
+        let mut packer = SnapshotPacker::new(cfg.snapshot.clone());
+        let f = FieldValue::F32;
+
+        packer
+            .pack_body(&[(
+                "c1".to_string(),
+                Block::IndexedNoNull8(vec![
+                    // покоится: без хвоста
+                    (0, vec![f(1.0), f(2.0), f(0.0), f(0.0), FieldValue::U8(0), FieldValue::U8(2)]),
+                    // движется: полная строка
+                    (
+                        1,
+                        vec![
+                            f(3.0), f(4.0), f(0.0), f(0.0), FieldValue::U8(1), FieldValue::U8(1),
+                            f(5.0), f(6.0), f(0.5),
+                        ],
+                    ),
+                ]),
+            )])
+            .unwrap();
+
+        let frame = packer.pack_frame(1000.0, 1, None, None).to_vec();
+
+        state.set_active(true);
+        state.set_model("rows");
+        state.push_frame(&frame, 1000.0);
+        state.push_frame(&frame, 1100.0);
+        state.sample(1150.0);
+
+        let hot = state.hot().to_vec();
+        let width = 2 + 9;
+
+        // [flags, camX, camY, tankCount = 0, dynamicCount, записи...]
+        assert_eq!(hot[3], 0.0);
+        assert_eq!(hot[4], 2.0);
+
+        let first = &hot[5..5 + width];
+        let second = &hot[5 + width..5 + 2 * width];
+
+        assert_eq!(first[1], 0.0);
+        assert_eq!(first[2 + 5], 2.0); // state
+        assert_eq!(&first[2 + 6..], &[0.0, 0.0, 0.0]); // хвост дочитан нулями
+        assert_eq!(second[1], 1.0);
+        assert_eq!(second[2 + 5], 1.0);
+        assert_eq!(second[2 + 6], 5.0);
+
+        // строки render_rows игры дополнены до ширины схемы (11 f32 на запись),
+        // неизвестный ключ 200 отброшен
+        let rows = &hot[hot.len() - 2 * width..];
+
+        assert_eq!(&rows[..4], &[1.0, 2.0, 111.0, 222.0]);
+        assert!(rows[4..width].iter().all(|v| *v == 0.0));
+        assert_eq!(&rows[width..width + 3], &[1.0, 7.0, 333.0]);
+        assert!(rows[width + 3..].iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
     fn game_rows_alone_still_raise_the_tail_flag() {
         // строки игры без predicted-хвоста своего актора: флаг обязан
         // подняться, иначе JS-потребитель не станет разбирать буфер.

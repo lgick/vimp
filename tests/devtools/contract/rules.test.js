@@ -1199,9 +1199,92 @@ describe('D. snapshot', () => {
     expect(found).toMatch(/interp on ty "u8"/);
     expect(found).toMatch(/interp on a class "event" block/);
   });
+
+  const head = [
+    { name: 'x', ty: 'f32', interp: 'lerp' },
+    { name: 'y', ty: 'f32', interp: 'lerp' },
+    { name: 'angle', ty: 'f32', interp: 'lerpAngle' },
+  ];
+  const levels = [
+    { name: 'z', ty: 'f32', interp: 'lerp', role: 'z' },
+    { name: 'level', ty: 'u8', role: 'level' },
+  ];
+  const tail = [
+    { name: 'vx', ty: 'f32', interp: 'lerp' },
+    { name: 'vy', ty: 'f32', interp: 'lerp' },
+    { name: 'angvel', ty: 'f32', interp: 'lerp' },
+  ];
+  const dynamics = (fields, optionalFrom) => ({
+    ...base,
+    gameConfig: withSnapshot(base, {
+      c9: { id: 99, kind: 'indexedNoNull8', class: 'hot', fields, optionalFrom },
+    }),
+  });
+
+  it("D3 accepts role 'state' right after a flat or a layered head", () => {
+    const state = { name: 'hp', ty: 'u8', role: 'state' };
+
+    expect(check('D3', dynamics([...head, state, ...tail], 4)).status).toBe(PASS);
+    expect(
+      check('D3', dynamics([...head, ...levels, state, ...tail], 6)).status,
+    ).toBe(PASS);
+  });
+
+  it("D3 catches role 'state' of the wrong type, place or inside the tail", () => {
+    const wrongType = violations(
+      'D3',
+      dynamics([...head, { name: 'hp', ty: 'f32', role: 'state' }], undefined),
+    );
+    const misplaced = violations(
+      'D3',
+      dynamics([...head, ...levels, ...tail, { name: 'hp', ty: 'u8', role: 'state' }]),
+    );
+    const inTail = violations(
+      'D3',
+      dynamics([...head, { name: 'hp', ty: 'u8', role: 'state' }, ...tail], 3),
+    );
+
+    expect(wrongType).toMatch(/must be ty "u8"/);
+    expect(misplaced).toMatch(/at index 8, the engine writes it at 5/);
+    expect(inTail).toMatch(/inside the optional tail/);
+  });
 });
 
 // ***** E. ассеты ***** //
+
+describe('E7. map game field', () => {
+  const withMaps = maps => ({ gameConfig: { maps } });
+
+  it('E7 skips maps that declare no game data', () => {
+    expect(check('E7', withMaps({ m1: { map: [[0]] } })).status).toBe(SKIP);
+    expect(check('E7', {}).status).toBe(SKIP);
+  });
+
+  it('E7 passes plain objects on the map and on its bodies', () => {
+    const maps = {
+      m1: {
+        game: { surfaces: {} },
+        physicsDynamic: [{ game: { kind: 'barrel' } }, {}],
+      },
+    };
+
+    expect(check('E7', withMaps(maps)).status).toBe(PASS);
+  });
+
+  it('E7 catches an array, a null and a number', () => {
+    const found = violations(
+      'E7',
+      withMaps({
+        m1: { game: [1] },
+        m2: { physicsDynamic: [{}, { game: null }, { game: 5 }] },
+      }),
+    );
+
+    expect(found).toMatch(/map "m1": game is not a plain object/);
+    expect(found).toMatch(/map "m2": physicsDynamic 1 game/);
+    expect(found).toMatch(/map "m2": physicsDynamic 2 game/);
+  });
+});
 
 describe('E. assets', () => {
   const built = extra => ({

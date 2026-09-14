@@ -35,6 +35,11 @@ pub struct SimCtx<'a> {
     pub rng: &'a mut Rng,
     pub events: &'a mut Vec<CoreEvent>,
     pub bodies_to_destroy: &'a mut Vec<RigidBodyHandle>,
+    /// Байт состояния каждого динамического тела карты (параллелен индексам
+    /// блока динамики). Движок пишет его в строку, если схема набора карт
+    /// объявила поле с ролью `state`; смысл значений принадлежит игре.
+    /// Заполняется нулями при каждой загрузке карты.
+    pub map_body_state: &'a mut [u8],
 }
 
 /// Игровая симуляция поверх движкового каркаса: участники, оружие,
@@ -97,6 +102,16 @@ pub trait GameSim<G: GameDef>: Sized {
     fn prediction_state(&self, world: &PhysicsWorld, game_id: u32) -> Option<([f32; PLAYER_STATE_LEN], bool)>;
     fn alive_players_flat(&self, world: &PhysicsWorld) -> Vec<f32>;
     fn players_json(&self) -> String;
+
+    /// Карта загружена: тела созданы, нав-граф построен, `map_body_state`
+    /// обнулён. Зовётся на каждом `load_map`, в том числе при повторной
+    /// загрузке той же карты (начало раунда). Не зовётся при
+    /// `deserialize_state` — состояние, выведенное из карты, игра
+    /// восстанавливает из своего дампа сама. Ошибка делает `load_map`
+    /// неуспешным, и мир остаётся без карты.
+    fn on_map_loaded(&mut self, _ctx: &mut SimCtx) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Игровая логика фиксированного шага (движение, спавн снарядов,
     /// детонация по истечению времени) — до шага физики.

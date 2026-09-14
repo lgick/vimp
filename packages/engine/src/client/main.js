@@ -596,6 +596,8 @@ function applyMapData(data, { notifyHost = true } = {}) {
         // значит и предсказание подъёма. Не доехав до клиентской `MapLevels`,
         // она дала бы другой уклон, чем у хоста, — расхождение молчаливое
         levelHeight: data.levelHeight,
+        // непрозрачные данные игры: движок их не читает и не масштабирует
+        game: data.game,
       }),
     );
   } catch (e) {
@@ -673,6 +675,9 @@ function applyMapData(data, { notifyHost = true } = {}) {
         // прежнее имя оставлено для парта, который его уже читает
         physicsStatic,
         scale,
+        // непрозрачные данные игры (`map.game`) как объявлены в карте: без
+        // масштабирования. `physicsDynamic[i].game` доезжает до `d{i}` сам
+        game: data.game,
       };
 
       staticIndex += 1;

@@ -68,6 +68,8 @@ describe('contract check on the miniGame fixture', () => {
       'E4',
       // E6 — фикстура не объявляет parts.sounds.spatial: движковые дефолты
       'E6',
+      // E7 — карты фикстуры не объявляют поле game
+      'E7',
     ]);
   });
 

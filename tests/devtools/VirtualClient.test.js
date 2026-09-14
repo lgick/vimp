@@ -354,9 +354,19 @@ describe('VirtualClient', () => {
         clientPlugin,
       });
 
-      client.setMap({ map: [[1]], step: 8, scale: 1, physicsStatic: [] });
+      client.setMap({
+        map: [[1]],
+        step: 8,
+        scale: 1,
+        physicsStatic: [],
+        game: { surfaces: { sand: [[0, 0]] } },
+      });
 
       expect(JSON.parse(calls.map[0]).step).toBe(8);
+      // непрозрачные данные игры доходят до ядра без масштабирования
+      expect(JSON.parse(calls.map[0]).game).toEqual({
+        surfaces: { sand: [[0, 0]] },
+      });
 
       core.set_map = () => {
         throw new Error('bad map');

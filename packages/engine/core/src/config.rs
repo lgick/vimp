@@ -144,6 +144,9 @@ pub enum FieldRole {
     Z,
     /// Уровень тела, позиция 4 строки динамики.
     Level,
+    /// Байт состояния тела карты (`u8`), сразу за головой строки динамики:
+    /// позиция 5 у слоёной строки, 3 — у плоской. Смысл значений — игры.
+    State,
 }
 
 /// Описание одного поля строки блока — порядок в векторе равен порядку
@@ -210,6 +213,9 @@ pub struct BlockSchema {
 /// объявляется только сам факт слоёной строки.
 const Z_FIELD_INDEX: usize = 3;
 const LEVEL_FIELD_INDEX: usize = 4;
+/// Позиция поля с ролью `state`: сразу за головой строки.
+const STATE_FIELD_INDEX_FLAT: usize = 3;
+const STATE_FIELD_INDEX_LAYERED: usize = 5;
 
 impl BlockSchema {
     /// Число полей, которые пишутся в строку всегда (без хвоста).
@@ -224,18 +230,42 @@ impl BlockSchema {
             && self.role_at(LEVEL_FIELD_INDEX) == Some(FieldRole::Level)
     }
 
+    /// Объявила ли игра байт состояния тела карты: роль `state` на своей
+    /// позиции (5 у слоёной строки, 3 — у плоской).
+    pub fn with_state(&self) -> bool {
+        self.role_at(self.state_field_index()) == Some(FieldRole::State)
+    }
+
+    fn state_field_index(&self) -> usize {
+        if self.with_levels() {
+            STATE_FIELD_INDEX_LAYERED
+        } else {
+            STATE_FIELD_INDEX_FLAT
+        }
+    }
+
     fn role_at(&self, index: usize) -> Option<FieldRole> {
         self.fields.get(index).and_then(|field| field.role)
     }
 
-    /// Проверяет контракт слоёной строки блока динамики карты `key`.
-    /// Зовётся при загрузке карты: молчаливый отказ здесь — это плоская
-    /// строка вместо слоёной, то есть ящики без уровня у всех клиентов.
+    /// Прежнее имя `validate_roles` (до роли `state` проверялась только
+    /// пара `z`/`level`).
     pub fn validate_level_roles(&self, key: &str) -> Result<(), String> {
+        self.validate_roles(key)
+    }
+
+    /// Проверяет контракт ролей строки блока динамики карты `key`: пара
+    /// `z`/`level` и байт `state`. Зовётся при загрузке карты: молчаливый
+    /// отказ здесь — это плоская строка вместо слоёной (ящики без уровня у
+    /// всех клиентов) или строка без состояния (целый забор у зрителя).
+    pub fn validate_roles(&self, key: &str) -> Result<(), String> {
+        let state_index = self.state_field_index();
+
         for (index, field) in self.fields.iter().enumerate() {
             let expected = match field.role {
                 Some(FieldRole::Z) => Z_FIELD_INDEX,
                 Some(FieldRole::Level) => LEVEL_FIELD_INDEX,
+                Some(FieldRole::State) => state_index,
                 None => continue,
             };
 
@@ -248,8 +278,37 @@ impl BlockSchema {
             }
         }
 
-        let z = self.role_at(Z_FIELD_INDEX);
-        let level = self.role_at(LEVEL_FIELD_INDEX);
+        if let Some(field) = self.fields.get(state_index)
+            && field.role == Some(FieldRole::State)
+        {
+            if field.ty != FieldType::U8 {
+                return Err(format!(
+                    "[core snapshot] Ключ '{key}': поле '{}' с ролью State обязано \
+                     иметь тип u8, объявлено {:?}",
+                    field.name, field.ty
+                ));
+            }
+
+            // байт состояния пишется всегда: в опциональном хвосте покоящееся
+            // тело распаковалось бы с нулём вместо своего состояния
+            if let Some(from) = self.optional_from
+                && from <= state_index
+            {
+                return Err(format!(
+                    "[core snapshot] Ключ '{key}': optionalFrom {from} захватывает \
+                     поле '{}' с ролью State (позиция {state_index}) — оно обязано \
+                     стоять в обязательной части строки",
+                    field.name
+                ));
+            }
+        }
+
+        // только сами роли пары: `state` на позиции 3 плоской строки —
+        // не половина слоёной
+        let z = self.role_at(Z_FIELD_INDEX).filter(|role| *role == FieldRole::Z);
+        let level = self
+            .role_at(LEVEL_FIELD_INDEX)
+            .filter(|role| *role == FieldRole::Level);
 
         if z.is_some() != level.is_some() {
             return Err(format!(
@@ -521,5 +580,109 @@ mod validate_tests {
 
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("w2"));
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::*;
+
+    fn schema(fields: serde_json::Value, optional_from: Option<usize>) -> BlockSchema {
+        serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "kind": "indexedNoNull8",
+            "class": "hot",
+            "fields": fields,
+            "optionalFrom": optional_from,
+        }))
+        .unwrap()
+    }
+
+    fn head() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({ "name": "x", "ty": "f32", "interp": "lerp" }),
+            serde_json::json!({ "name": "y", "ty": "f32", "interp": "lerp" }),
+            serde_json::json!({ "name": "angle", "ty": "f32", "interp": "lerpAngle" }),
+        ]
+    }
+
+    fn levels() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({ "name": "z", "ty": "f32", "interp": "lerp", "role": "z" }),
+            serde_json::json!({ "name": "level", "ty": "u8", "role": "level" }),
+        ]
+    }
+
+    fn state(ty: &str) -> serde_json::Value {
+        serde_json::json!({ "name": "hp", "ty": ty, "role": "state" })
+    }
+
+    fn tail() -> Vec<serde_json::Value> {
+        ["vx", "vy", "angvel"]
+            .iter()
+            .map(|name| serde_json::json!({ "name": name, "ty": "f32", "interp": "lerp" }))
+            .collect()
+    }
+
+    fn fields(parts: &[Vec<serde_json::Value>]) -> serde_json::Value {
+        serde_json::Value::Array(parts.concat())
+    }
+
+    #[test]
+    fn state_sits_right_after_a_flat_head() {
+        let schema = schema(fields(&[head(), vec![state("u8")], tail()]), Some(4));
+
+        assert!(schema.with_state());
+        assert!(!schema.with_levels());
+        assert!(schema.validate_roles("c1").is_ok());
+    }
+
+    #[test]
+    fn state_sits_right_after_a_layered_head() {
+        let schema = schema(fields(&[head(), levels(), vec![state("u8")], tail()]), Some(6));
+
+        assert!(schema.with_state());
+        assert!(schema.with_levels());
+        assert!(schema.validate_roles("c1").is_ok());
+        // прежнее имя проверяет то же самое
+        assert!(schema.validate_level_roles("c1").is_ok());
+    }
+
+    #[test]
+    fn schema_without_state_role_has_no_state() {
+        let schema = schema(fields(&[head(), tail()]), Some(3));
+
+        assert!(!schema.with_state());
+        assert!(schema.validate_roles("c1").is_ok());
+    }
+
+    #[test]
+    fn state_must_be_u8() {
+        let error = schema(fields(&[head(), vec![state("f32")]]), None)
+            .validate_roles("c1")
+            .unwrap_err();
+
+        assert!(error.contains("u8"), "{error}");
+    }
+
+    #[test]
+    fn state_at_the_flat_position_of_a_layered_row_is_rejected() {
+        let error = schema(
+            fields(&[head(), vec![state("u8")], levels()]),
+            None,
+        )
+        .validate_roles("c1")
+        .unwrap_err();
+
+        assert!(error.contains("позиции"), "{error}");
+    }
+
+    #[test]
+    fn state_inside_the_optional_tail_is_rejected() {
+        let error = schema(fields(&[head(), vec![state("u8")], tail()]), Some(3))
+            .validate_roles("c1")
+            .unwrap_err();
+
+        assert!(error.contains("optionalFrom"), "{error}");
     }
 }

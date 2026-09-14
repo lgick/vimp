@@ -143,6 +143,33 @@ pushed out. Static walls do not need it (they never move).
 A game's own bodies (actors, projectiles) are built in the game crate and
 have to set their own prediction distance the same way.
 
+A dynamic body's `user_data` carries its index above the map-object tag byte
+(`encode_map_object_at(i)`, read back with `map_object_index`), so a game maps
+a contact pair to a map body without a search: `GameMap::dynamic_index_of(world,
+handle)`, and back with `GameMap::dynamic_handle(i)`. A game must never remove
+a map body — the engine removes them all on the next map load, and a second
+removal is invalid in Rapier. It **disables** it instead
+(`set_enabled(false)`): `step_dynamic_levels` skips a disabled body (a group
+change would give it back its collisions), and its snapshot row stays, with
+the position frozen and no velocity tail.
+
+The map's `game` field and `physicsDynamic[i].game` are opaque game data
+(`MapConfig::game`, `DynamicObjectConfig::game`): the engine keeps them as
+declared, unscaled, and hands them back through `GameMap::game_data()` and
+`GameMap::dynamic_game_data(i)`; they travel in the handoff dump with the
+map. `MapConfig::validate` only fixes their shape — an object or nothing.
+
+After the bodies and the navigation graph are built, `EngineSim::load_map`
+zeroes `map_body_state` (one byte per dynamic body) and calls
+`GameSim::on_map_loaded(ctx)` — on every load, a reload of the same map at
+round start included. An error from the hook fails `load_map`, and there is
+nothing to roll back to: the previous map was removed before the new one was
+built, so the engine removes the new bodies too and clears `nav` and
+`map_body_state`, leaving the world without a map. (A `MapConfig::validate`
+error is different: it happens before the old map is touched.) The hook is not
+called on `deserialize_state` — the game restores what it derived from the
+map from its own dump, while `map_body_state` is part of the engine dump.
+
 ## Layered maps (2.5D)
 
 A map may carry above-ground levels next to the ground: level 0 is the
@@ -272,7 +299,12 @@ turns it on when the game's schema for the map set names fields 3 and 4 `z`
 and `level`, so a game with the old schema keeps its three fields. The pair
 goes in the head and not in the optional tail: a missing tail unpacks as
 zeros, and a crate resting on a bridge would land on the ground at the
-viewer.
+viewer. `dynamic_map_data_with_state(world, with_levels, with_velocities,
+states)` adds the body's state byte right after that head (index 5 on a
+layered row, 3 on a flat one) and before the velocity tail;
+`build_snapshot_blocks` passes `SimCtx::map_body_state` when the schema
+declares a field with `role: 'state'` (`BlockSchema::with_state`), and
+`dynamic_map_data` keeps the layout without it.
 
 A game reads a participant's level from `GameSim::set_actor_level` (the ABI
 method of the same name), which the engine calls right after
@@ -321,12 +353,14 @@ must not drift from them.
   `on_before_destroy`, `on_ai_tick(ctx, dt)`, `refresh_cached`,
   `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
   `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
-  handoff — kept as groundwork), `rebuild_spatial_grid`.
+  handoff — kept as groundwork), `rebuild_spatial_grid`; `on_map_loaded(ctx)`
+  (default `Ok(())`, see [Map bodies](#map-bodies)).
 - `SimCtx<'a>` — the game's access to engine facilities inside the tick
   callbacks; **not** generic over the game: `world` (Rapier), `cfg`
   (`EngineConfig`), `map` (respawns — `IndexMap<String, Vec<[f32;3]>>`,
   arbitrary teams), `nav`/`spatial` (A*/grid — engine utilities in a `nav/`
-  module, no "bot" wording), `rng`, `events`, `bodies_to_destroy`. There is
+  module, no "bot" wording), `rng`, `events`, `bodies_to_destroy`,
+  `map_body_state` (the state byte of each map dynamic body). There is
   no `game_cfg` field: the game config reaches the game once, in
   `GameSim::new`, and the implementation keeps what it needs.
 - The engine owns: the fixed-step accumulator, contact collection, the

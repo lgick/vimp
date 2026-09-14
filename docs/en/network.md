@@ -316,6 +316,15 @@ authority, and a map load fails loudly when a role sits at the wrong index,
 when only one of the pair is declared, or when fields named `z`/`level`
 occupy those two slots without declaring roles.
 
+The third role, `role: 'state'`, is the state byte of a map body: a `u8`
+the engine writes right after the row head — index 5 on a layered row, 3 on
+a flat one — and before the optional velocity tail, so `optionalFrom` has to
+be greater than its index (a resting body sends no tail and would lose the
+byte). The row becomes `[x, y, angle, z?, level?, state, vx?, vy?, angvel?]`.
+The value comes from the game (`SimCtx::map_body_state`), its meaning is the
+game's. A schema without the role keeps the previous row byte for byte; a
+misplaced or mistyped role fails the map load.
+
 When adding a new weapon/entity, its snapshot key **must** be registered in
 the game plugin's schema (`src/config/snapshot.js`, e.g. `vimp-tanks`'s) — with a full
 `fields` list for its `kind` — or `pack_body`/the core constructor will

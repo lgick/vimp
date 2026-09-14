@@ -42,6 +42,9 @@ pub struct EngineSim<G: GameDef> {
     // очередь тел на удаление после обработки контактов
     bodies_to_destroy: Vec<RigidBodyHandle>,
 
+    // байт состояния каждого динамического тела карты (`SimCtx::map_body_state`)
+    map_body_state: Vec<u8>,
+
     // содержал ли последний собранный body событийные блоки — для
     // классификации канала WebRTC (meta reliable / state unreliable)
     last_body_has_events: bool,
@@ -74,6 +77,7 @@ impl<G: GameDef> EngineSim<G> {
             },
             events: Vec::new(),
             bodies_to_destroy: Vec::new(),
+            map_body_state: Vec::new(),
             last_body_has_events: false,
             sim,
             cfg,
@@ -96,7 +100,7 @@ impl<G: GameDef> EngineSim<G> {
             .unwrap_or_else(|| self.cfg.map_set_id.clone());
 
         if let Some(schema) = self.cfg.snapshot.keys.get(&set_id) {
-            schema.validate_level_roles(&set_id)?;
+            schema.validate_roles(&set_id)?;
         }
 
         if let Some(mut old) = self.map.take() {
@@ -113,7 +117,33 @@ impl<G: GameDef> EngineSim<G> {
             NavigationSystem::generate(&map.grid, &map.physics_static, map.step)
         });
 
+        self.map_body_state = vec![0; map.dynamic_body_count()];
         self.map = Some(map);
+
+        let mut ctx = SimCtx {
+            world: &mut self.world,
+            cfg: &self.cfg,
+            map: &self.map,
+            nav: &self.nav,
+            spatial: &mut self.spatial,
+            rng: &mut self.rng,
+            events: &mut self.events,
+            bodies_to_destroy: &mut self.bodies_to_destroy,
+            map_body_state: &mut self.map_body_state,
+        };
+
+        if let Err(error) = self.sim.on_map_loaded(&mut ctx) {
+            // старая карта уже уничтожена, откатываться некуда: мир остаётся
+            // без карты, а не с наполовину принятой игрой новой
+            if let Some(mut map) = self.map.take() {
+                map.destroy(&mut self.world);
+            }
+
+            self.nav = None;
+            self.map_body_state.clear();
+
+            return Err(error);
+        }
 
         Ok(())
     }
@@ -251,6 +281,7 @@ impl<G: GameDef> EngineSim<G> {
             rng: &mut self.rng,
             events: &mut self.events,
             bodies_to_destroy: &mut self.bodies_to_destroy,
+            map_body_state: &mut self.map_body_state,
         };
 
         self.sim.on_ai_tick(&mut ctx, dt);
@@ -274,6 +305,7 @@ impl<G: GameDef> EngineSim<G> {
             rng: &mut self.rng,
             events: &mut self.events,
             bodies_to_destroy: &mut self.bodies_to_destroy,
+            map_body_state: &mut self.map_body_state,
         };
 
         self.sim.on_fixed_step(&mut ctx, self.time_step);
@@ -302,6 +334,7 @@ impl<G: GameDef> EngineSim<G> {
             rng: &mut self.rng,
             events: &mut self.events,
             bodies_to_destroy: &mut self.bodies_to_destroy,
+            map_body_state: &mut self.map_body_state,
         };
 
         self.sim.on_contacts(&mut ctx, &contacts);
@@ -339,13 +372,19 @@ impl<G: GameDef> EngineSim<G> {
             // (`FieldRole`): игра, не объявившая роли, получает прежние три.
             // Имена полей принадлежат игре и признаком служить не могут
             let with_levels = schema.is_some_and(BlockSchema::with_levels);
+            // байт состояния — тоже по роли: схема без `state` получает
+            // прежнюю раскладку бит-в-бит
+            let states = schema
+                .is_some_and(BlockSchema::with_state)
+                .then_some(self.map_body_state.as_slice());
 
             blocks.push((
                 map.set_id.clone(),
-                Block::IndexedNoNull8(map.dynamic_map_data(
+                Block::IndexedNoNull8(map.dynamic_map_data_with_state(
                     &self.world,
                     with_levels,
                     with_velocities,
+                    states,
                 )),
             ));
         }
@@ -387,6 +426,7 @@ impl<G: GameDef> EngineSim<G> {
         self.nav = None;
         self.spatial.clear();
         self.bodies_to_destroy.clear();
+        self.map_body_state.clear();
 
         self.accumulator = 0.0;
     }
@@ -447,6 +487,7 @@ impl<G: GameDef> EngineSim<G> {
                 multibody_joints: self.world.multibody_joints.clone(),
             },
             map: &self.map,
+            map_body_state: &self.map_body_state,
             rng: &self.rng,
             accumulator: self.accumulator,
             sim: self.sim.serialize(),
@@ -474,6 +515,7 @@ impl<G: GameDef> EngineSim<G> {
 
         self.world = world;
         self.map = dump.map;
+        self.map_body_state = dump.map_body_state;
         self.rng = dump.rng;
         self.accumulator = dump.accumulator;
         self.sim.deserialize(dump.sim)?;
@@ -528,6 +570,7 @@ struct WorldDumpOwned {
 struct EngineDump<'a> {
     world: WorldDump,
     map: &'a Option<GameMap>,
+    map_body_state: &'a [u8],
     rng: &'a Rng,
     accumulator: f32,
     sim: serde_json::Value,
@@ -537,6 +580,8 @@ struct EngineDump<'a> {
 struct EngineDumpOwned {
     world: WorldDumpOwned,
     map: Option<GameMap>,
+    #[serde(default)]
+    map_body_state: Vec<u8>,
     rng: Rng,
     accumulator: f32,
     sim: serde_json::Value,
@@ -578,6 +623,10 @@ mod fixture {
     pub struct TestSim {
         actors: BTreeMap<u32, TestActor>,
         scripted: BTreeSet<u32>,
+        /// Сколько раз движок позвал `on_map_loaded`.
+        pub maps_loaded: u32,
+        /// Хук отвергает карту — проверка отката `load_map`.
+        pub fail_map_load: bool,
     }
 
     impl GameSim<TestGame> for TestSim {
@@ -585,6 +634,8 @@ mod fixture {
             Self {
                 actors: BTreeMap::new(),
                 scripted: BTreeSet::new(),
+                maps_loaded: 0,
+                fail_map_load: false,
             }
         }
 
@@ -699,6 +750,25 @@ mod fixture {
             serde_json::to_string(&rows).unwrap()
         }
 
+        // фикстурная игра читает `game.state` карты и ставит его всем телам
+        fn on_map_loaded(&mut self, ctx: &mut SimCtx) -> Result<(), String> {
+            self.maps_loaded += 1;
+
+            if self.fail_map_load {
+                return Err("fixture rejects the map".to_string());
+            }
+
+            let state = ctx
+                .map
+                .as_ref()
+                .and_then(|map| map.game_data()["state"].as_u64())
+                .unwrap_or(0) as u8;
+
+            ctx.map_body_state.fill(state);
+
+            Ok(())
+        }
+
         fn on_fixed_step(&mut self, _ctx: &mut SimCtx, dt: f32) {
             for actor in self.actors.values_mut() {
                 actor.x += actor.vx * dt;
@@ -780,6 +850,7 @@ mod fixture {
 mod tests {
     use super::fixture::{TestConfig, TestGame};
     use super::*;
+    use crate::config::FieldValue;
     use crate::snapshot::SnapshotPacker;
 
     fn engine_config() -> EngineConfig {
@@ -1039,6 +1110,152 @@ mod tests {
         assert!(sim.load_map(broken).is_err());
         assert!(sim.map.is_none());
         assert!(sim.nav.is_none());
+    }
+
+    // слоёная карта с ящиком, игровыми данными и схемой с байтом состояния
+    fn state_engine_config() -> EngineConfig {
+        serde_json::from_value(serde_json::json!({
+            "timeStep": 1.0 / 120.0,
+            "snapshot": {
+                "version": 3,
+                "port": 5,
+                "keys": {
+                    "layered": { "id": 1, "kind": "indexedNoNull8", "class": "hot", "fields": [
+                        { "name": "x", "ty": "f32", "interp": "lerp" },
+                        { "name": "y", "ty": "f32", "interp": "lerp" },
+                        { "name": "angle", "ty": "f32", "interp": "lerpAngle" },
+                        { "name": "z", "ty": "f32", "interp": "lerp", "role": "z" },
+                        { "name": "level", "ty": "u8", "role": "level" },
+                        { "name": "hp", "ty": "u8", "role": "state" }
+                    ] }
+                }
+            },
+            "seed": 42
+        }))
+        .unwrap()
+    }
+
+    fn layered_map_with_state(state: u8) -> String {
+        layered_map_with_box().replace(
+            "\"setId\": \"layered\",",
+            &format!("\"setId\": \"layered\", \"game\": {{ \"state\": {state} }},"),
+        )
+    }
+
+    fn dynamics_row(sim: &mut EngineSim<TestGame>) -> Vec<FieldValue> {
+        sim.build_snapshot_blocks()
+            .into_iter()
+            .find_map(|(key, block)| match block {
+                Block::IndexedNoNull8(mut rows) if key == "layered" => Some(rows.remove(0).1),
+                _ => None,
+            })
+            .expect("блок динамики карты")
+    }
+
+    #[test]
+    fn on_map_loaded_runs_on_every_load() {
+        let mut sim = make_sim();
+
+        sim.load_map(tiny_map_json()).unwrap();
+        sim.load_map(tiny_map_json()).unwrap();
+
+        assert_eq!(sim.sim.maps_loaded, 2);
+    }
+
+    #[test]
+    fn map_game_data_reaches_the_game_through_load_map() {
+        let mut sim = EngineSim::<TestGame>::new(state_engine_config(), &TestConfig {});
+
+        sim.load_map(&layered_map_with_state(2)).unwrap();
+
+        assert_eq!(sim.map.as_ref().unwrap().game_data()["state"], 2);
+        assert_eq!(sim.map_body_state, vec![2]);
+    }
+
+    #[test]
+    fn load_map_rejects_game_that_is_not_an_object() {
+        let mut sim = make_sim();
+        let broken = tiny_map_json().replace("\"scale\": 1,", "\"scale\": 1, \"game\": [1],");
+
+        assert!(sim.load_map(&broken).unwrap_err().contains("map game"));
+        // отказ валидатора — до создания тел и до хука
+        assert_eq!(sim.sim.maps_loaded, 0);
+    }
+
+    #[test]
+    fn failed_on_map_loaded_leaves_the_world_without_a_map() {
+        let mut sim = EngineSim::<TestGame>::new(state_engine_config(), &TestConfig {});
+
+        sim.load_map(&layered_map_with_state(1)).unwrap();
+        sim.sim.fail_map_load = true;
+
+        let error = sim.load_map(&layered_map_with_state(1)).unwrap_err();
+
+        assert!(error.contains("fixture rejects"), "{error}");
+        assert!(sim.map.is_none());
+        assert!(sim.nav.is_none());
+        assert!(sim.map_body_state.is_empty());
+        // ни старых, ни новых тел карты в мире не осталось
+        assert_eq!(sim.world.rigid_bodies().count(), 0);
+        assert!(sim.build_snapshot_blocks().iter().all(|(key, _)| key != "layered"));
+    }
+
+    #[test]
+    fn state_byte_written_by_the_game_reaches_the_frame() {
+        let mut sim = EngineSim::<TestGame>::new(state_engine_config(), &TestConfig {});
+
+        sim.load_map(&layered_map_with_state(0)).unwrap();
+
+        let row = dynamics_row(&mut sim);
+
+        assert_eq!(row.len(), 6);
+        assert!(matches!(row[5], FieldValue::U8(0)));
+
+        sim.map_body_state[0] = 2;
+
+        let row = dynamics_row(&mut sim);
+
+        assert!(matches!(row[5], FieldValue::U8(2)));
+
+        // упаковщик принимает строку с байтом состояния по той же схеме
+        // (блок актёров фикстуры в этой схеме не объявлен)
+        let mut packer = SnapshotPacker::new(state_engine_config().snapshot);
+        let blocks: Vec<(String, Block)> = sim
+            .build_snapshot_blocks()
+            .into_iter()
+            .filter(|(key, _)| key == "layered")
+            .collect();
+
+        assert!(packer.pack_body(&blocks).is_ok());
+    }
+
+    #[test]
+    fn clear_drops_map_body_state() {
+        let mut sim = EngineSim::<TestGame>::new(state_engine_config(), &TestConfig {});
+
+        sim.load_map(&layered_map_with_state(1)).unwrap();
+        sim.clear();
+
+        assert!(sim.map_body_state.is_empty());
+    }
+
+    #[test]
+    fn handoff_dump_keeps_game_data_and_body_state_without_the_hook() {
+        let mut sim = EngineSim::<TestGame>::new(state_engine_config(), &TestConfig {});
+
+        sim.load_map(&layered_map_with_state(1)).unwrap();
+        sim.map_body_state[0] = 2;
+
+        let dump = sim.serialize_state().unwrap();
+        let mut restored = EngineSim::<TestGame>::new(state_engine_config(), &TestConfig {});
+
+        restored.deserialize_state(&dump).unwrap();
+
+        assert_eq!(restored.map.as_ref().unwrap().game_data()["state"], 1);
+        assert_eq!(restored.map_body_state, vec![2]);
+        assert!(matches!(dynamics_row(&mut restored)[5], FieldValue::U8(2)));
+        // игра восстанавливает своё сама: хук при эстафете не зовётся
+        assert_eq!(restored.sim.maps_loaded, 0);
     }
 
     #[test]

@@ -9,6 +9,22 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The map's opaque `game` field reaches the client: `applyMapData` passes it
+  to `ClientCore.set_map` and into the context of every static map part
+  (`game`, unscaled); a dynamic part `d{i}` already gets
+  `physicsDynamic[i].game` through the object's own keys. The headless
+  `VirtualClient` passes it to `set_map` as well.
+- Engine capabilities `map.gameData` (the map `game` field, the core's
+  `on_map_loaded` hook) and `map.bodyState` (the map body state byte in the
+  dynamics row, game access to map bodies by index).
+- Contract rule **E7** (`mapGameField`): a map's `game` and every
+  `physicsDynamic[i].game` is a plain object or absent.
+- Contract rule **D3** also checks `role: 'state'` in a snapshot schema: a
+  `u8` right after the dynamics row head (index 5 layered, 3 flat) and before
+  `optionalFrom`.
+
 ## [0.33.2] — 2026-09-11
 
 ### Changed

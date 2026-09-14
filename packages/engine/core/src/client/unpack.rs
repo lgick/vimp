@@ -780,6 +780,90 @@ mod tests {
     }
 
     #[test]
+    fn dynamics_state_byte_round_trip_on_flat_and_layered_rows() {
+        let schema = |id: u8, fields: serde_json::Value, optional_from: usize| -> BlockSchema {
+            serde_json::from_value(serde_json::json!({
+                "id": id,
+                "kind": "indexedNoNull8",
+                "class": "hot",
+                "fields": fields,
+                "optionalFrom": optional_from,
+            }))
+            .unwrap()
+        };
+        let mut keys = indexmap::IndexMap::new();
+
+        keys.insert(
+            "c1".to_string(),
+            schema(
+                1,
+                serde_json::json!([
+                    { "name": "x", "ty": "f32" }, { "name": "y", "ty": "f32" },
+                    { "name": "angle", "ty": "f32" },
+                    { "name": "z", "ty": "f32", "role": "z" },
+                    { "name": "level", "ty": "u8", "role": "level" },
+                    { "name": "state", "ty": "u8", "role": "state" },
+                    { "name": "vx", "ty": "f32" }, { "name": "vy", "ty": "f32" },
+                    { "name": "angvel", "ty": "f32" }
+                ]),
+                6,
+            ),
+        );
+        keys.insert(
+            "c2".to_string(),
+            schema(
+                2,
+                serde_json::json!([
+                    { "name": "x", "ty": "f32" }, { "name": "y", "ty": "f32" },
+                    { "name": "angle", "ty": "f32" },
+                    { "name": "state", "ty": "u8", "role": "state" },
+                    { "name": "vx", "ty": "f32" }, { "name": "vy", "ty": "f32" },
+                    { "name": "angvel", "ty": "f32" }
+                ]),
+                4,
+            ),
+        );
+
+        let config = SnapshotConfig { version: 3, port: 5, keys };
+        let f = FieldValue::F32;
+        // слоёная строка покоится (без хвоста), плоская — движется
+        let layered = vec![f(1.0), f(2.0), f(0.5), f(0.0), FieldValue::U8(1), FieldValue::U8(2)];
+        let flat = vec![f(3.0), f(4.0), f(0.0), FieldValue::U8(1), f(5.0), f(-6.0), f(0.25)];
+        let mut packer = SnapshotPacker::new(config.clone());
+
+        packer
+            .pack_body(&[
+                ("c1".to_string(), Block::IndexedNoNull8(vec![(0, layered)])),
+                ("c2".to_string(), Block::IndexedNoNull8(vec![(0, flat)])),
+            ])
+            .unwrap();
+
+        let data = packer.pack_frame(0.0, 0, None, None).to_vec();
+        let frame = unpack_frame(&data, &config).ok().unwrap();
+        let u8_at = |fields: &[FieldValue], i: usize| match fields[i] {
+            FieldValue::U8(v) => v,
+            _ => panic!("поле {i} не U8"),
+        };
+
+        let Some(BlockData::IndexedNoNull8(c1)) = frame.snapshot.block_by_key("c1") else {
+            panic!("нет блока c1");
+        };
+
+        assert_eq!(c1[&0].len(), 9);
+        assert_eq!(u8_at(&c1[&0], 4), 1);
+        assert_eq!(u8_at(&c1[&0], 5), 2);
+        assert_eq!(field_f32(&c1[&0], 6), 0.0);
+
+        let Some(BlockData::IndexedNoNull8(c2)) = frame.snapshot.block_by_key("c2") else {
+            panic!("нет блока c2");
+        };
+
+        assert_eq!(c2[&0].len(), 7);
+        assert_eq!(u8_at(&c2[&0], 3), 1);
+        assert_eq!(field_f32(&c2[&0], 5), -6.0);
+    }
+
+    #[test]
     fn wrong_version_is_rejected() {
         let mut data = packed_frame(&[], None, None);
 

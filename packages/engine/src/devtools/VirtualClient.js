@@ -206,6 +206,8 @@ class VirtualClient {
           // разъедется с авторитетным молча
           levels: data.levels,
           ramps: data.ramps,
+          // непрозрачные данные игры — как в main.js
+          game: data.game,
         }),
       );
     } catch (e) {

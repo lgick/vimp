@@ -632,7 +632,7 @@ ClientPlugin hooks call them; a game reaches its own half through
 tanks plugin serves the geometry of the predicted map dynamics that way).
 
 The `set_map` payload the engine hands to the core is `{map, step, scale,
-setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight}` — the raw MAP_DATA
+setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight, game}` — the raw MAP_DATA
 fields, unscaled (the core scales them itself). `levels` and `ramps` are the
 layered (2.5D) map format and are optional: a map without them is exactly
 the single-level map the engine has always loaded. `levels` is keyed by the
@@ -659,6 +659,19 @@ constant tuned for a dimensionless gradient (climb thrust, hull pitch, dust)
 would miss by two orders of magnitude. The value has to be finite and
 greater than 0 — checked in the core and by rule **E4**. A game that needs
 it declares `requires: ['map.levelHeight']`.
+
+`game` is the map's opaque game data — an object or absent, as is
+`physicsDynamic[i].game`. The engine neither reads nor **scales** it: put
+coordinates in grid cells, or in unscaled units the game multiplies by
+`scale` itself. It reaches the host core (`GameMap::game_data()`,
+`dynamic_game_data(i)`, read in `GameSim::on_map_loaded`), the client core
+through `set_map`, every static map part (`game`) and every dynamic part
+`d{i}` (the object's own keys, `game` included). The shape is checked in the
+core and by rule **E7**. A game that needs it declares `requires:
+['map.gameData']`. The state byte of a map body — `role: 'state'` in the
+dynamics row, `SimCtx::map_body_state` in the core, game access to map bodies
+by index — is `requires: ['map.bodyState']`; see
+[network.md](network.md#entity-blocks-kind-from-the-games-snapshot-schema).
 
 The run of a ramp is closed by physics, not by rules alone: the engine
 builds guard colliders along both sides of every run and across its far
@@ -692,8 +705,9 @@ On the client the same `levels` reach the render parts: `applyMapData`
 builds the static data per level and hands each part instance its `level`,
 `solid` (blocking tiles), `floor`, `volume` (the height of that layer from
 `volumes`, `0` when flat), `levelHeight` (world units per level, already
-scaled) and `ramps` (the ramp configs of that level, so the part can draw
-the wedge over the grid it already has) — see
+scaled), `ramps` (the ramp configs of that level, so the part can draw
+the wedge over the grid it already has) and `game` (the map's `game`, as
+declared) — see
 [client.md](client.md#mainjs--bootstrap-dispatcher-and-render-loop). `setId` is the snapshot key the map's dynamics
 travels under (`c1`/`c2`): without it a game cannot tell its own dynamics
 block from another map constructor's.
@@ -795,7 +809,8 @@ key to a `BlockSchema` of five fields — `id` (the block's opcode in
 the frame), `kind` (`BlockKind`: the row shape, which is what implies the
 count/id widths and whether rows carry a null marker), `class` (`hot` —
 interpolated / `event` — frame-only), `fields` (each with a type
-`f32/u8/u16/u32` and an interpolation mode `lerp`/`lerpAngle`/discrete) and
+`f32/u8/u16/u32`, an interpolation mode `lerp`/`lerpAngle`/discrete and an
+optional engine `role`: `z`/`level`/`state` in the map dynamics row) and
 the optional `optionalFrom` (the index of the first field of the row's
 optional tail: those fields are written only when the row carries them, and
 a flag byte in front of the row says whether they follow — see
@@ -853,14 +868,18 @@ one game).
   `on_ai_tick(ctx: &mut SimCtx, dt)`, `refresh_cached`,
   `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
   `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
-  handoff — kept as groundwork), `rebuild_spatial_grid`.
+  handoff — kept as groundwork), `rebuild_spatial_grid`,
+  `on_map_loaded(ctx: &mut SimCtx) -> Result<(), String>` (default `Ok(())`:
+  every map load, not on `deserialize_state`; an error leaves the world
+  without a map).
 - `SimCtx<'a>` (not generic over the game) — the game's access to engine
   facilities passed to the tick callbacks: `world: &'a mut PhysicsWorld`,
   `cfg: &'a EngineConfig`, `map: &'a Option<GameMap>` (respawns), `nav`/
   `spatial: &'a Option<NavigationSystem>`/`&'a mut SpatialGrid` (A*/grid —
   engine utilities in a `nav/` module, no "bot" wording), `rng: &'a mut Rng`,
   `events: &'a mut Vec<CoreEvent>`, `bodies_to_destroy: &'a mut
-  Vec<RigidBodyHandle>`. No `game_cfg` field — the game config is only
+  Vec<RigidBodyHandle>`, `map_body_state: &'a mut [u8]` (one state byte per
+  map dynamic body). No `game_cfg` field — the game config is only
   handed to `GameSim::new`; the game stores what it needs itself.
 - The engine owns: the fixed-step accumulator, contact collection, the
   destroy queue, the schema-driven `SnapshotPacker`, the handoff skeleton,
@@ -999,7 +1018,10 @@ layered navigation graph) and `map.levelsN` (more than two levels, ramps
 that span several of them, level rules and falling for map bodies, `z` /
 `level` in the dynamic row, `volumes`) and `map.levelHeight` (the map's
 `levelHeight`, a dimensionless ramp slope, ramp guard colliders,
-`levelHeight`/`ramps` in the part context). A registered name is supported forever — a
+`levelHeight`/`ramps` in the part context), `map.gameData` (the map's opaque
+`game` field in the core, `set_map` and the part context; the core's
+`on_map_loaded` hook) and `map.bodyState` (the map body state byte,
+`role: 'state'`, and game access to map bodies by index). A registered name is supported forever — a
 published game may have written it, and its `dist/` will never be touched
 again.
 

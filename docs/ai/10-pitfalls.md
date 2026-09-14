@@ -78,6 +78,8 @@ name the violation. Do not verify those by eye — run the tool
       Anything rendered smoothly at frame rate must use one of those kinds;
       `indexed32` / `list16` arrive through `take_frames()`.
 - [ ] ⚙ `D3` Only `f32` fields interpolate, and only in `class: 'hot'` blocks.
+- [ ] ⚙ `D3` `role: 'state'` is a `u8` right after the dynamics row head
+      (index 5 layered, 3 flat) and before `optionalFrom`.
 - [ ] Your core calls `vimp_engine_core::physics::round2` on the `f32`s it
       packs. The packer does **not** round; the decoder does, so an unrounded
       value silently differs between host and client. The player block is
@@ -100,7 +102,15 @@ name the violation. Do not verify those by eye — run the tool
       `cycle_weapon`) are hand-written and are only ever called from
       `ClientPlugin.hooks`.
 - [ ] Body tag low byte `1` is the engine's map-object tag; game kinds start
-      at `2`.
+      at `2`. Map dynamic bodies carry their index in the higher bits — use
+      `is_map_object`, not `== MAP_OBJECT_TAG`.
+- [ ] Never remove a map body from the world: `EngineSim` removes them on the
+      next map load and a double removal panics. Disable it
+      (`set_enabled(false)`) and flip its `map_body_state` byte.
+- [ ] At most 255 map dynamic bodies — the row index is a `u8`. Debris and
+      wrecks are drawn, not spawned as new bodies.
+- [ ] `on_map_loaded` is not called on `deserialize_state`; anything derived
+      from the map must survive in your own dump.
 - [ ] All randomness goes through the engine `Rng` (SplitMix64) seeded from
       the config. `rand`, `Math.random` or clock-seeded values break
       determinism and therefore prediction.
@@ -235,6 +245,9 @@ name the violation. Do not verify those by eye — run the tool
       Too few points silently caps the room below `maxPlayers`.
 - [ ] Maps are scaled by the host (`step`, dynamic positions/sizes,
       respawns); do not scale again in a part.
+- [ ] ⚙ `E7` The map's `game` field is **not** scaled by anyone: put grid
+      cells (or unscaled units you multiply by `scale` yourself) in it. It is
+      an object or absent — an array fails the map load.
 - [ ] At most 30 simultaneous world voices; ranking is
       `priority² / max(distance², 1)`.
 - [ ] ⚙ `E6` A typo in a `parts.sounds.spatial` key, or a `mode` the engine

@@ -35,6 +35,10 @@ export default {
     [1, 1, 1, 1],
   ],
 
+  // OPAQUE game data: the engine never reads or scales it (optional object,
+  // also allowed on every physicsDynamic entry)
+  game: { surfaces: { sand: [[3, 4], [3, 5]] } },
+
   respawns: {
     // [x, y, angleDeg] or [x, y, angleDeg, level] on a layered map
     team1: [[130, 520, 0], [130, 620, 0], …],
@@ -55,6 +59,7 @@ export default {
 | `respawns` | host | spawn points per team |
 | `levels` | core + client | above-ground levels (2.5D); absent = flat map |
 | `ramps` | core + client | level transitions |
+| `game`, `physicsDynamic[i].game` | your core + client | opaque object (or absent), **unscaled**; reaches `GameMap::game_data()` / `dynamic_game_data(i)`, `ClientCore.set_map`, every static part (`game`) and `d{i}` parts (via `...item`). Capability `map.gameData`, rule ⚙ `E7` |
 
 ### Levels and ramps (2.5D)
 

@@ -3,7 +3,7 @@ use rapier2d::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::config::FieldValue;
-use crate::physics::{deg_to_rad, encode_map_object, lerp, round2};
+use crate::physics::{deg_to_rad, encode_map_object_at, lerp, map_object_index, round2};
 
 // параметры поверхности по умолчанию (дефолты planck/Box2D,
 // с которыми сбалансировано ощущение управления). Публичные: клиентская
@@ -42,6 +42,10 @@ pub struct DynamicObjectConfig {
     /// Уровень, на котором стоит тело (0 — земля).
     #[serde(default)]
     pub level: u8,
+    /// Непрозрачные игровые данные тела (`physicsDynamic[i].game`): движок
+    /// их не читает и не масштабирует. `Null` или объект.
+    #[serde(default)]
+    pub game: serde_json::Value,
 }
 
 /// Описание НАДЗЕМНОГО уровня карты (level >= 1). Уровень 0 остаётся в
@@ -156,6 +160,11 @@ pub struct MapConfig {
     /// (`step * scale`), то есть подъём «уровень на тайл» даёт уклон 1.0.
     #[serde(default)]
     pub level_height: Option<f32>,
+    /// Непрозрачные игровые данные карты: движок их не читает и не
+    /// масштабирует (координаты внутри — в клетках сетки или в
+    /// немасштабированных единицах, масштаб применяет игра). `Null` или объект.
+    #[serde(default)]
+    pub game: serde_json::Value,
 }
 
 /// Проверки формы слоёных полей карты (`levels`/`ramps`). Вынесены из
@@ -599,7 +608,20 @@ impl MapConfig {
             }
         }
 
+        // `game` — пространство игры, но форму движок фиксирует: игра читает
+        // его как объект, и массив или число на этом месте всплыли бы
+        // ошибкой разбора уже внутри матча
+        if !(self.game.is_null() || self.game.is_object()) {
+            return Err("map game: expected an object or nothing".to_string());
+        }
+
         for (index, object) in self.physics_dynamic.iter().enumerate() {
+            if !(object.game.is_null() || object.game.is_object()) {
+                return Err(format!(
+                    "map physicsDynamic: object {index} game: expected an object or nothing"
+                ));
+            }
+
             if (object.level as usize) >= level_count {
                 return Err(format!(
                     "map physicsDynamic: object {index} level {} is out of range (levels: {level_count})",
@@ -1475,6 +1497,12 @@ pub struct GameMap {
     /// `dynamic_bodies`: тело карты живёт по тем же правилам уровня, что и
     /// танк, — сорвавшись с плиты, оно падает, а не висит в воздухе.
     dynamic_states: Vec<BodyLevelState>,
+    /// Игровые данные карты (`MapConfig::game`) — как объявлены.
+    #[serde(default)]
+    game: serde_json::Value,
+    /// Игровые данные динамических тел, параллелен `dynamic_bodies`.
+    #[serde(default)]
+    dynamic_game: Vec<serde_json::Value>,
 }
 
 impl GameMap {
@@ -1533,6 +1561,8 @@ impl GameMap {
             static_levels: Vec::new(),
             dynamic_bodies: Vec::new(),
             dynamic_states: Vec::new(),
+            game: cfg.game.clone(),
+            dynamic_game: Vec::new(),
         };
 
         map.create_static(world);
@@ -1605,7 +1635,7 @@ impl GameMap {
         dynamics: &[DynamicObjectConfig],
         scale: f32,
     ) {
-        for data in dynamics {
+        for (index, data) in dynamics.iter().enumerate() {
             let pos_x = data.position[0] * scale;
             let pos_y = data.position[1] * scale;
             let width = data.width * scale;
@@ -1621,7 +1651,7 @@ impl GameMap {
                     // что и у танка: дефолтная дистанция предсказания Rapier
                     // рассчитана на метры и на порядки меньше пути тела за шаг
                     .soft_ccd_prediction(width.min(height))
-                    .user_data(encode_map_object()),
+                    .user_data(encode_map_object_at(index)),
             );
 
             // коллайдер со смещённым центром (позиция тела — угол объекта)
@@ -1637,7 +1667,34 @@ impl GameMap {
 
             self.dynamic_bodies.push(body);
             self.dynamic_states.push(BodyLevelState::grounded(data.level));
+            self.dynamic_game.push(data.game.clone());
         }
+    }
+
+    // ***** игровые данные и доступ к телам ***** //
+
+    /// Игровые данные карты (`game`), `Null` — карта их не объявила.
+    pub fn game_data(&self) -> &serde_json::Value {
+        &self.game
+    }
+
+    /// Игровые данные динамического тела по его индексу в блоке снапшота.
+    pub fn dynamic_game_data(&self, index: usize) -> Option<&serde_json::Value> {
+        self.dynamic_game.get(index)
+    }
+
+    /// Хэндл динамического тела по индексу. Удалять тело карты игре
+    /// нельзя (движок удалит его сам при смене карты) — только отключать.
+    pub fn dynamic_handle(&self, index: usize) -> Option<RigidBodyHandle> {
+        self.dynamic_bodies.get(index).copied()
+    }
+
+    /// Индекс динамического тела карты по хэндлу — через тег в `user_data`,
+    /// с проверкой, что по индексу лежит именно этот хэндл.
+    pub fn dynamic_index_of(&self, world: &PhysicsWorld, handle: RigidBodyHandle) -> Option<usize> {
+        let index = map_object_index(world.bodies.get(handle)?.user_data)?;
+
+        (self.dynamic_bodies.get(index) == Some(&handle)).then_some(index)
     }
 
     // ***** слоистая геометрия ***** //
@@ -1691,9 +1748,12 @@ impl GameMap {
             let Some(state) = self.dynamic_states.get_mut(index) else {
                 continue;
             };
+            // отключённое игрой тело (разрушенный проп) правилам уровня не
+            // подчиняется: смена групп вернула бы ему коллизии
             let Some(&collider) = world
                 .bodies
                 .get(handle)
+                .filter(|body| body.is_enabled())
                 .and_then(|body| body.colliders().first())
             else {
                 continue;
@@ -1745,6 +1805,7 @@ impl GameMap {
 
         self.static_levels.clear();
         self.dynamic_states.clear();
+        self.dynamic_game.clear();
     }
 
     /// Краткие данные динамических элементов (Map.getDynamicMapData):
@@ -1763,11 +1824,30 @@ impl GameMap {
     /// предсказывает динамику карты рядом со своим танком, а оценка скорости
     /// конечной разностью между кадрами 30 Гц сильнее всего врёт именно в
     /// момент удара. Покоящееся тело хвост не шлёт.
+    ///
+    /// Раскладка без байта состояния — см. `dynamic_map_data_with_state`.
     pub fn dynamic_map_data(
         &self,
         world: &PhysicsWorld,
         with_levels: bool,
         with_velocities: bool,
+    ) -> Vec<(u8, Vec<FieldValue>)> {
+        self.dynamic_map_data_with_state(world, with_levels, with_velocities, None)
+    }
+
+    /// То же, что `dynamic_map_data`, плюс байт состояния тела: при
+    /// `Some(states)` сразу за головой (позиция 5 у слоёной строки, 3 — у
+    /// плоской) пишется `U8(states[index])`, до хвоста скоростей. Тело без
+    /// записи в `states` получает 0.
+    ///
+    /// Отключённое тело (`!is_enabled`) строку не теряет — иначе спрайт у
+    /// клиентов замер бы на последней позиции, — но хвост скоростей не шлёт.
+    pub fn dynamic_map_data_with_state(
+        &self,
+        world: &PhysicsWorld,
+        with_levels: bool,
+        with_velocities: bool,
+        states: Option<&[u8]>,
     ) -> Vec<(u8, Vec<FieldValue>)> {
         self.dynamic_bodies
             .iter()
@@ -1789,7 +1869,11 @@ impl GameMap {
                         fields.push(FieldValue::U8(state.level));
                     }
 
-                    if with_velocities {
+                    if let Some(states) = states {
+                        fields.push(FieldValue::U8(states.get(index).copied().unwrap_or(0)));
+                    }
+
+                    if with_velocities && body.is_enabled() {
                         let linvel = body.linvel();
                         let angvel = body.angvel();
                         let resting = body.is_sleeping()
@@ -2050,6 +2134,7 @@ mod tests {
             linear_damping: None,
             angular_damping: None,
             level: 1,
+            game: serde_json::Value::Null,
         }];
 
         let mut world = make_world();
@@ -2849,6 +2934,7 @@ mod tests {
             linear_damping: None,
             angular_damping: None,
             level: 1,
+            game: serde_json::Value::Null,
         }];
 
         let mut world = make_world();
@@ -2888,6 +2974,7 @@ mod tests {
             linear_damping: None,
             angular_damping: None,
             level: 1,
+            game: serde_json::Value::Null,
         }];
 
         let mut world = make_world();
@@ -2906,6 +2993,163 @@ mod tests {
         let rows = map.dynamic_map_data(&world, false, true);
 
         assert_eq!(rows[0].1.len(), 3);
+    }
+
+    #[test]
+    fn map_and_body_game_data_survive_create() {
+        let mut json = serde_json::to_value(serde_json::json!({
+            "step": 20.0,
+            "map": [[0, 0], [0, 0]],
+            "game": { "surfaces": { "sand": [[0, 1]] } },
+            "physicsDynamic": [
+                { "position": [0.0, 0.0], "angle": 0.0, "width": 10.0, "height": 10.0, "density": 1.0,
+                  "game": { "kind": "barrel" } },
+                { "position": [20.0, 0.0], "angle": 0.0, "width": 10.0, "height": 10.0, "density": 1.0 }
+            ]
+        }))
+        .unwrap();
+        let cfg: MapConfig = serde_json::from_value(json.clone()).unwrap();
+
+        assert!(cfg.validate().is_ok());
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 2.0, "set");
+
+        // движок `game` не масштабирует
+        assert_eq!(map.game_data()["surfaces"]["sand"][0][1], 1);
+        assert_eq!(map.dynamic_game_data(0).unwrap()["kind"], "barrel");
+        assert!(map.dynamic_game_data(1).unwrap().is_null());
+        assert!(map.dynamic_game_data(2).is_none());
+
+        // дамп эстафеты уносит игровые данные
+        let restored: GameMap = serde_json::from_str(&serde_json::to_string(&map).unwrap()).unwrap();
+
+        assert_eq!(restored.game_data(), map.game_data());
+        assert_eq!(restored.dynamic_game_data(0), map.dynamic_game_data(0));
+
+        // карта без `game` — Null
+        json.as_object_mut().unwrap().remove("game");
+
+        let cfg: MapConfig = serde_json::from_value(json).unwrap();
+
+        assert!(GameMap::create(&mut make_world(), &cfg, 1.0, "set").game_data().is_null());
+    }
+
+    #[test]
+    fn validate_rejects_game_that_is_not_an_object() {
+        let mut cfg = map_config();
+
+        cfg.game = serde_json::json!([1, 2]);
+
+        assert!(cfg.validate().unwrap_err().contains("map game"));
+
+        let mut cfg = map_config();
+
+        cfg.physics_dynamic[0].game = serde_json::json!(5);
+
+        assert!(cfg.validate().unwrap_err().contains("object 0 game"));
+    }
+
+    #[test]
+    fn dynamic_body_index_is_encoded_in_user_data() {
+        let mut cfg = map_config();
+
+        cfg.physics_dynamic.push(cfg.physics_dynamic[0].clone());
+        cfg.physics_dynamic[1].position = [80.0, 60.0];
+
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &cfg, 1.0, "set");
+
+        for index in 0..2 {
+            let handle = map.dynamic_handle(index).unwrap();
+
+            assert!(crate::physics::is_map_object(world.bodies[handle].user_data));
+            assert_eq!(map.dynamic_index_of(&world, handle), Some(index));
+        }
+
+        assert!(map.dynamic_handle(2).is_none());
+
+        // статика карты — не динамическое тело
+        assert_eq!(map.dynamic_index_of(&world, map.static_bodies[0]), None);
+    }
+
+    #[test]
+    fn state_byte_follows_the_head_and_the_old_layout_is_unchanged() {
+        let mut world = make_world();
+        let map = GameMap::create(&mut world, &map_config(), 1.0, "set");
+
+        let old = map.dynamic_map_data(&world, false, true);
+        let none = map.dynamic_map_data_with_state(&world, false, true, None);
+
+        assert_eq!(old.len(), none.len());
+        assert_eq!(
+            old[0].1.iter().map(as_f32).collect::<Vec<_>>(),
+            none[0].1.iter().map(as_f32).collect::<Vec<_>>()
+        );
+        assert_eq!(old[0].1.len(), 3);
+
+        // покоящееся тело: голова и байт состояния, без хвоста
+        let rows = map.dynamic_map_data_with_state(&world, false, true, Some(&[2]));
+
+        assert_eq!(rows[0].1.len(), 4);
+        assert!(matches!(rows[0].1[3], FieldValue::U8(2)));
+
+        // движущееся: состояние перед хвостом скоростей
+        let handle = map.dynamic_handle(0).unwrap();
+
+        world.bodies[handle].set_linvel(Vector::new(5.0, 0.0), true);
+
+        let rows = map.dynamic_map_data_with_state(&world, false, true, Some(&[1]));
+
+        assert_eq!(rows[0].1.len(), 7);
+        assert!(matches!(rows[0].1[3], FieldValue::U8(1)));
+        assert_eq!(as_f32(&rows[0].1[4]), 5.0);
+
+        // пустой срез состояний — нули, а не паника
+        let rows = map.dynamic_map_data_with_state(&world, false, false, Some(&[]));
+
+        assert!(matches!(rows[0].1[3], FieldValue::U8(0)));
+    }
+
+    #[test]
+    fn disabled_body_keeps_its_row_but_not_its_velocities_or_level_rules() {
+        let mut cfg = slab_over_slab_config();
+
+        cfg.physics_dynamic = vec![DynamicObjectConfig {
+            position: [5.0, 25.0],
+            angle: 0.0,
+            width: 10.0,
+            height: 10.0,
+            density: 1.0,
+            linear_damping: None,
+            angular_damping: None,
+            level: 1,
+            game: serde_json::Value::Null,
+        }];
+
+        let mut world = make_world();
+        let mut map = GameMap::create(&mut world, &cfg, 1.0, "set");
+        let handle = map.dynamic_handle(0).unwrap();
+        let groups = collision_groups(&world, handle);
+
+        world.bodies[handle].set_linvel(Vector::new(5.0, 0.0), true);
+        world.bodies[handle].set_enabled(false);
+
+        // плиты под ящиком нет, но отключённое тело не падает и групп не меняет
+        map.step_dynamic_levels(&mut world, &FallModel::default(), 0.05);
+
+        assert!(map.dynamic_level_state(0).falling.is_none());
+        assert_eq!(map.dynamic_level(0), 1);
+        assert_eq!(collision_groups(&world, handle), groups);
+
+        // тело по-прежнему в наборе мира и даёт строку — без скоростей
+        assert!(world.bodies.get(handle).is_some());
+
+        let rows = map.dynamic_map_data_with_state(&world, true, true, Some(&[2]));
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1.len(), 6);
+        assert!(matches!(rows[0].1[5], FieldValue::U8(2)));
     }
 
     #[test]

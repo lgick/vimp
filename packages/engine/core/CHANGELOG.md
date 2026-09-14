@@ -13,6 +13,44 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- **Map `game` field**: `MapConfig::game` and `DynamicObjectConfig::game`
+  (`serde_json::Value`, `Null` when absent) carry opaque game data through
+  the map load; read them back with `GameMap::game_data()` and
+  `GameMap::dynamic_game_data(index)`. The engine neither reads nor scales
+  them, and they survive the handoff dump. `MapConfig::validate` rejects a
+  `game` (on the map or on a dynamic object) that is neither absent nor an
+  object.
+- **`GameSim::on_map_loaded(ctx)`**, default `Ok(())`: called on every
+  `load_map` once the map's bodies and navigation exist. An error fails
+  `load_map` and leaves the world without a map (its bodies are removed,
+  `nav` is cleared). Not called on `deserialize_state`.
+- **Map body access**: `physics::encode_map_object_at(index)` and
+  `physics::map_object_index(user_data)` put a dynamic body's index above the
+  tag byte (`encode_map_object()` still returns the same value as before);
+  `GameMap::dynamic_handle(index)` and `GameMap::dynamic_index_of(world,
+  handle)`. A body the game disables (`set_enabled(false)`) is skipped by the
+  level rules (`step_dynamic_levels`) and keeps its snapshot row without the
+  velocity tail.
+- **Map body state byte**: `FieldRole::State` (`role: 'state'`, a `u8` right
+  after the dynamics row head — index 5 on a layered row, 3 on a flat one —
+  and before `optionalFrom`), `BlockSchema::with_state()`,
+  `BlockSchema::validate_roles()` (`validate_level_roles` stays as its
+  alias), `GameMap::dynamic_map_data_with_state(world, with_levels,
+  with_velocities, states)` and `SimCtx::map_body_state`, zeroed on every map
+  load and kept in the handoff dump. The engine writes the byte only when the
+  schema declares the role; `dynamic_map_data` keeps its exact layout.
+
+### Changed
+
+- `SimCtx` has a new public field, `map_body_state`: code that builds a
+  `SimCtx` with a struct literal outside the engine has to add it (games only
+  receive a `SimCtx`, so they are unaffected).
+- A map dynamic body's `user_data` now carries its index above the tag byte:
+  every body past the first no longer equals `MAP_OBJECT_TAG`. Test with
+  `is_map_object`, which ignores the higher bits.
+
 ## [0.19.0] — 2026-09-11
 
 ### Added

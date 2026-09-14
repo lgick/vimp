@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildSnapshotKeysById,
+  parseHot,
   reconstructHot,
 } from '../../packages/engine/src/lib/reconstructHot.js';
 import { HOT_FLAGS } from '../../packages/engine/src/config/opcodes.js';
@@ -55,6 +56,52 @@ describe('reconstructHot', () => {
     expect(reconstructHot(hot, keysById)).toEqual({
       a1: { 10: [1.5, 2.5], 11: [3.5, 4.5] },
       d1: { d4: [9] },
+    });
+  });
+
+  it('строка динамики с байтом состояния читается шириной схемы', () => {
+    // схема c1 со слоями и ролью state: 9 полей, запись — 11 чисел
+    const keys = buildSnapshotKeysById({
+      c1: {
+        id: 5,
+        kind: 'indexedNoNull8',
+        optionalFrom: 6,
+        fields: [
+          { name: 'x' },
+          { name: 'y' },
+          { name: 'angle' },
+          { name: 'z', role: 'z' },
+          { name: 'level', role: 'level' },
+          { name: 'state', role: 'state' },
+          { name: 'vx' },
+          { name: 'vy' },
+          { name: 'angvel' },
+        ],
+      },
+    });
+    const hot = new Float32Array([
+      HOT_FLAGS.GAME,
+      0,
+      0,
+      0,
+      // покоящееся тело (хвост дочитан ядром нулями) и движущееся
+      2,
+      5,
+      0,
+      ...[1, 2, 0, 0, 1, 2, 0, 0, 0],
+      5,
+      1,
+      ...[3, 4, 0, 0, 0, 1, 5, 6, 0.5],
+    ]);
+
+    expect(parseHot(hot, keys)).toEqual({
+      game: {
+        c1: {
+          d0: [1, 2, 0, 0, 1, 2, 0, 0, 0],
+          d1: [3, 4, 0, 0, 0, 1, 5, 6, 0.5],
+        },
+      },
+      consumed: hot.length,
     });
   });
 

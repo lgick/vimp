@@ -44,6 +44,17 @@ export default {
 | `class` | `hot` · `event` | `hot` = continuous state, `event` = one-shot |
 | `fields[].ty` | `f32` · `u8` · `u16` · `u32` | big-endian |
 | `fields[].interp` | `lerp` · `lerpAngle` · `discrete` (default) | only `f32` fields interpolate; only `hot` blocks interpolate |
+| `fields[].role` | `z` · `level` · `state` | engine-written fields of the map dynamics row, see below |
+
+**Map dynamics row roles.** The engine builds the map's dynamic rows itself,
+so its layout is fixed: `[x, y, angle]`, then `z` (index 3, `role: 'z'`) and
+`level` (index 4, `role: 'level'`) on a layered row, then the state byte
+(`role: 'state'`, `ty: 'u8'`) right after that head — index 5 on a layered
+row, 3 on a flat one — then the optional `[vx, vy, angvel]` tail
+(`optionalFrom`). The state byte must sit before `optionalFrom`: a resting
+body would otherwise lose it. A misplaced role fails the map load in the core
+and rule ⚙ `D3` before the build. Without a `state` role the row layout is
+exactly what it was.
 
 **The field order is positionally bound to your Rust `Row` construction.**
 Nothing validates the correspondence: swapping two fields in the JS schema

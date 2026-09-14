@@ -35,6 +35,14 @@ export const ENGINE_CAPABILITIES = createRegistry('engine-capabilities', [
   // уклон рампы в ядре, поле `levelHeight` в контексте статического парта,
   // прогоны рамп уровня (`ramps`) там же, коллайдеры-стражи прогона
   { value: 'map.levelHeight', since: '0.32.0' },
+  // непрозрачное поле карты `game` (и `physicsDynamic[i].game`): до
+  // игрового ядра хоста, `ClientCore.set_map` и партов карты; хук ядра
+  // `GameSim::on_map_loaded`
+  { value: 'map.gameData', since: '0.34.0' },
+  // байт состояния тела карты (роль `state` в строке динамики,
+  // `SimCtx::map_body_state`) и доступ игры к телам карты по индексу
+  // (хэндл, индекс по хэндлу, отключение тела)
+  { value: 'map.bodyState', since: '0.34.0' },
 ]);
 
 // плоский список имён — то, чем правило контракта B2 проверяет `requires`

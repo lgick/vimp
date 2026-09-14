@@ -92,6 +92,8 @@ pub trait GameSim<G: GameDef>: Sized {
     fn alive_players_flat(&self, world: &PhysicsWorld) -> Vec<f32>;
     fn players_json(&self) -> String;
 
+    // map loaded (every load_map, round start included); default Ok(())
+    fn on_map_loaded(&mut self, ctx: &mut SimCtx) -> Result<(), String> { Ok(()) }
     fn on_fixed_step(&mut self, ctx: &mut SimCtx, dt: f32);
     fn on_contacts(&mut self, ctx: &mut SimCtx, pairs: &[(ColliderHandle, ColliderHandle)]);
     fn on_before_destroy(&mut self, world: &PhysicsWorld, handle: RigidBodyHandle);
@@ -112,6 +114,14 @@ pub trait GameSim<G: GameDef>: Sized {
 `build_snapshot_blocks` returns `(blocks, had_events)` — the boolean decides
 whether the frame goes over the reliable channel.
 
+`on_map_loaded` runs after the map's bodies and the navigation graph exist
+and `map_body_state` is zeroed — on **every** `load_map`, a reload of the
+same map at round start included. Read `ctx.map` (`game_data()`,
+`dynamic_game_data(i)`) there instead of fingerprinting the map every tick.
+An `Err` fails `load_map` and leaves the world with **no map** (the old one
+is already gone). It is **not** called on `deserialize_state`: restore
+whatever you derived from the map from your own `serialize` dump.
+
 ### `SimCtx<'a>` — what tick callbacks get
 
 ```rust
@@ -124,8 +134,19 @@ pub struct SimCtx<'a> {
     pub rng: &'a mut Rng,
     pub events: &'a mut Vec<CoreEvent>,
     pub bodies_to_destroy: &'a mut Vec<RigidBodyHandle>,
+    pub map_body_state: &'a mut [u8],   // one byte per map dynamic body
 }
 ```
+
+`map_body_state[i]` is the state byte of map dynamic body `i`; the engine
+writes it into that body's snapshot row when the schema declares a field with
+`role: 'state'` (see 06). Its meaning is yours (e.g. 0 intact, 1 damaged,
+2 destroyed). Reach the bodies themselves through `ctx.map`:
+`dynamic_handle(i)`, `dynamic_index_of(world, handle)` (for contact pairs).
+Never remove a map body — the engine removes them on the next map load, and a
+second removal panics in Rapier; **disable** it instead
+(`world.bodies[h].set_enabled(false)`): it keeps its row (position frozen, no
+velocity tail) and the engine stops applying level rules to it.
 
 It is **not** generic over `G` and carries no game config — your `GameSim`
 keeps whatever it needs from `new`.
@@ -352,7 +373,10 @@ are stringified by the JS adapter before reaching plugin code.
 
 Rigid bodies carry a `u128` user-data tag. **Low byte `1` is reserved by the
 engine** (`MAP_OBJECT_TAG`); a game numbers its own kinds from `2` upward and
-packs extra data into the higher bits.
+packs extra data into the higher bits. A map dynamic body carries its index
+above the tag byte (`encode_map_object_at(i)`, read back with
+`map_object_index`) — test map bodies with `is_map_object`, never with
+`user_data == MAP_OBJECT_TAG`.
 
 ```rust
 // example layout used by tanks

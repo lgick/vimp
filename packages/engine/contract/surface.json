@@ -382,6 +382,14 @@
       "since": "0.23.0"
     },
     {
+      "name": "map.bodyState",
+      "since": "0.34.0"
+    },
+    {
+      "name": "map.gameData",
+      "since": "0.34.0"
+    },
+    {
       "name": "map.layers",
       "since": "0.25.0"
     },

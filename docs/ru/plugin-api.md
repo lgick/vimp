@@ -629,7 +629,7 @@ engine-crate от wasm-bindgen не зависит вовсе.
 карты).
 
 Payload `set_map`, который движок передаёт ядру, — `{map, step, scale,
-setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight}`: сырые поля MAP_DATA
+setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight, game}`: сырые поля MAP_DATA
 без масштаба (ядро масштабирует их само). `levels` и `ramps` — формат
 слоёной (2.5D) карты, оба необязательны: карта без них — ровно та
 одноуровневая карта, которую движок грузил всегда. Ключ `levels` — номер
@@ -655,6 +655,20 @@ setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight}`: сырые �
 корпуса, пыль), промахивалась бы на два порядка. Значение обязано быть
 конечным и больше нуля — проверяют ядро и правило **E4**. Игра, которой оно
 нужно, объявляет `requires: ['map.levelHeight']`.
+
+`game` — непрозрачные данные игры в карте: объект или ничего, как и
+`physicsDynamic[i].game`. Движок их не читает и **не масштабирует**:
+координаты там задаются в клетках сетки или в немасштабированных единицах,
+которые игра умножает на `scale` сама. Поле доходит до ядра хоста
+(`GameMap::game_data()`, `dynamic_game_data(i)`, читается в
+`GameSim::on_map_loaded`), до ядра клиента через `set_map`, до каждого
+статического парта карты (`game`) и до каждого динамического парта `d{i}`
+(собственные ключи объекта, `game` в том числе). Форму проверяют ядро и
+правило **E7**. Игра, которой оно нужно, объявляет `requires:
+['map.gameData']`. Байт состояния тела карты — `role: 'state'` в строке
+динамики, `SimCtx::map_body_state` в ядре, доступ игры к телам карты по
+индексу — это `requires: ['map.bodyState']`; см.
+[network.md](network.md#блоки-сущностей-kind-из-снапшот-схемы-игры).
 
 Прогон рампы закрыт физикой, а не одними правилами: движок строит
 коллайдеры-стражи по обоим бортам каждого прогона и поперёк его дальнего
@@ -689,8 +703,9 @@ setId, physicsStatic, physicsDynamic, levels, ramps, levelHeight}`: сырые �
 статические данные по уровням и отдаёт каждому экземпляру парта его `level`,
 `solid` (блокирующие тайлы), `floor`, `volume` (высоту слоя из `volumes`,
 `0` — слой плоский), `levelHeight` (мировых единиц на уровень, уже с
-масштабом) и `ramps` (конфиги рамп этого уровня — по ним парт строит клин
-над гридом, который у него уже есть) — см.
+масштабом), `ramps` (конфиги рамп этого уровня — по ним парт строит клин
+над гридом, который у него уже есть) и `game` (поле карты `game` как
+объявлено) — см.
 [client.md](client.md#mainjs--бутстрап-диспетчер-и-рендер-цикл). `setId` — ключ снапшота, которым едет динамика
 этой карты (`c1`/`c2`): без него игра не отличит свой блок динамики от блока
 чужого конструктора карт.
@@ -847,14 +862,19 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
   `on_ai_tick(ctx: &mut SimCtx, dt)`, `refresh_cached`,
   `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
   `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
-  handoff — сохраняется как задел), `rebuild_spatial_grid`.
+  handoff — сохраняется как задел), `rebuild_spatial_grid`,
+  `on_map_loaded(ctx: &mut SimCtx) -> Result<(), String>` (дефолт `Ok(())`:
+  каждая загрузка карты, но не `deserialize_state`; ошибка оставляет мир без
+  карты).
 - `SimCtx<'a>` (не generic по игре) — доступ игры к движковому, передаётся
   в тиковые callback'и: `world: &'a mut PhysicsWorld`,
   `cfg: &'a EngineConfig`, `map: &'a Option<GameMap>` (respawns),
   `nav`/`spatial: &'a Option<NavigationSystem>`/`&'a mut SpatialGrid`
   (A*/сетка — движковые утилиты в модуле `nav/`, без слова «bot»),
   `rng: &'a mut Rng`, `events: &'a mut Vec<CoreEvent>`,
-  `bodies_to_destroy: &'a mut Vec<RigidBodyHandle>`. Поля `game_cfg` нет —
+  `bodies_to_destroy: &'a mut Vec<RigidBodyHandle>`,
+  `map_body_state: &'a mut [u8]` (байт состояния каждого динамического тела
+  карты). Поля `game_cfg` нет —
   игровой конфиг передаётся только в `GameSim::new`, дальше игра хранит
   нужное сама.
 - Движок владеет: аккумулятор фикс-шага, сбор контактов, destroy-очередь,
@@ -991,7 +1011,10 @@ append-only реестре возможностей `src/lib/capabilities.js`, �
 рампы через несколько уровней, правила уровня и падение у тел карты,
 `z`/`level` в строке динамики, `volumes`) и `map.levelHeight` (поле карты
 `levelHeight`, безразмерный уклон рампы, коллайдеры-стражи прогона,
-`levelHeight`/`ramps` в контексте парта). Зарегистрированное имя
+`levelHeight`/`ramps` в контексте парта), `map.gameData` (непрозрачное поле
+карты `game` в ядре, `set_map` и контексте парта; хук ядра `on_map_loaded`) и
+`map.bodyState` (байт состояния тела карты, `role: 'state'`, и доступ игры к
+телам карты по индексу). Зарегистрированное имя
 поддерживается вечно — опубликованная игра могла его написать, и её `dist/`
 больше никто не тронет.
 
