@@ -56,6 +56,10 @@ pub struct Manifold {
     // точки лежат на поверхности тела `a` (иначе — `b`): по нему
     // `solver_points` находит середину между поверхностями
     incident_is_a: bool,
+    // номер вершины падающей грани, от которой пришла точка (0 или 1), —
+    // устойчивое имя точки между шагами, как `contact_id` у parry: место
+    // среди уцелевших точек сдвигается, когда соседка уходит за предсказание
+    ids: [u8; 2],
 }
 
 impl Manifold {
@@ -81,6 +85,13 @@ impl Manifold {
             cy: point.cy + half * point.depth * point.ny,
             ..*point
         })
+    }
+
+    /// Номера точек `as_slice` / `solver_points` — вершины падающей грани
+    /// (0 или 1), от которых они пришли: по ним `ContactRow::from_manifold`
+    /// строит ключ, устойчивый между шагами.
+    pub(crate) fn point_ids(&self) -> &[u8] {
+        &self.ids[..self.len]
     }
 
     /// Самая глубокая точка — ею делается позиционная коррекция: развод
@@ -258,9 +269,10 @@ pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
         cx: 0.0,
         cy: 0.0,
     }; 2];
+    let mut ids = [0; 2];
     let mut len = 0;
 
-    for point in &clipped {
+    for (id, point) in clipped.iter().enumerate() {
         // глубина точки — насколько она зашла ЗА плоскость референсной
         // грани; знак тот же, что у `Contact::depth`
         let depth = -((point[0] - ref_face[0][0]) * ref_normal[0]
@@ -277,6 +289,7 @@ pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
             cx: point[0],
             cy: point[1],
         };
+        ids[len] = id as u8;
         len += 1;
     }
 
@@ -288,6 +301,7 @@ pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
         points,
         len,
         incident_is_a: !owner_is_a,
+        ids,
     })
 }
 
@@ -303,6 +317,7 @@ fn fallback_manifold(a: &Box2, b: &Box2, prediction: f32, depth: f32) -> Option<
         points: [contact, contact],
         len: 1,
         incident_is_a: true,
+        ids: [0; 2],
     })
 }
 

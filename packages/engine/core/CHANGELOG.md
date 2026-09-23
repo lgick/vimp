@@ -13,6 +13,19 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Fixed
+
+- `client::rigid_body::step_bodies` joins two rows into a 2×2 block only
+  when they are the two points of one manifold (same bodies, same names in
+  the keys, points 0 then 1). Matching body indices alone glued the contacts
+  of two different walls held as one static body of the slice, and a point
+  was then solved along the other wall's normal.
+- `client::rigid_body::ContactRow::from_manifold` numbers a point by the
+  incident-face vertex it came from, not by its place among the surviving
+  points: when the first point dropped beyond the prediction distance, the
+  second inherited its key — its warm start and "not new" status, so it
+  never bounced.
+
 ## [0.22.0] — 2026-09-23
 
 ### Added

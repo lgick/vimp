@@ -341,8 +341,9 @@ pub struct ContactKey {
 }
 
 impl ContactKey {
-    /// Ключ точки `point` (номер точки манифольда, 0 или 1) пары `a`—`b`;
-    /// `a`, `b` — устойчивые имена тел у вызывающего (id игры, индекс блока).
+    /// Ключ точки `point` пары `a`—`b`; `a`, `b` — устойчивые имена тел у
+    /// вызывающего (id игры, индекс блока), `point` — номер вершины падающей
+    /// грани (0 или 1), его ставит `ContactRow::from_manifold`.
     pub fn new(a: u32, b: u32, point: u8) -> Self {
         Self { a, b, point }
     }
@@ -351,7 +352,8 @@ impl ContactKey {
 /// Строка контакта шага: тела по индексам среза `bodies`, точка манифольда на
 /// позе начала шага (нормаль от `a` к `b`), материал пары, ключ точки.
 /// Две точки одного манифольда идут в `rows` подряд — их решает блочный
-/// решатель пары.
+/// решатель пары; пару он узнаёт по одинаковым телам и именам в ключах и
+/// точкам 0, затем 1.
 #[derive(Clone, Copy, Debug)]
 pub struct ContactRow {
     pub a: usize,
@@ -365,7 +367,9 @@ impl ContactRow {
     /// Строки манифольда пары `a`—`b` для `step_bodies`: точки
     /// `Manifold::solver_points` (середины, как у parry) подряд — пару точек
     /// решает блочный решатель, и разорвать её нельзя; ключ точки —
-    /// `key_base` с её номером в манифольде (0 или 1).
+    /// `key_base` с номером вершины падающей грани, от которой она пришла
+    /// (0 или 1): он не сдвигается, когда соседняя точка уходит за
+    /// предсказание.
     pub fn from_manifold(
         a: usize,
         b: usize,
@@ -375,16 +379,13 @@ impl ContactRow {
     ) -> impl Iterator<Item = ContactRow> + '_ {
         manifold
             .solver_points()
-            .enumerate()
-            .map(move |(point, contact)| ContactRow {
+            .zip(manifold.point_ids())
+            .map(move |(contact, &point)| ContactRow {
                 a,
                 b,
                 contact,
                 surface,
-                key: ContactKey {
-                    point: point as u8,
-                    ..key_base
-                },
+                key: ContactKey { point, ..key_base },
             })
     }
 }
@@ -628,13 +629,22 @@ fn build_constraints(bodies: &[Body], rows: &[ContactRow], cache: &ContactCache,
 
     // две точки одного манифольда подряд — блок 2×2 (в 2D Rapier решает их
     // совместно, `BLOCK_SOLVER_ENABLED`); вырожденный блок — «лишняя» точка
-    // не толкает вовсе, как в `generate`
+    // не толкает вовсе, как в `generate`. Блок — только внутри манифольда:
+    // совпадения индексов тел мало (у вызывающего все стены могут быть одним
+    // телом среза), нужны те же имена пары в ключах и точки 0, затем 1
     let mut index = 0;
 
     while index + 1 < out.len() {
         let (first, second) = (out[index], out[index + 1]);
 
-        if first.a != second.a || first.b != second.b {
+        let one_manifold = first.a == second.a
+            && first.b == second.b
+            && first.key.a == second.key.a
+            && first.key.b == second.key.b
+            && first.key.point == 0
+            && second.key.point == 1;
+
+        if !one_manifold {
             index += 1;
             continue;
         }
@@ -1986,5 +1996,81 @@ mod tests {
             assert_eq!(row.surface, MAP_SURFACE);
             assert_eq!((row.contact.cx, row.contact.cy), (solver.cx, solver.cy));
         }
+    }
+
+    #[test]
+    fn a_point_keeps_its_key_when_its_neighbour_drops_out() {
+        // корпус под углом: у падающей грани уцелела только вторая вершина,
+        // первая ушла за предсказание. Ключ — номер вершины грани, а не
+        // место среди уцелевших: иначе точка унаследовала бы память соседки
+        // (warmstart и «не новая» — без отскока), а у parry у неё своя
+        use crate::client::collision::obb_manifold;
+        use crate::client::raycast::Box2;
+
+        let tank = Box2 {
+            x: 0.0,
+            y: 0.0,
+            angle: -0.4,
+            half_w: 4.0,
+            half_h: 3.0,
+        };
+        let wall = Box2 {
+            x: 4.5 + 6.4,
+            y: 0.0,
+            angle: 0.0,
+            half_w: 6.4,
+            half_h: 51.2,
+        };
+        let manifold = obb_manifold(&tank, &wall, 1.0).expect("манифольд");
+        let rows: Vec<ContactRow> =
+            ContactRow::from_manifold(0, 1, &manifold, MAP_SURFACE, ContactKey::new(0, 1, 0)).collect();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].key, ContactKey::new(0, 1, 1));
+    }
+
+    #[test]
+    fn a_pair_block_joins_only_the_two_points_of_one_manifold() {
+        // все стены — одно статическое тело среза (индекс 1): одноточечный
+        // манифольд правой стены, затем двухточечный нижней. Блок 2×2 —
+        // только внутри манифольда; склейка по индексам тел решала бы
+        // точку одной стены вдоль нормали другой. Итог обязан совпасть с
+        // тем же шагом, где у каждой стены своё тело
+        let point = |nx: f32, ny: f32, cx: f32, cy: f32| Contact {
+            nx,
+            ny,
+            depth: -0.1,
+            cx,
+            cy,
+        };
+        let row = |b: usize, contact: Contact, name: u32, point: u8| ContactRow {
+            a: 0,
+            b,
+            contact,
+            surface: tank_surface(),
+            key: ContactKey::new(0, name, point),
+        };
+        let run = |right: usize, floor: usize| {
+            let mut bodies = [
+                Body {
+                    vx: 150.0,
+                    vy: 150.0,
+                    ..replica_tank(head_on_start(0.0))
+                },
+                static_body(),
+                static_body(),
+            ];
+            let rows = [
+                row(right, point(1.0, 0.0, 4.0, 1.0), 10, 0),
+                row(floor, point(0.0, 1.0, -4.0, 3.0), 11, 0),
+                row(floor, point(0.0, 1.0, 4.0, 3.0), 11, 1),
+            ];
+
+            step_bodies(&mut bodies, &rows, &mut ContactCache::new(), DT);
+
+            bodies[0]
+        };
+
+        assert_eq!(run(1, 1), run(1, 2));
     }
 }

@@ -476,11 +476,17 @@ must not drift from them.
     consecutive rows. `Manifold::as_slice()` returns points on the incident
     body's surface; it is what the old solver expects, and feeding it to
     `step_bodies` shifts the friction lever by half the depth: an oblique
-    hit then turns the hull unlike the host, silently.
+    hit then turns the hull unlike the host, silently. Only the two rows of
+    one manifold form a 2×2 block — same bodies, same names in the keys,
+    points 0 then 1 — so a caller may keep all its walls as one static body
+    of the slice.
   - **Keys.** `ContactKey::new(a, b, point)` names the contact point
     across steps with **stable** names of the bodies (a game id, a block's
     index on its level), never with indices into `bodies`: the caller
-    rebuilds that slice every step.
+    rebuilds that slice every step. The point number is the vertex of the
+    incident face the point came from, not its place among the surviving
+    points — like parry's feature id, it does not shift when the
+    neighbouring point drops beyond the prediction distance.
   - **Memory.** `ContactCache` carries what parry keeps per point: the
     last substep's impulses (warm start) and the step's total normal
     impulse (a point that pushed last step is not new, so it does not
