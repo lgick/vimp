@@ -13,6 +13,29 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `client::rigid_body::step_bodies` (`ContactRow`, `ContactKey`,
+  `ContactCache`, `SOLVER_SUBSTEPS`): a step of predicted bodies that
+  follows Rapier's TGS solver — four substeps with a biased pass, position
+  integration and a bias-free pass, a 2×2 block solver for two-point
+  manifolds, and per-contact memory between steps (warmstart, restitution
+  only on a new contact). A body hitting a wall now leaves it exactly as on
+  the host, whichever substep closes the gap. `apply_contact_impulse`,
+  `separate_bodies` and `integrate` are unchanged.
+- `client::collision::Manifold::solver_points` and
+  `client::rigid_body::ContactRow::from_manifold`: the points `step_bodies`
+  expects — midway between the two surfaces, as parry reports them (the
+  gap's middle for a speculative contact) — laid out as consecutive rows of
+  one pair. `Manifold::as_slice` keeps feeding the old solver unchanged.
+
+### Fixed
+
+- `client::collision::obb_manifold` no longer invents a contact for a
+  separated pair whose faces do not overlap (corner to corner inside the
+  prediction gap): the host (parry) has none there. The blended-point
+  fallback remains for penetrating pairs only.
+
 ## [0.21.0] — 2026-09-23
 
 ### Added

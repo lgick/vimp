@@ -53,12 +53,34 @@ pub struct TileContact {
 pub struct Manifold {
     points: [Contact; 2],
     len: usize,
+    // точки лежат на поверхности тела `a` (иначе — `b`): по нему
+    // `solver_points` находит середину между поверхностями
+    incident_is_a: bool,
 }
 
 impl Manifold {
     /// Точки манифольда (одна или две).
     pub fn as_slice(&self) -> &[Contact] {
         &self.points[..self.len]
+    }
+
+    /// Точки для `client::rigid_body::step_bodies` (через
+    /// `ContactRow::from_manifold`): середины между поверхностями тел, как
+    /// `SolverContact::point` у parry, — у спекулятивного контакта середина
+    /// лежит в зазоре. `as_slice` отдаёт точки на поверхности падающего тела:
+    /// разница — полглубины вдоль нормали, и она меняет плечо трения; на
+    /// косом ударе это разворот корпуса не как у хоста. Старый решатель
+    /// (`apply_contact_impulse`) ждёт `as_slice` — перепутать их значит тихо
+    /// разъехаться с хостом.
+    pub fn solver_points(&self) -> impl Iterator<Item = Contact> + '_ {
+        // точка на `a` сдвигается к `b` на полглубины, точка на `b` — к `a`
+        let half = if self.incident_is_a { -0.5 } else { 0.5 };
+
+        self.as_slice().iter().map(move |point| Contact {
+            cx: point.cx + half * point.depth * point.nx,
+            cy: point.cy + half * point.depth * point.ny,
+            ..*point
+        })
     }
 
     /// Самая глубокая точка — ею делается позиционная коррекция: развод
@@ -191,8 +213,12 @@ pub fn obb_vs_obb_within(a: &Box2, b: &Box2, prediction: f32) -> Option<Contact>
 /// получает СВОЮ глубину. Пара «грань — грань» даёт две точки и честное
 /// плечо разворота, «угол — грань» — одну.
 /// `prediction` — тот же зазор спекулятивного контакта.
-/// Вырожденный случай (грани не перекрываются вовсе) откатывается к
-/// смешанной точке `obb_vs_obb_within`: манифольда там нет, а контакт есть.
+/// Вырожденный случай (грани не перекрываются вовсе) у ПЕРЕКРЫТОЙ пары
+/// откатывается к смешанной точке `obb_vs_obb_within`: манифольда там нет, а
+/// развести тела надо. Разведённая пара (угол к углу в пределах предсказания)
+/// в этом случае контакта не даёт — как у parry, который отсекает опорные
+/// грани и при пустом пересечении точек не строит. Иначе реплика тормозила
+/// о «зазор» там, где хост едет дальше (проезд проёма в стене).
 pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
     let (axis, _, owner_is_a) = separating_axis(a, b, prediction)?;
 
@@ -222,10 +248,7 @@ pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
     let clipped = clip_segment(&incident_face, tangent, t0.min(t1), t0.max(t1));
 
     let Some(clipped) = clipped else {
-        return obb_vs_obb_within(a, b, prediction).map(|contact| Manifold {
-            points: [contact, contact],
-            len: 1,
-        });
+        return fallback_manifold(a, b, prediction, axis.depth);
     };
 
     let mut points = [Contact {
@@ -258,13 +281,29 @@ pub fn obb_manifold(a: &Box2, b: &Box2, prediction: f32) -> Option<Manifold> {
     }
 
     if len == 0 {
-        return obb_vs_obb_within(a, b, prediction).map(|contact| Manifold {
-            points: [contact, contact],
-            len: 1,
-        });
+        return fallback_manifold(a, b, prediction, axis.depth);
     }
 
-    Some(Manifold { points, len })
+    Some(Manifold {
+        points,
+        len,
+        incident_is_a: !owner_is_a,
+    })
+}
+
+// откат манифольда без точек клиппинга: смешанная точка — только для
+// перекрытой пары, разведённая контакта не даёт (см. `obb_manifold`)
+fn fallback_manifold(a: &Box2, b: &Box2, prediction: f32, depth: f32) -> Option<Manifold> {
+    if depth < 0.0 {
+        return None;
+    }
+
+    // смешанная точка собрана из вершин `a` — она на его поверхности
+    obb_vs_obb_within(a, b, prediction).map(|contact| Manifold {
+        points: [contact, contact],
+        len: 1,
+        incident_is_a: true,
+    })
 }
 
 // ось SAT пары: нормаль от центра `a` к центру `b`, знаковая глубина,
@@ -768,6 +807,131 @@ mod tests {
         assert!((manifold.deepest().depth - single.depth).abs() < 1e-4);
     }
 
+    // проём шириной 12.8 в западной стене террасы (карта terraces): корпус
+    // 12×9 лбом в −x, до верхнего блока зазор по x 2.16, по y 1.9 — оба
+    // меньше предсказания, но грани по касательной не перекрываются
+    fn hull_in_the_gap() -> Box2 {
+        box2(200.16, 275.2, core::f32::consts::PI, 6.0, 4.5)
+    }
+
+    fn gap_blocks() -> [StaticBlock; 2] {
+        [217.6, 339.2].map(|y| StaticBlock {
+            x: 185.6,
+            y,
+            half_w: 6.4,
+            half_h: 51.2,
+        })
+    }
+
+    #[test]
+    fn separated_corner_to_corner_pair_has_no_manifold() {
+        // у хоста (parry) точек нет: отсечение опорных граней пусто. Откат к
+        // смешанной точке давал реплике контакт посреди лба, и скорость,
+        // закрывающая «зазор» быстрее шага, резалась там, где хост едет дальше
+        // (свидетель — `rapier_has_no_contact_for_a_separated_corner_to_corner_pair`)
+        let block = box2(185.6, 217.6, 0.0, 6.4, 51.2);
+
+        let manifold = obb_manifold(&hull_in_the_gap(), &block, 9.0);
+
+        assert!(manifold.is_none(), "{manifold:?}");
+    }
+
+    #[test]
+    fn penetrating_pair_with_empty_clipping_keeps_the_fallback() {
+        // перекрытая пара, у которой встречная грань не попадает в боковые
+        // плоскости опорной: откат к смешанной точке остаётся — тела уже
+        // внутри друг друга, и контакт нужен, чтобы их развести
+        let a = box2(0.0, 0.0, 0.31666827, 1.4172206, 1.9553933);
+        let b = box2(2.1324005, -3.209632, 2.6427114, 4.1391296, 3.3892164);
+
+        // геометрия действительно ведёт в ветку отката
+        let (axis, _, owner_is_a) = separating_axis(&a, &b, 0.0).expect("перекрытие");
+        let (reference, incident) = if owner_is_a {
+            (support_face(&a, [axis.nx, axis.ny]), support_face(&b, [-axis.nx, -axis.ny]))
+        } else {
+            (support_face(&b, [-axis.nx, -axis.ny]), support_face(&a, [axis.nx, axis.ny]))
+        };
+        let tangent = [-reference.1[1], reference.1[0]];
+        let t0 = reference.0[0][0] * tangent[0] + reference.0[0][1] * tangent[1];
+        let t1 = reference.0[1][0] * tangent[0] + reference.0[1][1] * tangent[1];
+
+        assert!(axis.depth > 0.0);
+        assert!(clip_segment(&incident.0, tangent, t0.min(t1), t0.max(t1)).is_none());
+
+        let manifold = obb_manifold(&a, &b, 0.0).expect("откат");
+        let single = obb_vs_obb_within(&a, &b, 0.0).expect("контакт");
+        let points = manifold.as_slice();
+
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].cx, single.cx);
+        assert_eq!(points[0].cy, single.cy);
+        assert_eq!(points[0].depth, single.depth);
+    }
+
+    #[test]
+    fn hull_passing_a_gap_between_blocks_has_no_contacts() {
+        assert!(collect_block_contacts(&hull_in_the_gap(), &gap_blocks(), 9.0).is_empty());
+    }
+
+    // точка решателя parry — середина между поверхностями тел
+    // (`SolverContact::point`), а не точка на падающем теле
+    fn solver_xs(manifold: &Manifold) -> Vec<f32> {
+        manifold.solver_points().map(|point| point.cx).collect()
+    }
+
+    #[test]
+    fn solver_points_of_an_overlap_lie_between_the_faces() {
+        // ось — у `a`, падающая грань — у `b` (x = 3), грань `a` — x = 5
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let b = box2(8.0, 0.0, 0.0, 5.0, 5.0);
+        let manifold = obb_manifold(&a, &b, 0.0).expect("манифольд");
+
+        assert!(manifold.as_slice().iter().all(|p| (p.cx - 3.0).abs() < 1e-4), "as_slice прежний");
+        assert!(solver_xs(&manifold).iter().all(|x| (x - 4.0).abs() < 1e-4), "{manifold:?}");
+    }
+
+    #[test]
+    fn solver_points_of_a_gap_lie_in_the_gap() {
+        // спекулятивный контакт: грань `a` — x = 5, грань `b` — x = 6
+        let a = box2(0.0, 0.0, 0.0, 5.0, 5.0);
+        let b = box2(11.0, 0.0, 0.0, 5.0, 5.0);
+        let manifold = obb_manifold(&a, &b, 2.0).expect("манифольд");
+
+        assert!(solver_xs(&manifold).iter().all(|x| (x - 5.5).abs() < 1e-4), "{manifold:?}");
+    }
+
+    #[test]
+    fn solver_point_of_a_corner_lies_between_the_corner_and_the_face() {
+        // угол `a` (x = 5√2) в грань `b` (x = 6): ось — у `b`, падающее — `a`;
+        // то же при зазоре (грань `b` — x = 10.5)
+        let a = box2(0.0, 0.0, core::f32::consts::FRAC_PI_4, 5.0, 5.0);
+        let corner = 5.0 * core::f32::consts::SQRT_2;
+
+        for (b, prediction) in [(box2(9.0, 0.0, 0.0, 3.0, 3.0), 0.0), (box2(13.5, 0.0, 0.0, 3.0, 3.0), 5.0)] {
+            let face = b.x - b.half_w;
+            let manifold = obb_manifold(&a, &b, prediction).expect("манифольд");
+            let xs = solver_xs(&manifold);
+
+            assert_eq!(xs.len(), 1);
+            assert!((xs[0] - (corner + face) / 2.0).abs() < 1e-3, "{manifold:?}");
+        }
+    }
+
+    #[test]
+    fn solver_point_of_the_fallback_is_shifted_off_body_a() {
+        // смешанная точка отката лежит на `a`: середина — на полглубины к `b`
+        let a = box2(0.0, 0.0, 0.31666827, 1.4172206, 1.9553933);
+        let b = box2(2.1324005, -3.209632, 2.6427114, 4.1391296, 3.3892164);
+        let manifold = obb_manifold(&a, &b, 0.0).expect("откат");
+        let point = manifold.as_slice()[0];
+        let solver: Vec<Contact> = manifold.solver_points().collect();
+
+        assert_eq!(solver.len(), 1);
+        assert!((solver[0].cx - (point.cx - point.depth / 2.0 * point.nx)).abs() < 1e-5);
+        assert!((solver[0].cy - (point.cy - point.depth / 2.0 * point.ny)).abs() < 1e-5);
+        assert_eq!(solver[0].depth, point.depth);
+    }
+
     #[test]
     fn block_collection_sees_the_wall_through_the_prediction_gap() {
         let block = StaticBlock {
@@ -994,4 +1158,56 @@ mod tests {
         assert!(hit.is_some());
         assert!((hit.unwrap() - 2.0).abs() < 1e-4);
     }
+
+    #[test]
+    fn rapier_has_no_contact_for_a_separated_corner_to_corner_pair() {
+        // свидетель хоста: проём шириной 12.8 в западной стене террасы
+        // (карта terraces), корпус 12×9 лбом в −x проезжает его на скорости
+        // 265. Зазор до верхнего блока по x 2.16 и по y 1.9 — оба меньше
+        // `soft_ccd_prediction` 9, но грани по касательной не перекрываются:
+        // parry отсекает опорные грани, точек нет, и тело едет дальше, теряя
+        // скорость только на демпфировании
+        use rapier2d::prelude::*;
+
+        let dt = 1.0 / 120.0;
+        let mut world = PhysicsWorld::new();
+
+        world.gravity = Vector::ZERO;
+        world.integration_parameters.dt = dt;
+
+        let tank = world.insert_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(200.16, 275.2))
+                .rotation(core::f32::consts::PI)
+                .linvel(Vector::new(-265.0, 0.0))
+                .linear_damping(3.0)
+                .angular_damping(100.0)
+                .soft_ccd_prediction(9.0),
+        );
+
+        world.insert_collider(
+            ColliderBuilder::cuboid(6.0, 4.5).density(200.0).friction(0.5).restitution(0.1),
+            Some(tank),
+        );
+
+        for y in [217.6, 339.2] {
+            let block = world.insert_body(RigidBodyBuilder::fixed().translation(Vector::new(185.6, y)));
+
+            world.insert_collider(ColliderBuilder::cuboid(6.4, 51.2), Some(block));
+        }
+
+        world.step();
+
+        let points: usize = world
+            .contact_pairs()
+            .flat_map(|pair| pair.manifolds.iter())
+            .map(|manifold| manifold.data.solver_contacts.len())
+            .sum();
+        let velocity = world.bodies[tank].linvel();
+
+        assert_eq!(points, 0, "у хоста контакта нет");
+        assert!((velocity.x + 265.0 / (1.0 + dt * 3.0)).abs() < 1e-3, "{velocity:?}");
+        assert!(velocity.y.abs() < 1e-3, "{velocity:?}");
+    }
+
 }

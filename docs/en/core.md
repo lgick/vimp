@@ -417,7 +417,12 @@ must not drift from them.
     all, and the hull does not turn where the server turns it. `Manifold`
     holds up to two `Contact`s; `Manifold::deepest()` is the one point that
     gets the positional correction (`separate_bodies` once per **pair**,
-    never per point).
+    never per point). When the faces do not overlap at all, a
+    **penetrating** pair falls back to the blended point of
+    `obb_vs_obb_within` (the bodies still have to be pushed apart), while a
+    **separated** pair — corner to corner inside the prediction gap — gets
+    no contact, exactly like parry. Otherwise the replica braked on a "gap"
+    the host drives straight past (a hull passing an opening in a wall).
   - **Accumulated impulses.** `apply_contact_impulse` takes
     `&mut ContactImpulses` — one per contact, living from the solver's first
     iteration to its last — and clamps the *accumulated* impulse, not the
@@ -444,8 +449,46 @@ must not drift from them.
   `separate_bodies` + `apply_contact_impulse` resolve the contacts on
   `Body` values, and `MAP_SURFACE` reuses `map::DEFAULT_FRICTION` /
   `DEFAULT_RESTITUTION` — the same figures the host builds its colliders
-  with. This is an approximation of Rapier, not a copy; the remaining drift
-  is hidden by the game's reconciliation.
+  with. This pair is an approximation of Rapier and is kept for
+  compatibility: it does not match the host on a hit.
+
+  **Rapier-matching step.** `step_bodies(bodies, rows, cache, dt)` replaces
+  `separate_bodies` + the `apply_contact_impulse` iterations + `integrate`
+  with a port of Rapier's TGS solver. The constraints are built once on the
+  step's start pose, then `SOLVER_SUBSTEPS` (4) substeps of `dt / 4` each
+  recompute the gap from the current poses, warm-start with the previous
+  substep's impulses, run a biased pass (a soft spring removes penetration,
+  a gap allows approach at `gap / h`), integrate the poses (rotation
+  linearized as in Rapier) and run a bias-free pass whose target is the
+  bounce of a *new* contact. The two points of one manifold are solved
+  together by a 2×2 block solver, normals before friction. Damping is
+  applied once, on the full `dt`. Why it matters: the outcome of a hit
+  depends on which substep closes the gap. Before the last one the body
+  leaves the wall with `−e·v`; on the last one there is no bounce, the rest
+  of the closing speed survives, and on the next step the point is no
+  longer new and cancels it. With a 1/120 step that is roughly one hit in
+  four, and a single per-step rule jerks by up to ~130 units/s there.
+
+  - **Rows.** Build them only with `ContactRow::from_manifold(a, b,
+    &manifold, surface, key_base)`: it takes `Manifold::solver_points()` —
+    the point midway between the two surfaces, as parry reports it (in the
+    middle of the gap for a speculative contact) — and lays the pair out as
+    consecutive rows. `Manifold::as_slice()` returns points on the incident
+    body's surface; it is what the old solver expects, and feeding it to
+    `step_bodies` shifts the friction lever by half the depth: an oblique
+    hit then turns the hull unlike the host, silently.
+  - **Keys.** `ContactKey::new(a, b, point)` names the contact point
+    across steps with **stable** names of the bodies (a game id, a block's
+    index on its level), never with indices into `bodies`: the caller
+    rebuilds that slice every step.
+  - **Memory.** `ContactCache` carries what parry keeps per point: the
+    last substep's impulses (warm start) and the step's total normal
+    impulse (a point that pushed last step is not new, so it does not
+    bounce). One cache per simulation; its `Clone` copies only that memory.
+    A predictor keeps a copy per step in its snapshot history and rewinds
+    it with the state; `clear()` is for a teleport, a reset or a rewind
+    past the history. Clearing it on every server frame is wrong: a replay
+    against a wall would then bounce on every frame.
 
 The trait's shape is validated by a fixture second client (`TestClient`,
 tests in `packages/engine/core/src/client/game.rs`) before any real second
