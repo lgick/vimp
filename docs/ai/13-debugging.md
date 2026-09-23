@@ -141,7 +141,7 @@ verdict about code you no longer ship.
 | `participants` | `[{ id, name, model }]`; `id` is a scenario-local handle referenced by `who` |
 | `timeline` | ops (`join`, `leave`, `key`, `chat`, `vote`), sorted by `tick` |
 | `unusedSnapshotKeys` | snapshot keys this scenario deliberately never produces; `"*"` = "this scenario does not audit key coverage", which makes invariant 2 skip (what the built-in scenario uses on a game it does not know) |
-| `divergence` | prediction-drift thresholds; `{}` = defaults, `null` = detector off, which makes invariant 9 skip |
+| `divergence` | prediction-drift thresholds (and `angles`, components compared on the circle); `{}` = defaults, `null` = detector off, which makes invariant 9 skip |
 | `ticks` | total ticks to run (default `600`) |
 | `dumpTicks` | ticks at which a full scene slice is written out |
 
@@ -248,7 +248,9 @@ before it overwrites your prediction.
 
 Thresholds come from the scenario's `divergence` field (`thresholds` is
 **positional** over the player block, since its layout is yours;
-`defaultThreshold` covers the rest; `capacity` sizes the ring buffer). A
+`defaultThreshold` covers the rest; `capacity` sizes the ring buffer;
+`angles` lists the indices of angle components, whose delta is wrapped into
+`(−π, π]` — list your heading, or a crossing of ±π reports a 2π drift). A
 record is stored only when a component exceeds its threshold. Matching is by
 **time**, not by input `seq` — reconciliation replays input history from the
 authoritative timestamp — so each record carries `serverTime`, `offset` and
@@ -258,11 +260,15 @@ Implementing level 1 is the single highest-value optional method for a game
 with client-side prediction. It turns "movement feels wrong sometimes" into
 a numbered component with a delta.
 
-Calibrate the thresholds instead of leaving the default: a fixed-step
-replica is compared when a frame arrives, so it is legitimately up to one
-`timeStep` behind (at top speed, `speed × timeStep` units of position), and
+Calibrate the thresholds instead of leaving the default. The headless
+runner delivers each tick's frames right after that tick's render (only
+`sendClear`/`sendMap`/`sendFirstShot` release them earlier), so the
+prediction and the frame describe the same moment: straight constant-speed
+motion shows ≈ 0 position delta at any speed, and thresholds need not scale
+with top speed (in the browser, frames arrive between render frames, so the
+replica may lag the frame by up to one render frame). What remains is
 whatever your replica does not simulate — collisions, explosion impulses,
-teleports — produces one-off spikes the next reconciliation absorbs. Keep
+teleports — each a one-off spike the next reconciliation absorbs. Keep
 those out of a drift-watching scenario, or set `"divergence": null` for it.
 The failure you are hunting is drift that *grows*.
 

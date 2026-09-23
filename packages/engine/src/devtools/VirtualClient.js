@@ -222,7 +222,7 @@ class VirtualClient {
   render(localNow) {
     // записи копятся в ядре на push_frame, поэтому вычерпываются до sample —
     // иначе тик с пустым hot-буфером (ранний выход ниже) их бы потерял
-    this._drainDivergence();
+    this.drainDivergence();
 
     const len = this.core.sample(localNow);
 
@@ -299,8 +299,9 @@ class VirtualClient {
   }
 
   // Записи детектора рассинхрона предикта из ядра. Агрегаты накопительные,
-  // поэтому просто перезаписываются; записи — вычерпываются.
-  _drainDivergence() {
+  // поэтому просто перезаписываются; записи — вычерпываются. Публичный:
+  // раннер вычерпывает кадры, доставленные после последнего рендер-тика.
+  drainDivergence() {
     if (typeof this.core.take_divergence !== 'function') {
       return;
     }

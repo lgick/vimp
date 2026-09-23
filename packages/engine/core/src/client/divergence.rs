@@ -88,7 +88,12 @@ impl DivergenceTracker {
         let mut exceeded = Vec::new();
 
         for index in 0..width {
-            let delta = obs.predicted[index] - obs.authoritative[index];
+            let mut delta = obs.predicted[index] - obs.authoritative[index];
+
+            // уровень 0 (камера) несёт только x/y — углов там нет
+            if obs.source == Source::State && self.cfg.is_angle(index) {
+                delta = wrap_angle(delta);
+            }
 
             deltas.push(delta);
 
@@ -152,6 +157,15 @@ impl DivergenceTracker {
     }
 }
 
+// разность углов → (−π, π]: 3.1412 − (−3.1416) — это 0.0004, а не 2π
+fn wrap_angle(delta: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+
+    let wrapped = delta.rem_euclid(TAU);
+
+    if wrapped > PI { wrapped - TAU } else { wrapped }
+}
+
 fn floats(values: &[f32]) -> Vec<Value> {
     values.iter().map(|v| json!(round4(*v))).collect()
 }
@@ -159,4 +173,72 @@ fn floats(values: &[f32]) -> Vec<Value> {
 // f32 → JSON без хвоста двоичного представления (10.100000381469727)
 fn round4(value: f32) -> f64 {
     ((value as f64) * 10_000.0).round() / 10_000.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tracker(divergence: Value) -> DivergenceTracker {
+        DivergenceTracker::new(serde_json::from_value(divergence).unwrap())
+    }
+
+    // угол у разреза ±π: 3.1412 и −3.1416 — одно направление с разницей
+    // 0.0004 рад, а наивная разность дала бы ≈ 2π
+    fn observe_across_pi(tracker: &mut DivergenceTracker) {
+        let mut predicted = [0.0; PLAYER_STATE_LEN];
+        let mut authoritative = [0.0; PLAYER_STATE_LEN];
+
+        predicted[2] = 3.1412;
+        authoritative[2] = -3.1416;
+
+        tracker.observe(Observation {
+            source: Source::State,
+            predicted: &predicted,
+            authoritative: &authoritative,
+            server_time: 1000.0,
+            local_now: 1000.0,
+            offset: 0.0,
+            input_seq: 1,
+            replayed: None,
+        });
+    }
+
+    fn report(tracker: &mut DivergenceTracker) -> Value {
+        serde_json::from_str(&tracker.take_json()).unwrap()
+    }
+
+    #[test]
+    fn angle_component_is_compared_on_the_circle() {
+        let mut tracker = tracker(json!({ "thresholds": [3, 3, 0.06], "angles": [2] }));
+
+        observe_across_pi(&mut tracker);
+
+        let report = report(&mut tracker);
+        let max = report["maxDelta"][2].as_f64().unwrap();
+
+        assert_eq!(report["violations"], 0);
+        assert!((max - 0.0004).abs() < 1e-4, "maxDelta[2] = {max}");
+    }
+
+    #[test]
+    fn without_angles_the_component_stays_linear() {
+        let mut tracker = tracker(json!({ "thresholds": [3, 3, 0.06] }));
+
+        observe_across_pi(&mut tracker);
+
+        let report = report(&mut tracker);
+
+        assert_eq!(report["violations"], 1);
+        assert_eq!(report["records"][0]["exceeded"], json!([2]));
+    }
+
+    #[test]
+    fn angle_index_out_of_the_player_block_is_ignored() {
+        let mut tracker = tracker(json!({ "thresholds": [3, 3, 0.06], "angles": [99] }));
+
+        observe_across_pi(&mut tracker);
+
+        assert_eq!(report(&mut tracker)["violations"], 1);
+    }
 }

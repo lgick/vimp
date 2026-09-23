@@ -227,7 +227,8 @@ lives in [plugin-api.md](plugin-api.md#clientplugin-api) (`ClientPlugin API` sec
 Absent from the production config, and then the frame path does nothing
 extra. Consumed by the client core, set from a scenario's `divergence` field
 in a headless run: `thresholds` (positional over the player block),
-`defaultThreshold`, `capacity` (ring buffer). See
+`defaultThreshold`, `capacity` (ring buffer), `angles` (indices of angle
+components, compared on the circle). See
 [debugging.md](debugging.md#prediction-divergence-detector).
 
 ### `modules.canvasManager` — canvases and camera

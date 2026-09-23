@@ -9,6 +9,16 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- The headless runner delivers frames after the render tick, so the
+  prediction divergence detector compares the prediction and the frame at the
+  same moment and no longer reports one fixed step of lag. Only
+  `sendClear`, `sendMap` and `sendFirstShot` release pending frames before the
+  render; a ping or panel message in the same tick no longer does. Frames of
+  the last tick still pass one more render, so the render-side invariants see
+  them.
+
 ## [0.34.0] — 2026-09-14
 
 ### Added

@@ -13,6 +13,12 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `divergence.angles`: components compared on the circle, so an angle
+  crossing ±π no longer reports a 2π drift. Empty by default — the detector
+  behaves as before; an index past the player block is ignored.
+
 ## [0.20.0] — 2026-09-14
 
 ### Added

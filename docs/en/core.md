@@ -478,7 +478,8 @@ the ABI macros, so every game gets them for free and
   uses the optional `GameClientDef::predicted_state()` (component-wise) and
   `replayed_inputs()` (the replayed input window), both defaulting to
   `None`. Configuration is the optional `EngineClientConfig.divergence`
-  (`thresholds` positional, `defaultThreshold`, ring-buffer `capacity`) —
+  (`thresholds` positional, `defaultThreshold`, ring-buffer `capacity`,
+  `angles` — angle components whose delta is wrapped into `(−π, π]`) —
   absent in production, and then the frame path is untouched.
   `ClientCore.take_divergence()` drains the buffer. Matching is by frame
   **time**, not by `seq`, because reconciliation replays the input history

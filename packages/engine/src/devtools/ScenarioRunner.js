@@ -32,6 +32,10 @@ const RECORDED_PORTS = {
   sendTechInform: 'techInform',
 };
 
+// Сообщения, перед которыми отложенные кадры клиента доставляются сразу:
+// они сбрасывают или заменяют его мир (см. routeFrame).
+const FLUSHING_METHODS = new Set(['sendClear', 'sendMap', 'sendFirstShot']);
+
 // В headless-контуре нет ни мастера, ни auth-сервиса — участник стартует с
 // пустым профилем (lib/offlinePlayerData.js, общее со standalone/dedicated).
 const emptyProfileFetch = offlinePlayerData();
@@ -133,6 +137,12 @@ export async function runScenario(rawScenario, options = {}) {
 
 async function execute(scenario, plugin, virtualClock, { captureFrames }) {
   const clients = new Map(); // socketId → VirtualClient
+  // sendShot не вталкивается в клиента сразу: кадр момента T, доставленный
+  // до render(T), сравнивался бы детектором рассинхрона с репликой на
+  // T − timeStep — ложный дрейф v · timeStep. Кадры копятся здесь и
+  // доставляются после рендер-тика (docs/*/debugging.md, «Prediction
+  // divergence detector»)
+  const pendingShots = new Map(); // socketId → [bytes]
   const byParticipant = new Map(); // id сценария → { socketId, gameId }
   const participantLog = []; // [{ who, socketId, gameId, joinTick, leaveTick }]
   const mapChanges = [];
@@ -165,7 +175,8 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
     // получить те же порты и ту же игровую параметризацию
     createSocketManager: (ports, gameOpts) => {
       socketManager = new RecordingSocketManager(ports, gameOpts, {
-        onFrame: frame => routeFrame(frame, clients, virtualClock, host),
+        onFrame: frame =>
+          routeFrame(frame, clients, pendingShots, virtualClock, host),
       });
 
       return socketManager;
@@ -211,6 +222,7 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
         clientCfg,
         plugin,
         clients,
+        pendingShots,
         byParticipant,
         participantLog,
         inputSeq,
@@ -224,8 +236,9 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
       await virtualClock.advance(stepMs);
     }
 
-    for (const client of clients.values()) {
+    for (const [socketId, client] of clients) {
       client.render(virtualClock.monotonic());
+      deliverShots(socketId, clients, pendingShots, virtualClock);
     }
 
     if (dumpTicks.has(tick)) {
@@ -238,6 +251,16 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
         clients: [...clients.values()].map(client => client.snapshot()),
       });
     }
+  }
+
+  // кадры последнего advance доставляются уже после финального дампа (срез
+  // сцены не меняется), но ещё раз проходят рендер: без него проверки
+  // finiteValues/hotLayout/renderCoverage не видели бы последнего тика, а
+  // агрегаты детектора (render вычерпывает их первым делом) — его кадров.
+  // Время то же — реплика не шагает повторно
+  for (const [socketId, client] of clients) {
+    deliverShots(socketId, clients, pendingShots, virtualClock);
+    client.render(virtualClock.monotonic());
   }
 
   return buildReport({
@@ -261,22 +284,35 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
 
 // исходящий кадр хоста → клиент-получатель. sendShot несёт байты, которые в
 // проде ушли бы в data channel — их и скармливаем клиентскому ядру
-function routeFrame(frame, clients, virtualClock, host) {
+function routeFrame(frame, clients, pendingShots, virtualClock, host) {
   const client = clients.get(frame.socketId);
 
   if (!client) {
     return;
   }
 
+  // кадр ждёт рендер-тика своего момента (см. pendingShots в runScenario)
+  if (frame.method === 'sendShot') {
+    if (!pendingShots.has(frame.socketId)) {
+      pendingShots.set(frame.socketId, []);
+    }
+
+    pendingShots.get(frame.socketId).push(frame.args[0]);
+    return;
+  }
+
+  // отложенные кадры выпускают только сообщения, меняющие мир клиента: кадр
+  // старой карты не должен доехать после CLEAR/MAP/первого снапшота. Пинг
+  // (каждые rttPingInterval), панель и прочие очередь не трогают — иначе
+  // кадр их тика доставлялся бы до рендера, на шаг раньше реплики
+  if (FLUSHING_METHODS.has(frame.method)) {
+    deliverShots(frame.socketId, clients, pendingShots, virtualClock);
+  }
+
   // pong отвечается мгновенно: латентность headless-прогона равна нулю, и
   // это единственная честная её модель
   if (frame.method === 'sendPing') {
     host?.updateRTT(client.gameId, frame.args[0]);
-    return;
-  }
-
-  if (frame.method === 'sendShot') {
-    client.pushFrame(frame.args[0], virtualClock.monotonic());
     return;
   }
 
@@ -307,10 +343,27 @@ function routeFrame(frame, clients, virtualClock, host) {
   }
 }
 
+function deliverShots(socketId, clients, pendingShots, virtualClock) {
+  const queue = pendingShots.get(socketId);
+
+  if (!queue?.length) {
+    return;
+  }
+
+  pendingShots.delete(socketId);
+
+  const client = clients.get(socketId);
+
+  for (const bytes of queue) {
+    client?.pushFrame(bytes, virtualClock.monotonic());
+  }
+}
+
 async function applyOp(op, ctx) {
   const {
     host,
     clients,
+    pendingShots,
     byParticipant,
     participantLog,
     inputSeq,
@@ -333,6 +386,7 @@ async function applyOp(op, ctx) {
         // текучкой участников растит процесс
         clients.get(entry.socketId)?.destroy();
         clients.delete(entry.socketId);
+        pendingShots.delete(entry.socketId);
         byParticipant.delete(op.who);
 
         const logged = participantLog.find(

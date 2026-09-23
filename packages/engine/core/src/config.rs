@@ -59,6 +59,11 @@ pub struct DivergenceConfig {
     /// попадает в отчёт как `dropped`).
     #[serde(default = "default_divergence_capacity")]
     pub capacity: usize,
+    /// Индексы компонентов-углов: их разность приводится к `(−π, π]`, иначе
+    /// одно направление по разные стороны разреза ±π давало бы Δ ≈ 2π.
+    /// Индекс за пределами player-блока не участвует, как и лишние пороги.
+    #[serde(default)]
+    pub angles: Vec<usize>,
 }
 
 impl DivergenceConfig {
@@ -67,6 +72,10 @@ impl DivergenceConfig {
             .get(index)
             .copied()
             .unwrap_or(self.default_threshold)
+    }
+
+    pub fn is_angle(&self, index: usize) -> bool {
+        self.angles.contains(&index)
     }
 }
 

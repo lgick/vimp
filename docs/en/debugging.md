@@ -214,7 +214,7 @@ dependencies, or install the package.
 | `participants` | `[{ id, name, model }]`, non-empty; `id` is the scenario-local handle used by `who` |
 | `timeline` | ops, sorted by `tick` on parse |
 | `unusedSnapshotKeys` | snapshot keys this scenario deliberately never spawns (see invariant 2); `"*"` means "this scenario does not audit key coverage at all" and makes invariant 2 skip — used by the built-in scenario when it runs on someone else's game |
-| `divergence` | thresholds for the prediction detector; `{}` = core defaults, `null` = detector off, which makes invariant 9 skip |
+| `divergence` | thresholds for the prediction detector (and `angles`, the components compared on the circle); `{}` = core defaults, `null` = detector off, which makes invariant 9 skip |
 | `ticks` | how many ticks to run (default `600`) |
 | `dumpTicks` | ticks at which a scene slice is dumped (default: the last tick) |
 
@@ -370,7 +370,7 @@ config (absent in production, and then the frame path is not touched at
 all):
 
 ```json
-{ "thresholds": [0.5, 0.5], "defaultThreshold": 1.0, "capacity": 64 }
+{ "thresholds": [0.5, 0.5, 0.06], "defaultThreshold": 1.0, "angles": [2], "capacity": 64 }
 ```
 
 `thresholds` is **positional** over the player block (its layout is
@@ -379,14 +379,35 @@ land in a ring buffer of `capacity` entries — evicted ones are counted as
 `dropped`. A record is only stored if at least one component exceeded its
 threshold, otherwise the report would drown in noise.
 
-Calibrating the thresholds is part of writing the scenario. Two sources of
-*expected* difference exist, and a threshold below them turns the check into
-noise:
+`angles` lists the indices of components that are angles (empty by
+default). Their delta is wrapped into `(−π, π]` before it is compared and
+reported: without it one heading on the two sides of the ±π cut — say
+`3.1412` predicted against `−3.1416` authoritative — reads as a drift of
+≈ 2π instead of 0.0004. The engine does not guess angles from the values (a
+real turn by ≈ 2π would be masked), so the game names them. An index past
+the player block is ignored, like a surplus threshold.
 
-- **one fixed step of lag.** The comparison happens when a frame arrives,
-  between render ticks, so the replica is up to one `timeStep` behind the
-  authoritative state — at top speed that is `speed × timeStep` units of
-  position and one step of acceleration in velocity.
+Calibrating the thresholds is part of writing the scenario. The comparison
+is only meaningful when the prediction and the frame describe the same
+moment:
+
+- **headless: the same moment.** The runner delivers each tick's state
+  frames right after that tick's render (`render(now)`, then
+  `pushFrame(bytes, now)`), so the replica has already stepped up to the
+  frame's time when the detector compares. Only messages that reset or
+  replace the client's world (`sendClear`, `sendMap`, `sendFirstShot`)
+  release the pending frames earlier, so no old-map frame lands after them;
+  pings, panels and the rest leave the queue alone. A body moving at a
+  constant velocity shows a position delta of ≈ 0 at any speed — the
+  thresholds do not have to grow with the game's top speed.
+- **browser: up to one render frame.** Live frames arrive between render
+  frames, so the replica may still stand at the previous render tick — up to
+  that interval (and at most one `timeStep` of physics) behind the frame.
+  Keep that in mind when reading drift uploaded from a browser session.
+
+One source of *expected* difference remains, and a threshold below it turns
+the check into noise:
+
 - **what the replica does not simulate.** Collisions, explosion impulses and
   teleports are authoritative-only; each produces a single large spike that
   the next reconciliation absorbs. Keep them out of a scenario that watches

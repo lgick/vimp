@@ -137,6 +137,67 @@ describe('runScenario (фикстура miniGame)', () => {
     expect(check.status).toBe('pass');
   });
 
+  // фикстура, как Rust-ядро, сравнивает предикт на момент последнего
+  // sample(): если кадр доставлен до рендер-тика своего момента, Δy равна
+  // v · timeStep (40 · 8.33 мс ≈ 0.33) — сдвиг времени, а не рассинхрон
+  it('детектор сравнивает предикт и кадр на один момент (без шага отставания)', () => {
+    const drift = report.clients[0].divergence;
+
+    expect(drift.samples).toBeGreaterThan(0);
+    expect(drift.maxDelta[1]).toBeLessThan(0.05);
+  });
+
+  // пинг хоста в том же advance, что и кадр, не должен выпускать кадр до
+  // рендер-тика: иначе реплика снова на шаг позади кадра
+  it('пинг в тик кадра не сдвигает доставку кадра раньше рендера', async () => {
+    const pinged = scenario();
+
+    pinged.config = { timers: { networkSendRate: 1, rttPingInterval: 50 } };
+
+    const result = await runScenario(pinged, { plugin });
+    const drift = result.clients[0].divergence;
+
+    expect(result.frameCounts.sendPing).toBeGreaterThan(1);
+    expect(drift.samples).toBeGreaterThan(0);
+    expect(drift.maxDelta[1]).toBeLessThan(0.05);
+  });
+
+  // кадры доставляются после рендера — кадры последнего advance обязаны
+  // пройти ещё один sample, иначе finiteValues/hotLayout/renderCoverage
+  // их не видят (а при ticks: 0 не видели бы ни одного кадра)
+  it('кадры последнего тика проходят через рендер', async () => {
+    const calls = [];
+    const spied = {
+      ...plugin,
+      clientPlugin: {
+        ...plugin.clientPlugin,
+        createClientCore: async (...args) => {
+          const created = await plugin.clientPlugin.createClientCore(...args);
+          const { core } = created;
+          const pushFrame = core.push_frame.bind(core);
+          const sample = core.sample.bind(core);
+
+          // eslint-disable-next-line camelcase -- snake_case ABI ClientCore
+          core.push_frame = (...rest) => {
+            calls.push('push');
+            return pushFrame(...rest);
+          };
+          core.sample = (...rest) => {
+            calls.push('sample');
+            return sample(...rest);
+          };
+
+          return created;
+        },
+      },
+    };
+
+    await runScenario(scenario(), { plugin: spied });
+
+    expect(calls).toContain('push');
+    expect(calls[calls.length - 1]).toBe('sample');
+  });
+
   it('инвариант 9 ловит дрейф, как только порог опущен ниже него', async () => {
     const strict = scenario();
 

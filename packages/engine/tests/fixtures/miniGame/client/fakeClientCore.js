@@ -40,6 +40,10 @@ export default class FakeClientCore {
     this._inputs = []; // [{ time, vy }] в локальном времени
     this._base = null; // { x, y, time, vy } — последнее авторитетное, в серверном
     this._offset = 0;
+    // локальное время последнего sample(): реплика Rust-ядра шагает только
+    // в нём, и predicted_state() отдаёт состояние на этот момент, а не на
+    // момент кадра — фикстура сравнивает так же, чтобы сдвиг был виден
+    this._sampledAt = null;
   }
 
   push_frame(data, localNow = 0) {
@@ -66,7 +70,9 @@ export default class FakeClientCore {
     return 0;
   }
 
-  sample() {
+  sample(localNow = 0) {
+    this._sampledAt = localNow;
+
     if (!this._frame || !this._hotKey) {
       this._hot = new Float32Array(0);
 
@@ -157,7 +163,11 @@ export default class FakeClientCore {
     const time = frame.serverTime;
 
     if (this._base) {
-      const predicted = this._predictAt(time);
+      // до первого sample() момента реплики ещё нет — сравнение на момент
+      // кадра, как было до учёта sample (сдвига в этот момент нет)
+      const predicted = this._predictAt(
+        this._sampledAt === null ? time : this._sampledAt + this._offset,
+      );
 
       this._compare(predicted, authoritative, frame);
     }
@@ -273,6 +283,7 @@ export default class FakeClientCore {
     this._hot = new Float32Array(0);
     this._base = null;
     this._inputs = [];
+    this._sampledAt = null;
   }
 
   // зеркало ClientState::debug_json; у фикстуры буфер — один последний
