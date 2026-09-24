@@ -13,6 +13,17 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Fixed
+
+- `client::rigid_body::step_bodies` treats an ill-conditioned 2×2 block
+  (condition number above 1000, Box2D's threshold) as degenerate, so its
+  second point does not push. Two points of one manifold microns apart
+  left the block singular only up to f32 rounding; its inverse was
+  millions of times the single-point mass, the pair pumped energy into the
+  body (it left a wall faster than it hit it), and a predicted body could
+  reach inf/NaN — the client camera and the sound listener then received
+  NaN and the picture disappeared.
+
 ## [0.22.1] — 2026-09-23
 
 ### Fixed

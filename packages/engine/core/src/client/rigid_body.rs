@@ -490,6 +490,10 @@ struct Constraint {
     r_mat: [f32; 2],
 }
 
+// наибольшее число обусловленности блока 2×2 двух точек манифольда
+// (`k_maxConditionNumber` Box2D): хуже — точки считаются дублем
+const MAX_BLOCK_CONDITION: f32 = 1000.0;
+
 // `utils::simd_inv` Rapier: обратная величина, ноль у вырожденной
 fn inv(value: f32) -> f32 {
     if (-1.0e-20..=1.0e-20).contains(&value) {
@@ -658,7 +662,12 @@ fn build_constraints(bodies: &[Body], rows: &[ContactRow], cache: &ContactCache,
             + first.normal.ii_torque_a * second.normal.torque_a
             + first.normal.ii_torque_b * second.normal.torque_b;
         let determinant = m11 * m22 - m12 * m12;
-        let invertible = determinant > 0.0;
+        // Rapier проверяет только `determinant > 0`. Точки в микронах друг
+        // от друга дают блок, вырожденный лишь до округления f32: его
+        // обращение в миллионы раз больше массы точки, и пара накачивает
+        // энергию вплоть до inf/NaN. Плохо обусловленный блок решается как
+        // вырожденный — лишняя точка не толкает (порог Box2D)
+        let invertible = determinant > 0.0 && m11 * m11 < MAX_BLOCK_CONDITION * determinant;
 
         out[index].pair_first = true;
         out[index].r_mat = if invertible {
@@ -961,6 +970,84 @@ mod tests {
             cx: 5.0,
             cy: 0.0,
         }
+    }
+
+    // Две точки одного манифольда почти в одном месте: блок 2×2 почти
+    // вырожден, но округление f32 оставляет определитель положительным, и
+    // обращённая матрица блока в миллионы раз больше массы одной точки.
+    // Решатель пары тогда накачивал энергию: тело отскакивало от стены
+    // быстрее, чем влетало, и за несколько шагов у стены уходило в inf/NaN.
+    // Прирост скорости обязан остаться тем же, что при разнесённых точках —
+    // от выталкивания из проникновения (`MAX_CORRECTIVE_VELOCITY`)
+    #[test]
+    fn step_bodies_near_coincident_pair_does_not_pump_energy() {
+        let mut seed = 12345_u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed as f32 / u32::MAX as f32
+        };
+        let mut worst = 0.0_f32;
+
+        for _ in 0..20_000 {
+            let (ny, nx) = (rnd() * std::f32::consts::TAU).sin_cos();
+            let (tx, ty) = (-ny, nx);
+            let offset = (rnd() - 0.5) * 30.0;
+            let gap = 10.0_f32.powf(-5.0 - rnd() * 2.0);
+            let cx = 11.0 * nx + offset * tx;
+            let cy = 11.0 * ny + offset * ty;
+            let speed = rnd() * 300.0;
+            let heading = rnd() * std::f32::consts::TAU;
+            let mut bodies = [
+                Body {
+                    x: rnd(),
+                    y: rnd(),
+                    angle: rnd() * std::f32::consts::TAU,
+                    vx: speed * heading.cos(),
+                    vy: speed * heading.sin(),
+                    angvel: (rnd() - 0.5) * 10.0,
+                    inv_mass: 1.0 / 30.0,
+                    inv_inertia: 1.0 / 4000.0,
+                    linear_damping: 0.5,
+                    angular_damping: 2.0,
+                },
+                static_body(),
+            ];
+            let depth0 = (rnd() - 0.3) * 2.0;
+            let depth1 = depth0 + (rnd() - 0.5) * gap;
+            let key = ContactKey::new(1, 2, 0);
+            let row = |point: u8, shift: f32, depth: f32| ContactRow {
+                a: 0,
+                b: 1,
+                contact: Contact {
+                    nx,
+                    ny,
+                    depth,
+                    cx: cx + shift * tx,
+                    cy: cy + shift * ty,
+                },
+                surface: smooth(0.2),
+                key: ContactKey { point, ..key },
+            };
+            let rows = [row(0, 0.0, depth0), row(1, gap, depth1)];
+            let mut cache = ContactCache::new();
+
+            for _ in 0..3 {
+                step_bodies(&mut bodies, &rows, &mut cache, DT);
+            }
+
+            let b = bodies[0];
+
+            for value in [b.x, b.y, b.angle, b.vx, b.vy, b.angvel] {
+                assert!(value.is_finite(), "gap {gap}: {b:?}");
+            }
+
+            worst = worst.max(b.vx.hypot(b.vy) - speed);
+        }
+
+        // у разнесённых точек тот же прогон даёт ≈ 33
+        assert!(worst < 40.0, "прирост скорости {worst}");
     }
 
     #[test]

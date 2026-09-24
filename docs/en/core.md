@@ -461,7 +461,12 @@ must not drift from them.
   a gap allows approach at `gap / h`), integrate the poses (rotation
   linearized as in Rapier) and run a bias-free pass whose target is the
   bounce of a *new* contact. The two points of one manifold are solved
-  together by a 2×2 block solver, normals before friction. Damping is
+  together by a 2×2 block solver, normals before friction. Unlike Rapier,
+  whose only test is `det > 0`, a block whose condition number exceeds
+  1000 (Box2D's threshold, `MAX_BLOCK_CONDITION`) is treated as degenerate
+  and its second point does not push: two points microns apart leave the
+  block singular only up to f32 rounding, and its inverse then pumped
+  energy into the body until it reached inf/NaN. Damping is
   applied once, on the full `dt`. Why it matters: the outcome of a hit
   depends on which substep closes the gap. Before the last one the body
   leaves the wall with `−e·v`; on the last one there is no bounce, the rest
