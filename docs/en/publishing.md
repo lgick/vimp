@@ -296,8 +296,9 @@ time. A game's level does not come from its changelog but from propagation
 (a crate release or a new `ENGINE_API_VERSION` → minor, otherwise patch) and
 is always confirmed by hand. A game's own `CHANGELOG.md`, when it has one, is
 still dated in the release commit: a non-empty `[Unreleased]` becomes
-`## [X.Y.Z] - date` (the separator follows the file's dated entries) under a
-fresh empty `[Unreleased]`, with no tag-link block.
+`## [X.Y.Z] - date` under a fresh empty `[Unreleased]`, with no tag-link
+block. The separator follows the file's own dated entries; a journal with
+none yet gets a hyphen for a game, an em dash for an engine journal.
 
 ## Step 0: unlink the local checkouts (before any release)
 

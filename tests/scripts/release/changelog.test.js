@@ -435,6 +435,30 @@ describe('releaseUnreleased', () => {
     expect(parseUnreleased(next).isEmpty).toBe(true);
   });
 
+  // игра до первого датированного релиза: образца в файле нет, и тире
+  // движка разошлось бы с дефисом остальных игровых журналов
+  it('без датированных записей берёт дефис для игры и тире для движка', () => {
+    const fresh = '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- x\n';
+
+    expect(
+      releaseUnreleased(fresh, {
+        version: '0.1.0',
+        date: '2026-09-25',
+        repoUrl: null,
+        artifact: '@vimp-games/new',
+      }),
+    ).toContain('## [0.1.0] - 2026-09-25');
+
+    expect(
+      releaseUnreleased(fresh, {
+        version: '0.1.0',
+        date: '2026-09-25',
+        repoUrl: 'https://github.com/lgick/vimp',
+        artifact: 'vimp-engine',
+      }),
+    ).toContain('## [0.1.0] — 2026-09-25');
+  });
+
   it('падает, если секции [Unreleased] нет', () => {
     expect(() =>
       releaseUnreleased('# Changelog\n', {

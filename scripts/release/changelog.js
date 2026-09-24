@@ -5,6 +5,7 @@ import { levelForBreaking } from './semver.js';
 // файлах — `## [X.Y.Z] — YYYY-MM-DD` с длинным тире, ссылки внизу файла.
 
 const EM_DASH = '—';
+const HYPHEN = '-';
 const UNRELEASED_HEADING = /^##\s+\[Unreleased\]\s*$/;
 // секция кончается на любом следующем `## ` или на блоке ссылок внизу:
 // в журнале нового пакета релизных заголовков ещё нет вовсе
@@ -245,7 +246,10 @@ export function releaseUnreleased(text, { version, date, repoUrl, artifact }) {
     throw new Error('CHANGELOG has no "## [Unreleased]" section');
   }
 
-  const separator = DATED_HEADING.exec(text)?.[1] ?? EM_DASH;
+  // журнал без единой датированной записи (игра до первого релиза) отдаёт
+  // конвенцию своего вида: у журналов движка тире, у журналов игр дефис
+  const separator =
+    DATED_HEADING.exec(text)?.[1] ?? (repoUrl ? EM_DASH : HYPHEN);
 
   // [Unreleased] остаётся на месте пустой: это конвенция всех журналов и
   // третий сигнал детекта для следующего релиза
