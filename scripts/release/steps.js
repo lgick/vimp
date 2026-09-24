@@ -734,6 +734,47 @@ export async function checkPackedGame({ shell, dir, engineApi }) {
   }
 }
 
+const INSTALL_ATTEMPTS = 10;
+const INSTALL_RETRY_MS = 15000;
+
+// `npm view` (им awaitRegistry ждал версию) ходит в реестр мимо кеша, а
+// `npm i` берёт сокращённый манифест, который CDN реестра отдаёт с отставанием
+// в минуты: свежая версия там ещё ETARGET. --prefer-online обходит локальный
+// кеш, повтор пережидает CDN
+export async function installEngine(
+  shell,
+  dir,
+  version,
+  { attempts = INSTALL_ATTEMPTS, retryMs = INSTALL_RETRY_MS } = {},
+) {
+  const args = [
+    'i',
+    '-D',
+    '--prefer-online',
+    '--no-audit',
+    '--no-fund',
+    `${ENGINE_NAME}@^${version}`,
+  ];
+
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await shell.write('npm', args, { cwd: dir });
+    } catch (error) {
+      const lagging = /ETARGET/.test(error.output ?? '');
+
+      if (!lagging || attempt >= attempts) {
+        throw error;
+      }
+
+      ui.log(
+        `  ! ${ENGINE_NAME}@${version} ещё не виден npm install ` +
+          `(попытка ${attempt}/${attempts}), повтор через ${retryMs / 1000}s`,
+      );
+      await new Promise(resolve => setTimeout(resolve, retryMs));
+    }
+  }
+}
+
 export async function publishGame({
   shell,
   game,
@@ -765,18 +806,7 @@ export async function publishGame({
   }
 
   if (engineVersion) {
-    // без --prefer-offline: версия движка могла уехать в реестр секунды назад
-    await shell.write(
-      'npm',
-      [
-        'i',
-        '-D',
-        '--no-audit',
-        '--no-fund',
-        `${ENGINE_NAME}@^${engineVersion}`,
-      ],
-      { cwd: dir },
-    );
+    await installEngine(shell, dir, engineVersion);
   }
 
   // сборка всегда: `dist/` и `core/pkg-*` не в git, иначе уедет вчерашняя

@@ -588,6 +588,11 @@ Both directions matter: without the reverse link the plugin's
 - **npm versions are immutable, crates.io versions are too.** A rollback is
   always a new patch release; on crates.io a bad version can additionally be
   hidden with `cargo yank --version X.Y.Z`.
+- **`npm view` sees a fresh version minutes before `npm install` does.** The
+  install reads the registry CDN's abbreviated metadata, which lags behind,
+  and answers `ETARGET`. The release script installs the engine into a game
+  with `--prefer-online` and retries `ETARGET` (10 × 15 s); by hand, just
+  repeat the install after a minute.
 - **`deploy.yml` does not wait for `test.yml`.** Green tests before the push
   are on you; CI does not gate production.
 - **`dist/` and `core/pkg-*` are gitignored in the game repo.** The tarball

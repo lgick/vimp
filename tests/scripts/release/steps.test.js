@@ -14,6 +14,7 @@ import {
   withPublishedGame,
   simVersion,
   gameCommitPaths,
+  installEngine,
   publishEngine,
   publishScaffold,
   rollOutProduction,
@@ -903,5 +904,71 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     expect(
       shell.calls.filter(call => call.includes('@vimp-games/stale@')),
     ).toEqual([]);
+  });
+});
+
+// npm view уже видит свежий движок, а npm i в той же минуте ещё отвечает
+// ETARGET: CDN реестра отдаёт сокращённый манифест с отставанием
+describe('installEngine', () => {
+  const failure = output =>
+    new CommandError({ command: 'npm i', cwd: '/game', code: 1, output });
+
+  const flakyShell = failures => {
+    const calls = [];
+
+    return {
+      calls,
+      write: async (command, args) => {
+        calls.push([command, ...args].join(' '));
+
+        if (failures.length > 0) {
+          throw failures.shift();
+        }
+
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      },
+    };
+  };
+
+  it('ставит движок в обход локального кеша', async () => {
+    const shell = flakyShell([]);
+
+    await installEngine(shell, '/game', '0.34.3', { retryMs: 0 });
+
+    expect(shell.calls).toEqual([
+      'npm i -D --prefer-online --no-audit --no-fund vimp-engine@^0.34.3',
+    ]);
+  });
+
+  it('пережидает ETARGET, пока версия не доедет до CDN', async () => {
+    const shell = flakyShell([
+      failure('npm error code ETARGET'),
+      failure('npm error code ETARGET'),
+    ]);
+
+    await installEngine(shell, '/game', '0.34.3', { retryMs: 0 });
+
+    expect(shell.calls).toHaveLength(3);
+  });
+
+  it('прочие ошибки не повторяет', async () => {
+    const shell = flakyShell([failure('npm error code E401')]);
+
+    await expect(
+      installEngine(shell, '/game', '0.34.3', { retryMs: 0 }),
+    ).rejects.toThrow(CommandError);
+    expect(shell.calls).toHaveLength(1);
+  });
+
+  it('сдаётся, когда попытки кончились', async () => {
+    const shell = flakyShell([
+      failure('npm error code ETARGET'),
+      failure('npm error code ETARGET'),
+    ]);
+
+    await expect(
+      installEngine(shell, '/game', '0.34.3', { attempts: 2, retryMs: 0 }),
+    ).rejects.toThrow(CommandError);
+    expect(shell.calls).toHaveLength(2);
   });
 });
