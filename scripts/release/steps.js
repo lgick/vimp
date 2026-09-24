@@ -193,9 +193,39 @@ async function installedEngineApi(gameDir) {
 // локальные линки. installRoot задают тесты (и он же позволяет прогнать
 // сим по уже установленному дереву), тогда каталог не создаётся и не
 // удаляется.
+const INSTALL_ATTEMPTS = 10;
+const INSTALL_RETRY_MS = 15000;
+
+// `npm view` уже видит свежую версию, а `npm install` берёт сокращённый
+// манифест, который CDN реестра отдаёт с отставанием в минуты, и отвечает
+// ETARGET. Повтор пережидает CDN; любая другая ошибка — сразу наверх
+async function retryLagging(
+  run,
+  label,
+  { attempts = INSTALL_ATTEMPTS, retryMs = INSTALL_RETRY_MS } = {},
+) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const lagging = /ETARGET/.test(error.output ?? '');
+
+      if (!lagging || attempt >= attempts) {
+        throw error;
+      }
+
+      ui.log(
+        `  ! ${label} ещё не виден npm install ` +
+          `(попытка ${attempt}/${attempts}), повтор через ${retryMs / 1000}s`,
+      );
+      await new Promise(resolve => setTimeout(resolve, retryMs));
+    }
+  }
+}
+
 export async function withPublishedGame(
   shell,
-  { name, version, installRoot = null, optional = false },
+  { name, version, installRoot = null, optional = false, retry = {} },
   fn,
 ) {
   if (installRoot) {
@@ -211,17 +241,23 @@ export async function withPublishedGame(
     );
 
     try {
-      await shell.check(
-        `npm install ${name}@${version}`,
-        'npm',
-        [
-          'install',
-          '--no-save',
-          '--no-audit',
-          '--no-fund',
-          `${name}@${version}`,
-        ],
-        { cwd: dir },
+      await retryLagging(
+        () =>
+          shell.check(
+            `npm install ${name}@${version}`,
+            'npm',
+            [
+              'install',
+              '--no-save',
+              '--prefer-online',
+              '--no-audit',
+              '--no-fund',
+              `${name}@${version}`,
+            ],
+            { cwd: dir },
+          ),
+        `${name}@${version}`,
+        retry,
       );
     } catch (error) {
       // игра, которой в реестре ещё нет вовсе (её первый релиз идёт прямо
@@ -734,45 +770,24 @@ export async function checkPackedGame({ shell, dir, engineApi }) {
   }
 }
 
-const INSTALL_ATTEMPTS = 10;
-const INSTALL_RETRY_MS = 15000;
-
-// `npm view` (им awaitRegistry ждал версию) ходит в реестр мимо кеша, а
-// `npm i` берёт сокращённый манифест, который CDN реестра отдаёт с отставанием
-// в минуты: свежая версия там ещё ETARGET. --prefer-online обходит локальный
-// кеш, повтор пережидает CDN
-export async function installEngine(
-  shell,
-  dir,
-  version,
-  { attempts = INSTALL_ATTEMPTS, retryMs = INSTALL_RETRY_MS } = {},
-) {
-  const args = [
-    'i',
-    '-D',
-    '--prefer-online',
-    '--no-audit',
-    '--no-fund',
-    `${ENGINE_NAME}@^${version}`,
-  ];
-
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await shell.write('npm', args, { cwd: dir });
-    } catch (error) {
-      const lagging = /ETARGET/.test(error.output ?? '');
-
-      if (!lagging || attempt >= attempts) {
-        throw error;
-      }
-
-      ui.log(
-        `  ! ${ENGINE_NAME}@${version} ещё не виден npm install ` +
-          `(попытка ${attempt}/${attempts}), повтор через ${retryMs / 1000}s`,
-      );
-      await new Promise(resolve => setTimeout(resolve, retryMs));
-    }
-  }
+export async function installEngine(shell, dir, version, retry = {}) {
+  return retryLagging(
+    () =>
+      shell.write(
+        'npm',
+        [
+          'i',
+          '-D',
+          '--prefer-online',
+          '--no-audit',
+          '--no-fund',
+          `${ENGINE_NAME}@^${version}`,
+        ],
+        { cwd: dir },
+      ),
+    `${ENGINE_NAME}@${version}`,
+    retry,
+  );
 }
 
 export async function publishGame({

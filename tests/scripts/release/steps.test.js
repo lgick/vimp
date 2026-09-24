@@ -315,6 +315,39 @@ describe('withPublishedGame', () => {
     ).rejects.toThrow(CommandError);
   });
 
+  // игра только что опубликована, а CDN реестра ещё отдаёт npm install
+  // старый манифест — шаг прода падал на ETARGET при живой версии
+  it('пережидает ETARGET и ставит в обход локального кеша', async () => {
+    const calls = [];
+    let failures = 2;
+    const shell = {
+      check: async (label, command, args) => {
+        calls.push(args);
+
+        if (failures > 0) {
+          failures -= 1;
+          throw new CommandError({
+            command: 'npm install',
+            cwd: '/tmp',
+            code: 1,
+            output: 'npm error code ETARGET',
+          });
+        }
+
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      },
+    };
+
+    await withPublishedGame(
+      shell,
+      { name: '@vimp-games/tanks', version: '0.21.0', retry: { retryMs: 0 } },
+      async () => {},
+    );
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toContain('--prefer-online');
+  });
+
   it('с готовым installRoot ничего не ставит и не удаляет', async () => {
     const shell = {
       check: async () => {

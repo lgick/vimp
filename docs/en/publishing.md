@@ -590,9 +590,11 @@ Both directions matter: without the reverse link the plugin's
   hidden with `cargo yank --version X.Y.Z`.
 - **`npm view` sees a fresh version minutes before `npm install` does.** The
   install reads the registry CDN's abbreviated metadata, which lags behind,
-  and answers `ETARGET`. The release script installs the engine into a game
-  with `--prefer-online` and retries `ETARGET` (10 × 15 s); by hand, just
-  repeat the install after a minute.
+  and answers `ETARGET`. The release script polls the registry with
+  `npm view --prefer-online`, and both of its installs — the engine into a
+  game, the published game into the sim's temp directory — run with
+  `--prefer-online` and retry `ETARGET` (10 × 15 s); by hand, just repeat the
+  install after a minute.
 - **`deploy.yml` does not wait for `test.yml`.** Green tests before the push
   are on you; CI does not gate production.
 - **`dist/` and `core/pkg-*` are gitignored in the game repo.** The tarball
