@@ -411,7 +411,7 @@ describe('decide', () => {
     ]);
   });
 
-  // журнал движка сломан, но движок не публикуется — релиз крейта из-за
+  // журнал крейта сломан, но крейт не публикуется — релиз движка из-за
   // этого блокировать нельзя, а вот молчать нельзя тем более: `## Added`
   // вместо `### Added` сам обнуляет секцию и сам же гасит publish
   it('не тянет в общий список проблемы непубликуемого артефакта', () => {
@@ -420,25 +420,25 @@ describe('decide', () => {
         crate: {
           local: '0.2.1',
           published: '0.2.1',
-          changed: true,
+          changed: false,
           changelogFile: 'packages/engine/core/CHANGELOG.md',
-          unreleased: added,
+          unreleased: { present: false, isEmpty: true, sections: [] },
         },
         engine: {
           local: '0.6.0',
           published: '0.6.0',
-          changed: false,
+          changed: true,
           changelogFile: 'packages/engine/CHANGELOG.md',
-          unreleased: { present: false, isEmpty: true, sections: [] },
+          unreleased: added,
         },
       }),
     );
 
-    expect(plan.crate.publish).toBe(true);
-    expect(plan.engine.publish).toBe(false);
-    expect(plan.engine.problems).toHaveLength(1);
+    expect(plan.engine.publish).toBe(true);
+    expect(plan.crate.publish).toBe(false);
+    expect(plan.crate.problems).toHaveLength(1);
     expect(plan.problems).toEqual([]);
-    expect(plan.warnings).toEqual(plan.engine.problems);
+    expect(plan.warnings).toEqual(plan.crate.problems);
   });
 
   // тот самый дефект, который прячет сам себя: секция оборвана на `## Added`,
@@ -519,6 +519,33 @@ describe('decide', () => {
     expect(plan.scaffold.publish).toBe(true);
     expect(plan.scaffold.required).toBe(true);
     expect(plan.scaffold.target).toBe('0.1.1');
+  });
+
+  // бамп крейта переписывает core/Cargo.toml из "files" движка: без этого
+  // движок всплывал «изменённым» лишь в следующем прогоне
+  it('делает движок обязательным, когда публикуется крейт', () => {
+    const plan = decide(
+      input({
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          unreleased: quiet,
+        },
+      }),
+    );
+
+    expect(plan.engine.publish).toBe(true);
+    expect(plan.engine.required).toBe(true);
+    expect(plan.engine.target).toBe('0.6.1');
+    expect(plan.engine.reason).toMatch(/core\/Cargo\.toml в тарболе устареет/);
+  });
+
+  it('не трогает движок, когда крейт не публикуется', () => {
+    const plan = decide(input());
+
+    expect(plan.engine.publish).toBe(false);
+    expect(plan.engine.required).toBe(false);
   });
 
   // прерванный прогон: движок опубликован, скаффолдер за ним не поехал —

@@ -18,7 +18,13 @@ export const SCAFFOLD_NAME = 'create-vimp-game';
 // Чистая функция: только вход → набор артефактов. Покрыта plan.test.js.
 export function decide(input) {
   const crate = decideArtifact(input.crate, CRATE_NAME);
-  const engine = decideArtifact(input.engine, ENGINE_NAME);
+  // core/Cargo.toml лежит в тарболе движка (по нему vimp-contract сверяет пин
+  // игры): бамп крейта его переписывает, и без пересборки в этом же прогоне
+  // движок всплыл бы «изменённым» только в следующем
+  const engine = decideArtifact(input.engine, ENGINE_NAME, {
+    required: crate.publish,
+    reasons: crate.publish ? ['крейт публикуется → core/Cargo.toml в тарболе устареет'] : [],
+  });
 
   // Скаффолдер вшивает в тарбол снимок версий движка и крейта (хук prepack,
   // packages/create-vimp-game/scripts/write-versions.js). Отставший снимок —

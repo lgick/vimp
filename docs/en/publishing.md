@@ -25,7 +25,10 @@ What it decides on its own:
   works without touching the engine. Then the propagation rules of the table
   below apply: a crate release forces every game to be rebuilt and
   republished, an `ENGINE_API_VERSION` bump makes the game **required** and
-  pushes production strictly last, and a crate or engine release makes
+  pushes production strictly last, a crate release makes the `vimp-engine`
+  release **required** in the same run (its tarball ships
+  `core/Cargo.toml`, the crate version `vimp-contract` checks a game's pin
+  against, which the crate bump rewrites), and a crate or engine release makes
   `create-vimp-game` **required** too — its `prepack` hook stamps those two
   versions into the tarball, so a scaffolder left behind quietly generates
   games on stale pins.
@@ -184,7 +187,7 @@ not push to `main` until the games are out — see the warning in step A2.
 | --- | --- | --- | --- | --- | --- |
 | Master, markup, deploy scripts | — | — | — | — | ✅ |
 | `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | — | ✅ | **required** (pins) | when convenient | ✅ |
-| `packages/engine/core/` (Rust) | ✅ | — | **required** (pins) | ✅ (rebuild against the new crate) | ✅ |
+| `packages/engine/core/` (Rust) | ✅ | **required** (`core/Cargo.toml`) | **required** (pins) | ✅ (rebuild against the new crate) | ✅ |
 | Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | when convenient | ✅ |
 | `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | **required** | ✅ strictly last |
 | Game only (rules, maps, assets, game core) | — | — | — | ✅ | — (raise the version from the lobby, no deploy) |
