@@ -468,8 +468,9 @@ npm run sim                          # the engine's smoke run on this game
 npm run sim:scenarios                # the game's own scenarios
 npm run check:pack                   # manifest points inside dist/ (also on prepack)
 
-# 4. Version: bump package.json by hand (or `npm version patch`, which also
-#    creates a commit and a tag)
+# 4. Version: `npm version patch` (bumps package.json and the root of
+#    package-lock.json, commits, tags); by hand, bump both files — a stale
+#    lock root is rewritten by the next npm link and leaves the tree dirty
 
 # 5. Publish (the scope is public via publishConfig)
 npm publish --dry-run

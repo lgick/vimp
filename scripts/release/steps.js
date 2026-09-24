@@ -82,6 +82,32 @@ function bumpJsonVersion(file, version, options) {
   );
 }
 
+// Корень lock-файла повторяет версию package.json. Без правки в коммит
+// релиза уезжал lock прошлой версии, а ближайший `npm link`/`npm i`
+// переписывал его и оставлял дерево игры грязным после каждого релиза
+export async function bumpLockVersion(dir, version, { dryRun }) {
+  const file = path.join(dir, 'package-lock.json');
+
+  if (!(await exists(file))) {
+    return;
+  }
+
+  await edit(
+    file,
+    text => {
+      const lock = JSON.parse(text);
+
+      lock.version = version;
+      if (lock.packages?.['']) {
+        lock.packages[''].version = version;
+      }
+
+      return `${JSON.stringify(lock, null, 2)}\n`;
+    },
+    { dryRun },
+  );
+}
+
 function bumpTomlVersion(file, version, options) {
   return edit(
     file,
@@ -868,6 +894,7 @@ export async function publishGame({
     await bumpJsonVersion(path.join(dir, 'package.json'), game.target, {
       dryRun: shell.dryRun,
     });
+    await bumpLockVersion(dir, game.target, { dryRun: shell.dryRun });
   }
 
   await commit(

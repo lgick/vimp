@@ -14,6 +14,7 @@ import {
   withPublishedGame,
   simVersion,
   gameCommitPaths,
+  bumpLockVersion,
   installEngine,
   publishEngine,
   publishScaffold,
@@ -937,6 +938,60 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     expect(
       shell.calls.filter(call => call.includes('@vimp-games/stale@')),
     ).toEqual([]);
+  });
+});
+
+// коммит релиза игры уносил lock прошлой версии, и первый же npm link после
+// релиза оставлял дерево игры грязным
+describe('bumpLockVersion', () => {
+  let dir;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'vimp-lock-'));
+  });
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('поднимает корень lock-файла и не трогает зависимости', async () => {
+    const lock = {
+      name: '@vimp-games/tanks',
+      version: '0.20.5',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': { name: '@vimp-games/tanks', version: '0.20.5' },
+        'node_modules/vimp-engine': { version: '0.34.3' },
+      },
+    };
+
+    await writeFile(
+      path.join(dir, 'package-lock.json'),
+      `${JSON.stringify(lock, null, 2)}\n`,
+    );
+
+    await bumpLockVersion(dir, '0.21.0', { dryRun: false });
+
+    const text = await readFile(path.join(dir, 'package-lock.json'), 'utf8');
+    const bumped = JSON.parse(text);
+
+    expect(bumped.version).toBe('0.21.0');
+    expect(bumped.packages[''].version).toBe('0.21.0');
+    expect(bumped.packages['node_modules/vimp-engine'].version).toBe('0.34.3');
+    // формат npm: два пробела и перевод строки в конце, иначе лишний дифф
+    expect(text).toBe(`${JSON.stringify(bumped, null, 2)}\n`);
+  });
+
+  it('без lock-файла ничего не делает', async () => {
+    const empty = await mkdtemp(path.join(tmpdir(), 'vimp-nolock-'));
+
+    await expect(
+      bumpLockVersion(empty, '0.21.0', { dryRun: false }),
+    ).resolves.toBeUndefined();
+    expect(existsSync(path.join(empty, 'package-lock.json'))).toBe(false);
+
+    await rm(empty, { recursive: true, force: true });
   });
 });
 

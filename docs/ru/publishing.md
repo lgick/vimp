@@ -459,8 +459,9 @@ npm run sim                          # смоук-прогон движка на
 npm run sim:scenarios                # собственные сценарии игры
 npm run check:pack                   # манифест смотрит внутрь dist/ (также на prepack)
 
-# 4. Версия: поднять package.json руками (или `npm version patch` —
-#    он же создаст коммит и тег)
+# 4. Версия: `npm version patch` (поднимет package.json и корень
+#    package-lock.json, создаст коммит и тег); руками — правьте оба файла:
+#    отставший корень lock перепишет ближайший npm link, и дерево станет грязным
 
 # 5. Публикация (scope публичный, задан в publishConfig)
 npm publish --dry-run
