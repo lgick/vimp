@@ -231,7 +231,12 @@ export function releaseLink(repoUrl, artifact, version) {
   return `[${version}]: ${repoUrl}/releases/tag/${artifact}%40${version}`;
 }
 
+// разделитель «версия — дата» берётся из уже датированных записей файла:
+// журналы движка пишут тире, журналы игр — дефис
+const DATED_HEADING = /^##\s+\[\d+\.\d+\.\d+[^\]]*\]\s+(\S+)\s+\d{4}-\d{2}-\d{2}/m;
+
 // Датирует [Unreleased] как релиз и добавляет строку ссылки в блок внизу.
+// Без repoUrl ссылка не пишется: у журналов игр блока ссылок нет.
 export function releaseUnreleased(text, { version, date, repoUrl, artifact }) {
   const lines = text.split('\n');
   const headingIndex = lines.findIndex(line => UNRELEASED_HEADING.test(line));
@@ -240,15 +245,21 @@ export function releaseUnreleased(text, { version, date, repoUrl, artifact }) {
     throw new Error('CHANGELOG has no "## [Unreleased]" section');
   }
 
-  // [Unreleased] остаётся на месте пустой: это конвенция обоих журналов и
+  const separator = DATED_HEADING.exec(text)?.[1] ?? EM_DASH;
+
+  // [Unreleased] остаётся на месте пустой: это конвенция всех журналов и
   // третий сигнал детекта для следующего релиза
   lines.splice(
     headingIndex,
     1,
     '## [Unreleased]',
     '',
-    `## [${version}] ${EM_DASH} ${date}`,
+    `## [${version}] ${separator} ${date}`,
   );
+
+  if (!repoUrl) {
+    return lines.join('\n');
+  }
 
   const linkLine = releaseLink(repoUrl, artifact, version);
   const firstLinkIndex = lines.findIndex(line => VERSION_LINK_REF.test(line));

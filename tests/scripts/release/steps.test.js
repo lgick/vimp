@@ -432,6 +432,15 @@ describe('gameCommitPaths', () => {
 
     expect(await gameCommitPaths(dir)).not.toContain('package-lock.json');
   });
+
+  // датированный журнал игры обязан уехать в тот же релизный коммит
+  it('добавляет CHANGELOG.md, когда он есть', async () => {
+    const dir = path.join(root, 'with-changelog');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'CHANGELOG.md'), '# Changelog\n');
+
+    expect(await gameCommitPaths(dir)).toContain('CHANGELOG.md');
+  });
 });
 
 // Общий мок shell для шагов A2/A3: записывает команды в порядке вызова —

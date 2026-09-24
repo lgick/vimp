@@ -54,8 +54,10 @@ export async function gameCommitPaths(dir, corePinFile = null) {
     paths.push(corePinFile);
   }
 
-  if (await exists(path.join(dir, 'package-lock.json'))) {
-    paths.push('package-lock.json');
+  for (const optional of ['package-lock.json', 'CHANGELOG.md']) {
+    if (await exists(path.join(dir, optional))) {
+      paths.push(optional);
+    }
   }
 
   return paths;
@@ -119,7 +121,10 @@ function bumpTomlVersion(file, version, options) {
 // Датирование делается по состоянию журнала, а не по факту бампа версии:
 // версия могла быть поднята руками, а секция [Unreleased] остаться живой —
 // тогда без датирования записи двух релизов склеятся в одну.
-async function dateChangelog(file, { version, artifact, dryRun }) {
+async function dateChangelog(
+  file,
+  { version, artifact, dryRun, repoUrl = REPO_URL },
+) {
   const text = await readFile(file, 'utf8');
   const unreleased = parseUnreleased(text);
 
@@ -134,7 +139,7 @@ async function dateChangelog(file, { version, artifact, dryRun }) {
       releaseUnreleased(source, {
         version,
         date: today(),
-        repoUrl: REPO_URL,
+        repoUrl,
         artifact,
       }),
     { dryRun },
@@ -895,6 +900,19 @@ export async function publishGame({
       dryRun: shell.dryRun,
     });
     await bumpLockVersion(dir, game.target, { dryRun: shell.dryRun });
+  }
+
+  const gameChangelog = path.join(dir, 'CHANGELOG.md');
+
+  // как у движка — по состоянию журнала, а не по факту бампа. Ссылок на теги
+  // журналы игр не ведут
+  if (await exists(gameChangelog)) {
+    await dateChangelog(gameChangelog, {
+      version: game.target,
+      artifact: game.name,
+      dryRun: shell.dryRun,
+      repoUrl: null,
+    });
   }
 
   await commit(

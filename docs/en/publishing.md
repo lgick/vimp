@@ -35,8 +35,8 @@ What it decides on its own:
 - **Which version to suggest** — from the sub-headings of `[Unreleased]`, a
   closed list that fixes the level while the code is written; see
   [Changelog headings set the version](#changelog-headings-set-the-version).
-  Enter accepts, or type `patch`/`minor`/`major`/an explicit version. Games
-  have no changelog, so their suggestion follows the
+  Enter accepts, or type `patch`/`minor`/`major`/an explicit version. A game's
+  changelog does not set its level, so its suggestion follows the
   crate/`ENGINE_API_VERSION` bump — or a `vimp-engine-core` pin that lags
   behind the crate in the registry, which is what an interrupted run leaves
   behind — and is always confirmed. The pin is read from `core/Cargo.toml`,
@@ -292,9 +292,12 @@ What it cannot check — and the reason the level is chosen this early:
 
 The number itself is never written into `[Unreleased]`: the heading is the
 single source of the level, and the script computes the number at release
-time. Games have no changelog — their level comes from propagation (a crate
-release or a new `ENGINE_API_VERSION` → minor, otherwise patch) and is always
-confirmed by hand.
+time. A game's level does not come from its changelog but from propagation
+(a crate release or a new `ENGINE_API_VERSION` → minor, otherwise patch) and
+is always confirmed by hand. A game's own `CHANGELOG.md`, when it has one, is
+still dated in the release commit: a non-empty `[Unreleased]` becomes
+`## [X.Y.Z] - date` (the separator follows the file's dated entries) under a
+fresh empty `[Unreleased]`, with no tag-link block.
 
 ## Step 0: unlink the local checkouts (before any release)
 

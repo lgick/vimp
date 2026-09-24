@@ -406,6 +406,35 @@ describe('releaseUnreleased', () => {
     );
   });
 
+  // журнал игры: дефис в датированных заголовках и никакого блока ссылок
+  it('без repoUrl не пишет ссылку и держит разделитель файла', () => {
+    const game = [
+      '# Changelog',
+      '',
+      '## [Unreleased]',
+      '',
+      '### Fixed',
+      '',
+      '- x',
+      '',
+      '## [0.20.0] - 2026-09-11',
+      '',
+      '- y',
+      '',
+    ].join('\n');
+
+    const next = releaseUnreleased(game, {
+      version: '0.21.0',
+      date: '2026-09-25',
+      repoUrl: null,
+      artifact: '@vimp-games/tanks',
+    });
+
+    expect(next).toContain('## [Unreleased]\n\n## [0.21.0] - 2026-09-25\n');
+    expect(next).not.toMatch(/^\[\d/m);
+    expect(parseUnreleased(next).isEmpty).toBe(true);
+  });
+
   it('падает, если секции [Unreleased] нет', () => {
     expect(() =>
       releaseUnreleased('# Changelog\n', {
