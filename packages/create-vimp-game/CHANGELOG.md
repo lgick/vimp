@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.27] — 2026-09-25
+
+### Changed
+
+- Generated games pin `vimp-engine` 0.34.5 and `vimp-engine-core` 0.22.4.
+
 ## [0.4.0] — 2026-08-29
 
 ### Added
@@ -138,6 +144,7 @@ nothing in the CLI, the generator or the template changed.
   build of a scaffolded game is green without ffmpeg; `assets/audio-raw/*.wav`
   keeps the full `npm run audio:process` pipeline demonstrable.
 
+[0.4.27]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.4.27
 [0.4.0]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.4.0
 [0.3.7]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.3.7
 [0.3.1]: https://github.com/lgick/vimp/releases/tag/create-vimp-game%400.3.1
