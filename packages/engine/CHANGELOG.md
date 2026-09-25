@@ -9,6 +9,10 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- Test release: no code changes; checks the shared cargo cache in the games' release CI.
+
 ## [0.34.6] — 2026-09-25
 
 ### Changed

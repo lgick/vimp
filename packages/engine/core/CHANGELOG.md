@@ -13,6 +13,10 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Changed
+
+- Test release: no code changes; checks the shared cargo cache in the games' release CI.
+
 ## [0.22.5] — 2026-09-25
 
 ### Changed
