@@ -464,6 +464,14 @@ grep vimp-engine /tmp/pin-check/package.json /tmp/pin-check/Cargo.toml
 Выполняется в репозитории игры. Нужен Rust-тулчейн (`rustup` +
 `wasm-pack`) — см. `docs/ru/getting-started.md` того репозитория.
 
+> После того как шаги 1–4 ниже закоммичены и запушены, публикацию (5–6)
+> можно сделать вместо этого запуском
+> `vimp-tanks/.github/workflows/release.yml` (`workflow_dispatch`) — он
+> собирает WASM-ядро + `dist/` и публикует через npm OIDC Trusted
+> Publishing, без локального `npm login`. Так же для `@vimp-games/snakes`
+> через `vimp-snakes/.github/workflows/release.yml` (её ручные шаги здесь не
+> задокументированы — см. `CLAUDE.md` того репозитория).
+
 ```bash
 cd vimp-tanks
 

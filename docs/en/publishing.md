@@ -471,6 +471,14 @@ patch.
 Runs in the game repository. It needs the Rust toolchain (`rustup` +
 `wasm-pack`) — see that repo's `docs/en/getting-started.md`.
 
+> After steps 1–4 below are committed and pushed, publishing (5–6) can
+> instead be done by triggering `vimp-tanks/.github/workflows/release.yml`
+> (`workflow_dispatch`) — it builds the WASM core + `dist/` and publishes via
+> npm OIDC Trusted Publishing, no local `npm login` needed. Same applies to
+> `@vimp-games/snakes` via `vimp-snakes/.github/workflows/release.yml`,
+> following that repo's own manual steps (undocumented here — see its
+> `CLAUDE.md`).
+
 ```bash
 cd vimp-tanks
 
