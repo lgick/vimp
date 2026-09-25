@@ -901,7 +901,13 @@ export async function publishGame({
     }
   }
 
-  if (game.bump !== false) {
+  // `game.bump` — решение, принятое ДО вопроса о версии (plan.js: !ahead).
+  // Когда игра уже "ahead" и разработчик всё равно попросил версию выше
+  // (askGameVersionAsIs — новый тег вместо занятого неудачным прогоном),
+  // game.target отличается от game.version, и файл обязан обновиться —
+  // иначе тег указывает на одну версию, а package.json (и то, что реально
+  // публикует npm publish) остаётся на другой
+  if (game.target !== game.version) {
     await bumpJsonVersion(path.join(dir, 'package.json'), game.target, {
       dryRun: shell.dryRun,
     });
