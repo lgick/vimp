@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -15,6 +14,7 @@ import {
   decide,
   readEngineApiVersion,
   repoProblems,
+  buildVersions,
   CRATE_NAME,
   ENGINE_NAME,
   SCAFFOLD_NAME,
@@ -29,7 +29,11 @@ import {
 import { observeLinks, buildLinkPlan } from './release/links.js';
 import { npmVersion } from './release/registry.js';
 import { UsageError } from './release/errors.js';
-import { askVersion, askGameVersionAsIs } from './release/versionPrompt.js';
+import {
+  askVersion,
+  askGameVersionAsIs,
+  askGameFollow,
+} from './release/versionPrompt.js';
 import {
   publishCrate,
   publishEngine,
@@ -54,13 +58,18 @@ const USAGE = `Использование: npm run release -- [флаги]
   --yes                принять предложенные версии и план целиком; игры при
                        этом берутся только из --game, а пуш в main всё равно
                        спрашивается отдельно
+  --follow-games       под --yes выпускать игры из --game и тогда, когда их
+                       только предлагает релиз крейта или движка (без флага
+                       такие игры не выпускаются — крейт игру не обязывает)
   --help
 
 Что скрипт решает сам:
   · какие артефакты публиковать — по изменённым путям от базовой точки
     (тег релиза либо коммит с текущей версией), по разнице локальной и
     опубликованной версии и по непустой секции [Unreleased]; у игры те же
-    сигналы — своя неопубликованная версия и коммиты после тега vX.Y.Z;
+    сигналы — своя неопубликованная версия и коммиты после тега vX.Y.Z,
+    а релиз крейта или движка игру только предлагает (вопрос «выпустить?»,
+    по умолчанию «нет»; под --yes — только с --follow-games);
     у скаффолдера сверху обязательная пересборка, когда публикуется крейт
     или движок: prepack вшивает их версии в тарбол шаблона;
   · какой инкремент предложить — по под-заголовкам [Unreleased]:
@@ -90,6 +99,7 @@ function parseFlags(argv) {
         game: { type: 'string', multiple: true, default: [] },
         relink: { type: 'boolean', default: false },
         yes: { type: 'boolean', default: false },
+        'follow-games': { type: 'boolean', default: false },
         help: { type: 'boolean', default: false },
       },
     });
@@ -124,8 +134,6 @@ async function preflightRepo(root, { changelog, writesRepo }) {
   });
 
   const status = await capture('git', ['status', '--short'], { cwd: root });
-
-  await capture('git', ['fetch'], { cwd: root, allowFailure: true });
 
   const upstream = await capture(
     'git',
@@ -219,8 +227,25 @@ async function describeGame(dir, { registry = true } = {}) {
 
 // В неинтерактивном режиме (--yes) выбор игр делается только явными --game:
 // молча опубликовать всё, что нашлось на машине, — не то, о чём просили.
-async function selectGames(root, { yes, explicit, registry = true }) {
+//
+// preview(info) — решение decide() по одной игре (null в --relink). Игру,
+// которую тянет только релиз крейта/движка, спрашивают один раз и сразу по
+// существу — «выпустить?», по умолчанию «нет»; в прогон она попадает при
+// любом ответе: невыпущенную игру шаг прода всё равно прогонит sim против
+// нового движка. Ответ уходит в decide() полем follow.
+async function selectGames(
+  root,
+  { yes, followGames = false, explicit, registry = true, preview = null },
+) {
   const selected = [];
+
+  const askFollow = async info => {
+    const planned = preview?.(info);
+
+    if (planned?.optional) {
+      info.follow = await askGameFollow(planned, { yes, followGames });
+    }
+  };
 
   for (const dir of explicit) {
     const info = await describeGame(path.resolve(dir), { registry });
@@ -229,6 +254,7 @@ async function selectGames(root, { yes, explicit, registry = true }) {
       throw new UsageError(`--game ${dir}: ${info.problems.join(', ')}`);
     }
 
+    await askFollow(info);
     selected.push(info);
   }
 
@@ -273,6 +299,12 @@ async function selectGames(root, { yes, explicit, registry = true }) {
       ui.error(`  внимание: ${info.git.problems.join(', ')}`);
     }
 
+    if (preview?.(info)?.optional) {
+      await askFollow(info);
+      selected.push(info);
+      continue;
+    }
+
     const question = registry
       ? 'Включить эту игру в релиз?'
       : 'Вернуть линки этой игре?';
@@ -288,6 +320,7 @@ async function selectGames(root, { yes, explicit, registry = true }) {
     const info = await describeGame(path.resolve(extra), { registry });
 
     if (info.valid) {
+      await askFollow(info);
       selected.push(info);
     } else {
       ui.error(`не годится: ${info.problems.join(', ')}`);
@@ -350,6 +383,11 @@ async function main(argv) {
       { root, engineDir },
     );
 
+    if (plan.relink.length === 0) {
+      ui.log('игры не выбраны — привязывать нечего');
+      return 0;
+    }
+
     await runSteps(plan.relink, shell);
     ui.log('линки восстановлены');
     return 0;
@@ -357,12 +395,15 @@ async function main(argv) {
 
   ui.log('сбор состояния репозитория и реестров…');
 
+  // до collect(): незапушенные коммиты и отставание от remote считаются по
+  // origin/main, и без свежего fetch оба сигнала судили бы по старому снимку
+  await capture('git', ['fetch'], { cwd: root, allowFailure: true });
+
   const collected = await collect(root);
   const scoped = {
     crate: args.only.includes('crate') ? collected.crate : null,
     engine: args.only.includes('engine') ? collected.engine : null,
     scaffold: args.only.includes('scaffold') ? collected.scaffold : null,
-    engineApiChanged: collected.engineApiChanged,
     // не артефакт, а состояние репозитория: под --only не попадает, иначе
     // `--only=games` объявил бы незапушенный релиз доехавшим
     unpushed: collected.unpushed,
@@ -401,7 +442,12 @@ async function main(argv) {
   }
 
   const games = args.only.includes('games')
-    ? await selectGames(root, { yes: args.yes, explicit: args.game })
+    ? await selectGames(root, {
+        yes: args.yes,
+        followGames: args['follow-games'],
+        explicit: args.game,
+        preview: info => decide({ ...scoped, games: [info] }).games[0],
+      })
     : [];
 
   const decision = decide({ ...scoped, games });
@@ -475,6 +521,9 @@ async function main(argv) {
     );
   }
 
+  // против чего собираются игры — от ответов выше, а не от предложенных
+  const { crateVersion, engineVersion } = buildVersions(decision, scoped);
+
   ui.table(
     ['артефакт', 'публикуем', 'версия', 'почему'],
     [
@@ -502,7 +551,7 @@ async function main(argv) {
       ],
       ...decision.games.map(game => [
         game.name,
-        game.publish ? (game.required ? 'да (обязательно)' : 'да') : 'нет',
+        game.publish ? (game.optional ? 'да (по выбору)' : 'да') : 'нет',
         game.target ?? game.version,
         game.reason,
       ]),
@@ -590,6 +639,8 @@ async function main(argv) {
         games: decision.games,
         report,
         engineApi,
+        // крейт этого прогона: его core/Cargo.toml — причина релиза движка
+        crateVersion: decision.crate.publish ? decision.crate.target : null,
       });
     }
 
@@ -612,8 +663,10 @@ async function main(argv) {
         // не «что публикуется в этом прогоне», а что реально лежит в
         // реестрах: после прерванного прогона крейт уже опубликован, и игра
         // собралась бы на старом ядре со старым пином в тарболе
-        crateVersion: decision.crateVersion,
-        engineVersion: decision.engineVersion,
+        crateVersion,
+        engineVersion,
+        // для записи в журнале игры: называть движок, только если он новый
+        engineReleased: decision.engine.publish,
         engineApi,
         report,
       });
@@ -627,15 +680,11 @@ async function main(argv) {
         shell,
         root,
         games: selectedGames,
+        heldGames: decision.games.filter(game => !game.publish),
         report,
         engineApi,
         // деплой или только проверка выпущенных игр — см. plan.js:prod
         push: decision.prod.push,
-        // из vimp пушатся только его собственные теги: теги игр уже уехали
-        // вместе с `git push --tags` в их репозиториях
-        tags: report.tags
-          .filter(entry => entry.repo === root)
-          .map(entry => entry.name),
       });
     }
   } finally {

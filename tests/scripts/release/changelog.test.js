@@ -12,6 +12,7 @@ import {
   validateUnreleased,
   releaseUnreleased,
   releaseLink,
+  withFallbackEntry,
 } from '../../../scripts/release/changelog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
@@ -468,5 +469,41 @@ describe('releaseUnreleased', () => {
         artifact: 'y',
       }),
     ).toThrow(/Unreleased/);
+  });
+});
+
+// вынужденный релиз с пустой секцией иначе оставлял в журнале дыру между
+// версиями (у скаффолдера — 0.4.1…0.4.26 без единой записи)
+describe('withFallbackEntry', () => {
+  const empty = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- x\n';
+
+  it('пустая [Unreleased] получает ### Changed с записью', () => {
+    const text = withFallbackEntry(empty, 'Rebuilt against `vimp-engine-core` 0.3.0.');
+    const unreleased = parseUnreleased(text);
+
+    expect(unreleased.sections).toEqual(['Changed']);
+    expect(unreleased.body).toBe('### Changed\n\n- Rebuilt against `vimp-engine-core` 0.3.0.');
+    expect(validateUnreleased(unreleased)).toEqual([]);
+  });
+
+  it('датируется как обычная запись', () => {
+    const text = releaseUnreleased(withFallbackEntry(empty, 'Entry.'), {
+      version: '0.1.1',
+      date: '2026-02-02',
+      repoUrl: null,
+      artifact: 'x',
+    });
+
+    expect(text).toContain('## [Unreleased]\n\n## [0.1.1] — 2026-02-02\n\n### Changed\n\n- Entry.\n\n## [0.1.0]');
+  });
+
+  it('непустую секцию не трогает: автор описал релиз сам', () => {
+    const own = '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- y\n';
+
+    expect(withFallbackEntry(own, 'Entry.')).toBe(own);
+  });
+
+  it('без записи возвращает текст как есть', () => {
+    expect(withFallbackEntry(empty, null)).toBe(empty);
   });
 });

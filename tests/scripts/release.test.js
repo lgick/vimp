@@ -3,17 +3,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ask() читает readline напрямую — мокаем модуль целиком, чтобы тест не
 // зависел от stdin и не печатал в консоль
 const ask = vi.fn();
+const confirm = vi.fn();
 
 vi.mock('../../scripts/release/ui.js', () => ({
   log: vi.fn(),
   ask: (...args) => ask(...args),
+  confirm: (...args) => confirm(...args),
 }));
 
 beforeEach(() => {
   ask.mockReset();
+  confirm.mockReset();
 });
 
-const { askGameVersionAsIs, askVersion, resolveVersionAnswer } = await import(
+const { askGameFollow, askGameVersionAsIs, askVersion, resolveVersionAnswer } = await import(
   '../../scripts/release/versionPrompt.js'
 );
 const { UsageError } = await import('../../scripts/release/errors.js');
@@ -112,5 +115,32 @@ describe('resolveVersionAnswer', () => {
     expect(() =>
       resolveVersionAnswer('0.21.0', { current: '0.22.0', published: '0.21.0' }),
     ).toThrow(UsageError);
+  });
+});
+
+// релиз крейта или движка игру не обязывает: вопрос отдельный, «нет» по
+// умолчанию, чтобы Enter не перевыпускал весь парк игр
+describe('askGameFollow', () => {
+  const game = { name: '@vimp-games/tanks', reason: 'крейт публикуется → можно пересобрать' };
+
+  it('спрашивает с «нет» по умолчанию', async () => {
+    confirm.mockResolvedValueOnce(false);
+
+    expect(await askGameFollow(game, { yes: false })).toBe(false);
+    expect(confirm).toHaveBeenCalledWith(
+      '@vimp-games/tanks: крейт публикуется → можно пересобрать. Выпустить игру?',
+      false,
+    );
+  });
+
+  // крейт игру не обязывает: под --yes без явного флага она не выходит
+  it('--yes без --follow-games: не выпускает, не спрашивая', async () => {
+    expect(await askGameFollow(game, { yes: true })).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('--yes --follow-games: выпускает, не спрашивая', async () => {
+    expect(await askGameFollow(game, { yes: true, followGames: true })).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

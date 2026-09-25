@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { decide, repoProblems } from '../../../scripts/release/plan.js';
+import {
+  decide,
+  repoProblems,
+  buildVersions,
+} from '../../../scripts/release/plan.js';
 
 // Форма как у parseUnreleased: без present секция читается как отсутствующая
 const quiet = { present: true, isEmpty: true, sections: [] };
@@ -33,7 +37,6 @@ function input(overrides = {}) {
       unreleased: quiet,
       pinsStale: false,
     },
-    engineApiChanged: false,
     games: [],
     ...overrides,
   };
@@ -97,7 +100,9 @@ describe('decide', () => {
     expect(plan.engine.target).toBe('0.7.0');
   });
 
-  it('считает публикацию обязательной для всех игр, если публикуется крейт', () => {
+  // крейт игру не обязывает: опубликованная игра везёт своё собранное ядро.
+  // Он лишь предлагает её — release.js спрашивает отдельно
+  it('релиз крейта предлагает игру, но не публикует её сам', () => {
     const plan = decide(
       input({
         crate: {
@@ -106,65 +111,100 @@ describe('decide', () => {
           changed: true,
           unreleased: added,
         },
-        games: [{ name: '@vimp-games/tanks', version: '0.4.2' }],
+        games: [
+          { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2' },
+        ],
+      }),
+    );
+
+    expect(plan.games[0].publish).toBe(false);
+    expect(plan.games[0].optional).toBe(true);
+    expect(plan.games[0].level).toBe('patch');
+    expect(plan.prod.push).toBe(true);
+    expect(plan.prod.verifyGames).toBe(false);
+  });
+
+  it('согласие (follow) превращает предложенную игру в публикуемую', () => {
+    const plan = decide(
+      input({
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          unreleased: added,
+        },
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            follow: true,
+          },
+        ],
       }),
     );
 
     expect(plan.games[0].publish).toBe(true);
-    expect(plan.games[0].required).toBe(true);
-    expect(plan.prod.push).toBe(true);
+    expect(plan.games[0].optional).toBe(true);
+    expect(plan.prod.verifyGames).toBe(true);
   });
 
-  it('делает игру обязательной при бампе ENGINE_API_VERSION и требует пуш последним', () => {
+  it('follow без сигнала сверху ничего не публикует', () => {
     const plan = decide(
       input({
-        // бамп версии API без публикации самого движка невозможен: он
-        // приходит вместе с ⚠️ Breaking в журнале
-        engine: {
-          local: '0.6.0',
-          published: '0.6.0',
-          changed: true,
-          unreleased: breaking,
-        },
-        engineApiChanged: true,
-        games: [{ name: '@vimp-games/tanks', version: '0.4.2' }],
+        games: [
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            changed: false,
+            follow: true,
+          },
+        ],
       }),
     );
 
-    expect(plan.games[0].required).toBe(true);
-    expect(plan.prod.strictlyLast).toBe(true);
-    expect(plan.prod.push).toBe(true);
+    expect(plan.games[0].publish).toBe(false);
+    expect(plan.games[0].optional).toBe(false);
   });
 
-  // против чего собирается игра: не «что публикуется в этом прогоне», а что
-  // лежит в реестре — иначе прерванный прогон соберёт её на старом ядре
-  it('берёт версии сборки игры из реестра, когда артефакты не публикуются', () => {
-    const plan = decide(input());
+  it('релиз движка тоже только предлагает игру', () => {
+    const plan = decide(
+      input({
+        engine: { local: '0.6.0', published: '0.6.0', changed: true, unreleased: added },
+        games: [
+          { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2' },
+        ],
+      }),
+    );
 
-    expect(plan.crateVersion).toBe('0.2.1');
-    expect(plan.engineVersion).toBe('0.6.0');
+    expect(plan.games[0].publish).toBe(false);
+    expect(plan.games[0].optional).toBe(true);
+    expect(plan.games[0].reason).toBe('движок публикуется → можно обновить');
   });
 
-  it('берёт версии сборки игры из плана, когда артефакты публикуются', () => {
+  // собственные сигналы игры делают её релиз обычным, не «по выбору», —
+  // сборка всё равно пойдёт против нового крейта
+  it('игра со своими изменениями при релизе крейта не optional', () => {
     const plan = decide(
       input({
         crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
-        engine: {
-          local: '0.6.0',
-          published: '0.6.0',
-          changed: true,
-          unreleased: added,
-        },
+        games: [
+          { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2', changed: true },
+        ],
       }),
     );
 
-    expect(plan.crateVersion).toBe('0.3.0');
-    expect(plan.engineVersion).toBe('0.7.0');
+    expect(plan.games[0].publish).toBe(true);
+    expect(plan.games[0].optional).toBe(false);
+    expect(plan.games[0].reason).toBe(
+      'есть коммиты после тега версии; крейт публикуется → можно пересобрать',
+    );
   });
 
   // ровно состояние после прерванного релиза: крейт уже в реестре, publish у
   // него false, а игра осталась на старом пине
-  it('делает игру обязательной, когда её ядро отстало от крейта в реестре', () => {
+  it('предлагает игру, когда её ядро отстало от крейта в реестре', () => {
     const plan = decide(
       input({
         crate: { local: '0.3.0', published: '0.3.0', changed: false, unreleased: quiet },
@@ -180,12 +220,11 @@ describe('decide', () => {
       }),
     );
 
-    expect(plan.games[0].publish).toBe(true);
-    expect(plan.games[0].required).toBe(true);
-    // patch здесь занизил бы релиз: игра уезжает на другом ядре
-    expect(plan.games[0].level).toBe('minor');
+    expect(plan.games[0].publish).toBe(false);
+    expect(plan.games[0].optional).toBe(true);
+    expect(plan.games[0].level).toBe('patch');
     expect(plan.games[0].reason).toBe(
-      'ядро игры на 0.2.1, в реестре 0.3.0 → пересборка',
+      'ядро игры на 0.2.1, в реестре 0.3.0 → можно пересобрать',
     );
   });
 
@@ -206,8 +245,7 @@ describe('decide', () => {
     );
 
     expect(plan.games[0].publish).toBe(false);
-    expect(plan.games[0].required).toBe(false);
-    expect(plan.games[0].level).toBe('patch');
+    expect(plan.games[0].optional).toBe(false);
   });
 
   // при бампе крейта причина уже названа, дублировать её пином не нужно
@@ -216,13 +254,12 @@ describe('decide', () => {
       input({
         crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
         games: [
-          { name: '@vimp-games/tanks', version: '0.4.2', corePin: '0.2.1' },
+          { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2', corePin: '0.2.1' },
         ],
       }),
     );
 
-    expect(plan.games[0].reason).toBe('крейт публикуется → игру нужно пересобрать');
-    expect(plan.games[0].level).toBe('minor');
+    expect(plan.games[0].reason).toBe('крейт публикуется → можно пересобрать');
   });
 
   it('не трогает игру без изменений и без неопубликованной версии', () => {
@@ -252,7 +289,7 @@ describe('decide', () => {
     expect(plan.crate.publish).toBe(false);
     expect(plan.engine.publish).toBe(false);
     expect(plan.prod.push).toBe(true);
-    expect(plan.prod.reason).toMatch(/не уехали в main/);
+    expect(plan.prod.reason).toMatch(/незапушенные коммиты/);
   });
 
   it('без незапушенных коммитов релиз одних игр прод не деплоит', () => {
@@ -309,7 +346,7 @@ describe('decide', () => {
     );
 
     expect(plan.games[0].publish).toBe(true);
-    expect(plan.games[0].required).toBe(false);
+    expect(plan.games[0].optional).toBe(false);
     expect(plan.games[0].bump).toBe(false);
     // релиз одной игры прод не деплоит: игры едут через реестр auth-сервиса,
     // пинов игр в этом репозитории не осталось — пушить было бы нечего
@@ -725,5 +762,48 @@ describe('repoProblems', () => {
     );
 
     expect(problems).toEqual(['CHANGELOG: ⚠️ Breaking без Migration']);
+  });
+});
+
+// против чего собирается игра: не «что публикуется в этом прогоне», а что
+// лежит в реестре — иначе прерванный прогон соберёт её на старом ядре. И
+// считается это ПОСЛЕ вопросов о версии: ответ (`major`, своя) иначе запинил
+// бы игру на версию, которой нет в реестре
+describe('buildVersions', () => {
+  it('берёт версии из реестра, когда артефакты не публикуются', () => {
+    const scoped = input();
+
+    expect(buildVersions(decide(scoped), scoped)).toEqual({
+      crateVersion: '0.2.1',
+      engineVersion: '0.6.0',
+    });
+  });
+
+  it('берёт ответы на вопрос о версии, а не предложения', () => {
+    const scoped = input({
+      crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
+      engine: { local: '0.6.0', published: '0.6.0', changed: true, unreleased: added },
+    });
+    const plan = decide(scoped);
+
+    expect(plan.crate.target).toBe('0.3.0');
+
+    plan.crate.target = '1.0.0';
+    plan.engine.target = '0.6.1';
+
+    expect(buildVersions(plan, scoped)).toEqual({
+      crateVersion: '1.0.0',
+      engineVersion: '0.6.1',
+    });
+  });
+
+  // --only без крейта: его пин в игре шаг B не трогает
+  it('артефакт вне прогона даёт null', () => {
+    const scoped = input({ crate: null, engine: null });
+
+    expect(buildVersions(decide(scoped), scoped)).toEqual({
+      crateVersion: null,
+      engineVersion: null,
+    });
   });
 });

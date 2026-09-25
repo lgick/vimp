@@ -23,9 +23,12 @@ What it decides on its own:
   section. A game has the same three signals of its own — an unpublished
   local version and commits after its `vX.Y.Z` tag — so a game-only release
   works without touching the engine. Then the propagation rules of the table
-  below apply: a crate release forces every game to be rebuilt and
-  republished, an `ENGINE_API_VERSION` bump makes the game **required** and
-  pushes production strictly last, a crate release makes the `vimp-engine`
+  below apply: a crate or engine release only **offers** a game — a published
+  game carries its own compiled core and keeps working, so for such a game
+  the one question is "release it?" (default "no"; under `--yes`, only with
+  `--follow-games`). A game left unreleased still gets a strict `sim` of its
+  published `latest` in the production step, against the engine about to be
+  deployed; a crate release makes the `vimp-engine`
   release **required** in the same run (its tarball ships
   `core/Cargo.toml`, the crate version `vimp-contract` checks a game's pin
   against, which the crate bump rewrites), and a crate or engine release makes
@@ -36,10 +39,10 @@ What it decides on its own:
   closed list that fixes the level while the code is written; see
   [Changelog headings set the version](#changelog-headings-set-the-version).
   Enter accepts, or type `patch`/`minor`/`major`/an explicit version. A game's
-  changelog does not set its level, so its suggestion follows the
-  crate/`ENGINE_API_VERSION` bump — or a `vimp-engine-core` pin that lags
-  behind the crate in the registry, which is what an interrupted run leaves
-  behind — and is always confirmed. The pin is read from `core/Cargo.toml`,
+  changelog does not set its level: the suggestion is always a patch and is
+  always confirmed. A `vimp-engine-core` pin that lags behind the crate in the
+  registry — what an interrupted run leaves behind — offers the game the same
+  way a crate release does. The pin is read from `core/Cargo.toml`,
   and, when the crate takes it from the workspace (`{ workspace = true }`),
   from the game's root `Cargo.toml`; the same file is the one step B
   rewrites.
@@ -78,13 +81,24 @@ asks for an explicit confirmation, because that push **is** the production
 deploy — unrelated to the artifact tags, which are already pushed by the
 time this step runs.
 
+The tag is checked against both `HEAD` and `origin` before it goes up,
+because a push that changes nothing triggers nothing. A tag already sitting
+on `HEAD` in `origin` (the previous CI run failed) is deleted there and
+pushed again, after a confirmation that defaults to "no" — make sure that
+run failed rather than is still going. A tag left on another commit (a fix landed after the failed
+run) is moved to `HEAD` only on an explicit "yes": otherwise the release
+would publish the old commit. Either way the version number is not burned.
+Every `release.yml` — the engine's three jobs and each game's — also refuses
+a tag whose version differs from the one in `package.json`/`Cargo.toml`.
+
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | prints and checks everything, commits/tags/pushes nothing. **Only after `--`**: `npm run release --dry-run` hands the flag to npm, not to the script — the run then goes live. Preflight refuses when it finds `npm_config_dry_run` in the environment, and the flag is stripped from every child command. A rehearsal writes no version, so the `npm publish --dry-run` packaging check answers "cannot publish over the previously published versions" for anything due a bump — that one refusal is swallowed in a rehearsal, every other one still fails the step |
 | `--only=crate,engine,scaffold,games,prod` | a subset of the steps |
 | `--game=<path>` | a game for non-interactive runs (repeatable) |
 | `--relink` | only (re)link the discovered/selected games and exit; works offline — it asks no registry. Emergency use: restore links after a `SIGKILL`. Routine use: `npm run link:games` is this flag under an easier-to-find name, for setting up local game checkouts (see [getting-started.md](getting-started.md#linking-a-local-game-plugin)) |
-| `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` is still asked |
+| `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` and any re-push of a tag are still asked |
+| `--follow-games` | with `--yes`: release the `--game` games even when only a crate/engine release offers them (without it they stay unreleased) |
 | `--help` | the full description |
 
 There is no flag to skip the checks. There is no state file either: the
@@ -198,7 +212,7 @@ not push to `main` until the games are out — see the warning in step A2.
 | --- | --- | --- | --- | --- | --- |
 | Master, markup, deploy scripts | — | — | — | — | ✅ |
 | `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | — | ✅ | **required** (pins) | when convenient | ✅ |
-| `packages/engine/core/` (Rust) | ✅ | **required** (`core/Cargo.toml`) | **required** (pins) | ✅ (rebuild against the new crate) | ✅ |
+| `packages/engine/core/` (Rust) | ✅ | **required** (`core/Cargo.toml`) | **required** (pins) | offered (rebuild against the new crate) | ✅ |
 | Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | when convenient | ✅ |
 | `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | **required** | ✅ strictly last |
 | Game only (rules, maps, assets, game core) | — | — | — | ✅ | — (raise the version from the lobby, no deploy) |
@@ -236,11 +250,12 @@ The developer sets versions and runs the releases. Bump rules:
 | --- | --- | --- |
 | `vimp-engine-core` | `packages/engine/core/Cargo.toml` | cargo semver (`0.x`: breaking bumps the minor), plus an entry in `packages/engine/core/CHANGELOG.md` |
 | `vimp-engine` | `packages/engine/package.json` | same, plus an entry in `packages/engine/CHANGELOG.md` |
-| `create-vimp-game` | `packages/create-vimp-game/package.json` | same, plus an entry in `packages/create-vimp-game/CHANGELOG.md`; a release forced by the pins alone carries no entry and is a patch |
+| `create-vimp-game` | `packages/create-vimp-game/package.json` | same, plus an entry in `packages/create-vimp-game/CHANGELOG.md`; a release forced by the pins alone is a patch and gets an automatic entry naming the new pins |
 | `@vimp-games/tanks` | `vimp-tanks/package.json` | same, in the game repo |
 
-A crate bump has to be repeated by hand in the game:
-`vimp-tanks/core/Cargo.toml` → `vimp-engine-core = "X.Y.Z"`.
+A crate bump reaches a game through its pin, `vimp-tanks/core/Cargo.toml` →
+`vimp-engine-core = "X.Y.Z"`: `npm run release` rewrites it in step B, by
+hand it is step B's first command.
 
 ## Changelog headings set the version
 
@@ -303,13 +318,19 @@ What it cannot check — and the reason the level is chosen this early:
 
 The number itself is never written into `[Unreleased]`: the heading is the
 single source of the level, and the script computes the number at release
-time. A game's level does not come from its changelog but from propagation
-(a crate release or a new `ENGINE_API_VERSION` → minor, otherwise patch) and
-is always confirmed by hand. A game's own `CHANGELOG.md`, when it has one, is
+time. A game's level does not come from its changelog: it is a patch and is
+always confirmed by hand. A game's own `CHANGELOG.md`, when it has one, is
 still dated in the release commit: a non-empty `[Unreleased]` becomes
 `## [X.Y.Z] - date` under a fresh empty `[Unreleased]`, with no tag-link
 block. The separator follows the file's own dated entries; a journal with
 none yet gets a hyphen for a game, an em dash for an engine journal.
+
+A release the script forces with an empty `[Unreleased]` would leave a gap
+between two versions, so it writes the entry itself, under `### Changed`: the
+engine released for a new crate names the `core/Cargo.toml` it ships, the
+scaffolder released for its pins names them, and a game released only to
+follow a crate/engine release names what it was rebuilt against. A non-empty
+section is never touched.
 
 ## Step 0: unlink the local checkouts (before any release)
 
@@ -454,8 +475,8 @@ grep vimp-engine /tmp/pin-check/package.json /tmp/pin-check/Cargo.toml
 into the release commit — leave it out and the next release stops at
 "working tree is not clean", because `prepack` rewrites it during
 `npm publish` anyway. When the scaffolder rides along only because of a pin
-bump, its `[Unreleased]` is empty, nothing is dated, and the release is a
-patch.
+bump, its `[Unreleased]` is empty, the release is a patch, and
+`npm run release` writes and dates a `### Changed` entry naming the new pins.
 
 ## Step B: publish `@vimp-games/tanks`
 
@@ -559,10 +580,11 @@ git push
 > the crate or the engine, committed and tagged their bumps, but never got
 > to `git push`, both artifacts now have `publish: false` while the branch
 > still carries unpushed commits. The script sees them (`@{u}..HEAD`) and
-> sets the "прод" row to **"да (push в main)"**, with the reason "релизные
-> коммиты этого репозитория не уехали в main" — even when there is nothing
-> left to publish in this run. The tags sitting on those commits go up with
-> the branch too, not just the ones this run created.
+> sets the "прод" row to **"да (push в main)"**, with the reason "в main есть
+> незапушенные коммиты (прошлый релиз?) — пуш будет деплоем" — even when there is nothing
+> left to publish in this run. Any tag on those commits that `origin` does
+> not have yet goes up with the branch too; the ones this run created were
+> already pushed by their own steps.
 
 CI then builds the master image, pushes it to GHCR, and SSHes into every
 server in `SERVERS_MATRIX` to `docker compose pull && up -d`; the auth
@@ -609,6 +631,11 @@ Both directions matter: without the reverse link the plugin's
 - **A leftover `npm link` or `[patch.crates-io]`.** Covered by step 0; it is
   the single most common way to publish a package built against code nobody
   else has.
+- **Pushing a tag that `origin` already has triggers nothing.** After a
+  failed `release.yml` run, re-pushing the same tag is a no-op; delete it in
+  `origin` (`git push origin :refs/tags/<tag>`) and push again — the script
+  offers exactly that. Placing the tag on a commit whose `package.json` says
+  another version is refused by the workflow's version check.
 - **npm versions are immutable, crates.io versions are too.** A rollback is
   always a new patch release; on crates.io a bad version can additionally be
   hidden with `cargo yank --version X.Y.Z`.

@@ -65,3 +65,15 @@ export async function askGameVersionAsIs(label, { current, published }, { yes })
 
   return resolveVersionAnswer(answer, { current, published });
 }
+
+// Игра, которую тянут только сигналы сверху (релиз крейта или движка,
+// отставший пин ядра): выпуск по желанию, по умолчанию «нет». Под --yes
+// спрашивать некого — решает явный --follow-games: крейт игру не обязывает,
+// и молча перевыпускать её вслед за каждым релизом движка нельзя.
+export async function askGameFollow(game, { yes, followGames = false }) {
+  if (yes) {
+    return followGames;
+  }
+
+  return ui.confirm(`${game.name}: ${game.reason}. Выпустить игру?`, false);
+}

@@ -141,9 +141,3 @@ export function buildLinkPlan(observed, { root, engineDir }) {
 
   return { unlink, relink };
 }
-
-// Проверка результата: путь либо стал обычным каталогом (после unlink),
-// либо снова симлинком (после relink).
-export async function isLinked(target) {
-  return (await symlinkTarget(target)) !== null;
-}

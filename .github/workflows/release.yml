@@ -24,6 +24,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
+      # GITHUB_ENV, not an ${{ }} expression inside run: — a tag name is
+      # attacker-shaped text, and an expression is pasted into the script
+      # before bash parses it
+      - name: Read version
+        run: echo "VERSION=${GITHUB_REF_NAME##*@}" >> "$GITHUB_ENV"
+
+      # The tag triggers this run, but npm publishes the version in the
+      # file: a tag on a commit carrying another version would publish that
+      # one, or fail on a confusing "cannot publish over". Checked before any
+      # install — a wrong tag should cost nothing.
+      - name: Verify tag matches package version
+        run: |
+          file=$(jq -r .version packages/engine/package.json)
+          if [ "$file" != "$VERSION" ]; then
+            echo "tag $GITHUB_REF_NAME, but packages/engine/package.json says $file" >&2
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -39,18 +57,12 @@ jobs:
       - name: Update npm
         run: npm install -g npm@latest
 
-      - name: Read version
-        id: version
-        run: |
-          v="${GITHUB_REF_NAME##*@}"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-
       - name: Guard against re-publish
         run: |
           set -e
-          published=$(npm view "vimp-engine@${{ steps.version.outputs.version }}" version 2>/dev/null || true)
+          published=$(npm view "vimp-engine@$VERSION" version 2>/dev/null || true)
           if [ -n "$published" ]; then
-            echo "vimp-engine@${{ steps.version.outputs.version }} is already on npm" >&2
+            echo "vimp-engine@$VERSION is already on npm" >&2
             exit 1
           fi
 
@@ -62,6 +74,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
+
+      # GITHUB_ENV, not an ${{ }} expression inside run: — a tag name is
+      # attacker-shaped text, and an expression is pasted into the script
+      # before bash parses it
+      - name: Read version
+        run: echo "VERSION=${GITHUB_REF_NAME##*@}" >> "$GITHUB_ENV"
+
+      # The tag triggers this run, but npm publishes the version in the
+      # file: a tag on a commit carrying another version would publish that
+      # one, or fail on a confusing "cannot publish over". Checked before any
+      # install — a wrong tag should cost nothing.
+      - name: Verify tag matches package version
+        run: |
+          file=$(jq -r .version packages/create-vimp-game/package.json)
+          if [ "$file" != "$VERSION" ]; then
+            echo "tag $GITHUB_REF_NAME, but packages/create-vimp-game/package.json says $file" >&2
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -76,18 +106,12 @@ jobs:
       - name: Update npm
         run: npm install -g npm@latest
 
-      - name: Read version
-        id: version
-        run: |
-          v="${GITHUB_REF_NAME##*@}"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-
       - name: Guard against re-publish
         run: |
           set -e
-          published=$(npm view "create-vimp-game@${{ steps.version.outputs.version }}" version 2>/dev/null || true)
+          published=$(npm view "create-vimp-game@$VERSION" version 2>/dev/null || true)
           if [ -n "$published" ]; then
-            echo "create-vimp-game@${{ steps.version.outputs.version }} is already on npm" >&2
+            echo "create-vimp-game@$VERSION is already on npm" >&2
             exit 1
           fi
 
@@ -116,10 +140,19 @@ jobs:
           key: cargo-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
       - name: Read version
-        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME##*@}" >> "$GITHUB_ENV"
+
+      # The tag triggers this run, but cargo publishes the version in
+      # Cargo.toml: a tag on a commit carrying another version would publish
+      # that one instead.
+      - name: Verify tag matches crate version
         run: |
-          v="${GITHUB_REF_NAME##*@}"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          file=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "vimp-engine-core") | .version')
+          if [ "$file" != "$VERSION" ]; then
+            echo "tag $GITHUB_REF_NAME, but packages/engine/core/Cargo.toml says $file" >&2
+            exit 1
+          fi
 
       - name: Guard against re-publish
         run: |
@@ -128,8 +161,8 @@ jobs:
           # User-Agent with 403; the sparse index doesn't require one and
           # is the same source scripts/release/registry.js polls locally
           if curl -sf "https://index.crates.io/vi/mp/vimp-engine-core" \
-              | grep -q "\"vers\":\"${{ steps.version.outputs.version }}\""; then
-            echo "vimp-engine-core ${{ steps.version.outputs.version }} is already on crates.io" >&2
+              | grep -q "\"vers\":\"$VERSION\""; then
+            echo "vimp-engine-core $VERSION is already on crates.io" >&2
             exit 1
           fi
 

@@ -20,9 +20,17 @@ import {
   publishScaffold,
   rollOutProduction,
   unpushedTags,
+  rebuildEntry,
 } from '../../../scripts/release/steps.js';
 import { CommandError } from '../../../scripts/release/shell.js';
 import { tarballOf, variants, writeDist } from '../../fixtures/gamePackages.js';
+
+// боевой (не dry-run) прогон шага иначе ждал бы версию в реальном реестре
+vi.mock('../../../scripts/release/registry.js', async importOriginal => ({
+  ...(await importOriginal()),
+  waitForNpm: async () => true,
+  waitForCrate: async () => true,
+}));
 
 let root;
 
@@ -488,43 +496,55 @@ function tagShell(byCommand) {
   };
 }
 
-// Прерванный прогон ставит тег и падает следующим шагом: report.tags нового
-// запуска о нём не знает, и без досбора тег остался бы лежать локально —
-// сводка сказала бы «прод: запушен», а движок в origin приехал бы без тега
+// Теги текущего прогона releaseTag уже запушил; сюда попадает след
+// прерванного запуска, чей тег остался локальным. Уже уехавшие в origin
+// отсекаются — иначе сводка советовала бы пушить тег, чей CI уже идёт
 describe('unpushedTags', () => {
-  it('добавляет теги на коммитах, не уехавших в upstream', async () => {
+  it('берёт теги на незапушенных коммитах, которых нет в origin', async () => {
     const shell = tagShell({
       'git tag --contains @{u}':
         'vimp-engine-core@0.10.0\nvimp-engine@0.29.0\n',
       'git tag --points-at @{u}': '',
+      'git ls-remote --tags origin':
+        'abc\trefs/tags/vimp-engine-core@0.10.0\n',
     });
 
-    const tags = await unpushedTags(shell, '/repo', ['create-vimp-game@0.4.7']);
+    expect(await unpushedTags(shell, '/repo')).toEqual(['vimp-engine@0.29.0']);
+  });
 
-    expect(tags).toEqual([
-      'create-vimp-game@0.4.7',
-      'vimp-engine-core@0.10.0',
-      'vimp-engine@0.29.0',
-    ]);
+  it('аннотированный тег в origin (строка ^{}) тоже считается уехавшим', async () => {
+    const shell = tagShell({
+      'git tag --contains @{u}': 'vimp-engine@0.29.0\n',
+      'git tag --points-at @{u}': '',
+      'git ls-remote --tags origin':
+        'abc\trefs/tags/vimp-engine@0.29.0\ndef\trefs/tags/vimp-engine@0.29.0^{}\n',
+    });
+
+    expect(await unpushedTags(shell, '/repo')).toEqual([]);
   });
 
   it('не берёт тег самого upstream: --contains считает коммит своим предком', async () => {
     const shell = tagShell({
       'git tag --contains @{u}': 'vimp-engine@0.28.0\nvimp-engine@0.29.0\n',
       'git tag --points-at @{u}': 'vimp-engine@0.28.0\n',
+      'git ls-remote --tags origin': '',
     });
 
-    expect(await unpushedTags(shell, '/repo', [])).toEqual([
-      'vimp-engine@0.29.0',
-    ]);
+    expect(await unpushedTags(shell, '/repo')).toEqual(['vimp-engine@0.29.0']);
   });
 
-  it('без upstream отдаёт только теги текущего прогона', async () => {
-    const shell = tagShell({});
+  // лучше лишний no-op пуш, чем потерянный тег
+  it('origin не ответил — отдаёт всех кандидатов', async () => {
+    const shell = tagShell({
+      'git tag --contains @{u}': 'vimp-engine@0.29.0\n',
+      'git tag --points-at @{u}': '',
+    });
 
-    expect(await unpushedTags(shell, '/repo', ['vimp-engine@0.29.0'])).toEqual([
-      'vimp-engine@0.29.0',
-    ]);
+    expect(await unpushedTags(shell, '/repo')).toEqual(['vimp-engine@0.29.0']);
+  });
+
+  it('без upstream кандидатов нет', async () => {
+    expect(await unpushedTags(tagShell({}), '/repo')).toEqual([]);
   });
 });
 
@@ -895,7 +915,6 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       root: simRoot,
       games: [{ name: '@vimp-games/fresh', target: '0.7.5' }],
       report: { published: [], tags: [], remaining: [] },
-      tags: [],
       engineApi: 4,
       push: false,
       installRoot: simRoot,
@@ -908,12 +927,18 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
   });
 
   // деплоем шаг скаффолдера не является, но коммит `chore: bump
-  // create-vimp-game` и тег он делает В ЭТОМ репозитории: без пуша они
-  // остаются локальными, и сводка обязана это назвать — иначе «прод: не
-  // пушился» умалчивает, что на ветке лежит незапушенное
-  it('незапушенные теги репозитория попадают в «осталось»', async () => {
+  // create-vimp-game` он делает В ЭТОМ репозитории: без пуша коммит остаётся
+  // локальным, и сводка обязана это назвать — иначе «прод: не пушился»
+  // умалчивает, что на ветке лежит незапушенное
+  it('незапушенные коммиты репозитория попадают в «осталось»', async () => {
     const shell = recordingShell();
     const report = { published: [], tags: [], remaining: [] };
+    const read = shell.read;
+
+    shell.read = async (command, args, options) =>
+      args[0] === 'log'
+        ? { code: 0, stdout: 'abc chore: bump create-vimp-game to 0.4.4\n', stderr: '', output: '' }
+        : read(command, args, options);
 
     // адрес лобби дописывается к напоминанию: у разработчика он может быть
     // выставлен, и тогда строка другая
@@ -924,22 +949,76 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
       root: simRoot,
       games: [{ name: '@vimp-games/fresh', target: '0.7.5' }],
       report,
-      tags: ['create-vimp-game@0.4.4'],
       engineApi: 4,
       push: false,
       installRoot: simRoot,
     });
 
     // сперва напоминание о каталоге: без подачи версии и одобрения игра до
-    // игроков не доедет вовсе, пуш тегов рядом с этим — мелочь
+    // игроков не доедет вовсе, пуш коммитов рядом с этим — мелочь
     expect(report.remaining).toEqual([
       '@vimp-games/fresh@0.7.5: подать версию в лобби ' +
         '(«My games» → «Update») и подтвердить в «Moderation»',
-      'пуш локальных коммитов и тегов этого репозитория',
+      'пуш локальных коммитов этого репозитория',
     ]);
     expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);
 
     vi.unstubAllEnvs();
+  });
+
+  // теги шаги пушат сами: без незапушенных коммитов пушить нечего, и
+  // «осталось» не должно звать к пустому действию
+  it('без незапушенных коммитов «осталось» не зовёт пушить', async () => {
+    const report = { published: [], tags: [], remaining: [] };
+
+    await rollOutProduction({
+      shell: recordingShell(),
+      root: simRoot,
+      games: [],
+      report,
+      engineApi: 4,
+      push: false,
+      installRoot: simRoot,
+    });
+
+    expect(report.remaining).toEqual([]);
+  });
+
+  // игра, которую прогон не выпустил, едет к игрокам против нового движка:
+  // шаг прода гонит по ней строгий sim (отказ, а не пропуск). Проверяется
+  // на расхождении engineApi — строгий режим на нём падает, нестрогий бы
+  // промолчал
+  it('деплой: невыпущенную игру прод гонит строго, по latest', async () => {
+    const shell = recordingShell();
+
+    await expect(
+      rollOutProduction({
+        shell,
+        root: simRoot,
+        games: [],
+        heldGames: [{ name: '@vimp-games/stale' }],
+        report: { published: [], tags: [] },
+        engineApi: 4,
+        installRoot: simRoot,
+      }),
+    ).rejects.toThrow(/engineApi=3, у движка 4/);
+  });
+
+  it('без деплоя невыпущенные игры не гоняются: движок не меняется', async () => {
+    const shell = recordingShell();
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [],
+      heldGames: [{ name: '@vimp-games/fresh' }],
+      report: { published: [], tags: [], remaining: [] },
+      engineApi: 4,
+      push: false,
+      installRoot: simRoot,
+    });
+
+    expect(simCalls(shell)).toEqual([]);
   });
 
   it('шаг прода на том же расхождении ОТКАЗЫВАЕТ: игра выпущена без пересборки', async () => {
@@ -951,7 +1030,6 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
         root: simRoot,
         games: [{ name: '@vimp-games/stale', target: '0.7.5' }],
         report: { published: [], tags: [] },
-        tags: [],
         engineApi: 4,
         installRoot: simRoot,
       }),
@@ -1080,5 +1158,121 @@ describe('installEngine', () => {
       installEngine(shell, '/game', '0.34.3', { attempts: 2, retryMs: 0 }),
     ).rejects.toThrow(CommandError);
     expect(shell.calls).toHaveLength(2);
+  });
+});
+
+// запись называет только то, что реально сменилось: игра, выпущенная вслед
+// за одним движком, крейта не меняла
+describe('rebuildEntry', () => {
+  it('новый крейт и новый движок — оба в записи', () => {
+    expect(
+      rebuildEntry({
+        corePin: '0.22.2',
+        corePinFile: 'core/Cargo.toml',
+        crateVersion: '0.22.3',
+        engineVersion: '0.34.4',
+        engineReleased: true,
+      }),
+    ).toBe('Rebuilt against `vimp-engine-core` 0.22.3 and `vimp-engine` 0.34.4.');
+  });
+
+  it('релиз одного движка: крейт на том же пине не называется', () => {
+    expect(
+      rebuildEntry({
+        corePin: '0.22.3',
+        corePinFile: 'core/Cargo.toml',
+        crateVersion: '0.22.3',
+        engineVersion: '0.35.0',
+        engineReleased: true,
+      }),
+    ).toBe('Rebuilt against `vimp-engine` 0.35.0.');
+  });
+
+  it('отставший пин без релиза движка: только крейт', () => {
+    expect(
+      rebuildEntry({
+        corePin: '0.22.2',
+        corePinFile: 'core/Cargo.toml',
+        crateVersion: '0.22.3',
+        engineVersion: '0.34.4',
+        engineReleased: false,
+      }),
+    ).toBe('Rebuilt against `vimp-engine-core` 0.22.3.');
+  });
+
+  // без переписываемого пина шаг B крейт не трогает — и запись о нём молчит
+  it('без файла пина крейт не называется', () => {
+    expect(
+      rebuildEntry({
+        corePin: null,
+        corePinFile: null,
+        crateVersion: '0.22.3',
+        engineVersion: '0.35.0',
+        engineReleased: true,
+      }),
+    ).toBe('Rebuilt against `vimp-engine` 0.35.0.');
+  });
+
+  it('ничего не сменилось — записи нет', () => {
+    expect(rebuildEntry({ crateVersion: null, engineVersion: null })).toBe(null);
+  });
+});
+
+
+// релиз движка ради нового крейта при пустой [Unreleased] раньше уходил без
+// записи — в журнале движка так пропали 0.34.2…0.34.4
+describe('publishEngine: запись вынужденного релиза', () => {
+  let forcedRoot;
+
+  beforeAll(async () => {
+    forcedRoot = await mkdtemp(path.join(tmpdir(), 'vimp-engine-forced-'));
+    const dir = path.join(forcedRoot, 'packages', 'engine');
+
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'vimp-engine', version: '0.10.2' }, null, 2),
+    );
+    await writeFile(
+      path.join(dir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [Unreleased]\n\n## [0.10.2] — 2026-01-01\n\n### Fixed\n\n- x\n',
+    );
+  });
+
+  afterAll(async () => {
+    await rm(forcedRoot, { recursive: true, force: true });
+  });
+
+  it('пустой журнал получает запись о новом core/Cargo.toml и датируется', async () => {
+    const shell = recordingShell(false);
+
+    // origin отвечает «тега нет», всё остальное — как в recordingShell
+    shell.read = async (command, args) => {
+      shell.calls.push(`read ${command} ${args.join(' ')}`);
+
+      return args[0] === 'ls-remote'
+        ? { code: 0, stdout: '', stderr: '', output: '' }
+        : { code: 1, stdout: '', stderr: '', output: '' };
+    };
+
+    await publishEngine({
+      shell,
+      root: forcedRoot,
+      decision: { target: '0.10.3', bump: true, required: true },
+      games: [],
+      report: { published: [], tags: [] },
+      crateVersion: '0.5.1',
+    });
+
+    const changelog = await readFile(
+      path.join(forcedRoot, 'packages', 'engine', 'CHANGELOG.md'),
+      'utf8',
+    );
+
+    expect(changelog).toMatch(
+      /## \[0\.10\.3\] — \d{4}-\d{2}-\d{2}\n\n### Changed\n\n- The package ships `core\/Cargo\.toml` of `vimp-engine-core` 0\.5\.1\./,
+    );
+    expect(shell.calls).toContain('write git tag vimp-engine@0.10.3');
+    expect(shell.calls).toContain('write git push origin vimp-engine@0.10.3');
   });
 });

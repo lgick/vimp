@@ -224,10 +224,6 @@ export function suggestLevel(sections, version) {
   };
 }
 
-export function tagFor(artifact, version) {
-  return `${artifact}@${version}`;
-}
-
 export function releaseLink(repoUrl, artifact, version) {
   return `[${version}]: ${repoUrl}/releases/tag/${artifact}%40${version}`;
 }
@@ -277,6 +273,24 @@ export function releaseUnreleased(text, { version, date, repoUrl, artifact }) {
   } else {
     lines.splice(firstLinkIndex, 0, linkLine);
   }
+
+  return lines.join('\n');
+}
+
+// Вынужденный релиз (новое ядро в тарболе, свежие пины шаблона, пересборка
+// игры) с пустой [Unreleased] иначе уходит без записи, и в журнале остаётся
+// дыра между версиями. Непустая секция не трогается: автор описал релиз сам.
+export function withFallbackEntry(text, entry) {
+  const unreleased = parseUnreleased(text);
+
+  if (!entry || !unreleased.present || !unreleased.isEmpty) {
+    return text;
+  }
+
+  const lines = text.split('\n');
+  const index = lines.findIndex(line => UNRELEASED_HEADING.test(line));
+
+  lines.splice(index + 1, 0, '', '### Changed', '', `- ${entry}`);
 
   return lines.join('\n');
 }

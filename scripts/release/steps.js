@@ -7,10 +7,15 @@ import { extract as tarExtract } from 'tar';
 import { checkGamePackage } from '../../packages/engine/src/master/gamePackageCheck.js';
 
 import * as ui from './ui.js';
-import { parseUnreleased, releaseUnreleased } from './changelog.js';
+import {
+  parseUnreleased,
+  releaseUnreleased,
+  withFallbackEntry,
+} from './changelog.js';
 import { waitForCrate, waitForNpm } from './registry.js';
 import { isDirectory } from './games.js';
 import { CRATE_NAME, ENGINE_NAME, SCAFFOLD_NAME } from './plan.js';
+import { releaseTag } from './tags.js';
 
 const REPO_URL = 'https://github.com/lgick/vimp';
 
@@ -26,6 +31,15 @@ async function writePinSnapshot(shell, root) {
     'node',
     ['packages/create-vimp-game/scripts/write-versions.js'],
     { cwd: root },
+  );
+}
+
+async function pinsEntry(root) {
+  const pins = JSON.parse(await readFile(path.join(root, PIN_SNAPSHOT), 'utf8'));
+
+  return (
+    `Generated games pin \`${ENGINE_NAME}\` ${pins.engine} and ` +
+    `\`${CRATE_NAME}\` ${pins.core}.`
   );
 }
 
@@ -120,12 +134,13 @@ function bumpTomlVersion(file, version, options) {
 
 // Датирование делается по состоянию журнала, а не по факту бампа версии:
 // версия могла быть поднята руками, а секция [Unreleased] остаться живой —
-// тогда без датирования записи двух релизов склеятся в одну.
+// тогда без датирования записи двух релизов склеятся в одну. fallback —
+// запись вынужденного релиза на случай пустой секции (withFallbackEntry).
 async function dateChangelog(
   file,
-  { version, artifact, dryRun, repoUrl = REPO_URL },
+  { version, artifact, dryRun, repoUrl = REPO_URL, fallback = null },
 ) {
-  const text = await readFile(file, 'utf8');
+  const text = withFallbackEntry(await readFile(file, 'utf8'), fallback);
   const unreleased = parseUnreleased(text);
 
   if (!unreleased.present || unreleased.isEmpty) {
@@ -135,8 +150,8 @@ async function dateChangelog(
 
   await edit(
     file,
-    source =>
-      releaseUnreleased(source, {
+    () =>
+      releaseUnreleased(text, {
         version,
         date: today(),
         repoUrl,
@@ -166,23 +181,6 @@ async function commit(shell, cwd, message, paths) {
 
   await shell.write('git', ['commit', '-m', message], { cwd });
   return true;
-}
-
-// Существующий тег — след прерванного прогона: `git tag` упал бы уже после
-// публикации, поэтому спрашиваем заранее.
-async function tag(shell, cwd, name) {
-  const existing = await shell.read(
-    'git',
-    ['rev-parse', '--verify', '--quiet', `refs/tags/${name}`],
-    { cwd, allowFailure: true },
-  );
-
-  if (existing.code === 0) {
-    ui.log(`  · тег ${name} уже существует, повторно не ставится`);
-    return;
-  }
-
-  await shell.write('git', ['tag', name], { cwd });
 }
 
 async function awaitRegistry(wait, label) {
@@ -344,9 +342,11 @@ async function simGame(
   shell,
   root,
   game,
-  { engineApi = null, strict = false, installRoot = null } = {},
+  { engineApi = null, strict = false, installRoot = null, version = null } = {},
 ) {
-  const version = simVersion(game, { strict, dryRun: shell.dryRun });
+  // version задаёт шаг прода для игр, которые этот прогон не выпускает:
+  // строго, но по той копии, что уже стоит у пользователей
+  version ??= simVersion(game, { strict, dryRun: shell.dryRun });
 
   try {
     await withPublishedGame(
@@ -468,10 +468,9 @@ export async function publishCrate({ shell, root, decision, report }) {
   );
 
   const tagName = `${CRATE_NAME}@${target}`;
-  await tag(shell, root, tagName);
   // публикует не эта команда, а CI: пуш тега запускает
   // .github/workflows/release.yml (OIDC Trusted Publishing на crates.io)
-  await shell.write('git', ['push', 'origin', tagName], { cwd: root });
+  await releaseTag(shell, root, tagName);
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -494,6 +493,7 @@ export async function publishEngine({
   report,
   engineApi = null,
   installRoot = null,
+  crateVersion = null,
 }) {
   const { target } = decision;
 
@@ -537,6 +537,9 @@ export async function publishEngine({
     version: target,
     artifact: ENGINE_NAME,
     dryRun: shell.dryRun,
+    fallback: crateVersion
+      ? `The package ships \`core/Cargo.toml\` of \`${CRATE_NAME}\` ${crateVersion}.`
+      : null,
   });
 
   await commit(shell, root, `chore: bump ${ENGINE_NAME} to ${target}`, [
@@ -552,10 +555,9 @@ export async function publishEngine({
   });
 
   const tagName = `${ENGINE_NAME}@${target}`;
-  await tag(shell, root, tagName);
   // публикует не эта команда, а CI: пуш тега запускает
   // .github/workflows/release.yml (OIDC Trusted Publishing на npm)
-  await shell.write('git', ['push', 'origin', tagName], { cwd: root });
+  await releaseTag(shell, root, tagName);
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -613,6 +615,9 @@ export async function publishScaffold({ shell, root, decision, report }) {
       version: target,
       artifact: SCAFFOLD_NAME,
       dryRun: shell.dryRun,
+      // пины — единственная причина релиза, когда decision.required, а
+      // журнал пуст: снимок только что записан, берём версии из него
+      fallback: decision.required ? await pinsEntry(root) : null,
     },
   );
 
@@ -632,10 +637,9 @@ export async function publishScaffold({ shell, root, decision, report }) {
   });
 
   const tagName = `${SCAFFOLD_NAME}@${target}`;
-  await tag(shell, root, tagName);
   // публикует не эта команда, а CI: пуш тега запускает
   // .github/workflows/release.yml (OIDC Trusted Publishing на npm)
-  await shell.write('git', ['push', 'origin', tagName], { cwd: root });
+  await releaseTag(shell, root, tagName);
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -827,11 +831,32 @@ export async function installEngine(shell, dir, version, retry = {}) {
   );
 }
 
+// Запись в журнал игры, выпущенной вслед за крейтом/движком. Называет только
+// то, что реально сменилось: крейт — если шаг B переписывает пин на другую
+// версию, движок — если он вышел в этом прогоне (иначе игра ставит ту же
+// копию из реестра, что и раньше).
+export function rebuildEntry({
+  corePin = null,
+  corePinFile = null,
+  crateVersion,
+  engineVersion,
+  engineReleased = false,
+}) {
+  const against = [
+    corePinFile && crateVersion && corePin !== crateVersion &&
+      `\`${CRATE_NAME}\` ${crateVersion}`,
+    engineReleased && engineVersion && `\`${ENGINE_NAME}\` ${engineVersion}`,
+  ].filter(Boolean);
+
+  return against.length ? `Rebuilt against ${against.join(' and ')}.` : null;
+}
+
 export async function publishGame({
   shell,
   game,
   crateVersion,
   engineVersion,
+  engineReleased = false,
   engineApi,
   report,
   assumeYes = false,
@@ -924,6 +949,16 @@ export async function publishGame({
       artifact: game.name,
       dryRun: shell.dryRun,
       repoUrl: null,
+      // игра выпущена только ради нового крейта/движка — это и есть запись
+      fallback: game.optional
+        ? rebuildEntry({
+            corePin: game.corePin,
+            corePinFile: game.corePinFile,
+            crateVersion,
+            engineVersion,
+            engineReleased,
+          })
+        : null,
     });
   }
 
@@ -933,7 +968,6 @@ export async function publishGame({
     `chore: release ${game.target}`,
     await gameCommitPaths(dir, game.corePinFile),
   );
-  await tag(shell, dir, `v${game.target}`);
 
   await checkPublishable(shell, ['publish', '--dry-run'], {
     cwd: dir,
@@ -943,13 +977,11 @@ export async function publishGame({
 
   // пуш игрового репозитория ничего не деплоит — в отличие от vimp. Публикует
   // не эта команда, а CI: пуш тега запускает release.yml игры (OIDC Trusted
-  // Publishing на npm). Пушим именно этот тег, а не `--tags`: последний
+  // Publishing на npm). Пушится именно этот тег, а не `--tags`: последний
   // отправил бы и любой другой локальный тег `v*`, случайно оставшийся в
   // репозитории — а такой пуш сам по себе запустил бы чужой релиз
   await shell.write('git', ['push'], { cwd: dir });
-  await shell.write('git', ['push', 'origin', `v${game.target}`], {
-    cwd: dir,
-  });
+  await releaseTag(shell, dir, `v${game.target}`);
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -964,13 +996,14 @@ export async function publishGame({
 
 // ── Step C: прод ───────────────────────────────────────────────────────────
 
-// Теги этого репозитория, которые ещё не уехали в origin. `known` — теги
-// текущего прогона; после прерванного запуска их ставил прошлый, и он же
-// оставил их лежать локально, поэтому одного report.tags мало. Сеть не
-// нужна: релизный тег всегда стоит на релизном коммите, а незапушенные
-// коммиты — ровно те, что не входят в upstream.
-export async function unpushedTags(shell, root, known) {
-  const names = new Set(known);
+// Теги этого репозитория, которых нет в origin. Теги текущего прогона уже
+// запушил releaseTag; сюда попадает след прерванного запуска, чей тег так и
+// остался локальным (например, после `--only=games`). Кандидаты — теги на
+// незапушенных коммитах (релизный тег всегда стоит на релизном коммите),
+// а ls-remote отсекает уже уехавшие: иначе сводка советовала бы пушить тег,
+// чей CI уже идёт.
+export async function unpushedTags(shell, root) {
+  const names = new Set();
 
   const contains = await shell.read('git', ['tag', '--contains', '@{u}'], {
     cwd: root,
@@ -978,7 +1011,7 @@ export async function unpushedTags(shell, root, known) {
   });
 
   if (contains.code !== 0) {
-    return [...names];
+    return [];
   }
 
   // тег на самом @{u} уже запушен: --contains считает коммит содержащим сам
@@ -1001,15 +1034,37 @@ export async function unpushedTags(shell, root, known) {
     }
   }
 
-  return [...names];
+  if (names.size === 0) {
+    return [];
+  }
+
+  // origin не ответил — лучше лишний no-op пуш, чем потерянный тег
+  const remote = await shell.read('git', ['ls-remote', '--tags', 'origin'], {
+    cwd: root,
+    allowFailure: true,
+  });
+
+  if (remote.code !== 0) {
+    return [...names];
+  }
+
+  const inOrigin = new Set(
+    remote.stdout
+      .split('\n')
+      .map(line => line.trim().split(/\s+/)[1] ?? '')
+      .filter(ref => ref.startsWith('refs/tags/'))
+      .map(ref => ref.slice('refs/tags/'.length).replace(/\^\{\}$/, '')),
+  );
+
+  return [...names].filter(name => !inOrigin.has(name));
 }
 
 export async function rollOutProduction({
   shell,
   root,
   games,
+  heldGames = [],
   report,
-  tags,
   engineApi = null,
   push = true,
   installRoot = null,
@@ -1051,6 +1106,22 @@ export async function rollOutProduction({
     await simGame(shell, root, game, { engineApi, strict: true, installRoot });
   }
 
+  // Игры, которые этот прогон не выпускает (релиз крейта/движка их только
+  // предлагал), едут к игрокам как есть — против деплоящегося движка. Шаг
+  // движка гонял их нестрого и мог пропустить (копия не встала), поэтому
+  // здесь тот же строгий sim по опубликованной `latest`. Без деплоя движок
+  // не меняется, и проверять нечего
+  if (push) {
+    for (const game of heldGames) {
+      await simGame(shell, root, game, {
+        engineApi,
+        strict: true,
+        installRoot,
+        version: 'latest',
+      });
+    }
+  }
+
   // релиз одних игр в этом репозитории не меняет ни файла: снимок пинов
   // шаблона зависит только от версий движка и крейта, коммитить было бы
   // нечего, а пуш в main оказался бы деплоем без изменений — то есть
@@ -1058,9 +1129,9 @@ export async function rollOutProduction({
   if (!push) {
     ui.raw('  прод: движок не публикуется — деплой не нужен');
 
-    // …но собственные коммиты и теги ЭТОГО репозитория деплоем не являются и
-    // всё равно ждут пуша: шаг скаффолдера коммитит `chore: bump
-    // create-vimp-game` и ставит тег в корне. Промолчать нельзя — сводка
+    // …но собственные коммиты ЭТОГО репозитория деплоем не являются и всё
+    // равно ждут пуша: шаг скаффолдера коммитит `chore: bump
+    // create-vimp-game` (тег он уже запушил сам). Промолчать нельзя — сводка
     // напечатает «прод: не пушился», и незапушенное всплывёт только
     // следующим релизом
     const local = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {
@@ -1068,11 +1139,12 @@ export async function rollOutProduction({
       allowFailure: true,
     });
 
-    if (local.stdout.trim() || tags.length) {
+    if (local.stdout.trim()) {
       ui.raw('');
-      ui.raw(local.stdout.trim() || '  (коммитов нет)');
+      ui.raw(local.stdout.trim());
       ui.raw('');
-      report.remaining.push('пуш локальных коммитов и тегов этого репозитория');
+      // теги шаги уже запушили сами (releaseTag) — ждут только коммиты
+      report.remaining.push('пуш локальных коммитов этого репозитория');
     }
 
     return;
@@ -1103,7 +1175,7 @@ export async function rollOutProduction({
   ui.raw(pending.stdout.trim() || '  (нечего пушить)');
   ui.raw('');
 
-  const pendingTags = await unpushedTags(shell, root, tags);
+  const pendingTags = await unpushedTags(shell, root);
 
   const approved = await ui.confirm(
     'Пуш в main — это ДЕПЛОЙ прода (deploy.yml). Пушим?',
@@ -1118,7 +1190,7 @@ export async function rollOutProduction({
       ui.raw(`  git push origin ${name}`);
     }
 
-    report.remaining.push('пуш в main и теги движка/крейта');
+    report.remaining.push('пуш в main');
     return;
   }
 

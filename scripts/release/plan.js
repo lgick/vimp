@@ -52,75 +52,66 @@ export function decide(input) {
     reasons: scaffoldReasons,
   });
 
-  // Версии, на которых игра будет собрана: свежие, если артефакт публикуется
-  // в этом прогоне, иначе те, что уже лежат в реестре. Брать локальные нельзя
-  // — `cargo update --precise` и `npm i -D` ходят в реестр, а «publish в этом
-  // прогоне» само по себе непригодно: после прерванного прогона крейт уже
-  // опубликован, publish у него false, и игра собралась бы на старом ядре
-  const crateVersion = crate.publish
-    ? crate.target
-    : (input.crate?.published ?? null);
-  const engineVersion = engine.publish
-    ? engine.target
-    : (input.engine?.published ?? null);
+  // крейт в реестре: пин игры, отставший от него, — след прерванного прогона
+  // (при публикации крейта в этом прогоне причина называется иначе)
+  const registryCrate = input.crate?.published ?? null;
 
-  // у игры те же три сигнала, что у крейта и движка: своя неопубликованная
-  // версия, свои коммиты после тега — плюс распространение сверху. Без этого
-  // строка «Game only → ✅» из publishing.md была бы недостижима
+  // У игры собственные сигналы — неопубликованная версия и коммиты после
+  // тега — делают её релиз обязательным. Сигналы сверху (крейт, движок,
+  // отставший пин ядра) только предлагают: опубликованная игра везёт своё
+  // собранное ядро и продолжает работать, крейт позволяет ей догнать, но не
+  // заставляет (CLAUDE.md). Такая игра помечается optional, release.js
+  // спрашивает о ней отдельно и передаёт ответ сюда же полем follow.
   const games = (input.games ?? []).map(game => {
-    // пин, отставший от крейта в реестре, означает, что опубликованная игра
-    // собрана на старом ядре: пересборка обязательна так же, как при бампе
     const coreStale =
-      crateVersion !== null &&
+      registryCrate !== null &&
       typeof game.corePin === 'string' &&
-      game.corePin !== crateVersion;
-    const required = crate.publish || input.engineApiChanged === true || coreStale;
+      game.corePin !== registryCrate;
     const ahead =
       game.published === null ||
       (game.published !== undefined &&
         compareVersions(game.version, game.published) > 0);
-    const ownChanges = game.changed === true;
+    const own = ahead || game.changed === true;
     const reasons = [];
 
-    if (crate.publish) {
-      reasons.push('крейт публикуется → игру нужно пересобрать');
-    }
-    if (input.engineApiChanged) {
-      reasons.push('изменился ENGINE_API_VERSION → публикация обязательна');
-    }
-    // при bump крейта причина уже названа выше — здесь остаётся случай, когда
-    // крейт опубликован раньше, а игра за ним не поехала
-    if (coreStale && !crate.publish) {
-      reasons.push(
-        `ядро игры на ${game.corePin}, в реестре ${crateVersion} → пересборка`,
-      );
-    }
-    if (!required && engine.publish) {
-      reasons.push('движок публикуется → можно обновить и игру');
-    }
-    if (!required && ahead) {
+    if (ahead) {
       reasons.push(
         game.published === null
           ? 'ещё не публиковалась'
           : `локальная ${game.version} > опубликованной ${game.published}`,
       );
-    }
-    if (!required && !ahead && ownChanges) {
+    } else if (game.changed === true) {
       reasons.push('есть коммиты после тега версии');
     }
-    if (!required && !engine.publish && !ahead && !ownChanges) {
+
+    const follows = [];
+
+    if (crate.publish) {
+      follows.push('крейт публикуется → можно пересобрать');
+    } else if (coreStale) {
+      // крейт вышел раньше, а игра за ним не поехала
+      follows.push(`ядро игры на ${game.corePin}, в реестре ${registryCrate} → можно пересобрать`);
+    }
+    // крейт всегда тянет за собой движок — вторая причина была бы повтором
+    if (engine.publish && !crate.publish) {
+      follows.push('движок публикуется → можно обновить');
+    }
+
+    reasons.push(...follows);
+
+    if (reasons.length === 0) {
       reasons.push('изменений нет');
     }
 
     return {
       ...game,
-      publish: required || engine.publish || ahead || ownChanges,
+      publish: own || (follows.length > 0 && game.follow === true),
+      optional: !own && follows.length > 0,
       // версия уже поднята руками — публикуем как есть
       bump: !ahead,
-      required,
-      // уровень игры журналом не задаётся (он лишь датируется): обязательная
-      // пересборка — minor, всё остальное — patch. Всегда подтверждается
-      level: required ? 'minor' : 'patch',
+      // уровень игры журналом не задаётся (он лишь датируется), а пересборка
+      // против нового ядра игру не ломает: patch, всегда подтверждается
+      level: 'patch',
       reason: reasons.join('; '),
     };
   });
@@ -133,10 +124,6 @@ export function decide(input) {
     engine,
     scaffold,
     games,
-    // против чего собирается игра — считается здесь, чтобы шаг B и причина в
-    // плане не разошлись
-    crateVersion,
-    engineVersion,
     // журнал непубликуемого артефакта релиз не блокирует: опечатка в чужом
     // CHANGELOG не должна мешать выпустить один крейт
     problems: releasable
@@ -167,13 +154,10 @@ export function decide(input) {
         : crate.publish
           ? 'опубликован крейт'
           : input.unpushed === true
-            ? 'релизные коммиты этого репозитория не уехали в main'
+            ? 'в main есть незапушенные коммиты (прошлый релиз?) — пуш будет деплоем'
             : publishedGames.length > 0
               ? 'игры едут через реестр — деплой не нужен, только проверка sim'
               : 'публиковать нечего',
-      // при бампе ENGINE_API_VERSION движок и плагин обязаны доехать в прод
-      // одним пушем — все пуши ветки собраны в шаге C
-      strictlyLast: input.engineApiChanged === true,
     },
   };
 }
@@ -454,15 +438,7 @@ export async function collect(root) {
     'utf8',
   );
 
-  const opcodesTouched = await changedSince(root, engineBase.ref, [
-    'packages/engine/src/config/opcodes.js',
-  ]);
-  const engineApiChanged = opcodesTouched
-    ? await engineApiDiffers(root, engineBase.ref)
-    : false;
-
   return {
-    engineApiChanged,
     unpushed: await hasUnpushedCommits(root),
     crate: {
       local: crateLocal,
@@ -532,20 +508,21 @@ async function pinsStaleSince(root, ref, current) {
   );
 }
 
-// Меняли opcodes.js — но интересует именно число ENGINE_API_VERSION:
-// правка комментария рядом не должна объявлять игру обязательной.
-async function engineApiDiffers(root, ref) {
-  const current = await readEngineApiVersion(root);
-  const previous = await git(root, [
-    'show',
-    `${ref}:packages/engine/src/config/opcodes.js`,
-  ]);
-
-  if (!previous || current === null) {
-    return false;
-  }
-
-  const match = /ENGINE_API_VERSION\s*=\s*(\d+)/.exec(previous);
-
-  return match ? Number(match[1]) !== current : false;
+// Версии, на которых соберётся игра, — считаются один раз, ПОСЛЕ вопросов о
+// версиях: ответ может отличаться от предложенного (`major`, своя), и шаг B
+// запинил бы игру на версию, которой нет в реестре. Свежие — если артефакт
+// выходит в этом прогоне, иначе те, что уже лежат в реестре. Брать локальные
+// нельзя: `cargo update --precise` и `npm i -D` ходят в реестр, а после
+// прерванного прогона крейт уже опубликован и publish у него false.
+// scoped — вход decide() (с учётом --only): артефакт вне прогона даёт null,
+// и шаг B его пин не трогает.
+export function buildVersions(decision, scoped) {
+  return {
+    crateVersion: decision.crate.publish
+      ? decision.crate.target
+      : (scoped.crate?.published ?? null),
+    engineVersion: decision.engine.publish
+      ? decision.engine.target
+      : (scoped.engine?.published ?? null),
+  };
 }
