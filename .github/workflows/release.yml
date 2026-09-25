@@ -134,7 +134,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          v=$(grep -m1 '^version' packages/engine/core/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          v=$(awk -F'"' '/^\[package\]/{p=1} p && /^version *=/{print $2; exit}' packages/engine/core/Cargo.toml)
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Guard against re-publish
