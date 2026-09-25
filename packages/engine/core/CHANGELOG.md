@@ -13,6 +13,14 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.22.3] — 2026-09-25
+
+### Changed
+
+- No functional change — a version-only release to exercise the new
+  `.github/workflows/release.yml` (npm/crates.io OIDC Trusted Publishing
+  pipeline) end to end.
+
 ## [0.22.2] — 2026-09-24
 
 ### Fixed
