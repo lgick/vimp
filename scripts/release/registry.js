@@ -6,7 +6,12 @@ import { compareVersions, isVersion } from './semver.js';
 // и файл состояния не нужен.
 
 const POLL_INTERVAL_MS = 3000;
-const POLL_TIMEOUT_MS = 180000;
+// Публикация ушла в CI (release.yml, запускается пушем тега, OIDC Trusted
+// Publishing) — это ожидание теперь покрывает не только CDN-пропагацию уже
+// случившегося publish, а весь прогон: checkout, установку тулчейна, сборку
+// (для игр — ещё и wasm-pack), сам publish. 10 минут с запасом на холодный
+// cargo-кэш и очередь GitHub-раннеров.
+const POLL_TIMEOUT_MS = 600000;
 
 // Разбор ответа `npm view --json` отдельно от вызова: «пакета нет» (E404)
 // обязано отличаться от «реестр не ответил». Иначе сетевой сбой читается как
@@ -120,7 +125,8 @@ async function waitFor(read, version, label, log) {
     }
 
     if (Date.now() > deadline) {
-      log(`  ! ${label} ${version} не появился в реестре за 3 минуты`);
+      const minutes = Math.round(POLL_TIMEOUT_MS / 60000);
+      log(`  ! ${label} ${version} не появился в реестре за ${minutes} минут`);
       return false;
     }
 

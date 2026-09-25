@@ -581,15 +581,17 @@ describe('publishScaffold', () => {
       ),
     ).toBeLessThan(shell.calls.indexOf('check npx eslint .'));
 
-    const publishAt = shell.calls.findIndex(call =>
-      call.startsWith('publish '),
+    // реальный npm publish больше не выполняется этим скриптом — он уходит в
+    // CI по тегу; здесь после проверок сразу идёт пуш тега
+    const pushAt = shell.calls.findIndex(call =>
+      call.startsWith('write git push origin '),
     );
 
-    expect(publishAt).toBeGreaterThan(
+    expect(pushAt).toBeGreaterThan(
       shell.calls.indexOf('check npm run test:scaffold'),
     );
-    expect(shell.calls[publishAt]).toBe(
-      'publish npm publish -w create-vimp-game',
+    expect(shell.calls[pushAt]).toBe(
+      'write git push origin create-vimp-game@0.1.1',
     );
   });
 
@@ -760,17 +762,28 @@ describe('publishEngine', () => {
   });
 });
 
-// Публикация обязана идти через shell.publish: с захваченными потоками npm и
-// cargo при 2FA падают с EOTP, не успев спросить одноразовый код.
+// Реальный npm publish/cargo publish этот скрипт больше не запускает — CI
+// публикует по git-тегу (OIDC Trusted Publishing), а `steps.js` только
+// коммитит, тегирует и пушит тег. `shell.publish` (живой терминал под 2FA)
+// удалён вместе с этим вызовом.
 describe('режим запуска публикации', () => {
-  it('ни одна publish-команда не уезжает в захваченный write', async () => {
+  it('в steps.js не осталось вызовов реального publish', async () => {
     const source = await readFile(
       new URL('../../../scripts/release/steps.js', import.meta.url),
       'utf8',
     );
 
-    expect(source.match(/shell\.write\([^)]*'publish'[^)]*\)/g)).toBe(null);
-    expect(source.match(/shell\.publish\(/g)?.length).toBeGreaterThan(0);
+    // `--dry-run` вариант (checkPublishable) остаётся — не он под запретом
+    expect(source.match(/shell\.publish\(/g)).toBe(null);
+    expect(
+      source.match(/\[\s*'publish',\s*'-p',\s*CRATE_NAME\s*\]/),
+    ).toBe(null);
+    expect(
+      source.match(/\[\s*'publish',\s*'-w',\s*ENGINE_NAME\s*\]/),
+    ).toBe(null);
+    expect(
+      source.match(/\[\s*'publish',\s*'-w',\s*SCAFFOLD_NAME\s*\]/),
+    ).toBe(null);
   });
 });
 

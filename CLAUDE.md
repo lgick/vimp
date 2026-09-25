@@ -71,9 +71,10 @@ repo must follow (a crate bump lets it follow, never forces it), and which
 pre-publish checks ran. A deletion from
 `packages/engine/contract/surface.json` is always a reason to stop and
 discuss. Never edit a `version`, never publish — the developer does both,
-`npm run release` drives it locally; `.github/workflows/release.yml`
-(`workflow_dispatch`) is the single-artifact CI fast path over OIDC Trusted
-Publishing. Details: `docs/en/publishing.md`.
+`npm run release` drives it: it bumps/commits/tags/pushes the tag, and the
+tag push triggers `.github/workflows/release.yml`, which publishes via OIDC
+Trusted Publishing (no npm/cargo login, no token). Details:
+`docs/en/publishing.md`.
 
 ## Commands
 

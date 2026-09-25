@@ -466,10 +466,12 @@ export async function publishCrate({ shell, root, decision, report }) {
     ['publish', '-p', CRATE_NAME, '--dry-run'],
     { cwd: root },
   );
-  await shell.publish('cargo', ['publish', '-p', CRATE_NAME], { cwd: root });
 
   const tagName = `${CRATE_NAME}@${target}`;
   await tag(shell, root, tagName);
+  // публикует не эта команда, а CI: пуш тега запускает
+  // .github/workflows/release.yml (OIDC Trusted Publishing на crates.io)
+  await shell.write('git', ['push', 'origin', tagName], { cwd: root });
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -548,10 +550,12 @@ export async function publishEngine({
     cwd: root,
     bump: decision.bump,
   });
-  await shell.publish('npm', ['publish', '-w', ENGINE_NAME], { cwd: root });
 
   const tagName = `${ENGINE_NAME}@${target}`;
   await tag(shell, root, tagName);
+  // публикует не эта команда, а CI: пуш тега запускает
+  // .github/workflows/release.yml (OIDC Trusted Publishing на npm)
+  await shell.write('git', ['push', 'origin', tagName], { cwd: root });
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -626,10 +630,12 @@ export async function publishScaffold({ shell, root, decision, report }) {
     cwd: root,
     bump: decision.bump,
   });
-  await shell.publish('npm', ['publish', '-w', SCAFFOLD_NAME], { cwd: root });
 
   const tagName = `${SCAFFOLD_NAME}@${target}`;
   await tag(shell, root, tagName);
+  // публикует не эта команда, а CI: пуш тега запускает
+  // .github/workflows/release.yml (OIDC Trusted Publishing на npm)
+  await shell.write('git', ['push', 'origin', tagName], { cwd: root });
 
   if (!shell.dryRun) {
     await awaitRegistry(
@@ -928,11 +934,16 @@ export async function publishGame({
     // версия игры пишется тем же bumpJsonVersion, холостой прогон её не пишет
     bump: game.version !== game.target,
   });
-  await shell.publish('npm', ['publish'], { cwd: dir });
 
-  // пуш игрового репозитория ничего не деплоит — в отличие от vimp
+  // пуш игрового репозитория ничего не деплоит — в отличие от vimp. Публикует
+  // не эта команда, а CI: пуш тега запускает release.yml игры (OIDC Trusted
+  // Publishing на npm). Пушим именно этот тег, а не `--tags`: последний
+  // отправил бы и любой другой локальный тег `v*`, случайно оставшийся в
+  // репозитории — а такой пуш сам по себе запустил бы чужой релиз
   await shell.write('git', ['push'], { cwd: dir });
-  await shell.write('git', ['push', '--tags'], { cwd: dir });
+  await shell.write('git', ['push', 'origin', `v${game.target}`], {
+    cwd: dir,
+  });
 
   if (!shell.dryRun) {
     await awaitRegistry(

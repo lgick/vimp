@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 
-// Запуск внешних команд для релиз-скрипта. Два режима вывода:
-//   - захват (capture) — обычный случай: в консоли одна строка со статусом,
-//     полный вывод показывается только при падении;
-//   - наследование (interactive) — для `npm login`/`cargo login` и для самой
-//     публикации, где человеку нужен живой ввод.
+// Запуск внешних команд для релиз-скрипта: захват (capture) — в консоли одна
+// строка со статусом, полный вывод показывается только при падении.
+// Публикацию (`npm publish`/`cargo publish`) этот скрипт больше не
+// запускает сам — она уходит в CI по git-тегу (OIDC Trusted Publishing, см.
+// docs/en/publishing.md), поэтому живой терминал/stdin здесь не нужны.
 
 export class CommandError extends Error {
   constructor({ command, cwd, code, output }) {
@@ -122,30 +122,13 @@ export function capture(command, args = [], options = {}) {
   });
 }
 
-export function interactive(command, args = [], options = {}) {
-  const cwd = options.cwd ?? process.cwd();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: childEnv(options.env),
-      stdio: 'inherit',
-    });
-
-    child.on('error', reject);
-    child.on('close', code => resolve({ code, output: '' }));
-  });
-}
-
 function formatDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
 // dryRun гасит только изменяющие команды (write); чтение и проверки идут
 // всегда — иначе прогон не докажет, что релиз пройдёт.
-// releaseStdin вызывается перед каждой командой с живым вводом: родительский
-// readline читает тот же stdin и съел бы то, что человек печатает ребёнку.
-export function createShell({ dryRun = false, log = () => {}, releaseStdin } = {}) {
+export function createShell({ dryRun = false, log = () => {} } = {}) {
   // read — только чтение состояния (git rev-parse, git diff --cached):
   // выполняется всегда, включая dry-run
   async function read(command, args, options = {}) {
@@ -181,39 +164,5 @@ export function createShell({ dryRun = false, log = () => {}, releaseStdin } = {
     }
   }
 
-  async function runInteractive(command, args, options = {}) {
-    releaseStdin?.();
-    return interactive(command, args, options);
-  }
-
-  // Публикация в реестр: изменяющая команда, но с живым терминалом. При 2FA
-  // npm и cargo спрашивают одноразовый код или открывают браузер, а с
-  // захваченными потоками у команды нет ни stdin, ни TTY — она падает с
-  // EOTP вместо запроса. Вывод идёт прямо в консоль, поэтому в отчёте о
-  // падении остаётся только команда.
-  async function publish(command, args, options = {}) {
-    const line = formatCommand(command, args);
-
-    if (dryRun) {
-      log(`  · dry-run, skipped: ${line}${options.cwd ? ` (${options.cwd})` : ''}`);
-      return { code: 0, stdout: '', stderr: '', output: '', skipped: true };
-    }
-
-    log(`  · ${line}`);
-
-    const { code } = await runInteractive(command, args, options);
-
-    if (code !== 0) {
-      throw new CommandError({
-        command: line,
-        cwd: options.cwd ?? process.cwd(),
-        code,
-        output: '(вывод команды выше — она печаталась прямо в этот терминал)',
-      });
-    }
-
-    return { code, stdout: '', stderr: '', output: '' };
-  }
-
-  return { dryRun, read, write, check, publish, interactive: runInteractive };
+  return { dryRun, read, write, check };
 }

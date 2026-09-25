@@ -27,7 +27,6 @@ import {
   findCratePatches,
 } from './release/games.js';
 import { observeLinks, buildLinkPlan } from './release/links.js';
-import { ensureNpmLogin, ensureCargoLogin } from './release/auth.js';
 import { npmVersion } from './release/registry.js';
 import { increment, isVersion, compareVersions } from './release/semver.js';
 import {
@@ -359,12 +358,9 @@ async function main(argv) {
 
   const root = path.resolve(import.meta.dirname, '..');
   const engineDir = path.join(root, 'packages', 'engine');
-  // releaseStdin: перед командой с живым вводом readline закрывается, иначе
-  // одноразовый код 2FA прочитает родитель, а не npm
   const shell = createShell({
     dryRun: args['dry-run'],
     log: ui.raw,
-    releaseStdin: ui.closePrompts,
   });
 
   if (args['dry-run']) {
@@ -569,17 +565,6 @@ async function main(argv) {
   if (!args.yes && !(await ui.confirm('Выполняем этот план?', false))) {
     ui.log('отменено');
     return 0;
-  }
-
-  // логины — только для реестров, куда реально пойдёт публикация
-  if (decision.engine.publish || decision.scaffold.publish || selectedGames.length) {
-    if (!(await ensureNpmLogin())) {
-      return 1;
-    }
-  }
-
-  if (decision.crate.publish && !(await ensureCargoLogin(CRATE_NAME))) {
-    return 1;
   }
 
   const report = { published: [], tags: [], pushed: false, remaining: [] };

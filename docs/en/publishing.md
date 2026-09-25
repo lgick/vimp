@@ -1,26 +1,5 @@
 # Publishing a release
 
-## The CI way: `release.yml`
-
-For a single artifact — no plugin-repo coordination, no dry-run rehearsal
-needed — trigger `.github/workflows/release.yml` from Actions → Run workflow,
-choosing `vimp-engine`, `create-vimp-game` or `vimp-engine-core`. All local
-prep is still done by hand exactly as in steps A1–A3 below: bump the version
-(`packages/engine/package.json`, `packages/create-vimp-game/package.json` or
-`packages/engine/core/Cargo.toml`), write the changelog entry, commit and push
-to `main`. The workflow only publishes the chosen artifact and pushes its
-`<name>@X.Y.Z` tag once that bump is on `main`.
-
-Publishing is OIDC-based (npm and crates.io Trusted Publishing, plus
-`--provenance` on the npm packages, which ties the registry package to the
-GitHub Actions build) — no `npm login`/`cargo login` token is stored in CI,
-unlike the manual steps below which still use them for local runs. The workflow does **not** enforce the
-crate → engine → `create-vimp-game` order from the table below, does not wait
-for registry propagation between artifacts, and skips the dry-run/changelog/
-game-package checks `npm run release` runs — that ordering and validation
-stays the human's responsibility when publishing more than one artifact, or
-use `npm run release` for a coordinated multi-artifact release.
-
 ## The short way: `npm run release`
 
 One command replaces the ~25 manual steps below. It runs from the `vimp`
@@ -72,25 +51,36 @@ What it decides on its own:
 
 What it does around the work: drops the local `npm link`s before any build
 and restores exactly those pairs afterwards — including on failure and on
-Ctrl-C; checks the npm/cargo logins only for the registries it will actually
-publish to; runs every check with captured output (one status line each, the
+Ctrl-C; runs every check with captured output (one status line each, the
 full log printed only on failure — a failed check stops the run **before**
 publishing). For a game it packs the real tarball, unpacks `package/dist` out
 of it and runs the master's own `checkGamePackage` over what npm will actually
 ship — the same verdict the registry answers a submission with, only before
-the version is burned. The `npm publish` / `cargo publish` commands are the exception:
-they run attached to this terminal, so a registry can ask for a 2FA one-time
-code or open a browser — with the output captured they have no stdin and fail
-with `EOTP` instead of asking. A game is always rebuilt against the versions
-that are **live in the registry**, not the ones this run happens to publish,
-so an interrupted release cannot leave the plugin pinned to an older core.
-It never pushes `main` until the last step, where it prints the
-outgoing commits and asks for an explicit confirmation, because that push
-**is** the production deploy.
+the version is burned.
+
+**The script itself never runs `npm publish`/`cargo publish`.** Once an
+artifact is committed and its dry-run check passes, the script creates the
+release tag (`<name>@X.Y.Z` for the crate/engine/scaffold, `vX.Y.Z` in a game
+repo) and pushes it — that push is what triggers
+`.github/workflows/release.yml` in the corresponding repository, which
+publishes over npm/crates.io **OIDC Trusted Publishing** (no `npm
+login`/`cargo login`, no token, no 2FA prompt — nothing to type on this
+machine). The script then blocks on `awaitRegistry` until that published
+version is actually visible in the registry (up to 10 minutes: checkout,
+toolchain setup, a WASM build for a game, then the publish itself) before
+moving to the next artifact, exactly the way it used to block on the
+publish command completing locally — the wait did not go away, only the 2FA
+risk did. A game is always rebuilt against the versions that are **live in
+the registry**, not the ones this run happens to publish, so an interrupted
+release cannot leave the plugin pinned to an older core. It never pushes
+`main` itself until the last step, where it prints the outgoing commits and
+asks for an explicit confirmation, because that push **is** the production
+deploy — unrelated to the artifact tags, which are already pushed by the
+time this step runs.
 
 | Flag | Effect |
 | --- | --- |
-| `--dry-run` | prints and checks everything, publishes and commits nothing. **Only after `--`**: `npm run release --dry-run` hands the flag to npm, not to the script — the run then goes live while every child `npm publish` is a no-op. Preflight refuses when it finds `npm_config_dry_run` in the environment, and the flag is stripped from every child command. A rehearsal writes no version, so `npm publish --dry-run` answers "cannot publish over the previously published versions" for anything due a bump — that one refusal is swallowed in a rehearsal, every other one still fails the step |
+| `--dry-run` | prints and checks everything, commits/tags/pushes nothing. **Only after `--`**: `npm run release --dry-run` hands the flag to npm, not to the script — the run then goes live. Preflight refuses when it finds `npm_config_dry_run` in the environment, and the flag is stripped from every child command. A rehearsal writes no version, so the `npm publish --dry-run` packaging check answers "cannot publish over the previously published versions" for anything due a bump — that one refusal is swallowed in a rehearsal, every other one still fails the step |
 | `--only=crate,engine,scaffold,games,prod` | a subset of the steps |
 | `--game=<path>` | a game for non-interactive runs (repeatable) |
 | `--relink` | only (re)link the discovered/selected games and exit; works offline — it asks no registry. Emergency use: restore links after a `SIGKILL`. Routine use: `npm run link:games` is this flag under an easier-to-find name, for setting up local game checkouts (see [getting-started.md](getting-started.md#linking-a-local-game-plugin)) |
@@ -373,16 +363,18 @@ cargo build                                    # refresh Cargo.lock
 node packages/create-vimp-game/scripts/write-versions.js
 git add -A && git commit -m "chore: bump vimp-engine-core to X.Y.Z"
 
-cargo login                                    # once, token from crates.io
 cargo publish -p vimp-engine-core --dry-run
-cargo publish -p vimp-engine-core
 
-git tag vimp-engine-core@X.Y.Z && git push origin vimp-engine-core@X.Y.Z
+git tag vimp-engine-core@X.Y.Z
+git push origin vimp-engine-core@X.Y.Z   # triggers release.yml: cargo publish via OIDC
 ```
 
-crates.io serves the new version within a minute; the game picks it up in
-step B. The tag is what the changelog's release-notes links resolve to —
-without it they 404.
+The tag push is what publishes — `.github/workflows/release.yml` picks it up
+and runs `cargo publish` via crates.io Trusted Publishing (OIDC, no
+`cargo login`/token on this machine). Wait for the Actions run to go green
+before moving to step A2: the game (step B) needs this version live. The tag
+is also what the changelog's release-notes links resolve to — without it
+they 404.
 
 ## Step A2: publish `vimp-engine` on npm
 
@@ -402,12 +394,11 @@ npm install                          # refresh package-lock.json
 git add -A && git commit -m "chore: bump vimp-engine to X.Y.Z"
 
 # 3. Publish
-npm login
 npm publish -w vimp-engine --dry-run # review the tarball contents
-npm publish -w vimp-engine
-git tag vimp-engine@X.Y.Z && git push origin vimp-engine@X.Y.Z
+git tag vimp-engine@X.Y.Z
+git push origin vimp-engine@X.Y.Z    # triggers release.yml: npm publish via OIDC
 
-# 4. Verify
+# 4. Verify, once the Actions run is green
 npm view vimp-engine version
 ```
 
@@ -450,10 +441,10 @@ git add -A && git commit -m "chore: bump create-vimp-game to X.Y.Z"
 
 # 4. Publish
 npm publish -w create-vimp-game --dry-run   # prepack prints the pins it stamped
-npm publish -w create-vimp-game
-git tag create-vimp-game@X.Y.Z && git push origin create-vimp-game@X.Y.Z
+git tag create-vimp-game@X.Y.Z
+git push origin create-vimp-game@X.Y.Z      # triggers release.yml: npm publish via OIDC
 
-# 5. Verify — the pins must match what A1/A2 published
+# 5. Verify, once the Actions run is green — the pins must match what A1/A2 published
 npm view create-vimp-game version
 npm create vimp-game@latest /tmp/pin-check -- --yes
 grep vimp-engine /tmp/pin-check/package.json /tmp/pin-check/Cargo.toml
@@ -469,15 +460,14 @@ patch.
 ## Step B: publish `@vimp-games/tanks`
 
 Runs in the game repository. It needs the Rust toolchain (`rustup` +
-`wasm-pack`) — see that repo's `docs/en/getting-started.md`.
-
-> After steps 1–4 below are committed and pushed, publishing (5–6) can
-> instead be done by triggering `vimp-tanks/.github/workflows/release.yml`
-> (`workflow_dispatch`) — it builds the WASM core + `dist/` and publishes via
-> npm OIDC Trusted Publishing, no local `npm login` needed. Same applies to
-> `@vimp-games/snakes` via `vimp-snakes/.github/workflows/release.yml`,
-> following that repo's own manual steps (undocumented here — see its
-> `CLAUDE.md`).
+`wasm-pack`) — see that repo's `docs/en/getting-started.md`. Steps 1–4 below
+build and test **locally** (CI does not repeat them for a game — see
+`vimp-tanks/.github/workflows/release.yml`); step 5's `git push --tags` is
+what actually publishes: it triggers that workflow, which rebuilds the WASM
+core + `dist/` and runs `npm publish` via OIDC Trusted Publishing (no local
+`npm login`/token). Same for `@vimp-games/snakes` via
+`vimp-snakes/.github/workflows/release.yml` (its own local steps are
+undocumented here — see its `CLAUDE.md`).
 
 ```bash
 cd vimp-tanks
@@ -505,12 +495,12 @@ npm run check:pack                   # manifest points inside dist/ (also on pre
 #    package-lock.json, commits, tags); by hand, bump both files — a stale
 #    lock root is rewritten by the next npm link and leaves the tree dirty
 
-# 5. Publish (the scope is public via publishConfig)
+# 5. Publish (the scope is public via publishConfig): the dry-run reviews
+#    the tarball, the tag push is what actually triggers CI and publishes
 npm publish --dry-run
-npm publish
-
-# 6. Push
 git push && git push --tags
+
+# 6. Verify, once the Actions run is green
 npm view @vimp-games/tanks version
 ```
 
