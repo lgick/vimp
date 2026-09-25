@@ -28,7 +28,8 @@ import {
 } from './release/games.js';
 import { observeLinks, buildLinkPlan } from './release/links.js';
 import { npmVersion } from './release/registry.js';
-import { increment, isVersion, compareVersions } from './release/semver.js';
+import { UsageError } from './release/errors.js';
+import { askVersion, askGameVersionAsIs } from './release/versionPrompt.js';
 import {
   publishCrate,
   publishEngine,
@@ -41,8 +42,6 @@ import {
 // определяет, что и в какой версии публиковать, снимает и возвращает
 // локальные npm link, проводит все проверки и останавливается перед пушем в
 // main — единственным действием, которое деплоит прод.
-
-class UsageError extends Error {}
 
 const USAGE = `Использование: npm run release -- [флаги]
 
@@ -298,36 +297,6 @@ async function selectGames(root, { yes, explicit, registry = true }) {
   return selected;
 }
 
-async function askVersion(label, { current, level, reason, published }, { yes }) {
-  const suggested = increment(current, level);
-
-  ui.log(`${label}: ${current} → ${suggested} (${reason})`);
-
-  const answer = yes
-    ? suggested
-    : await ui.ask('Enter — принять, либо patch/minor/major/своя версия', suggested);
-
-  const target = ['patch', 'minor', 'major'].includes(answer)
-    ? increment(current, answer)
-    : answer;
-
-  if (!isVersion(target)) {
-    throw new UsageError(`не версия и не уровень инкремента: ${answer}`);
-  }
-
-  // опечатка в версии дошла бы до publish и упала там с 403 — уже после
-  // правки файлов, коммита и тега, откатывать которые пришлось бы руками
-  if (compareVersions(target, current) <= 0) {
-    throw new UsageError(`${target} не больше текущей ${current}`);
-  }
-
-  if (published && compareVersions(target, published) <= 0) {
-    throw new UsageError(`${target} не больше опубликованной ${published}`);
-  }
-
-  return target;
-}
-
 // Единственный формат отказа до начала работ: список причин и выход с 1.
 // Возвращает true, если релиз останавливается
 function reportProblems(problems) {
@@ -479,10 +448,15 @@ async function main(argv) {
   const selectedGames = decision.games.filter(game => game.publish);
 
   for (const game of selectedGames) {
-    // версия уже поднята руками — публикуем как есть, вопроса нет
+    // версия уже поднята руками — по умолчанию публикуем как есть, но
+    // спрашиваем: если под ней уже стоит тег от неудавшегося прогона,
+    // разработчику нужен способ явно попросить версию выше
     if (game.bump === false) {
-      game.target = game.version;
-      ui.log(`${game.name}: публикуется как есть, ${game.version}`);
+      game.target = await askGameVersionAsIs(
+        game.name,
+        { current: game.version, published: game.published },
+        args,
+      );
       continue;
     }
 
