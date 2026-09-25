@@ -9,6 +9,10 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- Test release: no code changes; exercises the tag-driven release flow.
+
 ## [0.34.1] — 2026-09-23
 
 ### Fixed

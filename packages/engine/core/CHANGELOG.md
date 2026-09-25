@@ -13,6 +13,10 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Changed
+
+- Test release: no code changes; exercises the tag-driven release flow.
+
 ## [0.22.3] — 2026-09-25
 
 ### Changed
