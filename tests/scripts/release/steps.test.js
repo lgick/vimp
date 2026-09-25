@@ -21,6 +21,7 @@ import {
   rollOutProduction,
   unpushedTags,
   rebuildEntry,
+  actionsUrl,
 } from '../../../scripts/release/steps.js';
 import { CommandError } from '../../../scripts/release/shell.js';
 import { tarballOf, variants, writeDist } from '../../fixtures/gamePackages.js';
@@ -615,6 +616,27 @@ describe('publishScaffold', () => {
     );
   });
 
+  // шаг движка этого прогона уже прогнал eslint, а с тех пор поменялись
+  // только версии и снимок пинов. npm test остаётся: движок гнал его ДО
+  // своего бампа, и дерево тарбола скаффолдера иначе не проверил бы никто
+  it('checked: пропускает только eslint, npm test и E2E гоняет всегда', async () => {
+    const shell = recordingShell();
+
+    await publishScaffold({
+      shell,
+      root: scaffoldRoot,
+      decision: { target: '0.1.1', bump: true },
+      report: { published: [], tags: [] },
+      checked: true,
+    });
+
+    expect(shell.calls.filter(call => call.startsWith('check '))).toEqual([
+      'check npm test -- --reporter=dot',
+      'check npm run test:scaffold',
+      'check npm publish -w create-vimp-game --dry-run',
+    ]);
+  });
+
   // холостой прогон не пишет версию в package.json, поэтому npm отвечает
   // «нельзя опубликовать поверх уже опубликованной». Отказ относится к
   // пропущенному бампу, а не к тарболу, и валить прогон не должен
@@ -644,7 +666,8 @@ describe('publishScaffold', () => {
         decision: { target: '0.1.4', bump: true },
         report: { published: [], tags: [] },
       }),
-    ).resolves.toBeUndefined();
+      // холостой прогон ничего не публикует — ждать нечего
+    ).resolves.toBeNull();
   });
 
   // а вот боевой прогон обязан упасть: там версия поднята, и такой отказ —
@@ -904,9 +927,9 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
   });
 
   // Публикация игры не меняет в этом репозитории ни файла (игры едут через
-  // реестр auth-сервиса), поэтому пуш в main был бы деплоем без изменений —
-  // за подтверждением «это ДЕПЛОЙ прода». Проверить выпущенную игру против
-  // текущего движка всё равно надо, и ради неё шаг и выполняется
+  // реестр auth-сервиса), поэтому пуш в main был бы деплоем без изменений.
+  // Проверить выпущенную игру против текущего движка всё равно надо, и ради
+  // неё шаг и выполняется
   it('релиз одних игр: только sim, без пуша, снимка пинов и npm test', async () => {
     const shell = recordingShell();
 
@@ -982,6 +1005,129 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     });
 
     expect(report.remaining).toEqual([]);
+  });
+
+  // вопроса «пушим?» больше нет: к пушу артефакты уже опубликованы, а любой
+  // сбой остановил прогон раньше. Снимок и npm test идут ДО sim игр: реестр
+  // им не нужен, и CI последней игры успевает отработать параллельно
+  it('деплой: пушит main без вопроса, npm test — до sim игр', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [], remaining: [] };
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [{ name: '@vimp-games/fresh', target: '0.7.5' }],
+      report,
+      engineApi: 4,
+      installRoot: simRoot,
+    });
+
+    const testAt = shell.calls.indexOf('check npm test -- --reporter=dot');
+    const simAt = shell.calls.findIndex(call => call.includes('run sim --'));
+
+    expect(testAt).toBeGreaterThan(-1);
+    expect(simAt).toBeGreaterThan(testAt);
+    expect(shell.calls).toContain('write git push');
+    expect(report.pushed).toBe(true);
+  });
+
+  // «Продолжать без него?» = да не делает публикацию состоявшейся: деплоить
+  // в таком прогоне нельзя, иначе прод уедет вперёд невыпущенного артефакта
+  it('неподтверждённая публикация отменяет деплой', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [], remaining: [] };
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [],
+      pending: [
+        { label: 'create-vimp-game@0.4.4', done: true, published: false },
+      ],
+      report,
+      engineApi: 4,
+      installRoot: simRoot,
+    });
+
+    expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);
+    expect(report.pushed).toBeUndefined();
+    expect(report.remaining).toEqual(['пуш в main (деплой прода)']);
+  });
+
+  // пуш тега — это публикация, а тег прерванного прогона мог остаться на
+  // коммите до фикса: без вопроса его пушить нельзя, только назвать
+  it('теги прошлых прогонов не пушит, а называет в «осталось»', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [], remaining: [] };
+    const read = shell.read;
+
+    shell.read = async (command, args, options) => {
+      if (args[0] === 'tag' && args[1] === '--contains') {
+        return { code: 0, stdout: 'vimp-engine@0.9.9\n', stderr: '', output: '' };
+      }
+      if (args[0] === 'tag' || args[0] === 'ls-remote') {
+        return { code: 0, stdout: '', stderr: '', output: '' };
+      }
+
+      return read(command, args, options);
+    };
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [],
+      report,
+      engineApi: 4,
+      installRoot: simRoot,
+    });
+
+    expect(shell.calls).toContain('write git push');
+    expect(shell.calls).not.toContain('write git push origin vimp-engine@0.9.9');
+    expect(report.remaining).toEqual([
+      'тег vimp-engine@0.9.9 не в origin — проверьте коммит и запушьте: ' +
+        'git push origin vimp-engine@0.9.9',
+    ]);
+  });
+
+  // упавший строгий sim не должен оставлять на main локальный коммит снимка:
+  // следующий пуш увёз бы его в прод
+  it('коммит снимка — только после строгого sim', async () => {
+    const shell = recordingShell();
+
+    await expect(
+      rollOutProduction({
+        shell,
+        root: simRoot,
+        games: [{ name: '@vimp-games/stale', target: '0.7.5' }],
+        report: { published: [], tags: [] },
+        engineApi: 4,
+        installRoot: simRoot,
+      }),
+    ).rejects.toThrow(/engineApi=3/);
+
+    expect(shell.calls).toContain('check npm test -- --reporter=dot');
+    expect(shell.calls.filter(call => call.includes('git commit'))).toEqual([]);
+  });
+
+  it('--no-deploy: всё проверено, main не пушится, пуш — в «осталось»', async () => {
+    const shell = recordingShell();
+    const report = { published: [], tags: [], remaining: [] };
+
+    await rollOutProduction({
+      shell,
+      root: simRoot,
+      games: [],
+      report,
+      engineApi: 4,
+      deploy: false,
+      installRoot: simRoot,
+    });
+
+    expect(shell.calls).toContain('check npm test -- --reporter=dot');
+    expect(shell.calls.filter(call => call.includes('git push'))).toEqual([]);
+    expect(report.pushed).toBeUndefined();
+    expect(report.remaining).toEqual(['пуш в main (деплой прода)']);
   });
 
   // игра, которую прогон не выпустил, едет к игрокам против нового движка:
@@ -1255,7 +1401,7 @@ describe('publishEngine: запись вынужденного релиза', ()
         : { code: 1, stdout: '', stderr: '', output: '' };
     };
 
-    await publishEngine({
+    const pending = await publishEngine({
       shell,
       root: forcedRoot,
       decision: { target: '0.10.3', bump: true, required: true },
@@ -1263,6 +1409,10 @@ describe('publishEngine: запись вынужденного релиза', ()
       report: { published: [], tags: [] },
       crateVersion: '0.5.1',
     });
+
+    // шаг не ждёт реестр сам: ожидание уходит в release.js
+    expect(pending.label).toBe('vimp-engine@0.10.3');
+    await expect(pending.promise).resolves.toBe(true);
 
     const changelog = await readFile(
       path.join(forcedRoot, 'packages', 'engine', 'CHANGELOG.md'),
@@ -1274,5 +1424,16 @@ describe('publishEngine: запись вынужденного релиза', ()
     );
     expect(shell.calls).toContain('write git tag vimp-engine@0.10.3');
     expect(shell.calls).toContain('write git push origin vimp-engine@0.10.3');
+  });
+});
+
+describe('actionsUrl', () => {
+  it.each([
+    ['git@github.com:lgick/vimp-tanks.git\n', 'https://github.com/lgick/vimp-tanks/actions'],
+    ['https://github.com/lgick/vimp.git', 'https://github.com/lgick/vimp/actions'],
+    ['git+ssh://git@github.com/lgick/vimp.git', 'https://github.com/lgick/vimp/actions'],
+    ['git@gitlab.com:x/y.git', null],
+  ])('%s → %s', (remote, url) => {
+    expect(actionsUrl(remote)).toBe(url);
   });
 });

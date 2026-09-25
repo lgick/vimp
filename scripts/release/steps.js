@@ -12,7 +12,7 @@ import {
   releaseUnreleased,
   withFallbackEntry,
 } from './changelog.js';
-import { waitForCrate, waitForNpm } from './registry.js';
+import { startWait, waitForCrate, waitForNpm } from './registry.js';
 import { isDirectory } from './games.js';
 import { CRATE_NAME, ENGINE_NAME, SCAFFOLD_NAME } from './plan.js';
 import { releaseTag } from './tags.js';
@@ -183,21 +183,92 @@ async function commit(shell, cwd, message, paths) {
   return true;
 }
 
-async function awaitRegistry(wait, label) {
-  if (await wait()) {
+const PROGRESS_MS = 30000;
+
+function formatElapsed(ms) {
+  const seconds = Math.round(ms / 1000);
+
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+// Страница Actions репозитория — туда смотреть, пока CI публикует. null,
+// если origin не на GitHub.
+export function actionsUrl(remote) {
+  // host:owner/repo (scp-вид) или host[:порт]/owner/repo (URL); порт
+  // отбрасывается, иначе он читался бы как владелец репозитория
+  const match =
+    /github\.com(?::\d+)?[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(remote.trim());
+
+  return match ? `https://github.com/${match[1]}/${match[2]}/actions` : null;
+}
+
+async function ciUrl(shell, cwd) {
+  const remote = await shell.read('git', ['remote', 'get-url', 'origin'], {
+    cwd,
+    allowFailure: true,
+  });
+
+  return remote.code === 0 ? actionsUrl(remote.stdout) : null;
+}
+
+// Ожидание публикации, запущенной шагом (startWait). Молчание здесь читалось
+// как зависание — CI игры идёт минуты, поэтому раз в progressMs печатается,
+// сколько уже ждём и где смотреть. Без версии в реестре следующий шаг
+// (cargo update --precise, npm i -D, sim) поставит старую копию и упадёт
+// непонятно — это развилка, а не примечание.
+export async function awaitPublished(pending, { progressMs = PROGRESS_MS } = {}) {
+  if (!pending || pending.done) {
     return;
   }
 
-  // без версии в реестре следующий шаг (cargo update --precise, npm i -D)
-  // поставит старую копию и упадёт непонятно — это развилка, а не примечание
+  const started = Date.now();
+  const where = pending.ci ? ` (CI: ${pending.ci})` : '';
+
+  ui.log(`  … ждём публикацию ${pending.label}${where}`);
+
+  const timer = setInterval(
+    () =>
+      ui.log(
+        `  … ждём публикацию ${pending.label} — ${formatElapsed(Date.now() - started)}`,
+      ),
+    progressMs,
+  );
+
+  let published;
+
+  try {
+    published = await pending.promise;
+  } finally {
+    clearInterval(timer);
+  }
+
+  pending.done = true;
+  pending.published = published;
+
+  if (published) {
+    ui.log(`  · ${pending.label} в реестре (${formatElapsed(Date.now() - started)})`);
+    return;
+  }
+
+  // «да» не делает публикацию состоявшейся: шаг прода, увидев
+  // published === false, не деплоит (rollOutProduction)
   const proceed = await ui.confirm(
-    `${label} ещё не виден в реестре. Продолжать?`,
+    `${pending.label} не появился в реестре${where}. Продолжать без него? ` +
+      'Деплоя в этом прогоне тогда не будет',
     false,
   );
 
   if (!proceed) {
-    throw new Error(`прервано: ${label} не появился в реестре`);
+    throw new Error(`прервано: ${pending.label} не появился в реестре`);
   }
+}
+
+// Опрос реестра — сразу после пуша тега; ждут его в release.js там, где
+// версия нужна. Холостой прогон ничего не публикует — ждать нечего
+async function startPublishWait(shell, cwd, label, wait) {
+  return shell.dryRun ? null : startWait(label, wait, await ciUrl(shell, cwd));
 }
 
 // engineApi установленной копии игры или null, если её манифест не читается
@@ -472,15 +543,12 @@ export async function publishCrate({ shell, root, decision, report }) {
   // .github/workflows/release.yml (OIDC Trusted Publishing на crates.io)
   await releaseTag(shell, root, tagName);
 
-  if (!shell.dryRun) {
-    await awaitRegistry(
-      () => waitForCrate(CRATE_NAME, target, ui.log),
-      `${CRATE_NAME}@${target}`,
-    );
-  }
-
   report.published.push(`${CRATE_NAME}@${target} (crates.io)`);
   report.tags.push({ repo: root, name: tagName });
+
+  return startPublishWait(shell, root, `${CRATE_NAME}@${target}`, signal =>
+    waitForCrate(CRATE_NAME, target, signal),
+  );
 }
 
 // ── Step A2: движок ────────────────────────────────────────────────────────
@@ -559,15 +627,12 @@ export async function publishEngine({
   // .github/workflows/release.yml (OIDC Trusted Publishing на npm)
   await releaseTag(shell, root, tagName);
 
-  if (!shell.dryRun) {
-    await awaitRegistry(
-      () => waitForNpm(ENGINE_NAME, target, ui.log),
-      `${ENGINE_NAME}@${target}`,
-    );
-  }
-
   report.published.push(`${ENGINE_NAME}@${target} (npm)`);
   report.tags.push({ repo: root, name: tagName });
+
+  return startPublishWait(shell, root, `${ENGINE_NAME}@${target}`, signal =>
+    waitForNpm(ENGINE_NAME, target, signal),
+  );
 }
 
 // ── Step A3: скаффолдер ────────────────────────────────────────────────────
@@ -575,7 +640,13 @@ export async function publishEngine({
 // Идёт после движка и крейта: хук prepack снимает пины с ЛОКАЛЬНЫХ
 // packages/engine/package.json и core/Cargo.toml, то есть уже поднятых
 // шагами A1 и A2. Публикация раньше вшила бы в тарбол прошлые версии.
-export async function publishScaffold({ shell, root, decision, report }) {
+export async function publishScaffold({
+  shell,
+  root,
+  decision,
+  report,
+  checked = false,
+}) {
   const { target } = decision;
 
   ui.log(`скаффолдер ${SCAFFOLD_NAME}: релиз ${target}`);
@@ -585,10 +656,21 @@ export async function publishScaffold({ shell, root, decision, report }) {
   // тем самым пинам, которые уедут в тарбол.
   await writePinSnapshot(shell, root);
 
-  await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: root });
+  // checked: шаг движка этого прогона уже прогнал eslint, а с тех пор
+  // поменялись только версии и снимок пинов — линтеру там смотреть не на
+  // что. `npm test` же обязателен: движок гнал его ДО своего бампа и
+  // перезаписи снимка, и дерево, уходящее в тарбол скаффолдера, иначе не
+  // проверил бы никто до необратимой публикации
+  if (checked) {
+    ui.log('  · eslint уже пройден шагом движка');
+  } else {
+    await shell.check('npx eslint .', 'npx', ['eslint', '.'], { cwd: root });
+  }
+
   await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
     cwd: root,
   });
+
   // единственная проверка, которая реально разворачивает шаблон и собирает
   // его ядро (cargo + wasm-pack): unit-тесты сломанный шаблон пропустят, а
   // всплывёт он у пользователя на первом же `npm create vimp-game`
@@ -641,15 +723,12 @@ export async function publishScaffold({ shell, root, decision, report }) {
   // .github/workflows/release.yml (OIDC Trusted Publishing на npm)
   await releaseTag(shell, root, tagName);
 
-  if (!shell.dryRun) {
-    await awaitRegistry(
-      () => waitForNpm(SCAFFOLD_NAME, target, ui.log),
-      `${SCAFFOLD_NAME}@${target}`,
-    );
-  }
-
   report.published.push(`${SCAFFOLD_NAME}@${target} (npm)`);
   report.tags.push({ repo: root, name: tagName });
+
+  return startPublishWait(shell, root, `${SCAFFOLD_NAME}@${target}`, signal =>
+    waitForNpm(SCAFFOLD_NAME, target, signal),
+  );
 }
 
 // ── Step B: игра ───────────────────────────────────────────────────────────
@@ -983,15 +1062,12 @@ export async function publishGame({
   await shell.write('git', ['push'], { cwd: dir });
   await releaseTag(shell, dir, `v${game.target}`);
 
-  if (!shell.dryRun) {
-    await awaitRegistry(
-      () => waitForNpm(game.name, game.target, ui.log),
-      `${game.name}@${game.target}`,
-    );
-  }
-
   report.published.push(`${game.name}@${game.target} (npm)`);
   report.tags.push({ repo: dir, name: `v${game.target}` });
+
+  return startPublishWait(shell, dir, `${game.name}@${game.target}`, signal =>
+    waitForNpm(game.name, game.target, signal),
+  );
 }
 
 // ── Step C: прод ───────────────────────────────────────────────────────────
@@ -1064,12 +1140,20 @@ export async function rollOutProduction({
   root,
   games,
   heldGames = [],
+  pending = [],
   report,
   engineApi = null,
   push = true,
+  deploy = true,
   installRoot = null,
 }) {
-  ui.log(push ? 'прод: пуш в main' : 'прод: проверка выпущенных игр');
+  ui.log(
+    !push
+      ? 'прод: проверка выпущенных игр'
+      : deploy
+        ? 'прод: пуш в main'
+        : 'прод: проверки без деплоя (--no-deploy)',
+  );
 
   report.remaining ??= [];
 
@@ -1098,11 +1182,24 @@ export async function rollOutProduction({
     }
   }
 
+  // Сначала то, чему реестр не нужен: пока идут снимок и `npm test`, CI
+  // последней игры продолжает публиковать её параллельно. Коммит снимка —
+  // только после строгого sim: упавший прогон не должен оставлять на main
+  // локальный коммит, который следующий пуш увезёт в прод
+  if (push) {
+    await writePinSnapshot(shell, root);
+    await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
+      cwd: root,
+    });
+  }
+
   // strict: игры уже переопубликованы, поэтому расхождение версии API здесь —
-  // не «ещё не время», а выпуск без пересборки. Проверка идёт первой и в
-  // обеих ветках: она единственное, ради чего шаг вообще выполняется, когда
-  // движок не публикуется
+  // не «ещё не время», а выпуск без пересборки. Проверка идёт в обеих
+  // ветках: она единственное, ради чего шаг вообще выполняется, когда
+  // движок не публикуется. Каждую игру ждём из реестра прямо перед её sim
+  // (game.pending прикрепляет release.js)
   for (const game of games) {
+    await awaitPublished(game.pending);
     await simGame(shell, root, game, { engineApi, strict: true, installRoot });
   }
 
@@ -1124,8 +1221,7 @@ export async function rollOutProduction({
 
   // релиз одних игр в этом репозитории не меняет ни файла: снимок пинов
   // шаблона зависит только от версий движка и крейта, коммитить было бы
-  // нечего, а пуш в main оказался бы деплоем без изменений — то есть
-  // подтверждением «это ДЕПЛОЙ прода» за пустой коммит
+  // нечего, а пуш в main оказался бы деплоем без изменений
   if (!push) {
     ui.raw('  прод: движок не публикуется — деплой не нужен');
 
@@ -1150,13 +1246,8 @@ export async function rollOutProduction({
     return;
   }
 
-  await writePinSnapshot(shell, root);
-  await shell.check('npm test', 'npm', ['test', '--', '--reporter=dot'], {
-    cwd: root,
-  });
-
-  // коммитится только снимок пинов шаблона: package.json корня релиз больше
-  // не трогает — игр в его зависимостях нет
+  // коммитится только снимок пинов шаблона: package.json корня релиз
+  // больше не трогает — игр в его зависимостях нет
   await commit(
     shell,
     root,
@@ -1166,39 +1257,53 @@ export async function rollOutProduction({
     [PIN_SNAPSHOT],
   );
 
-  const pending = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {
+  // всё, что ещё публикуется (скаффолдер), — до пуша: деплой завершает
+  // релиз и не должен его опережать
+  for (const entry of pending) {
+    await awaitPublished(entry);
+  }
+
+  const outgoing = await shell.read('git', ['log', '--oneline', '@{u}..HEAD'], {
     cwd: root,
     allowFailure: true,
   });
 
   ui.raw('');
-  ui.raw(pending.stdout.trim() || '  (нечего пушить)');
+  ui.raw(outgoing.stdout.trim() || '  (нечего пушить)');
   ui.raw('');
 
-  const pendingTags = await unpushedTags(shell, root);
+  // Теги прошлых, прерванных прогонов сам скрипт не пушит: пуш тега — это
+  // публикация, а такой тег мог остаться на коммите до фикса (проверку
+  // «тег не на HEAD» делает только releaseTag шага артефакта). Их список —
+  // в «осталось», решение за разработчиком
+  const leftoverTags = await unpushedTags(shell, root);
 
-  const approved = await ui.confirm(
-    'Пуш в main — это ДЕПЛОЙ прода (deploy.yml). Пушим?',
-    false,
-  );
+  for (const name of leftoverTags) {
+    report.remaining.push(
+      `тег ${name} не в origin — проверьте коммит и запушьте: git push origin ${name}`,
+    );
+  }
 
-  if (!approved) {
-    ui.log('пуш отменён. Осталось выполнить вручную:');
-    ui.raw('  git push');
+  // Вопроса «пушим?» нет: к этому месту артефакты уже опубликованы
+  // необратимо, а любой сбой проверок остановил прогон раньше. Деплоя нет,
+  // только если его отложили флагом (--no-deploy, рестарт мастера) или
+  // публикация не подтвердилась, а разработчик решил продолжать без неё
+  const unpublished = pending
+    .filter(entry => entry.published === false)
+    .map(entry => entry.label);
 
-    for (const name of pendingTags) {
-      ui.raw(`  git push origin ${name}`);
-    }
-
-    report.remaining.push('пуш в main');
+  if (!deploy || unpublished.length) {
+    ui.log(
+      unpublished.length
+        ? `деплой не выполнен: не подтверждена публикация ${unpublished.join(', ')}`
+        : 'деплой отложен (--no-deploy)',
+    );
+    ui.raw('  когда будете готовы: git push');
+    report.remaining.push('пуш в main (деплой прода)');
     return;
   }
 
   await shell.write('git', ['push'], { cwd: root });
-
-  for (const name of pendingTags) {
-    await shell.write('git', ['push', 'origin', name], { cwd: root });
-  }
 
   report.pushed = true;
 }

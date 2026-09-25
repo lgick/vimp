@@ -68,18 +68,26 @@ repo) and pushes it — that push is what triggers
 `.github/workflows/release.yml` in the corresponding repository, which
 publishes over npm/crates.io **OIDC Trusted Publishing** (no `npm
 login`/`cargo login`, no token, no 2FA prompt — nothing to type on this
-machine). The script then blocks on `awaitRegistry` until that published
-version is actually visible in the registry (up to 10 minutes: checkout,
-toolchain setup, a WASM build for a game, then the publish itself) before
-moving to the next artifact, exactly the way it used to block on the
-publish command completing locally — the wait did not go away, only the 2FA
-risk did. A game is always rebuilt against the versions that are **live in
-the registry**, not the ones this run happens to publish, so an interrupted
-release cannot leave the plugin pinned to an older core. It never pushes
-`main` itself until the last step, where it prints the outgoing commits and
-asks for an explicit confirmation, because that push **is** the production
-deploy — unrelated to the artifact tags, which are already pushed by the
-time this step runs.
+machine). CI takes from half a minute (the engine) to three minutes (a game:
+toolchain, a WASM build, the publish itself; up to 10 minutes are allowed),
+so the script does not stop to wait: it starts polling the registry and moves
+on, and waits only where the version is actually needed — the crate and the
+engine right before the first game (`cargo update --precise`, `npm i -D`;
+the scaffolder's E2E between them needs neither registry), each game right
+before its strict `sim` in the production step, everything else before the
+push. While it waits it says so every 30 seconds, with the repository's
+Actions page. A game is always rebuilt against the versions that are **live
+in the registry**, not the ones this run happens to publish, so an
+interrupted release cannot leave the plugin pinned to an older core. The
+last step pushes `main` — the production deploy — **without asking**: by
+then every artifact is irreversibly out and any failed check or publish has
+already stopped the run, so holding the push back would only leave `main`
+behind the registries. To postpone the deploy (it restarts the master), run
+with `--no-deploy`. The deploy is also skipped when a publication was never
+confirmed and you chose to go on without it ("… не появился в реестре.
+Продолжать без него?"). Either way `git push` lands in the closing
+"осталось" list. If the run fails, the background registry polls are
+cancelled with it.
 
 The tag is checked against both `HEAD` and `origin` before it goes up,
 because a push that changes nothing triggers nothing. A tag already sitting
@@ -97,7 +105,8 @@ a tag whose version differs from the one in `package.json`/`Cargo.toml`.
 | `--only=crate,engine,scaffold,games,prod` | a subset of the steps |
 | `--game=<path>` | a game for non-interactive runs (repeatable) |
 | `--relink` | only (re)link the discovered/selected games and exit; works offline — it asks no registry. Emergency use: restore links after a `SIGKILL`. Routine use: `npm run link:games` is this flag under an easier-to-find name, for setting up local game checkouts (see [getting-started.md](getting-started.md#linking-a-local-game-plugin)) |
-| `--yes` | accept the suggested versions and the plan; games then come only from `--game`, and the push to `main` and any re-push of a tag are still asked |
+| `--yes` | accept the suggested versions and the plan; games then come only from `--game`; a re-push of a tag is still asked |
+| `--no-deploy` | release everything but do not push `main`: the deploy is postponed, and `git push` lands in the closing "осталось" list |
 | `--follow-games` | with `--yes`: release the `--game` games even when only a crate/engine release offers them (without it they stay unreleased) |
 | `--help` | the full description |
 
@@ -477,6 +486,11 @@ into the release commit — leave it out and the next release stops at
 `npm publish` anyway. When the scaffolder rides along only because of a pin
 bump, its `[Unreleased]` is empty, the release is a patch, and
 `npm run release` writes and dates a `### Changed` entry naming the new pins.
+When the engine went out in the same run, the script skips the
+scaffolder's `npx eslint .`: the engine step has just run it, and only
+versions and the pin snapshot changed since. `npm test` still runs — the
+engine step ran it before its own bump, so the tree that goes into the
+scaffolder tarball has not been tested yet — and so does `test:scaffold`.
 
 ## Step B: publish `@vimp-games/tanks`
 
@@ -572,9 +586,8 @@ git push
 > games only, the plan's "прод" row reads **"нет (только sim)"**. The step
 > still runs, but does exactly one thing — a strict `sim` pass over every
 > released game, proving the published version works against the current
-> engine. No `npm test`, no pin snapshot, no `git push` and no "this is a
-> PRODUCTION DEPLOY" prompt: a game release changes no file in this
-> repository.
+> engine. No `npm test`, no pin snapshot and no `git push`: a game release
+> changes no file in this repository.
 >
 > The exception is an interrupted run. If a previous run already published
 > the crate or the engine, committed and tagged their bumps, but never got
@@ -582,9 +595,12 @@ git push
 > still carries unpushed commits. The script sees them (`@{u}..HEAD`) and
 > sets the "прод" row to **"да (push в main)"**, with the reason "в main есть
 > незапушенные коммиты (прошлый релиз?) — пуш будет деплоем" — even when there is nothing
-> left to publish in this run. Any tag on those commits that `origin` does
-> not have yet goes up with the branch too; the ones this run created were
-> already pushed by their own steps.
+> left to publish in this run. A tag on those commits that `origin` does not
+> have yet is **not** pushed: pushing a release tag publishes, and a tag left
+> by an interrupted run may sit on a pre-fix commit. It is named in the
+> closing "осталось" list with its `git push origin <tag>` — check the commit
+> and push it yourself. Tags created by this run were already pushed by
+> their own steps.
 
 CI then builds the master image, pushes it to GHCR, and SSHes into every
 server in `SERVERS_MATRIX` to `docker compose pull && up -d`; the auth

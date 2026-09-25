@@ -27,7 +27,7 @@ import {
   findCratePatches,
 } from './release/games.js';
 import { observeLinks, buildLinkPlan } from './release/links.js';
-import { npmVersion } from './release/registry.js';
+import { npmVersion, cancelWaits } from './release/registry.js';
 import { UsageError } from './release/errors.js';
 import {
   askVersion,
@@ -40,12 +40,14 @@ import {
   publishScaffold,
   publishGame,
   rollOutProduction,
+  awaitPublished,
 } from './release/steps.js';
 
 // Одна команда вместо ~25 ручных шагов из docs/en/publishing.md: скрипт сам
 // определяет, что и в какой версии публиковать, снимает и возвращает
-// локальные npm link, проводит все проверки и останавливается перед пушем в
-// main — единственным действием, которое деплоит прод.
+// локальные npm link, проводит все проверки и в конце сам пушит main — это
+// деплой прода. Пуш идёт без вопроса, но только после всех проверок и
+// подтверждённых публикаций; отложить его — флаг --no-deploy.
 
 const USAGE = `Использование: npm run release -- [флаги]
 
@@ -56,8 +58,10 @@ const USAGE = `Использование: npm run release -- [флаги]
                        реестры не ходит, работает без сети. То же самое —
                        npm run link:games (см. docs/en/getting-started.md)
   --yes                принять предложенные версии и план целиком; игры при
-                       этом берутся только из --game, а пуш в main всё равно
-                       спрашивается отдельно
+                       этом берутся только из --game
+  --no-deploy          всё выпустить, но main не пушить (деплой прода отложен);
+                       без флага пуш в main идёт в конце сам, без вопроса —
+                       после всех проверок и публикаций
   --follow-games       под --yes выпускать игры из --game и тогда, когда их
                        только предлагает релиз крейта или движка (без флага
                        такие игры не выпускаются — крейт игру не обязывает)
@@ -100,6 +104,7 @@ function parseFlags(argv) {
         relink: { type: 'boolean', default: false },
         yes: { type: 'boolean', default: false },
         'follow-games': { type: 'boolean', default: false },
+        'no-deploy': { type: 'boolean', default: false },
         help: { type: 'boolean', default: false },
       },
     });
@@ -561,7 +566,9 @@ async function main(argv) {
         'прод',
         args.only.includes('prod')
           ? decision.prod.push
-            ? 'да (push в main)'
+            ? args['no-deploy']
+              ? 'нет (--no-deploy)'
+              : 'да (push в main)'
             : decision.prod.verifyGames
               ? 'нет (только sim)'
               : 'нет'
@@ -621,9 +628,18 @@ async function main(argv) {
       await runSteps(linkPlan.unlink, shell);
     }
 
-    if (decision.crate.publish) {
-      await publishCrate({ shell, root, decision: decision.crate, report });
-    }
+    // Публикацию делает CI по тегу, и ждать её сразу незачем: ожидания
+    // копятся здесь и дожидаются там, где версия нужна (steps.js:
+    // awaitPublished). Крейт и движок — перед первой игрой, игры — перед их
+    // sim на шаге прода, всё остальное — до пуша и итоговой сводки
+    const pending = [];
+    const track = entry => entry && pending.push(entry) && entry;
+
+    const cratePending = decision.crate.publish
+      ? track(
+          await publishCrate({ shell, root, decision: decision.crate, report }),
+        )
+      : null;
 
     // ENGINE_API_VERSION этого чекаута. Читается ДО шагов: это исходник, а не
     // версия пакета, и в течение прогона он не меняется. Нужен трём шагам —
@@ -631,45 +647,62 @@ async function main(argv) {
     // с этим движком, и играм, чтобы проверить свежесобранный манифест
     const engineApi = await readEngineApiVersion(root);
 
-    if (decision.engine.publish) {
-      await publishEngine({
-        shell,
-        root,
-        decision: decision.engine,
-        games: decision.games,
-        report,
-        engineApi,
-        // крейт этого прогона: его core/Cargo.toml — причина релиза движка
-        crateVersion: decision.crate.publish ? decision.crate.target : null,
-      });
-    }
+    const enginePending = decision.engine.publish
+      ? track(
+          await publishEngine({
+            shell,
+            root,
+            decision: decision.engine,
+            games: decision.games,
+            report,
+            engineApi,
+            // крейт этого прогона: его core/Cargo.toml — причина релиза движка
+            crateVersion: decision.crate.publish ? decision.crate.target : null,
+          }),
+        )
+      : null;
 
     // строго после A1/A2: prepack снимает пины с локальных файлов движка,
     // которые эти шаги только что подняли
     if (decision.scaffold.publish) {
-      await publishScaffold({
-        shell,
-        root,
-        decision: decision.scaffold,
-        report,
-      });
+      track(
+        await publishScaffold({
+          shell,
+          root,
+          decision: decision.scaffold,
+          report,
+          // eslint и npm test шаг движка уже прогнал в этом прогоне
+          checked: decision.engine.publish,
+        }),
+      );
+    }
+
+    // игре нужны крейт (`cargo update --precise`) и движок (`npm i -D`) в
+    // реестре; E2E скаффолдера выше от реестров не зависит (тарбол движка и
+    // [patch.crates-io]), поэтому их CI успевал отработать за это время
+    if (selectedGames.length) {
+      await awaitPublished(cratePending);
+      await awaitPublished(enginePending);
     }
 
     for (const game of selectedGames) {
-      await publishGame({
-        shell,
-        game,
-        assumeYes: args.yes,
-        // не «что публикуется в этом прогоне», а что реально лежит в
-        // реестрах: после прерванного прогона крейт уже опубликован, и игра
-        // собралась бы на старом ядре со старым пином в тарболе
-        crateVersion,
-        engineVersion,
-        // для записи в журнале игры: называть движок, только если он новый
-        engineReleased: decision.engine.publish,
-        engineApi,
-        report,
-      });
+      // ожидание публикации едет с игрой: шаг прода ждёт его перед её sim
+      game.pending = track(
+        await publishGame({
+          shell,
+          game,
+          assumeYes: args.yes,
+          // не «что публикуется в этом прогоне», а что реально лежит в
+          // реестрах: после прерванного прогона крейт уже опубликован, и
+          // игра собралась бы на старом ядре со старым пином в тарболе
+          crateVersion,
+          engineVersion,
+          // для записи в журнале игры: называть движок, только если он новый
+          engineReleased: decision.engine.publish,
+          engineApi,
+          report,
+        }),
+      );
     }
 
     if (
@@ -681,11 +714,19 @@ async function main(argv) {
         root,
         games: selectedGames,
         heldGames: decision.games.filter(game => !game.publish),
+        pending,
         report,
         engineApi,
         // деплой или только проверка выпущенных игр — см. plan.js:prod
         push: decision.prod.push,
+        deploy: !args['no-deploy'],
       });
+    }
+
+    // шаг прода мог не выполняться (--only) — сводка всё равно должна
+    // говорить о доехавших публикациях, а не о запущенных
+    for (const entry of pending) {
+      await awaitPublished(entry);
     }
   } finally {
     process.off('SIGINT', onSignal);
@@ -717,7 +758,7 @@ try {
     process.stdout.write(`\n${USAGE}`);
     process.exitCode = 1;
   } else if (error instanceof CommandError) {
-    ui.error('шаг упал, публикация не выполнена:');
+    ui.error('шаг упал, релиз остановлен (уже запушенные теги публикуются CI):');
     process.stderr.write(`${error.format()}\n`);
     process.exitCode = 1;
   } else {
@@ -725,5 +766,8 @@ try {
     process.exitCode = 1;
   }
 } finally {
+  // упавший прогон оставляет фоновые опросы реестра — без отмены их таймеры
+  // держали бы процесс до 10 минут после сообщения об ошибке
+  cancelWaits();
   ui.closePrompts();
 }

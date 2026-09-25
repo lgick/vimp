@@ -113,10 +113,14 @@ export async function crateVersion(name) {
   return versions.sort(compareVersions).at(-1);
 }
 
-async function waitFor(read, version, label, log) {
+// Опрос идёт в фоне, пока скрипт занят другими шагами, поэтому он молчит:
+// строка о таймауте легла бы посреди чужого вопроса. О результате говорит тот,
+// кто ждёт (steps.js: awaitPublished). signal обрывает опрос, когда прогон
+// упал: иначе фоновые таймеры держали бы процесс до 10 минут после ошибки.
+async function waitFor(read, version, signal) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
-  for (;;) {
+  while (!signal?.aborted) {
     // пока ждём, отказ реестра — это не приговор, а повод повторить
     const published = await read().catch(() => null);
 
@@ -125,19 +129,69 @@ async function waitFor(read, version, label, log) {
     }
 
     if (Date.now() > deadline) {
-      const minutes = Math.round(POLL_TIMEOUT_MS / 60000);
-      log(`  ! ${label} ${version} не появился в реестре за ${minutes} минут`);
       return false;
     }
 
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    await sleep(POLL_INTERVAL_MS, signal);
   }
+
+  return false;
 }
 
-export function waitForNpm(name, version, log) {
-  return waitFor(() => npmVersion(name), version, name, log);
+function sleep(ms, signal) {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, ms);
+
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
-export function waitForCrate(name, version, log) {
-  return waitFor(() => crateVersion(name), version, name, log);
+export function waitForNpm(name, version, signal) {
+  return waitFor(() => npmVersion(name), version, signal);
+}
+
+export function waitForCrate(name, version, signal) {
+  return waitFor(() => crateVersion(name), version, signal);
+}
+
+// Все запущенные опросы: cancelWaits() обрывает их, когда прогон падает.
+const active = new Set();
+
+// Опрос реестра стартует сразу после пуша тега, а ждут его там, где версия
+// действительно нужна (release.js): CI публикует минутами, и последовательное
+// ожидание каждого артефакта простаивало бы, пока скрипт мог работать дальше.
+// promise не бросает и ни о чём не спрашивает — решение «продолжать ли без
+// версии» принимает тот, кто ждёт (steps.js: awaitPublished). wait получает
+// AbortSignal.
+export function startWait(label, wait, ci = null) {
+  const controller = new AbortController();
+
+  active.add(controller);
+
+  return {
+    label,
+    ci,
+    done: false,
+    // true — версия в реестре; false — не дождались (решение принял awaitPublished)
+    published: null,
+    promise: Promise.resolve()
+      .then(() => wait(controller.signal))
+      .catch(() => false)
+      .finally(() => active.delete(controller)),
+  };
+}
+
+export function cancelWaits() {
+  for (const controller of active) {
+    controller.abort();
+  }
+
+  active.clear();
 }
