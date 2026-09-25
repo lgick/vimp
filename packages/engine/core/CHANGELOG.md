@@ -13,6 +13,10 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Changed
+
+- Test release: no code changes; exercises background CI waits and the automatic deploy.
+
 ## [0.22.4] — 2026-09-25
 
 ### Changed

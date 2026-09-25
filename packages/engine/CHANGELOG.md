@@ -9,6 +9,10 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- Test release: no code changes; exercises background CI waits and the automatic deploy.
+
 ## [0.34.5] — 2026-09-25
 
 ### Changed
