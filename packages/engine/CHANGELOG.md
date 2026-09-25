@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.34.5] — 2026-09-25
+
 ### Changed
 
 - Test release: no code changes; exercises the tag-driven release flow.
@@ -2257,6 +2259,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.34.5]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.5
 [0.34.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.1
 [0.34.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.0
 [0.33.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.33.2
