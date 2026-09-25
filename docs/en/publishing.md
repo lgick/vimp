@@ -1,5 +1,26 @@
 # Publishing a release
 
+## The CI way: `release.yml`
+
+For a single artifact — no plugin-repo coordination, no dry-run rehearsal
+needed — trigger `.github/workflows/release.yml` from Actions → Run workflow,
+choosing `vimp-engine`, `create-vimp-game` or `vimp-engine-core`. All local
+prep is still done by hand exactly as in steps A1–A3 below: bump the version
+(`packages/engine/package.json`, `packages/create-vimp-game/package.json` or
+`packages/engine/core/Cargo.toml`), write the changelog entry, commit and push
+to `main`. The workflow only publishes the chosen artifact and pushes its
+`<name>@X.Y.Z` tag once that bump is on `main`.
+
+Publishing is OIDC-based (npm and crates.io Trusted Publishing, plus
+`--provenance` on the npm packages, which ties the registry package to the
+GitHub Actions build) — no `npm login`/`cargo login` token is stored in CI,
+unlike the manual steps below which still use them for local runs. The workflow does **not** enforce the
+crate → engine → `create-vimp-game` order from the table below, does not wait
+for registry propagation between artifacts, and skips the dry-run/changelog/
+game-package checks `npm run release` runs — that ordering and validation
+stays the human's responsibility when publishing more than one artifact, or
+use `npm run release` for a coordinated multi-artifact release.
+
 ## The short way: `npm run release`
 
 One command replaces the ~25 manual steps below. It runs from the `vimp`
