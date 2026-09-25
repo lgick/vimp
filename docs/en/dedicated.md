@@ -49,9 +49,10 @@ list — here the host runs in this very process, so a change to it must
 restart the server.
 
 On a VPS the box is set up by its own wizard,
-`.github/deployment/add-dedicated.sh` — it asks for the game, the room
-settings and an **optional** auth-service URL, and writes the `.env.prod`
-and `docker-compose.yml` this server needs; see
+`.github/deployment/add-dedicated.sh` — it only prepares the domain (project
+folder, Nginx, SSL); the game and its room settings come from
+`SERVERS_MATRIX`, and the deploy writes `.env.prod` and `docker-compose.yml`;
+see
 [deployment.md](deployment.md#step-3b-adding-a-dedicated-server).
 
 ### Resolving the game

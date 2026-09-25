@@ -9,8 +9,9 @@ IFS=$'\n\t'
 
 # --- Подключение общей библиотеки ---
 # Логгеры, check_system_installed, read_domain/read_port/read_email,
-# validate_origin, генерация Nginx+SSL и каталог проекта живут в lib/common.sh
-# и общие с add-dedicated.sh.
+# генерация Nginx+SSL и каталог проекта живут в lib/common.sh и общие с
+# add-dedicated.sh; validate_origin и check_auth_placeholder там же, но нужны
+# только этому скрипту.
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
@@ -52,7 +53,7 @@ read_auth_service_url() {
     read -r -p "   URL central auth-сервиса (например https://auth.example.com, без пути): " RAW
     if [[ -z "${RAW// /}" ]]; then
       warn "URL обязателен для домена мастера — auth должен быть развёрнут заранее."
-      warn "Для dedicated-сервера используйте ./add-dedicated.sh — там URL необязателен."
+      warn "Для dedicated-сервера используйте ./add-dedicated.sh — там auth-URL не спрашивается."
       continue
     fi
     if ! AUTH_SERVICE_URL=$(validate_origin "$RAW"); then

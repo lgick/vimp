@@ -308,13 +308,19 @@ jobs:
 
             echo "🔍 Checking status for ${VIMP_DOMAIN}..."
 
-            # Если папки нет, значит сервер не был настроен через add-server.sh.
+            # Если папки нет, значит сервер не был настроен через add-server.sh
+            # (или add-dedicated.sh для записи с dedicatedGame).
             # Прерываем выполнение с кодом 1 (Failure), чтобы пайплайн упал с ошибкой.
             if [ ! -d "$PROJECT_DIR" ]; then
+              if [ -n "$VIMP_DEDICATED_GAME" ]; then
+                SETUP_SCRIPT="./add-dedicated.sh"
+              else
+                SETUP_SCRIPT="./add-server.sh"
+              fi
               echo "========================================================"
               echo "⚠️  SKIP: Server is not configured on VPS."
               echo "   Directory '$PROJECT_DIR' does not exist."
-              echo "   Run './add-server.sh' on the server to setup first."
+              echo "   Run '$SETUP_SCRIPT' on the server to setup first."
               echo "========================================================"
               echo "❌ ERROR: Deployment failed because folder is missing."
               exit 1

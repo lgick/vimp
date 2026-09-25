@@ -48,9 +48,9 @@ nodemon: здесь хост крутится в этом же процессе,
 обязана перезапускать сервер.
 
 На VPS бокс настраивается отдельным мастером установки
-`.github/deployment/add-dedicated.sh` — он спрашивает игру, настройки
-комнаты и **необязательный** URL auth-сервиса, а также пишет нужные этому
-серверу `.env.prod` и `docker-compose.yml`; см.
+`.github/deployment/add-dedicated.sh` — он готовит только домен (папку
+проекта, Nginx, SSL); игра и её настройки комнаты задаются в
+`SERVERS_MATRIX`, а `.env.prod` и `docker-compose.yml` пишет деплой; см.
 [deployment.md](deployment.md#шаг-3b-добавление-dedicated-сервера).
 
 ### Разрешение игры
