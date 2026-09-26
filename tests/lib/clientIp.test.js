@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { rateLimitKey } from '../../packages/engine/src/lib/clientIp.js';
 
 const MODULE = '../../packages/engine/src/lib/clientIp.js';
 
@@ -80,5 +81,40 @@ describe('clientIp: прокси без X-Real-IP', () => {
     clientIp(makeReq());
 
     expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+// Ключ лимита по адресу (plan/client-reports, этап 2): у абонента IPv6 целая
+// /64, поэтому лимит «на адрес» для IPv6 обходится сменой адреса
+describe('rateLimitKey', () => {
+  it('IPv4 — адрес как есть, IPv4-mapped — его IPv4', () => {
+    expect(rateLimitKey('1.2.3.4')).toBe('1.2.3.4');
+    expect(rateLimitKey('::ffff:1.2.3.4')).toBe('1.2.3.4');
+  });
+
+  it('адреса одной /64 делят ключ, соседняя /64 — другой', () => {
+    const a = rateLimitKey('2001:db8:0:1::a');
+    const b = rateLimitKey('2001:db8:0:1:ffff::1');
+
+    expect(a).toBe('v6:2001:db8:0:1::/64');
+    expect(b).toBe(a);
+    expect(rateLimitKey('2001:db8:0:2::a')).not.toBe(a);
+  });
+
+  it('полная запись, ведущие нули и регистр сводятся к одному ключу', () => {
+    expect(rateLimitKey('2001:0DB8:0000:0001:0000:0000:0000:000a')).toBe(
+      'v6:2001:db8:0:1::/64',
+    );
+  });
+
+  it('сокращённая запись и зона', () => {
+    expect(rateLimitKey('::1')).toBe('v6:0:0:0:0::/64');
+    expect(rateLimitKey('fe80::1%eth0')).toBe('v6:fe80:0:0:0::/64');
+  });
+
+  it("мусор — строка как есть, '' — ''", () => {
+    expect(rateLimitKey('2001:db8::1::2')).toBe('2001:db8::1::2');
+    expect(rateLimitKey('zz:yy')).toBe('zz:yy');
+    expect(rateLimitKey('')).toBe('');
   });
 });

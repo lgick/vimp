@@ -35,14 +35,18 @@ export default class HostController {
    *   (WASM/конфиг): комната не поднялась, нужно вернуть пользователя в лобби.
    * @param {Function} [opts.onMapChange] - смена карты в комнате (голосование/
    *   таймер) — для актуализации mapName у мастера.
+   * @param {Object} [opts.diagnostics] - журнал клиентских ошибок
+   *   (lib/diagnostics.js, plan/client-reports): туда уходят ошибки Worker'а.
    */
   constructor(
     room,
-    { workerFactory, workerUrl, onReady, onError, onMapChange } = {},
+    { workerFactory, workerUrl, onReady, onError, onMapChange, diagnostics } = {},
   ) {
     this._room = room;
     this._workerFactory = workerFactory;
+    this._diagnostics = diagnostics ?? null;
     this._worker = this._createWorker(workerUrl);
+    this._watchWorkerErrors(this._worker);
 
     this._onReady = onReady;
     this._onError = onError;
@@ -74,6 +78,22 @@ export default class HostController {
       : new Worker(new URL('../../host/host.worker.js', import.meta.url), {
           type: 'module',
         });
+  }
+
+  // журнал клиентских ошибок (plan/client-reports): неперехваченная ошибка
+  // Worker'а приходит сюда. preventDefault не зовётся — консольный вывод
+  // браузера остаётся как есть
+  _watchWorkerErrors(worker) {
+    worker.onerror = event =>
+      this._diagnostics?.capture(event.error ?? event.message, {
+        source: 'host-worker',
+        kind: 'worker',
+      });
+    worker.onmessageerror = () =>
+      this._diagnostics?.capture('messageerror', {
+        source: 'host-worker',
+        kind: 'worker',
+      });
   }
 
   // регистрирует клиента и (при готовности) поднимает его соединение в Worker'е
@@ -311,16 +331,39 @@ export default class HostController {
     );
 
     next.onmessage = e => this._onNextWorkerMessage(e.data);
+    this._watchWorkerErrors(next);
     next.postMessage({ type: 'init', room: this._room, handoff: state });
   }
 
-  // сообщения нового Worker'а до завершения свопа: ждём только ready/error
+  // сообщения нового Worker'а до завершения свопа: ждём только ready/error,
+  // но его сбои (в том числе провал init) попадают в журнал ошибок так же,
+  // как у рабочего Worker'а
   _onNextWorkerMessage(msg) {
     if (msg.type === 'ready') {
       this._finishSwap();
     } else if (msg.type === 'error') {
+      this._reportWorkerError(msg);
       this._abortSwap(msg.message);
+    } else if (msg.type === 'diagnostic') {
+      this._reportWorkerDiagnostic(msg);
     }
+  }
+
+  // сбой init Worker'а — в журнал клиентских ошибок (plan/client-reports)
+  _reportWorkerError(msg) {
+    this._diagnostics?.capture(new Error(msg.message), {
+      source: 'host-worker',
+      kind: 'error',
+    });
+  }
+
+  // необработанный reject внутри Worker'а (host.worker.js) — только в
+  // журнал: откат эстафеты завязан на 'error', не на него
+  _reportWorkerDiagnostic(msg) {
+    this._diagnostics?.capture(
+      { message: msg.message, stack: msg.stack },
+      { source: 'host-worker', kind: msg.kind },
+    );
   }
 
   // новый Worker готов: переподключить клиентов, дослать накопленное,
@@ -383,7 +426,12 @@ export default class HostController {
         break;
 
       case 'error':
+        this._reportWorkerError(msg);
         this._onError?.(msg);
+        break;
+
+      case 'diagnostic':
+        this._reportWorkerDiagnostic(msg);
         break;
 
       case 'map_changed':

@@ -9,6 +9,16 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- Lobby masters and dedicated servers accept client error reports at `POST /client-reports` (same-origin, rate-limited per address or IPv6 /64, 16 KB, a per-server budget of new fingerprints) and forward them in batches to the auth service (`VIMP_CLIENT_REPORTS_TOKEN`, `master:clientReports`); every new fingerprint is also logged as `[vimp:client-report]`, and dropped reports are counted in a `reports.dropped` entry.
+- `rateLimitKey(ip)` in `src/lib/clientIp.js`: an IPv4 address or an IPv6 /64 prefix as a rate-limit key.
+- The client reports uncaught errors and unhandled rejections of the page and of the host Worker, and Content-Security-Policy violations (browser extensions filtered out), to its server (`POST /client-reports`), deduplicated and capped per session.
+- Client service `diagnostics` (`warn(code, details)`, `capture(error)`) and engine capability `diagnostics`; games use it optionally and must not list it in `requires`.
+- Standalone SDK option `reportUrl`.
+- Client error reports are symbolicated on the server from hidden source maps (`sourcemap: 'hidden'`); `*.map` files are never served in production.
+- Lobby admin panel «Errors»: the client error log with filters, stack traces and `open` / `fixed` / `ignored` statuses (`GET/PATCH /admin/client-reports` on the master, proxied to the auth service).
+
 ## [0.34.8] — 2026-09-26
 
 ### Fixed

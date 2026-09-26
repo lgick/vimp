@@ -1,0 +1,18 @@
+//- Журнал клиентских ошибок (plan/client-reports, этап 5): только админ.
+//- Панель скрыта по умолчанию — открывается кнопкой «Errors» бейджа
+//- пользователя (#lobby-user в lobby.pug); id элементов перечислены в
+//- config/lobby.js. Подписи — по-английски, как и остальное лобби
+div#reports-panel(style='display:none')
+  div.lobby-column
+    div.reports-head
+      h3.lobby-section-title= 'Client errors'
+      input#reports-close(type='button', value='Back to lobby')
+
+    div.card.reports-card
+      div.reports-toolbar
+        div#reports-filters.games-filters
+        select#reports-game.field-select
+          option(value='')= 'All games'
+      ul#reports-list.reports-list
+      div#reports-error.form-error
+      input#reports-more(type='button', value='Load more', style='display:none')

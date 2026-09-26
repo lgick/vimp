@@ -8,6 +8,35 @@ import { GAME_VERSION_PATTERN } from './gameRefs.js';
 // Инстансы express.static кэшируются по директории — создавать serve-static
 // на каждый файл игры незачем; снятая с диска версия уносит и свой маунт
 // (drop() зовёт GameSync.onPruned).
+/**
+ * Разбор пути игровой статики — общий для раздачи и расшифровки стеков
+ * журнала клиентских ошибок (plan/client-reports, этап 4).
+ * @param {string} pathname - '/<id>[/<version>]/<rest>', путь ПОСЛЕ префикса /games.
+ * @returns {{id: string, version: string|undefined, rest: string}|null} rest —
+ *   остаток внутри dist/ игры (без ведущего '/', не декодирован); null — битая
+ *   процентная последовательность в id или версии.
+ */
+export function parseGamePath(pathname) {
+  const segments = pathname.split('/');
+  let id;
+  let second;
+
+  try {
+    id = decodeURIComponent(segments[1] ?? '');
+    second = decodeURIComponent(segments[2] ?? '');
+  } catch {
+    return null;
+  }
+
+  const versioned = GAME_VERSION_PATTERN.test(second);
+
+  return {
+    id,
+    version: versioned ? second : undefined,
+    rest: segments.slice(versioned ? 3 : 2).join('/'),
+  };
+}
+
 export function createGameStatic({ catalog, staticImpl = express.static }) {
   const byDir = new Map();
 
@@ -27,22 +56,18 @@ export function createGameStatic({ catalog, staticImpl = express.static }) {
     const queryAt = original.indexOf('?');
     const pathname = queryAt === -1 ? original : original.slice(0, queryAt);
     const query = queryAt === -1 ? '' : original.slice(queryAt);
-    const segments = pathname.split('/');
-    let id;
-    let second;
+    const parsed = parseGamePath(pathname);
 
-    try {
-      id = decodeURIComponent(segments[1] ?? '');
-      second = decodeURIComponent(segments[2] ?? '');
-    } catch {
+    if (!parsed) {
       // битая процентная последовательность (`/games/%ZZ/x.js`) — это 404
       // дальше по цепочке, а не 500 из дефолтного обработчика Express
       next();
       return;
     }
 
-    const versioned = GAME_VERSION_PATTERN.test(second);
-    const dir = catalog.getDistDir(id, versioned ? second : undefined);
+    const { id, version, rest } = parsed;
+    const versioned = version !== undefined;
+    const dir = catalog.getDistDir(id, version);
 
     if (!dir) {
       // /games/<id>/<version>/… адресует только хранилище пакетов: отдать
@@ -59,7 +84,7 @@ export function createGameStatic({ catalog, staticImpl = express.static }) {
 
     // остаток пути внутри dist/ игры; req.url восстанавливается, если файла
     // там нет — дальше по цепочке (ViteExpress) должен прийти исходный URL
-    req.url = `/${segments.slice(versioned ? 3 : 2).join('/')}${query}`;
+    req.url = `/${rest}${query}`;
 
     staticFor(dir)(req, res, err => {
       req.url = original;

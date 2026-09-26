@@ -65,6 +65,11 @@ openssl rsa -in .keys/jwt.pem -pubout -out .keys/jwt.pub.pem
 В dev `VIMP_AUTH_ALLOWED_ORIGINS` по умолчанию — origin dev-мастера
 (`https://localhost:3002`).
 
+`VIMP_CLIENT_REPORTS_TOKEN` необязателен в любом режиме: общий секрет, по
+которому боксы пересылают журнал клиентских ошибок (см.
+[Журнал клиентских ошибок](#журнал-клиентских-ошибок)); без него приём
+отвечает `503`.
+
 `VIMP_ADMIN_NICKS` необязательна в любом режиме (master-game-registry,
 этап 1): CSV-список ников, которым при каждом входе выдаётся
 `role = 'admin'` и которые понижаются обратно до `'user'`, как только
@@ -361,6 +366,61 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 запросе перечитывает роль из БД, а не доверяет клейму: токен живёт четыре
 часа, и разжалование обязано действовать немедленно.
 
+## Журнал клиентских ошибок
+
+Центральный журнал ошибок браузерного клиента (`plan/client-reports`):
+каждый бокс (лобби-мастер или dedicated-сервер) собирает на своём origin
+неперехваченные ошибки клиента и явные предупреждения движка и плагинов,
+считает им отпечаток и пачками пересылает сюда. Таблица группирует их по
+отпечатку и хранит статус `open` / `fixed` / `ignored`, который ставит админ.
+
+**Включение.** `VIMP_CLIENT_REPORTS_TOKEN` — общий секрет всех боксов и этого
+сервиса (GitHub-секрет `CLIENT_REPORTS_TOKEN`). Он необязателен: без него
+`POST /client-reports` отвечает `503 reportsDisabled`, боксы копят и логируют
+отчёты, а в проде сервис только печатает предупреждение при старте, а не
+отказывается запускаться.
+
+| Эндпоинт | Назначение |
+| --- | --- |
+| `POST /client-reports` (`Authorization: Bearer <VIMP_CLIENT_REPORTS_TOKEN>`, `{ items: [...] }`) | пачка от бокса, 1..`maxBatch` (100) записей. Регистрируется **до** глобального JSON-парсера на 16 КБ со своим `bodyLimit` (2 МБ) — пачка со стеками в 16 КБ не влезает; токен проверяется до разбора тела, чтобы чужой запрос не заставлял сервис парсить 2 МБ. Каждая запись проходит `normalizeReportItem` (`src/lib/clientReportValidators.js`): неверные `fingerprint` (64 строчных hex), `source`, `kind` или пустое `message` отбрасывают запись, остальные поля обрезаются до `config.clientReports.limits` (сообщение 500, стек 8000, details 4096 байт JSON — иначе `{ truncated: true }`, user agent 256) или становятся `null`; `count` клампится в `1..1 000 000`, даты вне `[now − 7 суток, now + 5 мин]` становятся `now`. Ответы: `200 { accepted, throttled, rejected }`, `400 badRequest` (не массив, неверная длина, ни одной годной записи), `401 unauthorized`, `429 rateLimited` (120/мин на IP), `503 reportsDisabled` |
+| `GET /admin/client-reports?status=&gameId=&limit=&offset=` (Bearer, админ) | `{ reports, total }`, свежие по `last_seen` сверху. `status` — `open` (по умолчанию), `fixed`, `ignored` или `all`; `gameId` необязателен и проверяется как id реестра; `limit` клампится в `1..100` (по умолчанию 50), `offset` — в `0..100000`. `400 badRequest` на неверные `status` или `gameId`. Запись несёт все колонки, кроме `status_by` — вместо него ник админа в `statusByNick` |
+| `PATCH /admin/client-reports/:id` (Bearer, админ, `{ status, note? }`) | ставит `status` (`open` \| `fixed` \| `ignored`, обязателен) и необязательную заметку (≤ 500 символов), отмечает админа и время. `{ report }`; `400 badRequest`, `404 unknownReport` |
+
+**Таблица `client_reports`** (`013_client_reports.sql`): строка на отпечаток
+(`CHAR(64) UNIQUE`) с `source`, `kind`, `code`, `message`, `stack`, `details`
+(JSONB), `engine_version`, `game_id`, `game_version`, `box`, `mode`,
+`user_agent`, счётчиком повторов `count`, `first_seen` / `last_seen` и
+решением админа `status` / `status_note` / `status_by` / `status_at`. Ника, id
+игрока и IP в ней нет никогда. Пачка — один `SELECT` известных отпечатков и
+один `INSERT … ON CONFLICT (fingerprint) DO UPDATE` через `jsonb_to_recordset`
+(дубликаты внутри пачки сливаются заранее в JS — одна команда не может задеть
+строку дважды).
+
+**Повтор статус не меняет.** Отпечаток считает бокс, и в него входят версии
+движка и игры: исправление выходит новой версией, а регрессия в ней — **новая
+строка**, старая остаётся `fixed`. Автоматического переоткрытия нет.
+
+**Защита от спама** (`src/lib/ClientReportBudget.js`) ограничивает только
+**новые строки**: повтор известного отпечатка стоит один `UPDATE count` и
+считается всегда. Новые отпечатки режут три бюджета, в памяти процесса и с
+обнулением при рестарте: 2000 в час на IP отправителя, 10 000 в час всего и
+потолок таблицы в 200 000 строк (точный `count(*)` на старте и раз в 10 минут;
+между пересчётами число строк ведёт сам бюджет). Сверх бюджета запись не
+пишется, и это не ошибка: ответ `200` с `throttled`, бокс её не повторяет. В
+журнал процесса — не больше одной строки в час:
+`[client-reports] throttled N new reports (reason: ip|global|maxRows)`. Ключ —
+IP отправителя (`clientIp()`, см. ниже), **а не** поле `box`: его бокс пишет
+сам, и с утёкшим секретом оно подменяется на каждом запросе.
+
+**Хранение.** Суточная задача (`src/db/clientReportsPurgeJob.js`, 00:15 UTC,
+тот же планировщик и консультативная блокировка, что у очистки игр) удаляет
+строки, чей `last_seen` старше `config.clientReports.retentionDays` (90).
+
+**Просмотр.** Админ читает и разбирает журнал в панели «Errors» лобби
+([client.md](client.md#панель-errors-clientreports)), которая ходит к двум
+админским эндпоинтам выше через свой мастер
+([master.md](master.md#getpatch-adminclient-reports-журнал-клиентских-ошибок)).
+
 ## Модули
 
 | Модуль | Ответственность |
@@ -372,6 +432,8 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 | `src/devLogin.js` | фабрика хендлера dev-входа (`createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick })`) — зависимости инжектируются, поэтому тестируется без Express и живой БД; подключается в `main.js` под `if (!isProduction)` |
 | `src/lib/validators.js` | regexp ника, проверки полей заявки на игру (id/пакет/версия/title/repo URL — пределы приходят аргументом `config.games`, файл остаётся набором чистых функций), продублирован из `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — воркспейсы не делят рантайм-зависимость |
 | `src/UserRepository.js` | весь SQL: найти/создать пользователя, задать ник, get rank, добавить/пересчитать события леджера rank, get/upsert state, снапшот state, получить рейтинг хостера, upsert голоса и пересчёт `host_ratings`, аннулирование вклада забаненного хостера в rank/state, чтение рейтинга/позиции игрока для лобби (lobby-page-plan), синхронизация и чтение роли пользователя и весь реестр игр — списки/чтение/создание игры, заявка на версию, частичный патч модератора (master-game-registry) |
+| `src/ClientReportRepository.js` | SQL журнала клиентских ошибок: приём пачки с бюджетом новых строк, список/чтение, смена статуса, очистка |
+| `src/lib/clientReportValidators.js`, `src/lib/ClientReportBudget.js`, `src/lib/serviceToken.js` | нормализация одной записи отчёта; бюджет новых строк журнала в памяти процесса; проверка общего секрета бокс → auth (`timingSafeEqual` по SHA-256) |
 | `src/oauth/github.js`, `src/oauth/index.js` | реестр провайдеров; форма `getAuthorizationUrl`/`exchangeCode`, расширяема под Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, минимальный идемпотентный раннер миграций (`CREATE TABLE IF NOT EXISTS`, без таблицы версий пока). **Без таблицы версий каждый файл применяется заново на каждом деплое**, поэтому миграция обязана оставаться безопасной при повторе: пишущая данные (`010_drop_anonymous_users.sql`) сужается так, чтобы повтор не задел строку, легальную сейчас, — `nick IS NULL`, например, штатное состояние OAuth-входа между callback'ом и `POST /nick` |
 
@@ -538,7 +600,11 @@ ranking при равном `rank`, пустая игра; реестр игр �
 `devLogin.test.js` (редирект несёт
 токен, проверяемый одноразовой парой RSA-ключей; ник задаётся только при
 первом входе; невалидный ник и `returnUrl` с чужого origin отклоняются до
-любой записи).
+любой записи); журнал клиентских ошибок — `serviceToken.test.js`,
+`clientReportValidators.test.js`, `ClientReportRepository.test.js` (слияние
+дубликатов, известные и новые отпечатки под бюджетом, один `INSERT` на
+пачку), `ClientReportBudget.test.js` (бюджеты по IP, общий и потолок строк,
+часовой сброс) и `clientReportsPurgeJob.test.js`.
 
 Проверка на стороне хоста (B3) и синхронизация rank/state (B4) тестируются
 в дереве движка: `tests/lib/jwt.test.js` (`verifyIdentityToken` — валидная

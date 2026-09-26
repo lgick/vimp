@@ -10,13 +10,14 @@ import {
 // игр — они его не просят и не получают.
 
 describe('реестр клиентских сервисов', () => {
-  it('движковый пул — пять имён, ни одно не выведено', () => {
+  it('движковый пул — шесть имён, ни одно не выведено', () => {
     expect(SERVICES).toEqual([
       'renderer',
       'soundManager',
       'assetsBase',
       'localPlayer',
       'accolades',
+      'diagnostics',
     ]);
     expect(SERVICES.some(name => clientServices.isRetired(name))).toBe(false);
   });

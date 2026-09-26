@@ -313,6 +313,99 @@ before commands. The host has no chat rate limit (only a length limit,
   (`CONSOLE`) carries the host's debug log into this tab's console as
   `[vimp:debug][host] …`. See [debugging.md](debugging.md#the-browser-half).
 
+## Error reporting (`lib/diagnostics.js`)
+
+The client keeps a journal of its own errors: `main.js` creates the reporter
+right after the boot mode is known and installs it on `window`. Reports go
+to the server that served the page — `POST /client-reports` on the lobby
+master or the dedicated server (`lobbyConfig.clientReportUrl`); the
+standalone SDK sends only when the embedder passes `reportUrl`
+([standalone.md](standalone.md#api)). The server forwards them to the
+central journal — see [master.md](master.md#post-client-reports-client-error-reports).
+
+**Caught:**
+
+- uncaught exceptions (`error` as an `ErrorEvent`) and unhandled rejections
+  (`unhandledrejection`) of the page;
+- errors of the host Worker: `worker.onerror`, `onmessageerror`, the init
+  failure (`error`, which still rolls the room back as before) and unhandled
+  rejections inside the Worker, which it forwards itself as a
+  `{ type: 'diagnostic' }` message (source `host-worker`);
+- Content-Security-Policy violations (`securitypolicyviolation`, kind
+  `csp`) — only in production, where the master sets CSP; violations whose
+  `blockedURI` or `sourceFile` belongs to a browser extension
+  (`chrome-extension:`, `moz-extension:`, `safari-extension:`,
+  `safari-web-extension:`) are dropped;
+- explicit `warn(code, details)` / `capture(error)` of a game's parts
+  through the `diagnostics` pool service
+  ([plugin-api.md](plugin-api.md#the-diagnostics-service)).
+
+**Not caught, on purpose:** `console.error` / `console.warn` calls (noise
+and arbitrary data in their arguments; the console is never wrapped),
+errors caught by `try/catch`, resource and network failures (`404`,
+`fetch`, a failed `<img>`/`<script>` arrives as a plain `Event` and is
+skipped), errors before the boot mode is known (module imports,
+`resolveBootConfig`), server-side errors of a dedicated process (they are in
+its logs).
+
+**Limits.** Identical reports are deduplicated by source, kind, code or
+message and the first stack frame with `:line:column`; a repeat only
+increments a counter. At most 50 distinct reports per session (then one
+`console.warn('[vimp] diagnostics: session cap reached')`, and repeats of
+known ones are still counted). Sending is debounced by 2 s and flushed on
+`pagehide`; only reports whose counter grew since the last send go out,
+with the increment as `count`. A request carries at most 10 reports; a batch
+over 15 000 bytes loses its `details`, then its stacks are cut to 1000
+characters, and if it is still too big the reports go one per request. The
+transport is `navigator.sendBeacon`, falling back to `fetch` with
+`keepalive`; the response is not read. The reporter swallows its own
+failures and never reports an error raised while it is reporting.
+
+Fields are cut to the server's limits: `message` 500, `stack` 4000, `code`
+64 characters, `details` 2048 bytes of JSON (larger becomes
+`{ truncated: true }`).
+
+**Privacy.** A report carries no nickname, player id or IP address. The
+context is `{ mode, role, gameId, gameVersion, page, userAgent }`, where
+`page` is the pathname only; URLs in CSP reports lose their query and hash.
+
+### The Errors panel (`ClientReports`)
+
+Admins read the central journal in the lobby: the `Errors` button in the user
+badge (`#reports-open`) is shown only to the `admin` role
+(`ClientReportsCtrl.setAdmin`, next to the games panel's), and opens
+`#reports-panel` (`views/includes/reports.pug`) in place of `#lobby`, the same
+way the games panel does. The triplet `components/{model,view,controller}/ClientReports.js`
+takes every URL and element id from `lobbyConfig.clientReports`; the model
+talks REST to its own master (`GET`/`PATCH /admin/client-reports`, see
+[master.md](master.md#getpatch-adminclient-reports-client-error-journal)) with
+the lobby token and turns every failure into an error code, never an
+exception. Dedicated servers have no admin panel; the journal is shared, so
+any lobby master shows it.
+
+- **Filters** — the status tabs `Open` (default), `Fixed`, `Ignored`, `All`
+  and a game select (`All games` plus the tab's catalog). Changing either
+  reloads the list from the first page; `Load more` appends the next
+  `pageSize` (50) rows and is visible while fewer than `total` are loaded.
+- **A row** shows how long ago it was last seen, `×count`, `kind/source`,
+  `code` or the message (cut to 120 characters), `gameId@gameVersion`, the
+  engine version, the box and the status. A click expands the full message,
+  the stack and `details` in scrollable `<pre>` blocks, the user agent, first
+  and last seen, the first 12 characters of the fingerprint and who set the
+  status, when, with which note.
+- **Statuses.** The note field plus the buttons `Mark fixed`, `Ignore`,
+  `Reopen` — every status but the current one. A row that no longer matches
+  the open tab leaves the list. A repeat of a report never reopens it: the
+  fingerprint includes the engine and game versions, so a fix ships as a new
+  version, and a regression in it is a **new** row while the old one stays
+  `fixed`.
+
+**Security.** Every field of a report is attacker-controlled — any browser
+can post any string. The view writes them only through `textContent`, never
+through `innerHTML`, markup templates or `insertAdjacentHTML`; a unit test
+(`tests/client/ClientReportsView.test.js`) renders a report full of
+`<img onerror>` and checks that no element appears.
+
 ## Network layer (packages/engine/src/client/network/)
 
 The game transport is WebRTC, not WebSocket (channel details —

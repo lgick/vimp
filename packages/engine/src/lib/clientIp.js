@@ -37,3 +37,53 @@ export function clientIp(req, { trustProxy = false } = {}) {
 
   return String(header || req.socket?.remoteAddress || '').trim();
 }
+
+// Ключ rate-limit'а по адресу: IPv4 — сам адрес, IPv6 — подсеть /64.
+// Провайдер выдаёт абоненту /64 целиком, то есть у одного человека
+// 2^64 адресов, и лимит «на адрес» для IPv6 не лимит вовсе
+export function rateLimitKey(ip) {
+  const addr = String(ip ?? '').trim();
+
+  if (!addr) {
+    return '';
+  }
+
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(addr);
+
+  if (mapped) {
+    return mapped[1];
+  }
+
+  if (!addr.includes(':')) {
+    return addr;
+  }
+
+  const groups = expandIpv6(addr.split('%')[0]);
+
+  if (!groups) {
+    return addr;
+  }
+
+  return `v6:${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`;
+}
+
+// '2001:db8::1' → 8 hex-групп или null, если запись непарсима
+function expandIpv6(addr) {
+  const halves = addr.split('::');
+
+  if (halves.length > 2) {
+    return null;
+  }
+
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+
+  if (halves.length === 1 ? missing !== 0 : missing < 1) {
+    return null;
+  }
+
+  const groups = [...head, ...Array(halves.length === 2 ? missing : 0).fill('0'), ...tail];
+
+  return groups.every(g => /^[0-9a-f]{1,4}$/i.test(g)) ? groups : null;
+}

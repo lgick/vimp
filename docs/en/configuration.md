@@ -41,6 +41,7 @@ room settings have no other source.
 | `VIMP_DEDICATED_GAME` | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master. A scoped package name is fetched straight from npm, so `VIMP_AUTH_SERVICE_URL` is not needed; only a game id has to be resolved through the registry | — |
 | `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure. In production it is filled from the `settings` field of `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-game-box-dedicatedgame)) | `{}` |
 | `VIMP_GAMES_DIR` | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate | `<repoRoot>/.games` |
+| `VIMP_CLIENT_REPORTS_TOKEN` | Shared secret between the boxes and the auth service (`master:clientReports:token`): the box forwards client error reports to the auth service with it ([master.md](master.md#post-client-reports-client-error-reports)). Empty — forwarding is off, the box only logs new fingerprints. In production it comes from the `CLIENT_REPORTS_TOKEN` GitHub secret ([deployment.md](deployment.md#client-error-reports-secret-client_reports_token)) | — |
 
 **There is no environment variable for the game catalog.** The lobby master's
 catalog comes from the game registry of the central auth service and from
@@ -403,6 +404,15 @@ The master server's config (see [master.md](master.md)); read by
   `referrerPolicy: 'no-referrer'`; the master always sends
   `nosniff`/`X-Frame-Options`/`Referrer-Policy`, CSP only in production
   (it would break Vite HMR in dev);
+- `clientReports` — the client error journal
+  ([master.md](master.md#post-client-reports-client-error-reports)):
+  `token` (`VIMP_CLIENT_REPORTS_TOKEN`; empty — logging only),
+  `flushIntervalMs: 30000`, `forwardBatch: 50`, `forwardTimeoutMs: 5000`,
+  `maxPending: 500` (distinct fingerprints in the buffer), `logSeenMax: 5000`
+  (fingerprints the process remembers as already logged),
+  `newFingerprintsPerMinute: 60` (the box's budget of new fingerprints;
+  repeats are free), `rateLimit: { limit: 10, windowMs: 60000 }` (per
+  address, IPv6 by /64), `bodyLimit: '16kb'`, `maxItemsPerRequest: 10`;
 - `iceServers` — ICE config for clients and hosts (STUN; TURN optional).
 
 ## packages/engine/src/config/lobby.js

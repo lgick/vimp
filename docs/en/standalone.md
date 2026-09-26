@@ -114,6 +114,7 @@ startStandaloneGame(options): Promise<{ stop(): void }>
 | `startupCommands` | `[]` | game chat commands sent after the votes, e.g. `['/bot 4']` |
 | `room` | `{}` | room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
 | `devMode` | `false` | `room.isDevMode`: match recorder and the host `CONSOLE` log |
+| `reportUrl` | `null` | where the client error journal is sent (`POST`, see [client.md](client.md#error-reporting-libdiagnosticsjs)); `null` — nothing is sent, solo has no server |
 
 Both plugins are checked against `ENGINE_API_VERSION` before anything else —
 a plugin built for another engine API is rejected up front instead of failing

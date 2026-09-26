@@ -30,4 +30,18 @@ export function securityHeaders({ isProduction = false } = {}) {
   };
 }
 
+// Скрытые source maps лежат рядом с бандлами (plan/client-reports): их
+// читает сам бокс, а снаружи они — исходники сборки по запросу любого.
+// Только прод: в dev карты раздаёт Vite, и они нужны DevTools
+export function denySourceMaps({ isProduction = false } = {}) {
+  return (req, res, next) => {
+    if (isProduction && req.path.endsWith('.map')) {
+      res.status(404).json({ error: 'notFound' });
+      return;
+    }
+
+    next();
+  };
+}
+
 export default securityHeaders;

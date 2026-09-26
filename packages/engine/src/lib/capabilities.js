@@ -43,6 +43,9 @@ export const ENGINE_CAPABILITIES = createRegistry('engine-capabilities', [
   // `SimCtx::map_body_state`) и доступ игры к телам карты по индексу
   // (хэндл, индекс по хэндлу, отключение тела)
   { value: 'map.bodyState', since: '0.34.0' },
+  // сервис пула `diagnostics` (журнал клиентских ошибок, plan/client-reports);
+  // опционален — игра не пишет его в `requires`
+  { value: 'diagnostics', since: '0.35.0' },
 ]);
 
 // плоский список имён — то, чем правило контракта B2 проверяет `requires`

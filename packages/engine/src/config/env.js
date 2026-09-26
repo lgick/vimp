@@ -31,6 +31,12 @@ export function applyMasterEnv(config, env = process.env) {
   if (env.VIMP_GAMES_DIR) {
     config.set('master:gameStore:dir', env.VIMP_GAMES_DIR);
   }
+
+  // общий секрет бокса и auth-сервиса для пересылки журнала клиентских
+  // ошибок (plan/client-reports)
+  if (env.VIMP_CLIENT_REPORTS_TOKEN) {
+    config.set('master:clientReports:token', env.VIMP_CLIENT_REPORTS_TOKEN);
+  }
 }
 
 /**

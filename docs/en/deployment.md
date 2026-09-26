@@ -16,11 +16,14 @@ container. On the VPS, Nginx terminates HTTPS and proxies to the app port
 > builds the engine and nothing else: the node stage runs `npm ci` (engine
 > dependencies only — game packages are not dependencies of this repository)
 > followed by `npm run build:app` (engine Vite build), and the runner stage
-> copies `packages/engine/dist/` plus the server sources. Games arrive **at
+> copies `packages/engine/dist/` (hidden `*.map` source maps included — the
+> box decodes client error stacks with them and never serves them) plus the
+> server sources. Games arrive **at
 > runtime**: the master reads the catalog from the registry of the central
 > auth service, downloads each approved package from the npm registry into
 > `VIMP_GAMES_DIR` (a mounted volume) and serves it from there, reading only
 > `dist/manifest.json` + `dist/maps/*.json` and never importing game source.
+> A game's own hidden source maps, if it ships them, arrive with its `dist/`.
 > Adding a game or raising its version therefore rebuilds and redeploys
 > nothing — see "Adding a game to the catalog" below.
 
@@ -185,6 +188,32 @@ domain would answer 502 while the deploy stayed green. A dedicated box is
 the usual victim: a game built against an older `ENGINE_API_VERSION` is
 simply dropped from the lobby catalog, but kills the dedicated server at
 startup (see below).
+
+## Client error reports secret (`CLIENT_REPORTS_TOKEN`)
+
+Every box forwards browser error reports to the central auth service
+([master.md](master.md#post-client-reports-client-error-reports),
+[auth.md](auth.md#client-reports)) with one shared secret.
+
+1. Generate it: `openssl rand -hex 32`.
+2. Store it in **Settings → Secrets and variables → Actions → Secrets** as
+   `CLIENT_REPORTS_TOKEN`.
+3. Push to `main`. `deploy.yml` writes it as `VIMP_CLIENT_REPORTS_TOKEN` into
+   the `.env` of every box and rewrites the same line in the auth stack's
+   `.env.prod` (idempotently; an empty secret leaves the line already on the
+   server untouched) before the auth container is recreated.
+
+Without the secret nothing breaks: auth answers the intake with `503`, the
+boxes keep accepting and logging new fingerprints.
+
+**Rotation:** change the secret and push to `main` — the deploy rolls out
+both the auth stack and every box. Until a box is redeployed it gets `401`
+from auth and keeps the reports in its buffer (up to `maxPending`), logging
+`forward failed: 401` once.
+
+**Where to look:** `docker logs vimp-<domain> 2>&1 | grep vimp:client-report`
+(see [Viewing logs on the VPS](#viewing-logs-on-the-vps)) — a line per new
+fingerprint, dropped-report counts, forwarding failures.
 
 ## Dedicated game box (`dedicatedGame`)
 
@@ -591,6 +620,7 @@ there. Instead:
 | Action | Docker command |
 | --- | --- |
 | Tail logs (node.js) | `docker logs -f vimp-<domain>` |
+| Client error reports | `docker logs vimp-<domain> 2>&1 \| grep vimp:client-report` |
 | List processes | `docker ps -a` |
 | Restart | `docker restart vimp-<domain>` |
 | Stop | `docker stop vimp-<domain>` |

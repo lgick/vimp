@@ -136,8 +136,9 @@ name the violation. Do not verify those by eye — run the tool
       The engine marks the stage `sortableChildren` and calls
       `sortChildren()` after every `addChild`; PixiJS v8 sorts by `zIndex`
       there. A `layer` property on the instance does nothing.
-- [ ] ⚙ `C4` The engine provides exactly five dependency services:
-      `renderer`, `soundManager`, `assetsBase`, `localPlayer`, `accolades`.
+- [ ] ⚙ `C4` The engine provides exactly six dependency services:
+      `renderer`, `soundManager`, `assetsBase`, `localPlayer`, `accolades`,
+      `diagnostics`.
       Your game adds
       its own by returning them from `ClientPlugin.hooks.services(core)` —
       the engine merges that map into the pool. A name that neither side
@@ -145,6 +146,9 @@ name the violation. Do not verify those by eye — run the tool
       as an error when the plugin declares no `hooks.services()`, and as a
       warning when it does (the checker cannot call the hook without a live
       core — run with `--strict` to fail on those too).
+- [ ] Never list `diagnostics` in `requires`: the service is optional, an
+      older engine hands the part `undefined`, and a `requires` entry would
+      reject the game there for nothing. Call it as `diagnostics?.warn(…)`.
 - [ ] Do not reuse an engine service name in `hooks.services()`: the engine
       merges your map *first* (`{ ...gameServices, renderer, … }`), so a
       `renderer` of yours is silently overwritten by the engine's and no rule

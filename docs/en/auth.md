@@ -65,6 +65,10 @@ these are set (`src/main.js`):
 In dev, `VIMP_AUTH_ALLOWED_ORIGINS` defaults to the dev master's origin
 (`https://localhost:3002`).
 
+`VIMP_CLIENT_REPORTS_TOKEN` is optional in every mode: the shared secret the
+boxes use to forward the client-error journal (see
+[Client reports](#client-reports)); without it the intake answers `503`.
+
 `VIMP_ADMIN_NICKS` is optional in every mode (master-game-registry stage 1):
 a CSV of nicks that are granted `role = 'admin'` on every login and
 demoted back to `'user'` once they leave the list (`parseAdminNicks` in
@@ -363,6 +367,63 @@ moderation tab. `requireAdmin` in `src/main.js` re-reads the role from the
 database on every admin request instead of trusting the claim: the token
 lives four hours, and a demotion has to take effect immediately.
 
+## Client reports
+
+The central journal of browser-client errors (`plan/client-reports`): every
+box (a lobby master or a dedicated server) collects uncaught client errors
+and explicit engine/plugin warnings on its own origin, fingerprints them and
+forwards them here in batches. The table groups them by fingerprint and
+carries an `open` / `fixed` / `ignored` status that an admin sets.
+
+**Enabling.** `VIMP_CLIENT_REPORTS_TOKEN` is a shared secret between every
+box and this service (GitHub secret `CLIENT_REPORTS_TOKEN`). It is optional:
+without it `POST /client-reports` answers `503 reportsDisabled`, the boxes
+keep and log their reports, and in production the service only prints a
+warning at start instead of refusing to boot.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /client-reports` (`Authorization: Bearer <VIMP_CLIENT_REPORTS_TOKEN>`, `{ items: [...] }`) | a batch from a box, 1..`maxBatch` (100) items. Registered **before** the global 16 KB JSON parser with its own `bodyLimit` (2 MB) — a batch with stacks does not fit 16 KB; the token is checked before the body is parsed, so a stranger cannot make the service parse 2 MB. Every item goes through `normalizeReportItem` (`src/lib/clientReportValidators.js`): an invalid `fingerprint` (64 lowercase hex), `source`, `kind` or an empty `message` drops the item, the other fields are cut to `config.clientReports.limits` (message 500, stack 8000, details 4096 bytes of JSON — otherwise `{ truncated: true }`, user agent 256) or become `null`; `count` is clamped to `1..1 000 000`, dates outside `[now − 7 days, now + 5 min]` become `now`. Answers: `200 { accepted, throttled, rejected }`, `400 badRequest` (not an array, wrong length, not a single valid item), `401 unauthorized`, `429 rateLimited` (120/min per IP), `503 reportsDisabled` |
+| `GET /admin/client-reports?status=&gameId=&limit=&offset=` (Bearer, admin) | `{ reports, total }`, freshest `last_seen` first. `status` is `open` (default), `fixed`, `ignored` or `all`; `gameId` is optional and checked like a registry id; `limit` is clamped to `1..100` (default 50), `offset` to `0..100000`. `400 badRequest` on a bad `status` or `gameId`. A report carries every column except `status_by` — the admin's nick comes as `statusByNick` instead |
+| `PATCH /admin/client-reports/:id` (Bearer, admin, `{ status, note? }`) | sets `status` (`open` \| `fixed` \| `ignored`, required) and an optional note (≤ 500 chars), stamps the admin and the time. `{ report }`; `400 badRequest`, `404 unknownReport` |
+
+**Table `client_reports`** (`013_client_reports.sql`): one row per
+fingerprint (`CHAR(64) UNIQUE`) with `source`, `kind`, `code`, `message`,
+`stack`, `details` (JSONB), `engine_version`, `game_id`, `game_version`,
+`box`, `mode`, `user_agent`, a `count` of repeats, `first_seen` / `last_seen`
+and the admin's `status` / `status_note` / `status_by` / `status_at`. No nick,
+player id or IP is ever stored. A batch is one `SELECT` of the known
+fingerprints plus one `INSERT … ON CONFLICT (fingerprint) DO UPDATE` over
+`jsonb_to_recordset` (duplicates inside a batch are merged in JS first — one
+command cannot touch a row twice).
+
+**A repeat never changes the status.** The fingerprint is computed by the box
+and includes the engine and game versions, so a fix ships as a new version,
+and a regression in that version is a **new row** — the old one stays
+`fixed`. There is no automatic reopening.
+
+**Spam protection** (`src/lib/ClientReportBudget.js`) limits **new rows**
+only: a repeat of a known fingerprint costs one `UPDATE count` and is always
+counted. New fingerprints are cut by three budgets, in-process and reset on
+restart: 2000 per hour per sender IP, 10 000 per hour in total, and a table
+ceiling of 200 000 rows (an exact `count(*)` on start and every 10 minutes;
+between recounts the budget tracks the rows itself). Whatever is over budget
+is not written and is not an error: the answer is `200` with `throttled`, and
+the box does not resend it. The journal gets at most one line per hour —
+`[client-reports] throttled N new reports (reason: ip|global|maxRows)`. The
+key is the sender's IP (`clientIp()`, see below), **not** the `box` field: a
+box writes that field itself, and with a leaked secret it could be changed on
+every request.
+
+**Retention.** A daily job (`src/db/clientReportsPurgeJob.js`, 00:15 UTC,
+same scheduler and advisory-lock pattern as the game purge) deletes rows whose
+`last_seen` is older than `config.clientReports.retentionDays` (90).
+
+**Viewing.** Admins read and triage the journal in the lobby's "Errors"
+panel ([client.md](client.md#the-errors-panel-clientreports)), which reaches
+the two admin endpoints above through its master
+([master.md](master.md#getpatch-adminclient-reports-client-error-journal)).
+
 ## Modules
 
 | Module | Responsibility |
@@ -374,6 +435,8 @@ lives four hours, and a demotion has to take effect immediately.
 | `src/devLogin.js` | dev-only login handler factory (`createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick })`) — dependencies injected so it is unit-testable without Express or a live database; wired in `main.js` behind `if (!isProduction)` |
 | `src/lib/validators.js` | nick regexp, game-submission field checks (id/package/version/title/repo URL, taking `config.games` as an argument so the file stays a set of pure functions), duplicated from `packages/engine/src/lib/validators.js` (`NAME_REGEXP`) — the two workspaces don't share a runtime dependency |
 | `src/UserRepository.js` | all SQL: find/create user, set nick, get rank, append/recompute rank ledger events, get/upsert state, snapshot state, get host rating, upsert a vote and recompute `host_ratings`, void a banned hoster's rank/state contributions, read the leaderboard/placement for a game (lobby page plan), sync/read a user's role and the whole game registry — list/get/create a game, request a version, apply a moderator's partial patch (master-game-registry) |
+| `src/ClientReportRepository.js` | the client-error journal's SQL: batch ingest with a new-row budget, list/get, set status, purge |
+| `src/lib/clientReportValidators.js`, `src/lib/ClientReportBudget.js`, `src/lib/serviceToken.js` | normalizing one reported item; the in-process budget of new journal rows; the box → auth shared-secret check (`timingSafeEqual` over SHA-256 digests) |
 | `src/oauth/github.js`, `src/oauth/index.js` | provider registry; `getAuthorizationUrl`/`exchangeCode` shape, extensible for Google/Apple |
 | `src/db/pool.js`, `src/db/migrate.js`, `src/db/migrations/*.sql` | `pg.Pool`, a minimal idempotent migration runner (`CREATE TABLE IF NOT EXISTS`, no version table yet). **No version table means every file runs again on every deploy**, so a migration must stay safe to repeat: a data-modifying one (`010_drop_anonymous_users.sql`) has to be scoped so that a re-run cannot touch a row that is legitimate now — `nick IS NULL`, for one, is the normal state of an OAuth login between the callback and `POST /nick` |
 
@@ -539,7 +602,12 @@ list wins over the nick list, a foreign uid and a missing provider both fail
 closed), `devLogin.test.js` (redirect carries a
 token that verifies against a throwaway RSA key pair, the nick is set only on
 the first login, an invalid nick and a foreign-origin `returnUrl` are both
-rejected before any write).
+rejected before any write); the client-error journal —
+`serviceToken.test.js`, `clientReportValidators.test.js`,
+`ClientReportRepository.test.js` (duplicate merging, known vs. new
+fingerprints under the budget, one `INSERT` per batch),
+`ClientReportBudget.test.js` (per-IP, global and row-ceiling budgets, the
+hourly reset) and `clientReportsPurgeJob.test.js`.
 
 Host-side verification (B3) and rank/state sync (B4) are tested in the
 engine tree instead: `tests/lib/jwt.test.js` (`verifyIdentityToken` — valid

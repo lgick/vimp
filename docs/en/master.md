@@ -50,6 +50,8 @@ Configuration — [packages/engine/src/config/master.js](../../packages/engine/s
 | `packages/engine/src/master/rebaseManifest.js` | rewrites `assetsBase`/`entries` of a served manifest onto the versioned base `/games/<id>/<version>/` and adds `mapsBase`; `entries.wasmNode` is deliberately left alone (a filesystem path, not a URL) |
 | `packages/engine/src/master/GameSync.js` | keeps the catalog in step with the registry: one pass asks the registry, downloads what is missing, updates the catalog and prunes the disk; polled on a timer (`master:gameStore:refreshInterval`). A registry outage never empties the catalog — a stale catalog beats an empty one |
 | `packages/engine/src/master/adminAuth.js` | authorization of the master's REST routes: the same JWKS signature and issuer policy as the signaling path, plus the `role` claim for `/admin/*` |
+| `packages/engine/src/master/ClientReportsProxy.js` | client of the auth service's client-error journal admin API (`GET`/`PATCH /admin/client-reports`) — passes the admin's Bearer through, caches nothing, returns `{status, json}` |
+| `packages/engine/src/master/clientReportsRoutes.js` | handlers of the journal's admin routes — see [GET/PATCH /admin/client-reports](#getpatch-adminclient-reports-client-error-journal) |
 | `packages/engine/src/master/gameRoutes.js` | handlers of the registry routes: a developer's submission and its status, the moderation panel, and staging (`Test`) a version into the catalog |
 | `packages/engine/src/master/gameStatic.js` | serves the games' `dist/` under `/games/<id>[/<version>]/…`: a cache of `express.static` instances keyed by the version directory (a version pruned off disk takes its mount with it, via `GameSync.onPruned`), `404` on a miss inside a versioned path and `next()` on a non-versioned one. Its own module because `lobby.js` starts the server and is never imported from tests |
 | `packages/engine/src/master/JwksProxy.js` | proxies `GET /jwks` of the central auth service under the master's own origin, cached (TTL) — see [GET /auth/jwks](#get-authjwks) |
@@ -477,6 +479,170 @@ POST /debug/report
 `{ kind, note, receivedAt, payload }` and logs the result as
 `[vimp:debug] report saved: …`.
 
+### POST /client-reports (client error reports)
+
+Every box — a lobby master and a [dedicated server](dedicated.md#http)
+alike — accepts error reports from the browsers it serves and forwards them
+in batches to the central auth service, where they land in one journal
+(`client_reports`, see [auth.md](auth.md)). The browser posts to **its own
+box** (same-origin), so neither CSP nor CORS nor Nginx needs a change. Code:
+`packages/engine/src/master/clientReports/` (`index.js` assembles it for both
+entry points).
+
+```
+POST /client-reports            Content-Type: application/json, body ≤ 16 KB
+{
+  "v": 1,
+  "sessionId": "uuid v4, one per tab",
+  "context": { "mode": "lobby|dedicated|solo", "role": "client|host",
+               "gameId": "tanks|null", "gameVersion": "0.22.7|null",
+               "page": "/ (pathname, ≤ 128)", "userAgent": "≤ 256" },
+  "items": [{
+    "kind": "error|rejection|worker|warn|csp",
+    "source": "client|host-worker|plugin",
+    "code": "tanks.camera.missing|null", "message": "≤ 500",
+    "stack": "≤ 4000|null", "details": { "…": "plain object ≤ 2048 B JSON" },
+    "count": 1, "firstAt": 1758900000000, "lastAt": 1758900000000
+  }]
+}
+
+→ 204                                // accepted, also when some items were dropped
+→ 400 { "error": "badRequest" }
+→ 403 { "error": "forbiddenOrigin" } // Origin present and not the box's own
+→ 413                                // body parser
+→ 429 { "error": "rateLimited" }
+```
+
+The route has its own body parser (16 KB), mounted before the global one.
+Checks, in order:
+
+1. **Rate limit per address** — 10 requests a minute, *before* the body is
+   parsed. The key is `rateLimitKey(clientIp(req))`
+   (`src/lib/clientIp.js`): an IPv4 address as is, an IPv6 address by its
+   **/64** prefix — a subscriber owns a whole /64, so a per-address limit
+   would be no limit at all.
+2. **Origin** — when the header is present it must pass the same validator
+   as signaling; a request without it is let through (the limit still
+   applies).
+3. **Shape** — `sanitize.js` cuts the body down to the schema above: `v` must
+   be `1`, 1–10 items; an item with an unknown `kind`/`source` (including
+   `source: 'box'`, reserved for the box itself) or an empty message is
+   dropped; strings are truncated, `details` over 2048 B becomes
+   `{ truncated: true }`, dates outside `[now − 1 day, now + 5 min]` become
+   `now`. Anything else is ignored — including a client `engineVersion`: the
+   box stamps its own (`packages/engine/package.json`), since it serves the
+   client itself.
+4. **Fingerprint** — `sha256` of `[source, kind, code ?? normalizedMessage,
+   rawTopFrame, engineVersion, gameId, gameVersion]` (`fingerprint.js`).
+   The message is normalized (digits → `N`, hex ids of 8+ characters → `H`),
+   the top frame is `<pathname>:<line>:<col>` of the first stack frame with a
+   URL (V8 and Firefox/Safari formats). Versions are part of the key on
+   purpose: a regression in a new release is a new row, the fixed row of the
+   old release stays `fixed`.
+
+**Aggregation and the budget of new fingerprints.** `ClientReportBuffer`
+keeps one entry per fingerprint; a repeat adds to `count` and widens
+`firstSeen`/`lastSeen`. A fingerprint is *known* when it is in the buffer or
+the process has already accepted it (it left with an earlier batch); a known
+fingerprint never costs budget, is never symbolicated again and prints no
+`new` line — it only needs room in the buffer when it is not there already
+(a full buffer drops it as `bufferFull`). Only accepted entries become
+known, so spam cannot grow that set faster than the budget. A new one costs
+a unit of the box's budget — `newFingerprintsPerMinute` (60, a fixed minute
+window) — and needs room in the buffer (`maxPending`, 500). Over the budget
+or with a full buffer the new fingerprint is dropped (before any stack
+symbolication, so spam burns no CPU) and counted; the sender still gets
+`204`. A distributed spam campaign bypasses the per-address limit, and a new
+row in auth is the resource to protect — hence the budget.
+
+**Forwarding.** Every `flushIntervalMs` (30 s) `ClientReportForwarder` drains
+the buffer oldest-first in batches of `forwardBatch` (50) to
+`POST <authServiceUrl>/client-reports` with
+`Authorization: Bearer <VIMP_CLIENT_REPORTS_TOKEN>` and a 5 s timeout. A
+failure (status other than 2xx, or a network error) puts the batch back into
+the buffer until the next tick; a `400` from auth is not retried (it would
+loop forever). Auth may answer `200` with `throttled > 0` — its own budget
+cut some new rows; that is auth's decision, not a failure, and the batch is
+not returned.
+
+**The `reports.dropped` entry.** Whatever the budget and the full buffer
+dropped since the last tick becomes one service entry at the head of the
+next batch: `source: 'box'`, `kind: 'warn'`, `code: 'reports.dropped'`,
+`count` = number dropped, `details: { budget, bufferFull, windowMs }`. Its
+fingerprint includes the box domain, so each box has one row per engine
+version whose `count` accumulates everything it ever dropped. A growing
+`reports.dropped` means either spam or a genuine storm of distinct errors —
+look at the rest of the journal to tell which.
+
+**Process log lines** (`docker logs … 2>&1 | grep vimp:client-report`):
+
+```
+[vimp:client-report] new 1a2b3c4d error/client Cannot read … (tanks@0.22.7, engine 0.34.8)
+[vimp:client-report] dropped 12 new reports (budget: 12, bufferFull: 0)
+[vimp:client-report] forward failed: 503        // once per failure streak
+[vimp:client-report] auth throttled 40 new reports  // at most once an hour
+[vimp:client-report] forwarding disabled (no VIMP_CLIENT_REPORTS_TOKEN) — logging only
+```
+
+The `new` line is printed once per fingerprint per process (up to
+`logSeenMax` remembered fingerprints; overflow clears the set).
+
+**Without a token** (or without an auth service URL) the box still accepts,
+fingerprints and logs every new fingerprint; the forwarding tick only emits
+the `dropped` line, resets the counters and empties the buffer (otherwise it
+would fill up after `maxPending` fingerprints and silence the log).
+Receiving never breaks the box: an unexpected error answers `500 { "error":
+"internal" }` and is logged.
+
+**Stack symbolication.** The engine build emits *hidden* source maps
+(`sourcemap: 'hidden'` in `vite.config.js`: `*.map` files sit next to the
+bundles in `dist/`, the bundles carry no `sourceMappingURL`). In production
+the box decodes the stack of a **new** fingerprint before buffering it
+(`symbolicate.js`) — a repeat is never decoded again. Each frame's URL
+pathname is resolved to a file on the box's own disk: `/games/<id>[/<version>]/…`
+through the game catalog (`parseGamePath` in `gameStatic.js` +
+`GameCatalog.getDistDir`), anything else inside `packages/engine/dist/`. A
+file outside the allowed roots (engine `dist/`, `VIMP_GAMES_DIR`,
+`node_modules`), a non-`.js`/`.mjs` file, a missing map or one over 20 MB
+leaves the frame raw; so does any error on a frame — one broken map never
+breaks the rest. Up to 12 frames are decoded, parsed maps are kept in an LRU
+of 20, the result is capped at 8000 characters. A decoded frame reads
+`at <name> (src/client/…:L:C) [/assets/<bundle>.js:L:C]` — the raw place
+stays in brackets in case the map does not match. Game frames stay raw until
+the game ships its own hidden maps. `denySourceMaps` (`httpSecurity.js`,
+mounted right after the security headers, before `/games` and ViteExpress)
+answers `404` to every `*.map` in production: the maps are for the box, not
+for the outside. In dev nothing is decoded and Vite serves maps to DevTools.
+
+Settings: `master:clientReports` in
+[configuration.md](configuration.md#packagesenginesrcconfigmasterjs).
+Deploying the secret: [deployment.md](deployment.md#client-error-reports-secret-client_reports_token).
+
+### GET/PATCH /admin/client-reports (client error journal)
+
+The lobby's "Errors" panel ([client.md](client.md#the-errors-panel-clientreports))
+reads and triages the central journal through its own master: the page's CSP
+does not let the browser reach the auth service for this, and the admin's
+token is already the master's business. Both routes sit behind
+`adminAuth.required` (`401` without a valid token, `403` without the `admin`
+claim), and the auth service then re-reads the role from its database
+(`requireAdmin`) — a demoted admin loses the journal at once, not when the
+token expires.
+
+| Route | What it does |
+| --- | --- |
+| `GET /admin/client-reports?status=&gameId=&limit=&offset=` | a page of the journal: `{ reports, total }` |
+| `PATCH /admin/client-reports/:id` (`{ status, note? }`) | the admin's decision on a row: `{ report }` |
+
+The master is only a transport (`clientReportsRoutes.js` +
+`ClientReportsProxy.js`): only `status`, `gameId`, `limit`, `offset` of the
+query (strings only) and `status`, `note` of the body are passed on, `:id` is
+URL-encoded, and the auth service's answer comes back with its own status and
+body — validation and its `400 badRequest` / `404 unknownReport` belong to
+the auth service ([auth.md](auth.md#client-reports)). A network failure is
+`502 { "error": "authServiceUnavailable" }`. Dedicated servers have no admin
+panel (no OAuth); the journal is shared, so any lobby master shows it.
+
 ## Signaling protocol (WebSocket)
 
 Messages are JSON objects with a `type` field. On connect, the connection is
@@ -565,7 +731,7 @@ auth service's `host_votes.reason` column).
 
 ## Tests
 
-`tests/master/` (a node Vitest project): `HostRegistry.test.js` (registration and `hosterUserId` attribution, per-IP limit, heartbeat/cleanup, all `GET /servers` selection logic including `gameId/name` search — lobby page plan, `gameId`/`gameVersion` storage, cached `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — stage 3), `SignalingServer.test.js` (connection lifecycle, routing of every signaling message on fake ws sockets, identity-token verification against a real RSA-signed JWKS, rate limiting, rating-vote membership checks and blocking, stale-host cleanup, `mapsVersion`/`codeVersion` in `host_registered`, per-game `mapsVersion` via a `gameCatalog` stub, `rating` cached on register/vote and `refreshRatings()`'s periodic poll — stage 3), `MapCatalog.test.js` (manifest, map serving, version stability), `WorkerCatalog.test.js` (bundle version hash and URL, empty catalog in dev, picking the newest of several), `GameCatalog.test.js` (resolving configured `{id, package}` entries to `node_modules/<package>/dist/manifest.json`, per-game map catalogs, unbuilt/unknown games, dev `/@fs/` entry rewriting), `JwksProxy.test.js` (proxying, TTL caching/expiry, upstream failure — injected `fetchImpl`), `PlayerDataProxy.test.js` (proxying GET/PUT `/rank`+`/state`, the public `getLeaderboard` (no `Authorization` header, `limit` in the query) and the per-user `getPlacement` — lobby page plan, no caching, upstream failure — injected `fetchImpl`), `LeaderboardCache.test.js` (miss calls the proxy, hit within TTL doesn't, refetch after TTL expiry, non-200 responses aren't cached, `game`/`limit` are separate cache keys — injected `now`, code review L2), `HostRatingProxy.test.js` (proxying GET `/host-rating` + PUT `/host-rating/:hosterUserId` with a Bearer token, `getPublic`'s unauthenticated `GET /host-rating/:hosterUserId`, no caching, upstream failure — injected `fetchImpl`). The registry direction adds `GameRegistryProxy.test.js` (every registry call, token pass-through), `npmRegistry.test.js` (packument, version resolution, `integrity`/`shasum` mismatch, size and file-count ceilings), `gamePackageCheck.test.js` (the structural rules, no code executed), `GameStore.test.js` (download, idempotent `ensure`, staging never reaching the served tree, `prune`), `GameSync.test.js` (a pass, a registry outage leaving the catalog alone, a locally linked game winning, per-game `lastError`), `rebaseManifest.test.js` (versioned base, `wasmNode` untouched), `adminAuth.test.js` (signature, issuer, the `role` claim) and `lobbyGamesRoutes.test.js` (the submission and moderation handlers on stub dependencies). Rate limiter — `tests/lib/rateLimiter.test.js`.
+`tests/master/` (a node Vitest project): `HostRegistry.test.js` (registration and `hosterUserId` attribution, per-IP limit, heartbeat/cleanup, all `GET /servers` selection logic including `gameId/name` search — lobby page plan, `gameId`/`gameVersion` storage, cached `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — stage 3), `SignalingServer.test.js` (connection lifecycle, routing of every signaling message on fake ws sockets, identity-token verification against a real RSA-signed JWKS, rate limiting, rating-vote membership checks and blocking, stale-host cleanup, `mapsVersion`/`codeVersion` in `host_registered`, per-game `mapsVersion` via a `gameCatalog` stub, `rating` cached on register/vote and `refreshRatings()`'s periodic poll — stage 3), `MapCatalog.test.js` (manifest, map serving, version stability), `WorkerCatalog.test.js` (bundle version hash and URL, empty catalog in dev, picking the newest of several), `GameCatalog.test.js` (resolving configured `{id, package}` entries to `node_modules/<package>/dist/manifest.json`, per-game map catalogs, unbuilt/unknown games, dev `/@fs/` entry rewriting), `JwksProxy.test.js` (proxying, TTL caching/expiry, upstream failure — injected `fetchImpl`), `PlayerDataProxy.test.js` (proxying GET/PUT `/rank`+`/state`, the public `getLeaderboard` (no `Authorization` header, `limit` in the query) and the per-user `getPlacement` — lobby page plan, no caching, upstream failure — injected `fetchImpl`), `LeaderboardCache.test.js` (miss calls the proxy, hit within TTL doesn't, refetch after TTL expiry, non-200 responses aren't cached, `game`/`limit` are separate cache keys — injected `now`, code review L2), `HostRatingProxy.test.js` (proxying GET `/host-rating` + PUT `/host-rating/:hosterUserId` with a Bearer token, `getPublic`'s unauthenticated `GET /host-rating/:hosterUserId`, no caching, upstream failure — injected `fetchImpl`). The registry direction adds `GameRegistryProxy.test.js` (every registry call, token pass-through), `npmRegistry.test.js` (packument, version resolution, `integrity`/`shasum` mismatch, size and file-count ceilings), `gamePackageCheck.test.js` (the structural rules, no code executed), `GameStore.test.js` (download, idempotent `ensure`, staging never reaching the served tree, `prune`), `GameSync.test.js` (a pass, a registry outage leaving the catalog alone, a locally linked game winning, per-game `lastError`), `rebaseManifest.test.js` (versioned base, `wasmNode` untouched), `adminAuth.test.js` (signature, issuer, the `role` claim) and `lobbyGamesRoutes.test.js` (the submission and moderation handlers on stub dependencies). The client-error journal adds `ClientReportsProxy.test.js` (URL, Bearer, query without unset fields, encoded id) and `clientReportsRoutes.test.js` (field filtering, the auth status passed through, `502` on a network failure). Rate limiter — `tests/lib/rateLimiter.test.js`.
 
 ---
 

@@ -187,6 +187,19 @@ verbatim (including the dev variant of the manifest that points at Vite
 `/@fs/` sources). The engine client itself is served by ViteExpress: from
 source in development, from `packages/engine/dist` in production.
 
+### POST /client-reports
+
+The same client error journal receiver as the lobby master's — same
+contract, limits, fingerprint and forwarding to the auth service (see
+[master.md](master.md#post-client-reports-client-error-reports)); the box
+stamps `mode: 'dedicated'` when the client sends none. The Origin check uses
+the actual listening port. In production new stacks are symbolicated from
+the hidden source maps of the engine `dist/` and of the one game's `dist/`
+(a `/games/<id>/…` frame of another id stays raw), and `*.map` files are
+never served (`denySourceMaps`) — see
+[master.md](master.md#post-client-reports-client-error-reports), "Stack
+symbolication".
+
 ## Game WebSocket
 
 `ws://<host>:<port>/game` (`wss://` behind Nginx). The frame format is the
@@ -263,9 +276,10 @@ servers is a possible follow-up, not part of this contour today.
 
 ## Shutdown
 
-`SIGTERM`/`SIGINT` close the client connections, then `host.destroy()` (stops
-the timers and flushes profiles), then the HTTP server, then the process
-exits.
+`SIGTERM`/`SIGINT` first make a last flush of the client error journal to
+the auth service (capped at 3 s so an unreachable auth cannot hang the stop),
+then close the client connections, then `host.destroy()` (stops the timers
+and flushes profiles), then the HTTP server, then the process exits.
 
 ## Differences from the P2P host and limitations
 

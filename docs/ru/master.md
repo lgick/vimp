@@ -37,6 +37,8 @@ npm start         # production: HTTP за Nginx, читает .env
 | `packages/engine/src/master/rebaseManifest.js` | переписывает `assetsBase`/`entries` отдаваемого манифеста на версионную базу `/games/<id>/<version>/` и добавляет `mapsBase`; `entries.wasmNode` намеренно не трогается (это путь в ФС, а не URL) |
 | `packages/engine/src/master/GameSync.js` | держит каталог в согласии с реестром: один проход спрашивает реестр, докачивает недостающее, обновляет каталог и подметает диск; опрашивается по таймеру (`master:gameStore:refreshInterval`). Отказ реестра каталог не опустошает — протухший каталог лучше пустого |
 | `packages/engine/src/master/adminAuth.js` | авторизация REST-роутов мастера: та же проверка подписи по JWKS и та же политика issuer, что на сигнальном пути, плюс клейм `role` для `/admin/*` |
+| `packages/engine/src/master/ClientReportsProxy.js` | клиент админского API журнала клиентских ошибок auth-сервиса (`GET`/`PATCH /admin/client-reports`) — перекладывает Bearer админа, ничего не кэширует, отдаёт `{status, json}` |
+| `packages/engine/src/master/clientReportsRoutes.js` | обработчики админских роутов журнала — см. [GET/PATCH /admin/client-reports](#getpatch-adminclient-reports-журнал-клиентских-ошибок) |
 | `packages/engine/src/master/gameRoutes.js` | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Test» версии в каталоге |
 | `packages/engine/src/master/gameStatic.js` | раздача `dist/` игр по `/games/<id>[/<version>]/…`: кэш инстансов `express.static` по директории версии (снятая с диска версия уносит свой маунт через `GameSync.onPruned`), 404 на промахе версионного пути и `next()` на неверсионном. Отдельный модуль, потому что `lobby.js` поднимает сервер и из тестов не импортируется |
 | `packages/engine/src/master/JwksProxy.js` | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks) |
@@ -462,6 +464,167 @@ POST /debug/report
 `{ kind, note, receivedAt, payload }` и логирует результат как
 `[vimp:debug] report saved: …`.
 
+### POST /client-reports (журнал клиентских ошибок)
+
+Каждый бокс — и лобби-мастер, и [dedicated-сервер](dedicated.md#http) —
+принимает отчёты об ошибках от раздаваемых им браузеров и пачками пересылает
+их в central auth-сервис, где они попадают в один журнал
+(`client_reports`, см. [auth.md](auth.md)). Браузер шлёт на **свой же бокс**
+(same-origin), поэтому ни CSP, ни CORS, ни Nginx не меняются. Код:
+`packages/engine/src/master/clientReports/` (`index.js` собирает его для
+обоих входов).
+
+```
+POST /client-reports            Content-Type: application/json, тело ≤ 16 КБ
+{
+  "v": 1,
+  "sessionId": "uuid v4, один на вкладку",
+  "context": { "mode": "lobby|dedicated|solo", "role": "client|host",
+               "gameId": "tanks|null", "gameVersion": "0.22.7|null",
+               "page": "/ (pathname, ≤ 128)", "userAgent": "≤ 256" },
+  "items": [{
+    "kind": "error|rejection|worker|warn|csp",
+    "source": "client|host-worker|plugin",
+    "code": "tanks.camera.missing|null", "message": "≤ 500",
+    "stack": "≤ 4000|null", "details": { "…": "простой объект ≤ 2048 Б JSON" },
+    "count": 1, "firstAt": 1758900000000, "lastAt": 1758900000000
+  }]
+}
+
+→ 204                                // принято, в том числе когда часть items отброшена
+→ 400 { "error": "badRequest" }
+→ 403 { "error": "forbiddenOrigin" } // Origin есть и он не бокса
+→ 413                                // парсер тела
+→ 429 { "error": "rateLimited" }
+```
+
+У маршрута свой парсер тела (16 КБ), поднятый до глобального. Проверки по
+порядку:
+
+1. **Лимит по адресу** — 10 запросов в минуту, *до* разбора тела. Ключ —
+   `rateLimitKey(clientIp(req))` (`src/lib/clientIp.js`): IPv4-адрес как есть,
+   IPv6 — по префиксу **/64**: абоненту принадлежит целая /64, и лимит «на
+   адрес» не был бы лимитом вовсе.
+2. **Origin** — если заголовок есть, он должен пройти тот же валидатор, что
+   у сигналинга; запрос без него пропускается (лимит всё равно действует).
+3. **Форма** — `sanitize.js` режет тело до схемы выше: `v` обязан быть `1`,
+   1–10 items; item с неизвестным `kind`/`source` (включая `source: 'box'` —
+   он зарезервирован за самим боксом) или пустым сообщением отбрасывается;
+   строки обрезаются, `details` больше 2048 Б превращается в
+   `{ truncated: true }`, даты вне `[now − 1 сут, now + 5 мин]` становятся
+   `now`. Всё прочее игнорируется — в том числе клиентское `engineVersion`:
+   бокс штампует своё (`packages/engine/package.json`), ведь клиент раздаёт
+   он сам.
+4. **Отпечаток** — `sha256` от `[source, kind, code ?? normalizedMessage,
+   rawTopFrame, engineVersion, gameId, gameVersion]` (`fingerprint.js`).
+   Сообщение нормализуется (цифры → `N`, hex-идентификаторы от 8 символов →
+   `H`), верхний кадр — `<pathname>:<line>:<col>` первого кадра стека с URL
+   (форматы V8 и Firefox/Safari). Версии входят в ключ сознательно: регрессия
+   в новом релизе — новая строка, исправленная строка старого релиза остаётся
+   `fixed`.
+
+**Агрегация и бюджет новых отпечатков.** `ClientReportBuffer` держит одну
+запись на отпечаток; повтор прибавляет `count` и расширяет
+`firstSeen`/`lastSeen`. Отпечаток *известен*, если он лежит в буфере или
+процесс его уже принимал (он ушёл прошлой пачкой); известный отпечаток
+никогда не тратит бюджет, повторно не расшифровывается и строки `new` не
+печатает — ему нужно только место в буфере, если его там сейчас нет (при
+полном буфере он отбрасывается как `bufferFull`). Известными становятся
+только принятые записи, поэтому спам не пополняет это множество быстрее
+бюджета. Новый стоит единицу бюджета бокса — `newFingerprintsPerMinute` (60,
+фиксированное окно в минуту) — и требует места в буфере (`maxPending`, 500).
+Сверх бюджета или при полном буфере новый отпечаток отбрасывается (до
+какой-либо расшифровки стека — спам не жжёт CPU) и считается; отправитель
+всё равно получает `204`. Распределённый спам обходит лимит по адресу, а
+новая строка в auth — тот ресурс, который нужно защищать, отсюда бюджет.
+
+**Пересылка.** Каждые `flushIntervalMs` (30 с) `ClientReportForwarder`
+снимает буфер от старых к новым пачками по `forwardBatch` (50) в
+`POST <authServiceUrl>/client-reports` с
+`Authorization: Bearer <VIMP_CLIENT_REPORTS_TOKEN>` и таймаутом 5 с. Сбой
+(статус не 2xx или сетевая ошибка) возвращает пачку в буфер до следующего
+тика; `400` от auth не повторяется (иначе вечный цикл). Auth может ответить
+`200` с `throttled > 0` — его собственный бюджет отсёк часть новых строк; это
+решение auth, а не сбой, и пачка не возвращается.
+
+**Запись `reports.dropped`.** Всё, что бюджет и полный буфер отбросили с
+прошлого тика, становится одной служебной записью в начале следующей пачки:
+`source: 'box'`, `kind: 'warn'`, `code: 'reports.dropped'`, `count` — число
+отброшенного, `details: { budget, bufferFull, windowMs }`. В её отпечаток
+входит домен бокса, поэтому у каждого бокса одна строка на версию движка, и её
+`count` копит всё, что он когда-либо отбросил. Растущий `reports.dropped` —
+это либо спам, либо настоящая буря разных ошибок; отличить помогает остальной
+журнал.
+
+**Строки журнала процесса** (`docker logs … 2>&1 | grep vimp:client-report`):
+
+```
+[vimp:client-report] new 1a2b3c4d error/client Cannot read … (tanks@0.22.7, engine 0.34.8)
+[vimp:client-report] dropped 12 new reports (budget: 12, bufferFull: 0)
+[vimp:client-report] forward failed: 503        // одна на серию отказов
+[vimp:client-report] auth throttled 40 new reports  // не чаще раза в час
+[vimp:client-report] forwarding disabled (no VIMP_CLIENT_REPORTS_TOKEN) — logging only
+```
+
+Строка `new` печатается один раз на отпечаток за жизнь процесса (процесс
+помнит до `logSeenMax` отпечатков; переполнение очищает множество).
+
+**Без токена** (или без адреса auth-сервиса) бокс всё так же принимает,
+считает отпечатки и пишет каждый новый в журнал; тик пересылки только
+печатает строку `dropped`, сбрасывает счётчики и опустошает буфер (иначе он
+заполнился бы после `maxPending` отпечатков и заглушил бы журнал). Приём
+никогда не ломает бокс: неожиданная ошибка отвечает `500 { "error":
+"internal" }` и пишется в журнал.
+
+**Расшифровка стеков.** Сборка движка выпускает *скрытые* source maps
+(`sourcemap: 'hidden'` в `vite.config.js`: файлы `*.map` лежат рядом с
+бандлами в `dist/`, ссылки `sourceMappingURL` в бандлах нет). В проде бокс
+расшифровывает стек **нового** отпечатка до буфера (`symbolicate.js`) —
+повтор не расшифровывается никогда. Pathname URL каждого кадра резолвится в
+файл на диске самого бокса: `/games/<id>[/<version>]/…` — через каталог игр
+(`parseGamePath` из `gameStatic.js` + `GameCatalog.getDistDir`), остальное —
+внутри `packages/engine/dist/`. Файл вне разрешённых корней (`dist/` движка,
+`VIMP_GAMES_DIR`, `node_modules`), файл не `.js`/`.mjs`, отсутствующая карта
+или карта больше 20 МБ оставляют кадр сырым; так же и любая ошибка на
+кадре — одна битая карта не ломает остальной стек. Расшифровывается до 12
+кадров, разобранные карты держит LRU на 20, итог обрезается до 8000
+символов. Расшифрованный кадр выглядит как
+`at <name> (src/client/…:L:C) [/assets/<bundle>.js:L:C]` — сырое место
+остаётся в скобках на случай несовпадения карты. Кадры игры остаются
+сырыми, пока игра не выпускает свои скрытые карты. `denySourceMaps`
+(`httpSecurity.js`, стоит сразу после security-заголовков, раньше `/games`
+и ViteExpress) в проде отвечает `404` на любой `*.map`: карты — для бокса,
+не для внешнего мира. В dev ничего не расшифровывается, карты для DevTools
+раздаёт Vite.
+
+Настройки: `master:clientReports` в
+[configuration.md](configuration.md#packagesenginesrcconfigmasterjs).
+Деплой секрета: [deployment.md](deployment.md#секрет-журнала-клиентских-ошибок-client_reports_token).
+
+### GET/PATCH /admin/client-reports (журнал клиентских ошибок)
+
+Панель «Errors» лобби ([client.md](client.md#панель-errors-clientreports))
+читает и разбирает центральный журнал через свой мастер: CSP страницы не
+пускает браузер в auth-сервис за этим, а токен админа и так проверяет мастер.
+Оба роута стоят за `adminAuth.required` (`401` без валидного токена, `403` без
+клейма `admin`), а auth-сервис затем перечитывает роль из своей БД
+(`requireAdmin`) — разжалованный админ теряет журнал сразу, а не по истечении
+токена.
+
+| Роут | Что делает |
+| --- | --- |
+| `GET /admin/client-reports?status=&gameId=&limit=&offset=` | страница журнала: `{ reports, total }` |
+| `PATCH /admin/client-reports/:id` (`{ status, note? }`) | решение админа по строке: `{ report }` |
+
+Мастер здесь только транспорт (`clientReportsRoutes.js` +
+`ClientReportsProxy.js`): дальше уходят лишь `status`, `gameId`, `limit`,
+`offset` из query (только строки) и `status`, `note` из тела, `:id`
+кодируется для URL, а ответ auth-сервиса возвращается с его статусом и телом
+— проверка полей и её `400 badRequest` / `404 unknownReport` принадлежат
+auth-сервису ([auth.md](auth.md#журнал-клиентских-ошибок)). Сбой сети —
+`502 { "error": "authServiceUnavailable" }`. У dedicated-серверов админки нет
+(нет OAuth); журнал общий, поэтому его показывает любой лобби-мастер.
+
 ## Сигнальный протокол (WebSocket)
 
 Сообщения — JSON-объекты с полем `type`. При подключении соединение проходит проверку `Origin` (allowlist через `security.createOriginValidator`; отсутствие `Origin` — немедленный `terminate`, чужой — закрытие с кодом `4001`), затем получает:
@@ -543,7 +706,7 @@ POST /debug/report
 
 ## Тесты
 
-`tests/master/` (node-проект Vitest): `HostRegistry.test.js` (регистрация и атрибуция `hosterUserId`, лимит по IP, heartbeat/уборка, вся логика выборки `GET /servers` включая поиск `gameId/name` — lobby-page-plan, хранение `gameId`/`gameVersion`, закэшированный `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — этап 3), `SignalingServer.test.js` (жизненный цикл соединений, маршрутизация всех сигнальных сообщений на фейковых ws, проверка identity-токена по настоящему RSA-подписанному JWKS, rate limiting, membership-проверка и блокировка голосов рейтинга, уборка протухших хостов, `mapsVersion`/`codeVersion` в `host_registered`, per-game `mapsVersion` через стаб `gameCatalog`, кэш `rating` при регистрации/голосе и периодический опрос `refreshRatings()` — этап 3), `MapCatalog.test.js` (манифест, выдача карт, стабильность версии), `WorkerCatalog.test.js` (версия-хеш и URL бандла, пустой каталог в dev, выбор новейшего из нескольких), `GameCatalog.test.js` (резолв сконфигурированных `{id, package}` в `node_modules/<package>/dist/manifest.json`, per-game каталоги карт, несобранная/неизвестная игра, подмена entries на `/@fs/` в dev), `JwksProxy.test.js` (проксирование, TTL-кэш и его истечение, сбой апстрима — инъекция `fetchImpl`), `PlayerDataProxy.test.js` (проксирование GET/PUT `/rank`+`/state`, публичный `getLeaderboard` (без заголовка `Authorization`, `limit` в query) и per-user `getPlacement` — lobby-page-plan, отсутствие кэша, сбой апстрима — инъекция `fetchImpl`), `LeaderboardCache.test.js` (промах зовёт proxy, хит в пределах TTL — нет, рефетч после истечения TTL, не-200 не кэшируется, `game`/`limit` — разные ключи кэша — инъекция `now`, кодревью L2), `HostRatingProxy.test.js` (проксирование GET `/host-rating` + PUT `/host-rating/:hosterUserId` с Bearer-токеном, `getPublic` без авторизации (`GET /host-rating/:hosterUserId`), отсутствие кэша, сбой апстрима — инъекция `fetchImpl`). Направление реестра добавляет `GameRegistryProxy.test.js` (все вызовы реестра, проброс токена), `npmRegistry.test.js` (пакумент, разрешение версии, несовпадение `integrity`/`shasum`, потолки размера и числа файлов), `gamePackageCheck.test.js` (структурные правила, код не исполняется), `GameStore.test.js` (скачивание, идемпотентный `ensure`, стейджинг, который физически не попадает в раздачу, `prune`), `GameSync.test.js` (проход, отказ реестра не трогает каталог, прилинкованная игра важнее, per-game `lastError`), `rebaseManifest.test.js` (версионная база, `wasmNode` не тронут), `adminAuth.test.js` (подпись, issuer, клейм `role`) и `lobbyGamesRoutes.test.js` (обработчики заявки и модерации на стабах зависимостей). Rate limiter — `tests/lib/rateLimiter.test.js`.
+`tests/master/` (node-проект Vitest): `HostRegistry.test.js` (регистрация и атрибуция `hosterUserId`, лимит по IP, heartbeat/уборка, вся логика выборки `GET /servers` включая поиск `gameId/name` — lobby-page-plan, хранение `gameId`/`gameVersion`, закэшированный `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — этап 3), `SignalingServer.test.js` (жизненный цикл соединений, маршрутизация всех сигнальных сообщений на фейковых ws, проверка identity-токена по настоящему RSA-подписанному JWKS, rate limiting, membership-проверка и блокировка голосов рейтинга, уборка протухших хостов, `mapsVersion`/`codeVersion` в `host_registered`, per-game `mapsVersion` через стаб `gameCatalog`, кэш `rating` при регистрации/голосе и периодический опрос `refreshRatings()` — этап 3), `MapCatalog.test.js` (манифест, выдача карт, стабильность версии), `WorkerCatalog.test.js` (версия-хеш и URL бандла, пустой каталог в dev, выбор новейшего из нескольких), `GameCatalog.test.js` (резолв сконфигурированных `{id, package}` в `node_modules/<package>/dist/manifest.json`, per-game каталоги карт, несобранная/неизвестная игра, подмена entries на `/@fs/` в dev), `JwksProxy.test.js` (проксирование, TTL-кэш и его истечение, сбой апстрима — инъекция `fetchImpl`), `PlayerDataProxy.test.js` (проксирование GET/PUT `/rank`+`/state`, публичный `getLeaderboard` (без заголовка `Authorization`, `limit` в query) и per-user `getPlacement` — lobby-page-plan, отсутствие кэша, сбой апстрима — инъекция `fetchImpl`), `LeaderboardCache.test.js` (промах зовёт proxy, хит в пределах TTL — нет, рефетч после истечения TTL, не-200 не кэшируется, `game`/`limit` — разные ключи кэша — инъекция `now`, кодревью L2), `HostRatingProxy.test.js` (проксирование GET `/host-rating` + PUT `/host-rating/:hosterUserId` с Bearer-токеном, `getPublic` без авторизации (`GET /host-rating/:hosterUserId`), отсутствие кэша, сбой апстрима — инъекция `fetchImpl`). Направление реестра добавляет `GameRegistryProxy.test.js` (все вызовы реестра, проброс токена), `npmRegistry.test.js` (пакумент, разрешение версии, несовпадение `integrity`/`shasum`, потолки размера и числа файлов), `gamePackageCheck.test.js` (структурные правила, код не исполняется), `GameStore.test.js` (скачивание, идемпотентный `ensure`, стейджинг, который физически не попадает в раздачу, `prune`), `GameSync.test.js` (проход, отказ реестра не трогает каталог, прилинкованная игра важнее, per-game `lastError`), `rebaseManifest.test.js` (версионная база, `wasmNode` не тронут), `adminAuth.test.js` (подпись, issuer, клейм `role`) и `lobbyGamesRoutes.test.js` (обработчики заявки и модерации на стабах зависимостей). Журнал клиентских ошибок добавляет `ClientReportsProxy.test.js` (URL, Bearer, query без незаданных полей, кодирование id) и `clientReportsRoutes.test.js` (фильтрация полей, проброс статуса auth, `502` при сбое сети). Rate limiter — `tests/lib/rateLimiter.test.js`.
 
 ---
 

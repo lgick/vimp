@@ -26,7 +26,11 @@ import {
   readGameId,
   readPackageVersion,
 } from '../master/localGames.js';
-import { securityHeaders } from '../master/httpSecurity.js';
+import { createClientReports } from '../master/clientReports/index.js';
+import { ENGINE_VERSION } from '../master/clientReports/engineVersion.js';
+import { createSymbolicator } from '../master/clientReports/symbolicate.js';
+import { parseGamePath } from '../master/gameStatic.js';
+import { denySourceMaps, securityHeaders } from '../master/httpSecurity.js';
 
 // Dedicated-сервер одной игры (Этап 4 плана standalone-sdk): авторитетный
 // матч крутится прямо в этом Node-процессе, браузеры подключаются прямым
@@ -94,6 +98,9 @@ const HANDSHAKE_TIMEOUT = 120000;
 // адрес сокета, за прод-Nginx — перезаписанный им X-Real-IP (X-Forwarded-For
 // не годится, там первый адрес пишет сам клиент — см. lib/clientIp.js)
 const CONNECTION_LIMIT = { limit: 30, windowMs: 60000 };
+
+// потолок последнего flush журнала клиентских ошибок при остановке
+const CLIENT_REPORTS_STOP_TIMEOUT = 3000;
 
 /**
  * Разбирает VIMP_DEDICATED_GAME: `<ref>` — раздаваемая реестром версия,
@@ -416,6 +423,52 @@ export async function startDedicatedServer({
   const app = express();
 
   app.use(securityHeaders({ isProduction }));
+  // раньше express.static и ViteExpress: *.map наружу не уходят
+  app.use(denySourceMaps({ isProduction }));
+
+  // расшифровка стеков журнала по скрытым source maps (plan/client-reports,
+  // этап 4) — только в проде. Игра у dedicated одна: игровой путь
+  // резолвится только в её distDir
+  const engineDist = path.join(engineDir, 'dist');
+  const symbolicate = isProduction
+    ? createSymbolicator({
+        roots: [engineDist, distDir],
+        resolveFile: pathname => {
+          if (pathname.startsWith('/games/')) {
+            const parsed = parseGamePath(pathname.slice('/games'.length));
+
+            return parsed && parsed.id === id && distDir
+              ? path.join(distDir, parsed.rest)
+              : null;
+          }
+
+          return path.join(engineDist, pathname);
+        },
+      })
+    : null;
+
+  // журнал клиентских ошибок (plan/client-reports): тот же приём, что у
+  // лобби (master/clientReports). Порт известен только после listen —
+  // проверка origin собирается на запросе, а запросы приходят после него
+  const clientReports = createClientReports({
+    config,
+    box: {
+      domain: config.get('master:domain'),
+      mode: 'dedicated',
+      engineVersion: ENGINE_VERSION,
+    },
+    trustProxy: isProduction,
+    checkOrigin: (origin, cb) =>
+      security.createOriginValidator({
+        protocol: 'http:',
+        domain: config.get('master:domain'),
+        port: server.address().port,
+      })(origin, cb),
+    symbolicate,
+  });
+
+  app.post('/client-reports', ...clientReports.route);
+  clientReports.forwarder.start();
 
   // режим сервера: клиент движка пробингует /config и по нему выбирает
   // контур загрузки (dedicated вместо лобби)
@@ -628,6 +681,18 @@ export async function startDedicatedServer({
   // процесс живым), и только потом закрывается HTTP
   const close = async () => {
     clearInterval(limiterSweep);
+
+    // последний flush журнала с потолком: недоступный auth не должен
+    // подвешивать остановку
+    let flushTimer;
+
+    await Promise.race([
+      clientReports.forwarder.stop(),
+      new Promise(resolve => {
+        flushTimer = setTimeout(resolve, CLIENT_REPORTS_STOP_TIMEOUT);
+      }),
+    ]).catch(err => console.error('[dedicated] client reports flush failed:', err.message));
+    clearTimeout(flushTimer);
 
     for (const ws of sockets.values()) {
       ws.close(1001);

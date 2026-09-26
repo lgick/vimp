@@ -13,16 +13,21 @@ import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import { clampGameResult, clampLimit } from '../lib/validators.js';
 import { createAdminAuth } from './adminAuth.js';
+import { createClientReports } from './clientReports/index.js';
+import ClientReportsProxy from './ClientReportsProxy.js';
+import { createClientReportsRoutes } from './clientReportsRoutes.js';
+import { ENGINE_VERSION } from './clientReports/engineVersion.js';
+import { createSymbolicator } from './clientReports/symbolicate.js';
 import DebugReportStore from './DebugReportStore.js';
 import GameCatalog from './GameCatalog.js';
 import GameRegistryProxy from './GameRegistryProxy.js';
 import GameStore from './GameStore.js';
 import GameSync from './GameSync.js';
 import { GAME_VERSION_PATTERN } from './gameRefs.js';
-import { createGameStatic } from './gameStatic.js';
+import { createGameStatic, parseGamePath } from './gameStatic.js';
 import { createGameRoutes } from './gameRoutes.js';
 import { applyLocalGames } from './localGames.js';
-import { securityHeaders } from './httpSecurity.js';
+import { denySourceMaps, securityHeaders } from './httpSecurity.js';
 import HostRatingProxy from './HostRatingProxy.js';
 import HostRegistry from './HostRegistry.js';
 import JwksProxy from './JwksProxy.js';
@@ -201,6 +206,12 @@ const gameRoutes = createGameRoutes({
   timeout: config.get('master:gameStore:timeout'),
 });
 
+// журнал клиентских ошибок в админке лобби (plan/client-reports, этап 5):
+// мастер проксирует Bearer админа в auth, роль перепроверяет auth по БД
+const clientReportsRoutes = createClientReportsRoutes({
+  proxy: new ClientReportsProxy(config.get('master:security:authServiceUrl')),
+});
+
 // первый проход до listen: мастер стартует уже с каталогом. Его отказ старту
 // не мешает — каталог тогда пуст (или остаётся локальным), а следующий цикл
 // таймера подхватит реестр, когда тот вернётся.
@@ -315,6 +326,8 @@ const port = config.get('master:port');
 
 // гигиена среды (Этап 5.4): базовые security-заголовки на всех ответах
 app.use(securityHeaders({ isProduction }));
+// раньше /games, express.static и ViteExpress: *.map наружу не уходят
+app.use(denySourceMaps({ isProduction }));
 
 // режим сервера (Этап 4 плана standalone-sdk): клиент движка пробингует
 // /config на старте и по нему выбирает контур загрузки. Здесь — лобби;
@@ -345,6 +358,49 @@ if (!isProduction) {
       });
   });
 }
+
+// расшифровка стеков журнала по скрытым source maps (plan/client-reports,
+// этап 4) — только в проде: в dev бандлов на диске нет, их отдаёт Vite.
+// Корни — все каталоги, откуда gameCatalog.getDistDir отдаёт игры:
+// хранилище пакетов и node_modules
+const engineDist = path.join(engineDir, 'dist');
+const symbolicate = isProduction
+  ? createSymbolicator({
+      roots: [engineDist, resolveGamesDir(), nodeModulesDir],
+      resolveFile: pathname => {
+        if (pathname.startsWith('/games/')) {
+          const parsed = parseGamePath(pathname.slice('/games'.length));
+          const dir = parsed && gameCatalog.getDistDir(parsed.id, parsed.version);
+
+          return dir ? path.join(dir, parsed.rest) : null;
+        }
+
+        return path.join(engineDist, pathname);
+      },
+    })
+  : null;
+
+// журнал клиентских ошибок (plan/client-reports): браузер шлёт на свой же
+// бокс (same-origin — ни CSP, ни CORS), бокс пересылает пачками в auth.
+// Свой парсер с лимитом 16 КБ — поэтому до глобального express.json()
+const clientReports = createClientReports({
+  config,
+  box: {
+    domain: config.get('master:domain'),
+    mode: 'lobby',
+    engineVersion: ENGINE_VERSION,
+  },
+  trustProxy: isProduction,
+  checkOrigin: security.createOriginValidator({
+    protocol: config.get('master:protocol'),
+    domain: config.get('master:domain'),
+    port: config.get('master:port'),
+  }),
+  symbolicate,
+});
+
+app.post('/client-reports', ...clientReports.route);
+clientReports.forwarder.start();
 
 // нужен для тела PUT /auth/rank и /auth/state (Этап B4)
 app.use(express.json());
@@ -630,6 +686,10 @@ app.get('/admin/games/:id/versions', adminAuth.required, gameRoutes.versions);
 app.post('/admin/games/:id/stage', adminAuth.required, gameRoutes.stage);
 app.post('/admin/games/:id/restore', adminAuth.required, gameRoutes.restore);
 app.patch('/admin/games/:id', adminAuth.required, gameRoutes.moderate);
+
+// журнал клиентских ошибок (plan/client-reports, этап 5): только админ
+app.get('/admin/client-reports', adminAuth.required, clientReportsRoutes.list);
+app.patch('/admin/client-reports/:id', adminAuth.required, clientReportsRoutes.setStatus);
 
 // Версионное URL-пространство игр (master-game-registry, этап 3):
 // /games/<id>/<version>/… адресует конкретную скачанную версию, а

@@ -39,6 +39,11 @@ export default defineConfig({
     },
   },
   build: {
+    // скрытые source maps (plan/client-reports, этап 4): файлы *.map ложатся в
+    // dist/, но бандл на них не ссылается — браузер их не просит, а бокс в проде
+    // их не раздаёт (denySourceMaps). Нужны самому боксу: он расшифровывает
+    // стеки журнала клиентских ошибок
+    sourcemap: 'hidden',
     rollupOptions: {
       // pixi.js не бандлится в клиентский чанк движка: и движок, и
       // динамически загружаемый game-plugin (@vimp-games/*) должны в

@@ -109,13 +109,16 @@ jobs:
           # незанятый ник из списка выше достаётся первому, кто под ним
           # зарегистрируется, а provider_uid принадлежит конкретному аккаунту
           VIMP_ADMIN_IDENTITIES: ${{ vars.VIMP_ADMIN_IDENTITIES }}
+          # общий секрет боксов и auth для журнала клиентских ошибок
+          # (plan/client-reports): без него auth отвечает на приём 503
+          VIMP_CLIENT_REPORTS_TOKEN: ${{ secrets.CLIENT_REPORTS_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ vars.AUTH_SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: AUTH_SERVICE_URL,VIMP_ADMIN_NICKS,VIMP_ADMIN_IDENTITIES,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: AUTH_SERVICE_URL,VIMP_ADMIN_NICKS,VIMP_ADMIN_IDENTITIES,VIMP_CLIENT_REPORTS_TOKEN,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             set -e
 
@@ -170,6 +173,19 @@ jobs:
               chmod 600 .env.prod
             else
               echo "🔑 VIMP_ADMIN_IDENTITIES is empty — keeping the value already on the server"
+            fi
+
+            # секрет журнала клиентских ошибок — то же правило: пустой секрет
+            # репозитория строку не трогает
+            if [ -n "${VIMP_CLIENT_REPORTS_TOKEN}" ]; then
+              echo "🔑 Updating VIMP_CLIENT_REPORTS_TOKEN..."
+              touch .env.prod
+              grep -v '^VIMP_CLIENT_REPORTS_TOKEN=' .env.prod > .env.prod.next || true
+              echo "VIMP_CLIENT_REPORTS_TOKEN=${VIMP_CLIENT_REPORTS_TOKEN}" >> .env.prod.next
+              mv .env.prod.next .env.prod
+              chmod 600 .env.prod
+            else
+              echo "🔑 VIMP_CLIENT_REPORTS_TOKEN is empty — keeping the value already on the server"
             fi
 
             echo "🚀 Pulling..."
@@ -290,6 +306,10 @@ jobs:
           # settings»): toJSON здесь напрямую нельзя — он многострочный.
           # Поля нет — значение пустое, в .env.prod строка не пишется
           VIMP_DEDICATED_ROOM: ${{ steps.room.outputs.json }}
+          # общий секрет бокса и auth-сервиса: пересылка журнала клиентских
+          # ошибок (plan/client-reports). Пусто — бокс только пишет журнал
+          # процесса
+          VIMP_CLIENT_REPORTS_TOKEN: ${{ secrets.CLIENT_REPORTS_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -299,7 +319,7 @@ jobs:
           # Передача переменных окружения внутрь скрипта SSH.
           # Имя, не перечисленное здесь, ssh-action не пробрасывает — пропуск
           # VIMP_DEDICATED_GAME означает молчаливый старт в лобби-режиме
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,VIMP_GAMES_DIR,VIMP_DEDICATED_GAME,VIMP_DEDICATED_ROOM,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,VIMP_GAMES_DIR,VIMP_DEDICATED_GAME,VIMP_DEDICATED_ROOM,VIMP_CLIENT_REPORTS_TOKEN,GITHUB_ACTOR,GITHUB_TOKEN
           script: |
             # Остановка выполнения при любой критической ошибке
             set -e
@@ -341,6 +361,9 @@ jobs:
                 echo "VIMP_AUTH_SERVICE_URL=$VIMP_AUTH_SERVICE_URL"
               fi
               echo "VIMP_GAMES_DIR=$VIMP_GAMES_DIR"
+              if [ -n "$VIMP_CLIENT_REPORTS_TOKEN" ]; then
+                echo "VIMP_CLIENT_REPORTS_TOKEN=$VIMP_CLIENT_REPORTS_TOKEN"
+              fi
               if [ -n "$VIMP_DEDICATED_GAME" ]; then
                 echo "VIMP_DEDICATED_GAME=$VIMP_DEDICATED_GAME"
               fi

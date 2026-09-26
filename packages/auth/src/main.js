@@ -8,6 +8,7 @@ import createDevLoginHandler from './devLogin.js';
 import dbPool from './db/pool.js';
 import { startRatingsJob } from './db/ratingsJob.js';
 import { startGamesPurgeJob } from './db/gamesPurgeJob.js';
+import { startClientReportsPurgeJob } from './db/clientReportsPurgeJob.js';
 import UserRepository, {
   NickTakenError,
   NickAlreadySetError,
@@ -42,6 +43,11 @@ import rateLimit from './lib/rateLimit.js';
 import { forAuthor } from './lib/gameViews.js';
 import resolveAuthor from './lib/gameAuthor.js';
 import isEnvAdmin from './lib/adminRights.js';
+import ClientReportRepository, { ClientReportNotFoundError } from './ClientReportRepository.js';
+import ClientReportBudget from './lib/ClientReportBudget.js';
+import { requireServiceToken } from './lib/serviceToken.js';
+import { normalizeReportItem, REPORT_STATUSES } from './lib/clientReportValidators.js';
+import { clientIp } from './lib/clientIp.js';
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
@@ -87,11 +93,40 @@ if (isProduction) {
     `);
     process.exit(1);
   }
+
+  // журнал клиентских ошибок необязателен: без секрета приём отвечает 503,
+  // а боксы копят и логируют — падать из-за него сервису незачем
+  if (!env.VIMP_CLIENT_REPORTS_TOKEN) {
+    console.warn('[auth] VIMP_CLIENT_REPORTS_TOKEN is not set — POST /client-reports answers 503');
+  }
 } else if (env.VIMP_AUTH_ALLOWED_ORIGINS) {
   config.allowedOrigins = env.VIMP_AUTH_ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
 }
 
 const userRepo = new UserRepository(dbPool.getPool());
+const clientReportRepo = new ClientReportRepository(dbPool.getPool());
+const clientReportBudget = new ClientReportBudget(config.clientReports.budget);
+
+// потолок таблицы: точный count(*) на старте и раз в rowsRecountMs —
+// между пересчётами число строк ведёт сам бюджет (take прибавляет)
+const recountClientReports = () =>
+  clientReportRepo
+    .countRows()
+    .then(n => clientReportBudget.setRows(n))
+    .catch(err => console.error('[client-reports] recount failed:', err.message));
+
+recountClientReports();
+setInterval(recountClientReports, config.clientReports.budget.rowsRecountMs).unref?.();
+
+// журнал отсечённого бюджетом — не чаще раза в час и одной строкой: при
+// атаке строка на каждую пачку сама стала бы флудом
+setInterval(() => {
+  const { reason, skipped } = clientReportBudget.drainThrottled();
+
+  if (skipped > 0) {
+    console.warn(`[client-reports] throttled ${skipped} new reports (reason: ${reason})`);
+  }
+}, 60 * 60 * 1000).unref?.();
 
 function callbackUrl(provider) {
   const base = config.publicUrl || `${config.protocol}//${config.domain}:${config.port}`;
@@ -117,6 +152,9 @@ const oauthStartLimiter = new RateLimiter({ limit: 20, windowMs: 60000 });
 // заявки разработчика (master-game-registry): регистрация игры и запрос
 // версии — редкие действия, частота здесь только против скриптового спама
 const gamesLimiter = new RateLimiter({ limit: 5, windowMs: 60000 });
+// приём журнала клиентских ошибок: клиенты — только боксы, лимит против
+// мусора с чужих адресов
+const clientReportsLimiter = new RateLimiter({ limit: 120, windowMs: 60000 });
 
 // ключ лимита — адрес клиента за реверс-прокси (Nginx в проде, см.
 // deployment.md); разбор и обоснование — в lib/rateLimit.js
@@ -193,6 +231,44 @@ async function isAdminUser(userId) {
 }
 
 const app = express();
+
+// приём журнала клиентских ошибок от боксов (plan/client-reports): свой
+// парсер тела — пачка со стеками не влезает в общий лимит 16 КБ. Секрет
+// проверяется до парсера, чтобы чужой запрос не заставлял парсить 2 МБ.
+// Отсечённое бюджетом — не ошибка: 200 с throttled, бокс пачку не повторяет
+app.post(
+  '/client-reports',
+  byIp(clientReportsLimiter),
+  requireServiceToken(config.clientReports.token),
+  express.json({ limit: config.clientReports.bodyLimit }),
+  async (req, res) => {
+    const items = req.body?.items;
+
+    if (!Array.isArray(items) || items.length < 1 || items.length > config.clientReports.maxBatch) {
+      res.status(400).json({ error: 'badRequest' });
+      return;
+    }
+
+    const valid = items
+      .map(item => normalizeReportItem(item, {
+        limits: config.clientReports.limits,
+        gameIdRules: config.games,
+      }))
+      .filter(Boolean);
+
+    if (valid.length === 0) {
+      res.status(400).json({ error: 'badRequest' });
+      return;
+    }
+
+    const ip = clientIp(req, { trustProxy: isProduction });
+    const { accepted, throttled } = await clientReportRepo.ingest(valid, {
+      allowNew: n => clientReportBudget.take(ip, n),
+    });
+
+    res.json({ accepted, throttled, rejected: items.length - valid.length });
+  },
+);
 
 app.use(express.json({ limit: '16kb' }));
 
@@ -623,6 +699,66 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
   res.json({ game: updated });
 });
 
+// GET /admin/client-reports — журнал клиентских ошибок (plan/client-reports)
+app.get('/admin/client-reports', requireAdmin, async (req, res) => {
+  const { status = 'open', gameId } = req.query;
+
+  if (![...REPORT_STATUSES, 'all'].includes(status)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  if (gameId !== undefined && !isValidGameId(gameId, config.games)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  const offset = Number(req.query.offset);
+
+  res.json(await clientReportRepo.list({
+    status,
+    gameId: gameId ?? null,
+    limit: clampLimit(req.query.limit, 50, config.clientReports.listMaxLimit),
+    offset: Number.isInteger(offset) && offset >= 0 && offset <= 100000 ? offset : 0,
+  }));
+});
+
+// PATCH /admin/client-reports/:id — статус строки журнала. Повтор отпечатка
+// статус не меняет: регрессия в новой версии — новая строка
+app.patch('/admin/client-reports/:id', requireAdmin, async (req, res) => {
+  const { status, note } = req.body || {};
+
+  if (!/^\d{1,18}$/.test(req.params.id) || !REPORT_STATUSES.includes(status)) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  if (
+    note !== undefined && note !== null &&
+    (typeof note !== 'string' || note.length > config.clientReports.limits.note)
+  ) {
+    res.status(400).json({ error: 'badRequest' });
+    return;
+  }
+
+  try {
+    const report = await clientReportRepo.setStatus(req.params.id, {
+      status,
+      note: note ?? null,
+      userId: req.user.id,
+    });
+
+    res.json({ report });
+  } catch (err) {
+    if (err instanceof ClientReportNotFoundError) {
+      res.status(404).json({ error: 'unknownReport' });
+      return;
+    }
+
+    throw err;
+  }
+});
+
 // GET /jwks — публичный ключ для верификации identity-токена хостом
 app.get('/jwks', (req, res) => {
   res.json(jwtLib.getJwks());
@@ -852,6 +988,10 @@ startRatingsJob(dbPool.getPool());
 // config.games.deleteRetentionDays: до этого момента их возвращает
 // POST /admin/games/:id/restore
 startGamesPurgeJob(dbPool.getPool());
+
+// журнал клиентских ошибок: строки, не повторявшиеся дольше
+// config.clientReports.retentionDays
+startClientReportsPurgeJob(dbPool.getPool());
 
 // уборка кэша распределений (db/RankDistribution.js): Map растёт по числу
 // увиденных (игра, срез), а популярность игр меняется. Интервал — тот же

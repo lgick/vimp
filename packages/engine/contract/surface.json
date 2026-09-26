@@ -360,6 +360,10 @@
       "since": 3
     },
     {
+      "name": "diagnostics",
+      "since": 4
+    },
+    {
       "name": "localPlayer",
       "since": 3
     },
@@ -376,6 +380,10 @@
     {
       "name": "accolades",
       "since": "0.21.0"
+    },
+    {
+      "name": "diagnostics",
+      "since": "0.35.0"
     },
     {
       "name": "dispatch",

@@ -27,6 +27,7 @@
 | `VIMP_DEDICATED_GAME` | игра dedicated-сервера — id игры (`tanks`) либо имя npm-пакета (`@vimp-games/tanks`), любое из них с пином `@<version>`; если задана, `src/master/main.js` поднимает [dedicated-сервер](dedicated.md) вместо лобби-мастера. Имя пакета со скоупом качается прямо из npm, поэтому `VIMP_AUTH_SERVICE_URL` не нужен; через реестр разрешается только id игры | — |
 | `VIMP_DEDICATED_ROOM` | JSON-объект с настройками комнаты dedicated-сервера (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); мусор в переменной — отказ при старте. В проде заполняется из поля `settings` матрицы `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-бокс-с-игрой-dedicatedgame)) | `{}` |
 | `VIMP_GAMES_DIR` | Корень хранилища игровых пакетов, куда мастер качает одобренные игры (`master:gameStore:dir`). В проде это смонтированный том — пакеты переживают пересоздание контейнера | `<repoRoot>/.games` |
+| `VIMP_CLIENT_REPORTS_TOKEN` | Общий секрет боксов и auth-сервиса (`master:clientReports:token`): с ним бокс пересылает журнал клиентских ошибок в auth ([master.md](master.md#post-client-reports-журнал-клиентских-ошибок)). Пусто — пересылка выключена, бокс только пишет новые отпечатки в журнал процесса. В проде приходит из GitHub-секрета `CLIENT_REPORTS_TOKEN` ([deployment.md](deployment.md#секрет-журнала-клиентских-ошибок-client_reports_token)) | — |
 
 **Переменной для каталога игр нет.** Каталог лобби-мастера приходит из
 реестра игр central auth-сервиса и больше ниоткуда: игры подаются и
@@ -241,6 +242,7 @@ DOM-структуры (`elems`) — движковые; тексты и схе�
 - `regionHeader: 'x-region'` — заголовок с регионом хоста от Nginx/CDN;
 - `pingRateLimit` — лимит сигнальных `ping_host` с одного IP (`limit: 10` за `windowMs: 1000`);
 - `security` (гигиена среды) — `csp` (строка Content-Security-Policy: single source of truth политики, в проде мастер ставит её на свои ответы, авторитетно на статику/`.wasm` — Nginx, см. [deployment.md](deployment.md)) и `referrerPolicy: 'no-referrer'`; заголовки `nosniff`/`X-Frame-Options`/`Referrer-Policy` мастер шлёт всегда, CSP — только в проде (в dev сломала бы Vite HMR);
+- `clientReports` — журнал клиентских ошибок ([master.md](master.md#post-client-reports-журнал-клиентских-ошибок)): `token` (`VIMP_CLIENT_REPORTS_TOKEN`; пусто — только журнал процесса), `flushIntervalMs: 30000`, `forwardBatch: 50`, `forwardTimeoutMs: 5000`, `maxPending: 500` (разных отпечатков в буфере), `logSeenMax: 5000` (сколько отпечатков процесс помнит как уже напечатанные), `newFingerprintsPerMinute: 60` (бюджет новых отпечатков бокса; повторы бесплатны), `rateLimit: { limit: 10, windowMs: 60000 }` (по адресу, IPv6 — по /64), `bodyLimit: '16kb'`, `maxItemsPerRequest: 10`;
 - `iceServers` — ICE-конфигурация для клиентов и хостов (STUN; TURN — опционально).
 
 ## packages/engine/src/config/lobby.js

@@ -113,6 +113,7 @@ startStandaloneGame(options): Promise<{ stop(): void }>
 | `startupCommands` | `[]` | чат-команды игры после голосований, например `['/bot 4']` |
 | `room` | `{}` | переопределения комнаты: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
 | `devMode` | `false` | `room.isDevMode`: рекордер матча и хостовый лог `CONSOLE` |
+| `reportUrl` | `null` | куда отправлять журнал клиентских ошибок (`POST`, см. [client.md](client.md#журнал-ошибок-libdiagnosticsjs)); `null` — ничего не отправляется, в solo сервера нет |
 
 Оба плагина сверяются с `ENGINE_API_VERSION` до всего остального: плагин,
 собранный под другую версию API движка, отбивается сразу, а не падает

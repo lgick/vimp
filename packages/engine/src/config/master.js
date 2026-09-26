@@ -160,6 +160,26 @@ export default {
     referrerPolicy: 'no-referrer',
   },
 
+  // журнал клиентских ошибок (plan/client-reports): приём POST
+  // /client-reports на боксе и пересылка пачками в auth-сервис. Пустой
+  // token — пересылка выключена, остаётся строка в журнале процесса
+  clientReports: {
+    token: '',
+    flushIntervalMs: 30000,
+    forwardBatch: 50,
+    forwardTimeoutMs: 5000,
+    maxPending: 500, // потолок разных отпечатков в буфере
+    logSeenMax: 5000, // сколько отпечатков процесс помнит «уже печатал»
+    // бюджет НОВЫХ отпечатков на бокс (решение 9 плана): распределённый спам
+    // обходит лимит по IP, а новая строка в auth — главный ресурс. Повторы
+    // известных отпечатков бюджет не тратят
+    newFingerprintsPerMinute: 60,
+    // ключ — адрес, для IPv6 — подсеть /64 (lib/clientIp.js → rateLimitKey)
+    rateLimit: { limit: 10, windowMs: 60000 },
+    bodyLimit: '16kb',
+    maxItemsPerRequest: 10,
+  },
+
   // заголовок с регионом хоста от Nginx/CDN (например, CF-IPCountry);
   // выбран вместо geoip-lite — бесплатнее по памяти
   regionHeader: 'x-region',

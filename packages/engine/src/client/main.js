@@ -45,6 +45,7 @@ import {
 import { createContextTracker } from './lib/contextTracker.js';
 import { createLocalPlayer } from './lib/localPlayer.js';
 import { createAccolades } from './lib/accolades.js';
+import { createDiagnostics } from './lib/diagnostics.js';
 import { dispatchSocketMessage } from './lib/socketDispatch.js';
 import { pickActiveGame, isGameAvailable } from './lib/pickActiveGame.js';
 import { readCoreAbi, dispatchCoreOp, ABI_UNKNOWN } from '../lib/coreAbi.js';
@@ -81,6 +82,9 @@ import LobbyAuthCtrl from './components/controller/LobbyAuth.js';
 import GamesModel from './components/model/Games.js';
 import GamesView from './components/view/Games.js';
 import GamesCtrl from './components/controller/Games.js';
+import ClientReportsModel from './components/model/ClientReports.js';
+import ClientReportsView from './components/view/ClientReports.js';
+import ClientReportsCtrl from './components/controller/ClientReports.js';
 import BakingProvider from './providers/BakingProvider.js';
 import DependencyProvider from './providers/DependencyProvider.js';
 import { HOT_FLAGS } from '../config/opcodes.js';
@@ -120,6 +124,7 @@ let gameStyleNode = null;
 // переключении в лобби
 function bindActiveGame(manifest, plugin) {
   activeGameManifest = manifest;
+  syncDiagnosticsGame();
   clientPlugin = plugin;
 
   if (!gameStyleNode) {
@@ -147,6 +152,32 @@ const boot = injectedBoot ?? (await resolveBootConfig());
 const bootMode = boot.mode;
 const isLobbyMode = bootMode === 'lobby';
 
+// журнал клиентских ошибок (plan/client-reports): ставится как можно
+// раньше, чтобы ловить и сбои самого старта. Лобби и dedicated шлют на
+// свой бокс; SDK (solo) — только если встраивающий передал reportUrl
+const diagnostics = createDiagnostics({
+  url:
+    bootMode === 'solo' ? (boot.reportUrl ?? null) : lobbyConfig.clientReportUrl,
+  context: {
+    mode: bootMode,
+    role: 'client',
+    gameId: null,
+    gameVersion: null,
+    page: location.pathname.slice(0, 128),
+    userAgent: navigator.userAgent.slice(0, 256),
+  },
+});
+
+diagnostics.install(window);
+
+// игра в контексте отчётов — после каждой смены активного манифеста
+function syncDiagnosticsGame() {
+  diagnostics.setContext({
+    gameId: activeGameManifest?.id ?? null,
+    gameVersion: activeGameManifest?.version ?? null,
+  });
+}
+
 // точка монтирования игрового интерфейса: в lobby-режиме разметку даёт pug и
 // каркас ничего не делает, в solo — собирается в контейнере SDK
 const gameContainer = boot.container ?? document.body;
@@ -157,6 +188,7 @@ try {
   if (boot.manifest) {
     // SDK передаёт манифест-подобный объект в памяти — каталога мастера нет
     activeGameManifest = boot.manifest;
+    syncDiagnosticsGame();
     gamesManifest = [activeGameManifest];
   } else {
     gamesManifest = await manifestPromise;
@@ -170,6 +202,7 @@ try {
     try {
       // недоступная игра активной быть не может (lib/pickActiveGame.js)
       activeGameManifest = pickActiveGame(gamesManifest, boot.gameId);
+      syncDiagnosticsGame();
     } catch (e) {
       // «каталог непустой, но играбельного в нём нет» (движок обновили, все
       // опубликованные игры просят возможность, которой в нём уже нет) — для
@@ -436,6 +469,14 @@ socketMethods[PS_CONFIG_DATA] = async data => {
       // part, объявивший сервис в componentDependencies, строит URL сам —
       // движок не знает ни имён файлов, ни их раскладки внутри пакета
       assetsBase: activeGameManifest.assetsBase,
+      // журнал клиентских ошибок для партов игры (plan/client-reports):
+      // warn(code, details) — своё предупреждение, capture(error) — пойманная
+      // ошибка. Сервис опционален: игра не пишет его в requires
+      diagnostics: {
+        warn: (code, details) =>
+          diagnostics.warn(code, details, { source: 'plugin' }),
+        capture: error => diagnostics.capture(error, { source: 'plugin' }),
+      },
     };
 
     // если есть данные для запекания компонентов
@@ -1430,6 +1471,7 @@ function handleDisconnect(closeCode) {
   hostController?.destroy();
   hostConnections = null;
   hostController = null; // останавливает и reconnect-петлю сигналинга
+  diagnostics.setContext({ role: 'client' });
   hostRegistration = null;
 
   // solo: хост крутится в этом же потоке — его таймеры переживут матч
@@ -1593,8 +1635,11 @@ async function connectAsHost(room) {
     console.warn('[worker] master manifest unavailable, using bundled:', e);
   }
 
+  diagnostics.setContext({ role: 'host' });
+
   hostController = new HostController(room, {
     workerUrl,
+    diagnostics,
     onReady: readyMsg => {
       currentMapName = readyMsg?.mapName;
 
@@ -2287,6 +2332,17 @@ function initLobby() {
   // этап 4). Это подсказка интерфейсу: доступ к данным проверяет мастер, а
   // запись — auth-сервис, перечитывая роль из БД
   games.setAdmin(lobbyAuthModel.getRole() === 'admin');
+
+  // журнал клиентских ошибок (plan/client-reports, этап 5): кнопку «Errors»
+  // видит только админ; фильтр по игре — каталог вкладки
+  const clientReportsModel = new ClientReportsModel(lobbyConfig.clientReports, () =>
+    lobbyAuthModel.getToken(),
+  );
+  const clientReportsView = new ClientReportsView(clientReportsModel, lobbyConfig.clientReports);
+  const clientReports = new ClientReportsCtrl(clientReportsModel, clientReportsView);
+
+  clientReportsView.setGames([...gamesById.values()]);
+  clientReports.setAdmin(lobbyAuthModel.getRole() === 'admin');
 
   // «Test»: манифест застейдженной версии кладётся в каталог вкладки, и
   // админ поднимает по нему комнату обычной кнопкой Create server

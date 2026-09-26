@@ -30,6 +30,7 @@ const DEDICATED_WS_PATH = '/game';
  *   autoAuth,        // solo: { name, model, … } → AUTH_RESPONSE без формы
  *   startupVotes,    // solo: ответы на initialVote (выход из наблюдателей)
  *   startupCommands, // solo: чат-команды игры (спавн ботов)
+ *   reportUrl,       // solo: приём журнала клиентских ошибок (null — выкл.)
  *   wsUrl,           // dedicated: адрес игрового WS
  *   gameId,          // dedicated: какую игру каталога считать активной
  * }

@@ -43,6 +43,9 @@ import { ensureGameShell } from '../client/views/gameShell.js';
  *   плагина.
  * @param {boolean} [options.devMode] - room.isDevMode: рекордер и хостовый
  *   CONSOLE-лог.
+ * @param {string|null} [options.reportUrl] - Адрес приёма журнала клиентских
+ *   ошибок (`POST`, формат — docs/en/client.md, «Error reporting»). По
+ *   умолчанию `null`: в solo нет бокса, и отчёты не отправляются.
  * @returns {Promise<Object>} `{ stop() }` — останов матча.
  */
 export async function startStandaloneGame({
@@ -59,6 +62,7 @@ export async function startStandaloneGame({
   room = {},
   requires,
   devMode = false,
+  reportUrl = null,
 } = {}) {
   requireOption(hostPlugin, 'hostPlugin');
   requireOption(clientPlugin, 'clientPlugin');
@@ -102,6 +106,7 @@ export async function startStandaloneGame({
       : null,
     startupVotes,
     startupCommands,
+    reportUrl,
   });
 
   // конфиг загрузки задан — дальше работает обычный клиент движка в

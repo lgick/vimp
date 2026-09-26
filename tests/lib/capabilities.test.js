@@ -17,6 +17,8 @@ describe('capabilities: реестр', () => {
     expect(CAPABILITIES.length).toBeGreaterThan(0);
     expect(CAPABILITIES).toContain('accolades');
     expect(ENGINE_CAPABILITIES.has('accolades')).toBe(true);
+    // сервис журнала клиентских ошибок (plan/client-reports)
+    expect(ENGINE_CAPABILITIES.has('diagnostics')).toBe(true);
   });
 
   it('не знает имён, которых не объявлял', () => {

@@ -160,7 +160,7 @@ componentDependencies: {
 }
 ```
 
-The engine's service pool is an append-only registry with five entries (a
+The engine's service pool is an append-only registry with six entries (a
 game adds its own through `hooks.services(core)`, below). A name never
 disappears from it, and the pool hands out only what a part asked for, so a
 service added by a later engine demands nothing of an older game:
@@ -172,6 +172,7 @@ service added by a later engine demands nothing of an older game:
 | `assetsBase` | the active game's asset base, a string | building URLs into **your own** package: `${assetsBase}img/<file>` |
 | `localPlayer` | `{ id, is(id) }` | telling the local player's entity from everyone else's |
 | `accolades` | `{ placeOf(id) }` | the entity's place in the game's global top — `{ daily, monthly }`, each a number or `null` |
+| `diagnostics` | `{ warn(code, details), capture(error) }` | the client error journal: your own warnings and errors you caught — optional, may be `undefined` |
 
 ### `localPlayer` — is this entity mine?
 
@@ -191,6 +192,25 @@ export default class Tank {
   the local player's own part is built while `localPlayer.id` is still `null`,
   so a flag computed once in the constructor is wrong exactly for the entity
   it matters for.
+
+### `diagnostics` — report what went wrong
+
+```js
+constructor(data, assets, dependencies) {
+  this._diagnostics = dependencies.diagnostics ?? null;
+}
+// …
+this._diagnostics?.warn('mygame.camera.missing', { level });   // a warning
+this._diagnostics?.capture(error);                             // a caught error
+```
+
+- The report lands in the central client error journal the operators read;
+  repeats are only counted, so calling it every frame costs a counter.
+- `code`: `/^[a-z0-9][a-z0-9._-]{0,63}$/i`, prefixed with your game id;
+  anything else is recorded as `invalid-code`. `details`: a plain JSON
+  object up to 2048 bytes, never personal data.
+- **Optional.** An older engine has no such service and the part gets
+  `undefined` — always use `?.`, and never list `diagnostics` in `requires`.
 
 ### `accolades` — is this player in the global top?
 

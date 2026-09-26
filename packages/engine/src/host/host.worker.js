@@ -151,6 +151,20 @@ function onDebug({ requestId, action }) {
   self.postMessage({ type: 'debug_result', requestId, result, error });
 }
 
+// журнал клиентских ошибок (plan/client-reports): необработанный reject в
+// Worker не всплывает в worker.onerror главного потока — пересылаем сами.
+// Отдельный тип сообщения: 'error' занят сбоем init и запускает откат эстафеты
+self.addEventListener('unhandledrejection', event => {
+  const reason = event.reason;
+
+  self.postMessage({
+    type: 'diagnostic',
+    kind: 'rejection',
+    message: reason && reason.message ? reason.message : String(reason),
+    stack: reason && typeof reason.stack === 'string' ? reason.stack : null,
+  });
+});
+
 self.onmessage = async event => {
   const msg = event.data;
 

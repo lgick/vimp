@@ -145,6 +145,10 @@ export default {
   // маршрут поднимается мастером только в dev, в проде вернёт 404
   debugReportUrl: '/debug/report',
 
+  // журнал клиентских ошибок (plan/client-reports): приём на том же боксе,
+  // что раздал страницу, — лобби-мастер или dedicated
+  clientReportUrl: '/client-reports',
+
   // размер страницы для «Загрузить ещё» (offset/limit к мастеру)
   pageSize: 10,
 
@@ -281,6 +285,41 @@ export default {
       adminListId: 'games-admin-list',
       adminErrorId: 'games-admin-error',
       filtersId: 'games-filters',
+    },
+  },
+
+  // журнал клиентских ошибок (plan/client-reports, этап 5): только админ.
+  // URL и id элементов — здесь, как у панели реестра игр (reports.pug)
+  clientReports: {
+    urls: {
+      // страница журнала: ?status&gameId&limit&offset
+      list: '/admin/client-reports',
+      // статус и заметка админа по строке
+      setStatus: id => `/admin/client-reports/${encodeURIComponent(id)}`,
+    },
+    pageSize: 50,
+    // графы: значения совпадают со статусами auth-сервиса, 'all' — без фильтра
+    statuses: [
+      { id: 'open', title: 'Open' },
+      { id: 'fixed', title: 'Fixed' },
+      { id: 'ignored', title: 'Ignored' },
+      { id: 'all', title: 'All' },
+    ],
+    defaultStatus: 'open',
+
+    // DOM-элементы панели (из reports.pug)
+    elems: {
+      panelId: 'reports-panel',
+      // панель и лобби делят место, как у панели реестра игр
+      lobbyId: 'lobby',
+      // кнопка в бейдже пользователя (lobby.pug), видна только админу
+      openBtnId: 'reports-open',
+      closeBtnId: 'reports-close',
+      filtersId: 'reports-filters',
+      gameSelectId: 'reports-game',
+      listId: 'reports-list',
+      moreBtnId: 'reports-more',
+      errorId: 'reports-error',
     },
   },
 

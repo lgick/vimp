@@ -540,12 +540,44 @@ export default {
 
 `hooks.services(core)` is **optional**: it returns game services that are
 merged into the client's service pool next to the engine's own (`renderer`,
-`soundManager`, `localPlayer`, `assetsBase`) and reach a part through
+`soundManager`, `localPlayer`, `assetsBase`, `accolades`, `diagnostics`) and reach a part through
 `componentDependencies`. That is how a part talks to the game's own core
 without the engine knowing what is being handed over — the tanks plugin
 serves `mapDynamics` (`toWorld(key, localX, localY)` over
 `ClientCore.map_dynamics_to_world`) so the shot effect can anchor its debris
 to the box it hit. Engine keys win a name clash.
+
+### The `diagnostics` service
+
+An engine pool service that puts a game's own warnings and caught errors
+into the client error journal ([client.md](client.md#error-reporting-libdiagnosticsjs)).
+A part asks for it like any other service:
+
+```js
+// componentDependencies: { diagnostics: ['Map'] }
+constructor(data, assets, dependencies) {
+  this._diagnostics = dependencies.diagnostics ?? null;
+}
+
+draw() {
+  if (!this._camera) {
+    this._diagnostics?.warn('mygame.camera.missing', { level: this._level });
+  }
+}
+```
+
+- `warn(code, details)` — a warning of the game: `code` matches
+  `/^[a-z0-9][a-z0-9._-]{0,63}$/i` (prefix it with the game id; anything
+  else is recorded as `invalid-code`), `details` is a plain JSON object up to
+  2048 bytes (larger becomes `{ truncated: true }`). The call site's stack is
+  attached.
+- `capture(error)` — an error the part caught itself and still wants seen.
+
+Both are cheap and never throw: repeats are only counted, and the per-session
+limits of the journal apply. **Do not list `diagnostics` in `requires`**: the
+service is optional, and on an engine without it the part simply gets
+`undefined` — hence the `?.` above. The engine capability `diagnostics`
+exists only so the registry records when the service appeared.
 
 `serviceNames` is the same list written down statically. Nothing at runtime
 reads it: it exists for the contract checker, which cannot call
@@ -1020,8 +1052,10 @@ that span several of them, level rules and falling for map bodies, `z` /
 `levelHeight`, a dimensionless ramp slope, ramp guard colliders,
 `levelHeight`/`ramps` in the part context), `map.gameData` (the map's opaque
 `game` field in the core, `set_map` and the part context; the core's
-`on_map_loaded` hook) and `map.bodyState` (the map body state byte,
-`role: 'state'`, and game access to map bodies by index). A registered name is supported forever — a
+`on_map_loaded` hook), `map.bodyState` (the map body state byte,
+`role: 'state'`, and game access to map bodies by index) and `diagnostics`
+(the client error journal service; optional, never worth a `requires`
+entry). A registered name is supported forever — a
 published game may have written it, and its `dist/` will never be touched
 again.
 

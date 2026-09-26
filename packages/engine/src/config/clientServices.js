@@ -19,6 +19,8 @@ export const clientServices = createRegistry('clientServices', [
   { value: 'localPlayer', since: 3 },
   // места в глобальном топе (lib/accolades.js)
   { value: 'accolades', since: 4 },
+  // журнал клиентских ошибок (lib/diagnostics.js): warn/capture партов
+  { value: 'diagnostics', since: 4 },
 ]);
 
 // плоский список имён — то, чем правило C4 проверяет componentDependencies

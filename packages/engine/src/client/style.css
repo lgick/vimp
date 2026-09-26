@@ -1156,6 +1156,109 @@ body.hide-cursor {
   color: #d66;
 }
 
+/* журнал клиентских ошибок (plan/client-reports, этап 5): тот же каркас и
+   палитра, что у панели реестра игр; графы — .games-filters/.games-filter-btn */
+#reports-panel {
+  background-color: #222;
+  position: absolute;
+  width: 100%;
+  min-height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.reports-card {
+  width: 900px;
+  padding: 10px;
+  text-align: left;
+}
+
+.reports-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 900px;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.reports-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reports-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.reports-item {
+  border-bottom: 1px solid #444;
+  padding: 8px;
+}
+
+.reports-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  cursor: pointer;
+}
+
+.reports-count,
+.reports-message {
+  font-weight: bold;
+}
+
+.reports-message {
+  flex-basis: 100%;
+  word-break: break-word;
+}
+
+.reports-when,
+.reports-kind {
+  color: #888;
+}
+
+.reports-status-open {
+  color: #d66;
+}
+
+.reports-details {
+  margin-top: 8px;
+}
+
+.reports-full-message {
+  word-break: break-word;
+}
+
+/* стек и details: моноширинно, длинные строки прокручиваются по
+   горизонтали, высокий стек — по вертикали */
+.reports-pre {
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre;
+  overflow: auto;
+  max-height: 300px;
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid #444;
+}
+
+.reports-note-input {
+  width: 260px;
+  text-align: left;
+  margin-right: 8px;
+}
+
 /* кнопки входа в панель стоят рядом с Sign out в бейдже пользователя */
 .lobby-user-actions {
   display: flex;
@@ -1166,7 +1269,9 @@ body.hide-cursor {
 @media (max-width: 900px) {
   #games-mine,
   #games-moderation,
-  .games-head {
+  .games-head,
+  .reports-card,
+  .reports-head {
     width: 100%;
   }
 }

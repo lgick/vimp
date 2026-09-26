@@ -20,6 +20,8 @@ div#lobby(style='display:none')
           div.lobby-user-actions
             input#games-open-mine(type='button', value='My games')
             input#games-open-moderation(type='button', value='Moderation', style='display:none')
+            //- журнал клиентских ошибок (plan/client-reports, этап 5): только админ
+            input#reports-open(type='button', value='Errors', style='display:none')
             input#lobby-user-logout(type='button', value='Sign out')
         hr.lobby-divider
         h3.lobby-section-title= 'HOST A GAME'
