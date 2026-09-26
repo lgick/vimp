@@ -7,13 +7,20 @@ alternative entirely inside your WASM core.
 ## Rounds
 
 - A round **ends when one team is wiped** — every participant of a team,
-  humans *and* bots, is not alive.
+  humans *and* bots, is not alive — and survivors remain in at most one
+  other team. With three or more teams the round goes on until only one
+  team has anyone alive; a player leaving or switching team counts too, once
+  a team has already been wiped that round.
 - The round timer expiring does **not** end the round with a result: it simply
   starts a new round, no score change.
-- Wipe caused by something other than an enemy (self-destruction, environment,
-  the killer having already left) ends the round with **no winner**: every
-  player receives the `defeat` sound cue and a round-end message without a
-  winning team.
+- The winner is **the team that still has survivors**, however the last
+  player died — an enemy kill, a team kill, self-destruction, the environment,
+  or a killer who has already left all resolve the same way. Every `death`
+  event runs the wipe check, whatever its `killer`.
+- A wipe that leaves **no survivors in any team** (both last players died at
+  once, or a single-team game) ends the round with **no winner**: every
+  player receives the `defeat` sound cue (spectators `victory`) and a
+  round-end message without a winning team.
 - After a round ends, the next one starts after `timers.roundRestartDelay`
   (5 s default).
 
@@ -29,14 +36,16 @@ so that a wipe cannot occur.
 | Team kill | killer `score −1`, killer `rank −1`, victim `deaths +1` |
 | Suicide | victim `deaths +1` only — no score or rank change |
 | Killer already left | no frag, victim still dies, round still resolves |
-| Team wipe | winning team head `score +1`, losing team head `deaths +1` |
+| Team wipe | every wiped team head `deaths +1` (once per round); at round end the surviving team head `score +1` (none on a draw) |
 
 Rank is written **synchronously with the kill report** and there is no hook to
 change the `±1` rule. A dead player becomes a spectator (watching the killer)
 until the next round.
 
 Sound cues fired here: `frag` to the killer, `death` to the victim,
-`victory`/`defeat` to every player at round end.
+`victory` to the winning team and to spectators (on any outcome, a draw
+included), `defeat` to every other player at round end. The winning team's
+announcement goes to everyone, spectators included.
 
 ## Teams
 

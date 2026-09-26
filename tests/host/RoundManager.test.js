@@ -414,7 +414,7 @@ describe('RoundManager: endlessRound', () => {
   it('под флагом вычищенная команда не завершает раунд', () => {
     const rm = makeCtx(true);
 
-    rm._checkTeamWipe(1, 2);
+    rm._checkTeamWipe(1);
 
     expect(rm._stat.updateHead).not.toHaveBeenCalled();
     expect(rm._timerManager.startRoundRestartDelay).not.toHaveBeenCalled();
@@ -588,7 +588,7 @@ describe('RoundManager.reportKill', () => {
     expect(rm._stat.updateUser).toHaveBeenCalledWith('k', 2, { score: 1 });
     expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith('sk', 'frag');
     expect(rm._participants.replaceWatched).toHaveBeenCalledWith('v', 'k');
-    expect(rm._checkTeamWipe).toHaveBeenCalledWith(1, 2);
+    expect(rm._checkTeamWipe).toHaveBeenCalledWith(1);
   });
 
   it('снимает очко за огонь по своим', () => {
@@ -644,7 +644,7 @@ describe('RoundManager.reportKill', () => {
       'sk',
       'frag',
     );
-    expect(rm._checkTeamWipe).toHaveBeenCalledWith(1, null);
+    expect(rm._checkTeamWipe).toHaveBeenCalledWith(1);
   });
 });
 
@@ -658,11 +658,14 @@ describe('RoundManager._checkTeamWipe', () => {
     return makeRm({
       participants: fakeParticipants(users),
       game: { isAlive: () => false, ...overrides.game },
-      stat: { updateHead: vi.fn() },
+      stat: { updateHead: vi.fn(), updateUser: vi.fn() },
+      panel: { invalidate: vi.fn() },
+      chat: { pushSystem: vi.fn() },
       teams: { red: 1, blue: 2 },
       socketManager: {
         sendSoundCue: vi.fn(),
         sendRoundEnd: vi.fn(),
+        sendSpectatorDefaultShot: vi.fn(),
       },
       timerManager: {
         stopRoundTimer: vi.fn(),
@@ -671,9 +674,12 @@ describe('RoundManager._checkTeamWipe', () => {
     });
   };
 
+  // у команды 2 живой участник 'b', команда 1 вымерла
+  const survivorAlive = { game: { isAlive: id => id === 'b' } };
+
   it('завершает раунд при уничтожении команды и рассылает исход', () => {
-    const rm = makeCtx();
-    rm._checkTeamWipe(1, 2);
+    const rm = makeCtx(survivorAlive);
+    rm._checkTeamWipe(1);
 
     expect(rm._isRoundEnding).toBe(true);
     expect(rm._stat.updateHead).toHaveBeenCalledWith(1, 'deaths', 1);
@@ -687,33 +693,255 @@ describe('RoundManager._checkTeamWipe', () => {
     expect(rm._timerManager.startRoundRestartDelay).toHaveBeenCalled();
   });
 
+  // победитель — команда с выжившими, а не команда последнего убийцы
+  it.each([
+    ['самоубийство', 'a'],
+    ['убийца уже вышел', 'gone'],
+  ])('%s последнего в команде — победа выжившей команды', (_, killerId) => {
+    const rm = makeCtx(survivorAlive);
+    rm.reportKill('a', killerId);
+
+    expect(rm._stat.updateHead).toHaveBeenCalledWith(1, 'deaths', 1);
+    expect(rm._stat.updateHead).toHaveBeenCalledWith(2, 'score', 1);
+    expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith('sa', 'defeat');
+    expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith(
+      'sb',
+      'victory',
+    );
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sa', 'blue');
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sb', 'blue');
+  });
+
+  it('без выживших ни в одной команде — ничья без победителя', () => {
+    const rm = makeCtx();
+    rm._checkTeamWipe(1);
+
+    expect(rm._isRoundEnding).toBe(true);
+    // вымерли обе команды — поражение обеим, очка нет никому
+    expect(rm._stat.updateHead.mock.calls).toEqual([
+      [1, 'deaths', 1],
+      [2, 'deaths', 1],
+    ]);
+    expect(rm._socketManager.sendSoundCue).toHaveBeenCalledWith('sb', 'defeat');
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sb');
+  });
+
   it('не срабатывает, если раунд уже завершается', () => {
     const rm = makeCtx();
     rm._isRoundEnding = true;
-    rm._checkTeamWipe(1, 2);
+    rm._checkTeamWipe(1);
     expect(rm._stat.updateHead).not.toHaveBeenCalled();
   });
 
   it('игнорирует команду наблюдателей', () => {
     const rm = makeCtx();
-    rm._checkTeamWipe(3, 2); // victimTeamId === spectatorId
+    rm._checkTeamWipe(3); // victimTeamId === spectatorId
     expect(rm._stat.updateHead).not.toHaveBeenCalled();
   });
 
   it('не завершает раунд, если в команде есть живой', () => {
     const rm = makeCtx({ game: { isAlive: () => true } });
-    rm._checkTeamWipe(1, 2);
+    rm._checkTeamWipe(1);
     expect(rm._isRoundEnding).toBe(false);
     expect(rm._stat.updateHead).not.toHaveBeenCalled();
   });
 
   it('синхронизирует rank/state участников по итогам раунда (Этап B4)', () => {
-    const rm = makeCtx();
+    const rm = makeCtx(survivorAlive);
     rm._playerDataSync = { flushAll: vi.fn() };
 
-    rm._checkTeamWipe(1, 2);
+    rm._checkTeamWipe(1);
 
     expect(rm._playerDataSync.flushAll).toHaveBeenCalled();
+  });
+});
+
+// при 3+ командах раунд ждёт, пока живые останутся в одной команде
+describe('RoundManager: исход раунда при трёх командах', () => {
+  const makeCtx = () => {
+    const users = {
+      a: { gameId: 'a', teamId: 1, socketId: 'sa' },
+      a2: { gameId: 'a2', teamId: 1, socketId: 'sa2', isScripted: true },
+      b: { gameId: 'b', teamId: 2, socketId: 'sb' },
+      c: { gameId: 'c', teamId: 4, socketId: 'sc' },
+      s: { gameId: 's', teamId: 3, socketId: 'ss' },
+    };
+    const alive = new Set(['b', 'c']);
+
+    const rm = makeRm({
+      participants: fakeParticipants(users),
+      game: { isAlive: vi.fn(id => alive.has(id)) },
+      stat: { updateHead: vi.fn() },
+      teams: { red: 1, blue: 2, spec: 3, green: 4 },
+      socketManager: { sendSoundCue: vi.fn(), sendRoundEnd: vi.fn() },
+      timerManager: {
+        stopRoundTimer: vi.fn(),
+        startRoundRestartDelay: vi.fn(),
+      },
+    });
+
+    return { rm, users, alive };
+  };
+
+  it('вайп первой команды пишет поражение, но раунд продолжается', () => {
+    const { rm } = makeCtx();
+
+    rm._checkTeamWipe(1);
+
+    expect(rm._isRoundEnding).toBe(false);
+    expect(rm._stat.updateHead.mock.calls).toEqual([[1, 'deaths', 1]]);
+    expect(rm._socketManager.sendRoundEnd).not.toHaveBeenCalled();
+  });
+
+  it('две смерти вымершей команды в одном тике пишут поражение один раз', () => {
+    const { rm } = makeCtx();
+
+    // a и a2 погибли одновременно: два события death, раунд продолжается
+    rm._checkTeamWipe(1);
+    rm._checkTeamWipe(1);
+
+    expect(rm._stat.updateHead.mock.calls).toEqual([[1, 'deaths', 1]]);
+  });
+
+  it('ничья пишет поражение всем вымершим командам', () => {
+    const { rm, alive } = makeCtx();
+
+    rm._checkTeamWipe(1);
+    // последние синие и зелёные погибли в одном тике
+    alive.clear();
+    rm._checkTeamWipe(2);
+    rm._checkTeamWipe(4);
+
+    const deaths = rm._stat.updateHead.mock.calls
+      .filter(([, field]) => field === 'deaths')
+      .map(([teamId]) => teamId);
+    expect(deaths.sort()).toEqual([1, 2, 4]);
+    expect(rm._stat.updateHead).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'score',
+      1,
+    );
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sc');
+
+    // ничья: игрокам defeat, наблюдателю victory
+    const cues = Object.fromEntries(rm._socketManager.sendSoundCue.mock.calls);
+    expect(cues).toEqual({
+      sa: 'defeat',
+      sb: 'defeat',
+      sc: 'defeat',
+      ss: 'victory',
+    });
+  });
+
+  it('смена карты забывает записанные вайпы', () => {
+    const { rm, alive } = makeCtx();
+
+    rm._checkTeamWipe(1);
+    // createMap целиком тянет карту и ядро — проверяется сама очистка
+    rm._prepareMapData = vi.fn();
+    rm._scaledMapData = {};
+    Object.assign(rm, {
+      _scripted: {
+        createMap: vi.fn(),
+        getCountsPerTeam: () => ({}),
+        removeScripted: vi.fn(),
+      },
+      _timerManager: { stopGameTimers: vi.fn(), startGameTimers: vi.fn() },
+      _panel: { reset: vi.fn() },
+      _voteCoordinator: { reset: vi.fn() },
+      _snapshotManager: { reset: vi.fn() },
+      _game: { clear: vi.fn(), createMap: vi.fn(), isAlive: id => alive.has(id) },
+    });
+    Object.assign(rm._stat, { reset: vi.fn(), moveUser: vi.fn() });
+    Object.assign(rm._participants, {
+      resetTeamSizes: vi.fn(),
+      clearActive: vi.fn(),
+      addToTeam: vi.fn(),
+      getHumans: () => [],
+    });
+
+    rm.createMap();
+    alive.delete('c');
+    rm.checkRoundOutcome();
+
+    expect(rm._isRoundEnding).toBe(false);
+  });
+
+  it('наблюдателей не опрашивает у ядра', () => {
+    const { rm } = makeCtx();
+
+    rm._checkTeamWipe(1);
+
+    expect(rm._game.isAlive).not.toHaveBeenCalledWith('s');
+  });
+
+  it('второй вайп завершает раунд: victory только победителю', () => {
+    const { rm, alive } = makeCtx();
+
+    rm._checkTeamWipe(1);
+    alive.delete('b');
+    rm._checkTeamWipe(2);
+
+    expect(rm._isRoundEnding).toBe(true);
+    expect(rm._stat.updateHead).toHaveBeenCalledWith(2, 'deaths', 1);
+    expect(rm._stat.updateHead).toHaveBeenCalledWith(4, 'score', 1);
+
+    const cues = Object.fromEntries(rm._socketManager.sendSoundCue.mock.calls);
+    expect(cues).toEqual({
+      sa: 'defeat',
+      sb: 'defeat',
+      sc: 'victory',
+      ss: 'victory', // наблюдателю — всегда victory
+    });
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sa', 'green');
+    // команда-победитель показывается и наблюдателю
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('ss', 'green');
+  });
+
+  it('уход последнего живого другой команды завершает ждущий раунд', () => {
+    const { rm, alive } = makeCtx();
+
+    rm._checkTeamWipe(1);
+    // игрок c ушёл: из реестра и из ядра
+    alive.delete('c');
+    rm.checkRoundOutcome();
+
+    expect(rm._isRoundEnding).toBe(true);
+    expect(rm._stat.updateHead).toHaveBeenCalledWith(2, 'score', 1);
+    expect(rm._socketManager.sendRoundEnd).toHaveBeenCalledWith('sb', 'blue');
+  });
+
+  it('без вайпа в раунде уход игрока исход не решает', () => {
+    const { rm, alive } = makeCtx();
+
+    alive.delete('c');
+    rm.checkRoundOutcome();
+
+    expect(rm._isRoundEnding).toBe(false);
+    expect(rm._game.isAlive).not.toHaveBeenCalled();
+  });
+
+  it('новый раунд забывает записанные вайпы', () => {
+    const { rm, alive } = makeCtx();
+    rm._handoffCallback = vi.fn(); // не уходить в _startRound
+
+    rm._checkTeamWipe(1);
+    rm.initiateNewRound();
+    alive.delete('c');
+    rm.checkRoundOutcome();
+
+    expect(rm._isRoundEnding).toBe(false);
+  });
+
+  it('changeTeam перепроверяет исход раунда', () => {
+    const { rm } = makeCtx();
+    rm._applyTeamChange = vi.fn();
+    rm.checkRoundOutcome = vi.fn();
+
+    rm.changeTeam('c', 'spec');
+
+    expect(rm._applyTeamChange).toHaveBeenCalledWith('c', 'spec');
+    expect(rm.checkRoundOutcome).toHaveBeenCalled();
   });
 });
 

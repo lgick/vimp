@@ -126,6 +126,36 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     expect(core.is_alive(gameId)).toBe(false);
   });
 
+  it('removeUser перепроверяет исход раунда после ухода', async () => {
+    const gameId = await connectPlayer(host, { socketId: 's1' });
+    const spy = vi.spyOn(host._roundManager, 'checkRoundOutcome');
+
+    host.removeUser(gameId);
+
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it('кик бота под нового игрока перепроверяет исход раунда', async () => {
+    vi.spyOn(host._participants, 'isFull', 'get').mockReturnValue(true);
+    vi.spyOn(host._scripted, 'getCountsPerTeam').mockReturnValue({ team1: 1 });
+    vi.spyOn(host._scripted, 'removeOneForHuman').mockReturnValue(true);
+    const spy = vi.spyOn(host._roundManager, 'checkRoundOutcome');
+
+    await connectPlayer(host, { socketId: 's1' });
+
+    expect(host._scripted.removeOneForHuman).toHaveBeenCalledWith('team1');
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it('destroy не решает исход раунда, снимая участников', async () => {
+    await connectPlayer(host, { socketId: 's1' });
+    const spy = vi.spyOn(host._roundManager, 'checkRoundOutcome');
+
+    await host.destroy();
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('эстафета: handoff-мета восстанавливает участника в новом HostGame', async () => {
     const gameId = await connectPlayer(host, { socketId: 's1' });
 

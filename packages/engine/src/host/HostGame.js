@@ -258,6 +258,9 @@ export default class HostGame {
     this._handoffRestored = false;
     this._handoffMapTimeLeft = null;
 
+    // матч закрывается (destroy): снятие участников исход раунда не решает
+    this._isDestroying = false;
+
     // внедрение зависимостей (ядро отдаёт панель/фасад события через адаптер)
     this._socketManager.injectServices(this._game, this._panel, this._stat);
     this._game.injectServices({ vimp: this, panel: this._panel });
@@ -679,6 +682,7 @@ export default class HostGame {
    * @returns {Promise} Завершение финальной синхронизации профилей.
    */
   async destroy() {
+    this._isDestroying = true;
     this._timerManager.stopGameTimers();
     this._timerManager.stopIdleCheckTimer();
     this._timerManager.stopAllVoteTimers();
@@ -884,6 +888,7 @@ export default class HostGame {
 
     if (team) {
       this._scripted.removeOneForHuman(team);
+      this._roundManager.checkRoundOutcome();
     }
   }
 
@@ -960,6 +965,13 @@ export default class HostGame {
     this._participants.remove(gameId);
 
     this._chat.pushSystem('USER_LEFT', [user.name]);
+
+    // ушёл последний живой команды, пока раунд ждал одной выжившей. При
+    // закрытии матча исход не решается: таймеры уже сняты, и завершение
+    // раунда взвело бы новый и повторило бы finishAllGames/flushAll
+    if (!this._isDestroying) {
+      this._roundManager.checkRoundOutcome();
+    }
   }
 
   // обновляет команды (формат wire: 'seq:action:name', указатель —

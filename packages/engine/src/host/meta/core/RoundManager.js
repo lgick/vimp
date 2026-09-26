@@ -75,6 +75,9 @@ class RoundManager {
     this._scaledMapData = null;
     this._startMapNumber = 0;
     this._isRoundEnding = false;
+    // команды, чей вайп уже записан в этом раунде: при 3+ командах раунд
+    // идёт дальше, и второй раз `deaths` той же команде не пишется
+    this._wipedTeamIds = new Set();
     this._removedPlayersList = []; // gameId игроков для удаления с полотна
 
     // эстафета Worker'ов (Этап 5.2): колбэк переноса на границе раунда
@@ -148,6 +151,7 @@ class RoundManager {
 
     this._participants.clearActive();
     this._removedPlayersList = [];
+    this._wipedTeamIds.clear();
 
     this._panel.reset();
     this._stat.reset();
@@ -264,6 +268,7 @@ class RoundManager {
   // запуск нового раунда
   initiateNewRound() {
     this._timerManager.stopRoundTimer();
+    this._wipedTeamIds.clear();
 
     // граница раунда достигнута — отдать состояние эстафете; новый раунд
     // стартует уже новый Worker после переноса
@@ -455,6 +460,14 @@ class RoundManager {
 
   // меняет команду игрока
   changeTeam(gameId, newTeam) {
+    this._applyTeamChange(gameId, newTeam);
+
+    // уход в наблюдатели или в другую команду может оставить живых только в
+    // одной команде — раунд, ждавший этого после вайпа, завершается здесь
+    this.checkRoundOutcome();
+  }
+
+  _applyTeamChange(gameId, newTeam) {
     const user = this._participants.get(gameId);
     const currentTeam = user.team;
     const respawns = this._scaledMapData.respawns;
@@ -638,7 +651,7 @@ class RoundManager {
       // убийца мог покинуть игру до попадания (например, взрыв его бомбы) —
       // фраг не начисляется, но раунд обязан корректно завершиться
       if (!killerUser) {
-        this._checkTeamWipe(victimUser.teamId, null);
+        this._checkTeamWipe(victimUser.teamId);
         return;
       }
 
@@ -669,54 +682,108 @@ class RoundManager {
       this._chat.pushSystem('REPORT_KILL', [killerUser.name, victimUser.name]);
 
       // проверка на уничтожение всей команды противника
-      this._checkTeamWipe(victimUser.teamId, killerUser.teamId);
+      this._checkTeamWipe(victimUser.teamId);
     }
   }
 
-  // проверяет уничтожение всей команды
-  _checkTeamWipe(victimTeamId, killerTeamId) {
+  // проверяет уничтожение всей команды. Победитель — команда, у которой
+  // остались живые, а не команда последнего убийцы: суицид, огонь по своим
+  // или ушедший убийца иначе объявляли бы GAME OVER живой команде
+  _checkTeamWipe(victimTeamId) {
+    if (!this._canResolveRound() || victimTeamId === this._spectatorId) {
+      return;
+    }
+
+    const aliveTeamIds = this._getAliveTeamIds(victimTeamId);
+
+    // в команде жертвы есть живой — команда не уничтожена
+    if (!aliveTeamIds) {
+      return;
+    }
+
+    // запись поражения команде (один раз за раунд)
+    if (!this._wipedTeamIds.has(victimTeamId)) {
+      this._wipedTeamIds.add(victimTeamId);
+      this._stat.updateHead(victimTeamId, 'deaths', 1);
+    }
+
+    this._resolveRound(aliveTeamIds);
+  }
+
+  // перепроверяет исход раунда без смерти (уход игрока, смена команды):
+  // нужна только раунду, в котором вайп уже был, но живые оставались больше
+  // чем в одной команде. Без вайпа уход игрока раунд не завершает
+  checkRoundOutcome() {
+    if (!this._canResolveRound() || this._wipedTeamIds.size === 0) {
+      return;
+    }
+
+    this._resolveRound(this._getAliveTeamIds());
+  }
+
+  _canResolveRound() {
     // под endlessRound раунд не заканчивается вообще: вычищенная команда —
-    // не повод для результата и отложенного перезапуска
-    if (this._endlessRound) {
-      return;
-    }
+    // не повод для результата и отложенного перезапуска. Раунд, который уже
+    // завершается, второй раз не завершается
+    return !this._endlessRound && !this._isRoundEnding;
+  }
 
-    // если раунд уже в процессе завершения
-    if (this._isRoundEnding) {
-      return;
-    }
+  // id команд с живыми участниками (люди и scripted). null — если живой
+  // нашёлся в `victimTeamId`: остальных опрашивать незачем. Наблюдатели
+  // отсеиваются до вызова в ядро
+  _getAliveTeamIds(victimTeamId = null) {
+    const aliveTeamIds = new Set();
 
-    let winnerTeam = null;
-
-    // если команда наблюдателей, проверка не требуется
-    if (victimTeamId === this._spectatorId) {
-      return;
-    }
-
-    // проверка на живых участников в команде (люди и scripted)
     for (const participant of this._participants.getAll()) {
-      // если нашелся живой участник, команда не уничтожена
       if (
-        participant.teamId === victimTeamId &&
-        this._game.isAlive(participant.gameId)
+        participant.teamId === this._spectatorId ||
+        !this._game.isAlive(participant.gameId)
       ) {
-        return;
+        continue;
       }
+
+      if (participant.teamId === victimTeamId) {
+        return null;
+      }
+
+      aliveTeamIds.add(participant.teamId);
+    }
+
+    return aliveTeamIds;
+  }
+
+  // завершает раунд, если живые остались не больше чем в одной команде:
+  // она побеждает, нет выживших — ничья
+  _resolveRound(aliveTeamIds) {
+    // при 3+ командах раунд идёт, пока живые есть больше чем в одной
+    if (aliveTeamIds.size > 1) {
+      return;
     }
 
     // активация флага завершения раунда
     this._isRoundEnding = true;
 
-    // запись поражения команде
-    this._stat.updateHead(victimTeamId, 'deaths', 1);
+    const [winnerTeamId] = aliveTeamIds;
+    const winnerTeam = Object.keys(this._teams).find(
+      key => this._teams[key] === winnerTeamId,
+    );
 
-    // если убийца из другой команды, фраг для команды-победителя
-    if (killerTeamId && killerTeamId !== victimTeamId) {
-      this._stat.updateHead(killerTeamId, 'score', 1);
+    // счёт и объявление решает одно условие: команда вне `teams` не может
+    // получить очко, которого клиенты не увидят
+    if (winnerTeam) {
+      this._stat.updateHead(winnerTeamId, 'score', 1);
+    } else {
+      // ничья: последние игроки нескольких команд погибли в одном тике, а
+      // смерти после первой приходят уже в завершающийся раунд — поражение
+      // пишется всем вымершим командам сразу
+      for (const participant of this._participants.getAll()) {
+        const teamId = participant.teamId;
 
-      winnerTeam = Object.keys(this._teams).find(
-        key => this._teams[key] === killerTeamId,
-      );
+        if (teamId !== this._spectatorId && !this._wipedTeamIds.has(teamId)) {
+          this._wipedTeamIds.add(teamId);
+          this._stat.updateHead(teamId, 'deaths', 1);
+        }
+      }
     }
 
     // синхронизация накопленных профилей на мастер по итогам раунда
@@ -725,26 +792,25 @@ class RoundManager {
     this._playerDataSync?.finishAllGames?.();
     this._playerDataSync?.flushAll();
 
-    if (winnerTeam) {
-      this._participants.getHumans().forEach(user => {
-        const socketId = user.socketId;
+    this._participants.getHumans().forEach(user => {
+      const socketId = user.socketId;
+      // наблюдатель не проигрывает: ему victory при любом исходе, ничья
+      // включительно
+      const isWinner =
+        user.teamId === this._spectatorId ||
+        (winnerTeam && user.teamId === winnerTeamId);
 
-        if (user.teamId === victimTeamId) {
-          this._socketManager.sendSoundCue(socketId, 'defeat');
-        } else {
-          this._socketManager.sendSoundCue(socketId, 'victory');
-        }
+      this._socketManager.sendSoundCue(
+        socketId,
+        isWinner ? 'victory' : 'defeat',
+      );
 
+      if (winnerTeam) {
         this._socketManager.sendRoundEnd(socketId, winnerTeam);
-      });
-    } else {
-      this._participants.getHumans().forEach(user => {
-        const socketId = user.socketId;
-
-        this._socketManager.sendSoundCue(socketId, 'defeat');
+      } else {
         this._socketManager.sendRoundEnd(socketId);
-      });
-    }
+      }
+    });
 
     this._timerManager.stopRoundTimer();
     this._timerManager.startRoundRestartDelay(); // отложенный перезапуск раунда

@@ -237,7 +237,7 @@ to still being the join-time default:
   the very next map/round boundary. `flushAll()` flushes every current
   participant. Two lifecycle points call `flushAll()`:
   `RoundManager.createMap()` (map change) and
-  `RoundManager._checkTeamWipe()` (round end) — both alongside the existing
+  `RoundManager._resolveRound()` (round end) — both alongside the existing
   `Stat.reset()`/`Stat.updateHead()` calls at those same boundaries.
   `HostGame.removeUser()` does one more best-effort `flush()` for the
   leaving participant before deleting its `PlayerDataSync` entry.
@@ -493,8 +493,19 @@ code paths — fully unifying the two into one abstraction is a future task.
   current map is extended);
 - `reportKill(victimId, killerId)` — stats (frags/deaths/friendly fire),
   moving spectators to the killer, `_checkTeamWipe` → ends the round
-  (awards the win, plays victory/defeat sounds, restarts after
-  `roundRestartDelay`);
+  once survivors remain in at most one team (the win goes to that team,
+  whoever made the last kill — a suicide or a team kill included; no
+  survivors is a draw), announces the winning team to everyone, spectators
+  included, plays `victory` to the winning team and to spectators (on any
+  outcome, a draw included) and `defeat` to everyone else, restarts after `roundRestartDelay`. Each wiped team's head
+  gets `deaths +1` once per round (on a draw — the last players of several
+  teams dying in one tick — every wiped team gets it at once). With 3+ teams
+  a wipe can leave survivors in several teams; the round then waits, and
+  `checkRoundOutcome()` — called by `changeTeam`, `HostGame.removeUser` and
+  the bot kick that frees a slot for a joining human — ends it when a
+  departure leaves survivors in only one (without a wipe earlier in the
+  round, or while `destroy()` tears the match down, a departure decides
+  nothing). A map change forgets the round's recorded wipes;
 - `setActive`/`setSpectator` — player↔spectator transitions, sending the key
   set and the panel.
 
