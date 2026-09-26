@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.34.8] — 2026-09-26
+
 ### Fixed
 
 - The team-wipe winner is now the team that still has survivors, not the team of the last kill's attacker: a suicide, a team kill or a killer who already left no longer reports a plain game over (`defeat` to everyone) while another team is still alive. With three or more teams the round now goes on until survivors remain in only one of them (a player leaving, switching team or a bot kicked for a joining human also ends it once a team has been wiped), every wiped team gets its `deaths` once — on a draw too, and only the winning team and spectators hear `victory` — spectators on any outcome, a draw included; a wipe that leaves no survivors at all is a draw.
@@ -2275,6 +2277,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.34.8]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.8
 [0.34.7]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.7
 [0.34.6]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.6
 [0.34.5]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.5
