@@ -52,10 +52,7 @@ import { readCoreAbi, dispatchCoreOp, ABI_UNKNOWN } from '../lib/coreAbi.js';
 import { ABI_OP_DEBUG_JSON } from '../config/abiOps.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
-import {
-  buildSnapshotKeysById,
-  reconstructHot,
-} from '../lib/reconstructHot.js';
+import { buildSnapshotKeysById } from '../lib/reconstructHot.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
 import { sanitizeMessage } from '../lib/sanitizers.js';
@@ -87,7 +84,6 @@ import ClientReportsView from './components/view/ClientReports.js';
 import ClientReportsCtrl from './components/controller/ClientReports.js';
 import BakingProvider from './providers/BakingProvider.js';
 import DependencyProvider from './providers/DependencyProvider.js';
-import { HOT_FLAGS } from '../config/opcodes.js';
 import wsports from '../config/wsports.js';
 import GAME_CODES from '../config/gameCodes.js';
 import {
@@ -99,6 +95,7 @@ import lobbyConfig from '../config/lobby.js';
 import authClientConfig from '../config/authClient.js';
 import clientDefaults from '../config/clientDefaults.js';
 import applyCamera from './lib/applyCamera.js';
+import runHotTick from './lib/hotTick.js';
 
 // Динамическая загрузка игры по каталогу мастера (Этап 6.3): ClientPlugin
 // (parts, bakers, игровой CSS, хуки ядра) грузится по entries.client манифеста
@@ -951,15 +948,28 @@ function applyGameData(game) {
   });
 }
 
+// Камеру с NaN/undefined applyCamera не применяет (lib/applyCamera.js), но
+// молчать о ней нельзя: это симптом сбоя выше по течению (ядро, чтение
+// hot-буфера), и журнал — единственный способ узнать о нём с прода.
+// String(): JSON.stringify превратил бы NaN в null, а undefined потерял бы
+function reportBadCamera(camera) {
+  diagnostics.warn(
+    'engine.camera.non-finite',
+    { x: String(camera[0]), y: String(camera[1]) },
+    { source: 'client' },
+  );
+}
+
 // применяет кадр целиком (первый кадр и дискретные кадры интерполяции)
 function applyShot(game, camera) {
   applyGameData(game);
-  applyCamera(modules.canvasManager, soundManager, camera);
+  applyCamera(modules.canvasManager, soundManager, camera, reportBadCamera);
 }
 
 // рендер-тик: ядро выдаёт пересечённые кадры (события, создания/удаления)
 // JSON-очередью, а горячие позиции (танки/динамика/камера + предсказанный
-// свой танк) — плоским Float32-буфером zero-copy из памяти WASM
+// свой танк) — плоским Float32-буфером zero-copy из памяти WASM; порядок
+// чтения буфера — в lib/hotTick.js
 function renderTick() {
   if (!clientCore) {
     return;
@@ -974,26 +984,16 @@ function renderTick() {
     task();
   }
 
-  const len = clientCore.sample(performance.now());
-
-  // view пересоздаётся каждый тик: рост памяти WASM детачит buffer
-  const hot = new Float32Array(wasm.memory.buffer, clientCore.hot_ptr(), len);
-  const flags = hot[0];
-
-  if (flags & HOT_FLAGS.FRAMES) {
-    JSON.parse(clientCore.take_frames()).forEach(frame => {
-      applyShot(frame.game, frame.camera);
-    });
-  }
-
-  if (flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED)) {
-    applyGameData(reconstructHot(hot, snapshotKeysById));
-  }
-
-  if (flags & HOT_FLAGS.CAMERA) {
-    // камера уже разрешена ядром: предсказанная позиция либо интерполированная
-    applyCamera(modules.canvasManager, soundManager, [hot[1], hot[2]]);
-  }
+  runHotTick({
+    core: clientCore,
+    memory: wasm.memory,
+    snapshotKeysById,
+    now: performance.now(),
+    applyShot,
+    applyGameData,
+    applyCamera: camera =>
+      applyCamera(modules.canvasManager, soundManager, camera, reportBadCamera),
+  });
 
   soundManager.processAudibility();
   soundManager.updateActiveSounds();

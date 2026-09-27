@@ -173,7 +173,8 @@ binary (details — [client.md](client.md), ABI — [core.md](core.md#rust-trait
 
 The JS shell reads the render-tick result as a zero-copy flat Float32 buffer
 from WASM memory (hot positions) and as a JSON string (rare event frames),
-feeding both into the previous parse pipeline.
+feeding both into the previous parse pipeline. The buffer is read in full
+before any other call into the core: WASM memory growth detaches the view.
 
 Rendering is built from MVC components + PixiJS entities (`parts/`) on two
 canvases (`vimp`, `radar`); procedural textures are baked at startup.

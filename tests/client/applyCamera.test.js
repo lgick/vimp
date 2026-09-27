@@ -50,4 +50,41 @@ describe('applyCamera', () => {
     expect(canvasManager.updateCoords).not.toHaveBeenCalled();
     expect(soundManager.setListenerPosition).not.toHaveBeenCalled();
   });
+
+  it('неконечная камера не применяется и уходит в onInvalid', () => {
+    for (const camera of [
+      [NaN, 1],
+      [1, Infinity],
+      [undefined, undefined],
+      [null, 2],
+    ]) {
+      const { canvasManager, soundManager } = makeDeps();
+      const onInvalid = vi.fn();
+
+      applyCamera(canvasManager, soundManager, camera, onInvalid);
+
+      expect(canvasManager.updateCoords).not.toHaveBeenCalled();
+      expect(soundManager.setListenerPosition).not.toHaveBeenCalled();
+      expect(onInvalid).toHaveBeenCalledWith(camera);
+    }
+  });
+
+  it('без onInvalid неконечная камера молча пропускается', () => {
+    const { canvasManager, soundManager } = makeDeps();
+
+    expect(() =>
+      applyCamera(canvasManager, soundManager, [NaN, NaN]),
+    ).not.toThrow();
+    expect(canvasManager.updateCoords).not.toHaveBeenCalled();
+  });
+
+  it('конечная камера onInvalid не зовёт', () => {
+    const { canvasManager, soundManager } = makeDeps();
+    const onInvalid = vi.fn();
+
+    applyCamera(canvasManager, soundManager, [0, 0], onInvalid);
+
+    expect(onInvalid).not.toHaveBeenCalled();
+    expect(canvasManager.updateCoords).toHaveBeenCalled();
+  });
 });

@@ -827,3 +827,58 @@ describe('SoundManager: экономия записей позиции', () => {
     nowSpy.mockRestore();
   });
 });
+
+describe('SoundManager: неконечные координаты', () => {
+  // Howl, который бросает так же, как настоящий: Web Audio не принимает
+  // неконечное значение в setValueAtTime
+  const makeStrictHowl = () => ({
+    ...makeHowl(),
+    pos: vi.fn((x, y, z) => {
+      if (![x, y, z].every(Number.isFinite)) {
+        throw new TypeError(
+          "Failed to execute 'setValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+        );
+      }
+    }),
+  });
+
+  it('слушатель с undefined (отцепленный hot-буфер) не роняет кадр и глушит источник', () => {
+    const ctx = makeSpatialCtx();
+    const sound = makeStrictHowl();
+
+    ctx._listenerX = undefined;
+
+    expect(() => frame(ctx, sound, 1, 400, 100, 1)).not.toThrow();
+    expect(sound.pos).not.toHaveBeenCalled();
+    expect(sound.volume).toHaveBeenCalledWith(0, 1);
+  });
+
+  it('updateActiveSounds с NaN-позицией лупа не бросает', () => {
+    const sound = makeStrictHowl();
+    const ctx = makeManager({
+      _registeredSounds: new Map([
+        ['owner', { position: { x: NaN, y: 0 }, volume: 1, loop: true }],
+      ]),
+      _activeInstances: new Map([[7, { sound, ownerId: 'owner', loop: true }]]),
+    });
+
+    expect(() => ctx.updateActiveSounds()).not.toThrow();
+    expect(sound.pos).not.toHaveBeenCalled();
+  });
+
+  it('_writePos не пишет и не запоминает неконечную позицию', () => {
+    const ctx = makeManager();
+    const sound = makeStrictHowl();
+
+    ctx._writePos(sound, 1, NaN, 0, 0);
+    ctx._writePos(sound, 1, 0, Infinity, 0);
+
+    expect(sound.pos).not.toHaveBeenCalled();
+    expect(ctx._pannerPos.has(1)).toBe(false);
+
+    ctx._writePos(sound, 1, 5, 0, 0);
+
+    expect(sound.pos).toHaveBeenCalledTimes(1);
+    expect(sound.pos).toHaveBeenCalledWith(5, 0, 0, 1);
+  });
+});

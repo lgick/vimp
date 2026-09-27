@@ -716,8 +716,11 @@ export default class SoundManager {
 
     // отсечка в мировых координатах: она обязана совпадать с maxDistance
     // самого PannerNode, поэтому зумом НЕ масштабируется — иначе движок
-    // считал бы источник слышимым там, где узел уже отдал тишину
-    if (Math.hypot(dx, dy) >= this._spatial.maxDistance) {
+    // считал бы источник слышимым там, где узел уже отдал тишину.
+    // «не ближе maxDistance», а не «дальше»: NaN-дистанция (координата
+    // источника или слушателя не число) иначе считалась бы слышимой на
+    // полной громкости
+    if (!(Math.hypot(dx, dy) < this._spatial.maxDistance)) {
       sound.volume(0, soundId);
 
       return false;
@@ -787,7 +790,8 @@ export default class SoundManager {
    * @private Пишет позицию в паннер, если она изменилась заметнее
    * POSITION_EPSILON. Единственная точка записи: у неподвижного источника
    * позиция уже в узле, и повторная запись — только лишняя автоматизация,
-   * а именно её поток WebKit и не переносит.
+   * а именно её поток WebKit и не переносит. Неконечная позиция
+   * пропускается: не пишется и не запоминается.
    * @param {Howl} sound - Экземпляр Howl.
    * @param {number} soundId - ID конкретного проигрываемого экземпляра.
    * @param {number} px - Координата X в осях Web Audio.
@@ -795,6 +799,17 @@ export default class SoundManager {
    * @param {number} pz - Координата Z в осях Web Audio.
    */
   _writePos(sound, soundId, px, py, pz) {
+    // Неконечная координата в узел не пишется: Web Audio бросает на ней
+    // TypeError из setValueAtTime, исключение уходит из рендер-тика в тикер
+    // Pixi, и тот больше не запрашивает кадр — игра замирает целиком.
+    // Позиции источников задаёт и игра (registerSound/updateSoundData),
+    // поэтому одного фильтра камеры (lib/applyCamera.js) здесь мало.
+    // Запомненная позиция не трогается: следующую конечную сравним с
+    // настоящей
+    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) {
+      return;
+    }
+
     const written = this._pannerPos.get(soundId);
 
     if (written !== undefined) {

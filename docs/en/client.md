@@ -215,9 +215,10 @@ before commands. The host has no chat rate limit (only a length limit,
   (`applyShot`), bypassing the core.
 - **The render loop** `renderTick` on `Ticker.shared` (rAF):
   `clientCore.sample(now)` → reading the flat hot buffer zero-copy from
-  WASM memory (tanks/dynamics/camera/predicted tank) + `take_frames()` for
-  rare event frames → applied through the previous `parse` pipeline (see
-  "Client Core" below).
+  WASM memory (tanks/dynamics/camera/predicted tank) **in full, before any
+  other call into the core** → `take_frames()` for rare event frames →
+  applied through the previous `parse` pipeline in the order "frames → hot
+  data → camera" (`lib/hotTick.js`; see "Client Core" below).
 - Resets: a map change (`MAP_DATA` → `set_map`) and `CLEAR` (→ `reset`)
   clear the frame buffer and the predictor in the core; `reset` also drops
   the local player's identity (`my_game_id`), so the prediction overlay
@@ -341,7 +342,11 @@ central journal — see [master.md](master.md#post-client-reports-client-error-r
   `safari-web-extension:`) are dropped;
 - explicit `warn(code, details)` / `capture(error)` of a game's parts
   through the `diagnostics` pool service
-  ([plugin-api.md](plugin-api.md#the-diagnostics-service)).
+  ([plugin-api.md](plugin-api.md#the-diagnostics-service));
+- a non-finite camera (`NaN`, `Infinity`, `undefined`, `null` in `x`/`y`):
+  `applyCamera` applies such a frame neither to the canvas nor to the sound
+  listener, and reports it as a `warn` with code `engine.camera.non-finite`,
+  `source: 'client'`, `details: { x, y }` as strings.
 
 **Not caught, on purpose:** `console.error` / `console.warn` calls (noise
 and arbitrary data in their arguments; the console is never wrapped),
@@ -792,8 +797,15 @@ Data flow:
   while entities on the canvas stay alive.
 - **Render tick**: `sample(now)` returns the length of the flat **hot
   buffer** — `new Float32Array(wasm.memory.buffer, hot_ptr(), len)` read
-  zero-copy (the view is recreated every tick: WASM memory growth detaches
-  the buffer). The buffer carries flags, the camera (already resolved:
+  zero-copy. The view is recreated every tick and lives only until the WASM
+  memory grows: growth detaches the buffer, and a detached view reads
+  `undefined`. Any allocating call into the core can grow it —
+  `take_frames()` builds a JSON string on the WASM heap, parts call the core
+  while parsing frames — so `lib/hotTick.js` copies out everything it needs
+  before the first such call. The camera used to be read after
+  `take_frames()` and turned into NaN: the canvas went blank until a camera
+  reset, and the sound listener made `Howl.pos()` throw, taking the ticker
+  with it. The buffer carries flags, the camera (already resolved:
   predicted position or interpolated), interpolated tank/dynamic records,
   and the game's predicted records last — the local actor's
   (`render_overlay`) followed by any bodies the game predicts itself
@@ -1121,6 +1133,12 @@ every frame, and so do the `rate` update and the reaping of instances whose
 source is gone. Volume has to: a game drives it from speed (an engine loop),
 where a 30 Hz staircase would be audible, and the `maxDistance` mute has to
 land in the same frame the source leaves the radius, not 33 ms later.
+
+**A non-finite position never reaches the node.** `setValueAtTime` throws on
+NaN/Infinity, and an exception in the render tick stops the Pixi ticker —
+the game freezes. `_writePos`, the only write point, skips such a position
+and does not remember it; `_applyVolume` treats a NaN distance as beyond
+`maxDistance` and mutes the source.
 
 ## InputListener
 

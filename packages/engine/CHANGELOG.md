@@ -9,6 +9,16 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- The canvas could go blank until the next respawn, and the game could
+  freeze on `Failed to execute 'setValueAtTime' on 'AudioParam'`: the render
+  tick read the hot buffer through a view that WASM memory growth in
+  `take_frames()` had detached, and the `undefined` camera turned into NaN.
+  The tick now reads the whole buffer before any other call into the core;
+  a non-finite camera is skipped and reported as `engine.camera.non-finite`,
+  and no non-finite position ever reaches an audio panner.
+
 ## [0.35.2] — 2026-09-27
 
 ### Security

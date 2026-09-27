@@ -14,9 +14,28 @@
  * @param {object} soundManager - Экземпляр SoundManager.
  * @param {Array | number} camera - `[x, y, cameraReset, shakeData]` из
  * горячего буфера ядра; `0` или пустое значение — кадра камеры нет.
+ * @param {Function} [onInvalid] - Зовётся с кадром, у которого x или y — не
+ * конечное число (NaN, Infinity, undefined, null); такой кадр не применяется.
  */
-export default function applyCamera(canvasManager, soundManager, camera) {
+export default function applyCamera(
+  canvasManager,
+  soundManager,
+  camera,
+  onInvalid,
+) {
   if (!camera || camera === 0) {
+    return;
+  }
+
+  // Неконечная координата не применяется ни к полотну, ни к слушателю.
+  // Полотну один NaN вредит надолго: CanvasManagerModel сглаживает камеру
+  // через lerp, NaN оседает в его накопителях до cameraReset — масштаб
+  // сцены NaN, картинки нет. Слушателю — сразу: NaN уходит в Howl.pos(),
+  // тот бросает, и тикер Pixi останавливается. null отсекается тоже: serde
+  // пишет неконечное число JSON-кадра как null, а в арифметике null молча
+  // стал бы нулём — прыжок камеры в начало координат
+  if (!Number.isFinite(camera[0]) || !Number.isFinite(camera[1])) {
+    onInvalid?.(camera);
     return;
   }
 
