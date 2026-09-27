@@ -796,9 +796,11 @@ Data flow:
   so the clock offset is reseeded exactly instead of being chased by the EMA
   while entities on the canvas stay alive.
 - **Render tick**: `sample(now)` returns the length of the flat **hot
-  buffer** — `new Float32Array(wasm.memory.buffer, hot_ptr(), len)` read
-  zero-copy. The view is recreated every tick and lives only until the WASM
-  memory grows: growth detaches the buffer, and a detached view reads
+  buffer**, read zero-copy: `hot_ptr()` first, then
+  `new Float32Array(wasm.memory.buffer, ptr, len)` — the buffer is taken
+  after the call into the core, never before it. The view is recreated
+  every tick and lives only until the WASM memory grows: growth detaches
+  the buffer, and a detached view reads
   `undefined`. Any allocating call into the core can grow it —
   `take_frames()` builds a JSON string on the WASM heap, parts call the core
   while parsing frames — so `lib/hotTick.js` copies out everything it needs
@@ -1139,6 +1141,9 @@ NaN/Infinity, and an exception in the render tick stops the Pixi ticker —
 the game freezes. `_writePos`, the only write point, skips such a position
 and does not remember it; `_applyVolume` treats a NaN distance as beyond
 `maxDistance` and mutes the source.
+The same holds for `rate`: Howler validates volume but hands `rate`
+straight to `playbackRate.setValueAtTime`, so `updateActiveSounds` passes
+it on only when it is finite; until then the previous rate plays.
 
 ## InputListener
 

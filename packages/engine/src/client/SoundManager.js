@@ -514,8 +514,13 @@ export default class SoundManager {
       // rate только на изменение: Howler на каждый вызов делает два seek(),
       // переписывает _rateSeek/_playStart и пересоздаёт таймер конца петли
       // — на 60 Гц это лишняя нагрузка и лишние события 'end' на каждом
-      // обороте
-      if (typeof rate === 'number' && rate !== activeInstance.rate) {
+      // обороте.
+      // И только конечный: громкость Howler проверяет сам, а rate — нет,
+      // NaN/Infinity уходят прямо в playbackRate.setValueAtTime, тот
+      // бросает TypeError, и тикер Pixi останавливается (как с позицией в
+      // _writePos). К тому же NaN !== NaN — вызов повторялся бы каждый кадр.
+      // До первого конечного значения звучит прежний rate
+      if (Number.isFinite(rate) && rate !== activeInstance.rate) {
         sound.rate(rate, soundId);
         activeInstance.rate = rate;
       }

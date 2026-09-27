@@ -34,6 +34,27 @@ const makeHowl = () => ({
   pannerAttr: vi.fn(),
 });
 
+// Howl, который бросает так же, как настоящий: Web Audio не принимает
+// неконечное значение в setValueAtTime. pos() — три AudioParam позиции,
+// rate() — playbackRate; громкость Howler проверяет сам и NaN молча
+// отбрасывает, поэтому volume здесь обычный
+const NON_FINITE_ERROR =
+  "Failed to execute 'setValueAtTime' on 'AudioParam': The provided float value is non-finite.";
+
+const makeStrictHowl = () => ({
+  ...makeHowl(),
+  pos: vi.fn((x, y, z) => {
+    if (![x, y, z].every(Number.isFinite)) {
+      throw new TypeError(NON_FINITE_ERROR);
+    }
+  }),
+  rate: vi.fn(rate => {
+    if (!Number.isFinite(rate)) {
+      throw new TypeError(NON_FINITE_ERROR);
+    }
+  }),
+});
+
 // один кадр менеджера: громкость применяется всегда, позиция — только если
 // источник слышим. Ровно этой парой его зовут updateActiveSounds и
 // processAudibility
@@ -828,20 +849,7 @@ describe('SoundManager: экономия записей позиции', () => {
   });
 });
 
-describe('SoundManager: неконечные координаты', () => {
-  // Howl, который бросает так же, как настоящий: Web Audio не принимает
-  // неконечное значение в setValueAtTime
-  const makeStrictHowl = () => ({
-    ...makeHowl(),
-    pos: vi.fn((x, y, z) => {
-      if (![x, y, z].every(Number.isFinite)) {
-        throw new TypeError(
-          "Failed to execute 'setValueAtTime' on 'AudioParam': The provided float value is non-finite.",
-        );
-      }
-    }),
-  });
-
+describe('SoundManager: неконечные значения', () => {
   it('слушатель с undefined (отцепленный hot-буфер) не роняет кадр и глушит источник', () => {
     const ctx = makeSpatialCtx();
     const sound = makeStrictHowl();
@@ -880,5 +888,56 @@ describe('SoundManager: неконечные координаты', () => {
 
     expect(sound.pos).toHaveBeenCalledTimes(1);
     expect(sound.pos).toHaveBeenCalledWith(5, 0, 0, 1);
+  });
+
+  it('неконечный rate не уходит в Howler, прежний остаётся до конечного', () => {
+    const sound = makeStrictHowl();
+    const reg = { position: { x: 0, y: 0 }, volume: 1, rate: NaN, loop: true };
+    const ctx = makeLoopCtx(reg, sound);
+
+    expect(() => ctx.updateActiveSounds()).not.toThrow();
+
+    reg.rate = Infinity;
+
+    expect(() => ctx.updateActiveSounds()).not.toThrow();
+    expect(sound.rate).not.toHaveBeenCalled();
+
+    reg.rate = 1.2;
+    ctx.updateActiveSounds();
+
+    expect(sound.rate).toHaveBeenCalledTimes(1);
+    expect(sound.rate).toHaveBeenCalledWith(1.2, 7);
+  });
+
+  it('старт нового звука в processAudibility с NaN не роняет кадр', () => {
+    const sound = makeStrictHowl();
+    const reg = {
+      id: 'shot',
+      position: { x: 400, y: 100 },
+      priority: 1,
+      loop: false,
+      activeSoundId: null,
+      volume: 1,
+      spatial: true,
+      sound,
+    };
+    const ctx = makeManager({
+      // так слушателя оставлял отцепленный hot-буфер
+      _listenerX: undefined,
+      _listenerY: 100,
+      _registeredSounds: new Map([['shot', reg]]),
+      _cleanupUnplayedOneShots: vi.fn(),
+    });
+
+    ctx._internalPlay = vi.fn(candidate => {
+      ctx._activeInstances.set(1, { sound, ownerId: candidate.id, loop: false });
+
+      return 1;
+    });
+
+    expect(() => ctx.processAudibility()).not.toThrow();
+    expect(ctx._internalPlay).toHaveBeenCalledTimes(1);
+    expect(sound.pos).not.toHaveBeenCalled();
+    expect(sound.volume).toHaveBeenCalledWith(0, 1);
   });
 });

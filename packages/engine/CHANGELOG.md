@@ -9,6 +9,13 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- A game that passes a non-finite `rate` for a looping sound
+  (`registerSound` / `updateSoundData`) no longer freezes the client: Howler
+  hands it straight to `playbackRate.setValueAtTime`, which throws inside the
+  render tick. The sound keeps its previous rate until a finite one arrives.
+
 ## [0.35.3] — 2026-09-27
 
 ### Fixed

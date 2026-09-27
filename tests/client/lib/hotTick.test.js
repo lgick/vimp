@@ -102,6 +102,25 @@ describe('runHotTick', () => {
     expect(core.take_frames).not.toHaveBeenCalled();
   });
 
+  it('только PREDICTED (без GAME) — горячие данные всё равно разбираются', () => {
+    const { core, memory } = makeCore({
+      hot: makeHot(HOT_FLAGS.PREDICTED | HOT_FLAGS.CAMERA),
+    });
+    const deps = run(core, memory);
+
+    expect(deps.applyGameData).toHaveBeenCalledWith({ a1: { 5: [10, 20] } });
+    expect(deps.applyCamera).toHaveBeenCalledWith([120, -40]);
+    expect(core.take_frames).not.toHaveBeenCalled();
+  });
+
+  it('без CAMERA камера не применяется', () => {
+    const { core, memory } = makeCore({ hot: makeHot(HOT_FLAGS.GAME) });
+    const deps = run(core, memory);
+
+    expect(deps.applyGameData).toHaveBeenCalledTimes(1);
+    expect(deps.applyCamera).not.toHaveBeenCalled();
+  });
+
   it('sample получает now', () => {
     const { core, memory } = makeCore();
 
