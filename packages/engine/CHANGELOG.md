@@ -11,6 +11,12 @@ bumps the minor version).
 
 ## [0.35.2] — 2026-09-27
 
+### Security
+
+- Frames that point at bundles which do not exist no longer use up the
+  server's budget of 20 source maps a minute or push real maps out of its
+  cache: two crafted reports a minute could switch stack symbolication off.
+
 ### Fixed
 
 - A malformed or oversized `POST /client-reports` body gets a short JSON
@@ -30,10 +36,8 @@ bumps the minor version).
 - Source maps could still be downloaded in production through a
   percent-encoded path (`/assets/index-*.js.%6dap`); `denySourceMaps` now
   checks the decoded path, case-insensitively.
-- Stack symbolication on the server parses at most 20 source maps a minute,
-  so crafted reports cannot stall the event loop; frames that point at
-  bundles which do not exist cost nothing from that budget and never push
-  real maps out of the cache.
+- Stack symbolication on the server loads at most 20 source maps a minute,
+  so crafted reports cannot stall the event loop.
 
 ### Fixed
 

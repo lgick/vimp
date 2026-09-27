@@ -39,10 +39,22 @@ afterEach(async () => {
   }
 });
 
-async function start({ limit = 100, trustProxy = false, buffer, symbolicate = null } = {}) {
+// Express пишет стек ошибки через setImmediate уже после отправки ответа:
+// проверка «без стека в журнале процесса» до этого момента прошла бы на
+// любом коде
+const waitForExpressLog = () => new Promise(resolve => setImmediate(resolve));
+
+async function start({ limit = 100, trustProxy = false, buffer, symbolicate = null, env } = {}) {
   const log = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
   const buf = buffer ?? new ClientReportBuffer();
   const app = express();
+
+  // обработчик ошибок Express по умолчанию печатает стек только вне
+  // `test` — а Vitest ставит NODE_ENV=test; тестам «без стека в журнале»
+  // нужен боевой режим, иначе их проверка пустая
+  if (env) {
+    app.set('env', env);
+  }
 
   app.post(
     '/client-reports',
@@ -162,12 +174,13 @@ describe('POST /client-reports: отказы', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const { post } = await start();
+      const { post } = await start({ env: 'production' });
       const res = await post('{bad');
 
       expect(res.status).toBe(400);
       expect(res.headers.get('content-type')).toContain('application/json');
       expect(await res.json()).toEqual({ error: 'badRequest' });
+      await waitForExpressLog();
       expect(consoleError).not.toHaveBeenCalled();
     } finally {
       consoleError.mockRestore();
@@ -178,12 +191,13 @@ describe('POST /client-reports: отказы', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const { post } = await start();
+      const { post } = await start({ env: 'production' });
       const res = await post('x'.repeat(20000));
 
       expect(res.status).toBe(413);
       expect(res.headers.get('content-type')).toContain('application/json');
       expect(await res.json()).toEqual({ error: 'payloadTooLarge' });
+      await waitForExpressLog();
       expect(consoleError).not.toHaveBeenCalled();
     } finally {
       consoleError.mockRestore();

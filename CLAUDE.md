@@ -42,7 +42,9 @@ change as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`),
 `packages/engine/core/CHANGELOG.md` (crate `vimp-engine-core`),
 `packages/create-vimp-game/CHANGELOG.md` (npm `create-vimp-game`: CLI,
 generator, template). Unreleased work under `## [Unreleased]`, dated at
-release. Tests, refactors and `docs/` are not entries.
+release. Tests, refactors and `docs/` are not entries. A released section
+(`## [X.Y.Z]`) is history: a refinement of an entry that already shipped is
+a new entry under `## [Unreleased]`, never an edit of the old one.
 
 **The sub-heading sets the release level** — the only place it is recorded,
 so pick it deliberately: `### ⚠️ Breaking` (minor in `0.x`, major from `1.0`)
