@@ -4,14 +4,18 @@
 // прокси мастера, ничего не кэширует и не интерпретирует: отдаёт
 // {status, json}, код ответа решает обработчик роута.
 export default class ClientReportsProxy {
-  constructor(authServiceUrl, { fetchImpl = fetch } = {}) {
+  constructor(authServiceUrl, { fetchImpl = fetch, timeout = 15000 } = {}) {
     this._url = authServiceUrl;
     this._fetch = fetchImpl;
+    this._timeout = timeout;
   }
 
   async _request(path, token, { method = 'GET', body } = {}) {
     const res = await this._fetch(`${this._url}${path}`, {
       method,
+      // зависший auth не должен держать запрос админки — тот же приём, что
+      // у GameRegistryProxy
+      signal: this._timeout ? AbortSignal.timeout(this._timeout) : undefined,
       headers: {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
         ...(body ? { 'content-type': 'application/json' } : {}),

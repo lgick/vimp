@@ -11,6 +11,12 @@ import { STACK_SYMBOLICATED } from './limits.js';
 
 const SOURCE_TAIL_RE = /(?:^|\/)((?:src|node_modules)\/.*)$/;
 
+// строка стека — кадр: V8 `    at …`, Firefox/Safari `fn@scheme://…`.
+// Первая строка V8 — сообщение, у Firefox/Safari её нет вовсе: там первая
+// строка и есть верхний (самый нужный) кадр. Сообщение V8, оканчивающееся
+// на `url:line:col`, кадром не считается — у него нет ни `at `, ни `@`
+const FRAME_LINE_RE = /^\s*at\s|@[a-z][a-z0-9+.-]*:\/\//i;
+
 // путь исходника из карты без префиксов сборщика: `webpack://`, `vite://`,
 // ведущие `../` и `./`; от путей внутри src/ или node_modules/ — хвост с них
 export function normalizeSource(source) {
@@ -29,6 +35,9 @@ export function normalizeSource(source) {
  * @param {number} [opts.maxFrames=12]
  * @param {number} [opts.cacheSize=20] - сколько разобранных карт держать (LRU)
  * @param {number} [opts.maxMapBytes=20 * 1024 * 1024]
+ * @param {number} [opts.maxColdLoadsPerMinute=20] - сколько карт в минуту
+ *   читать с диска; сверх — кадр остаётся сырым
+ * @param {() => number} [opts.now=Date.now]
  * @returns {(stack: string) => Promise<string>}
  */
 export function createSymbolicator({
@@ -37,10 +46,58 @@ export function createSymbolicator({
   maxFrames = 12,
   cacheSize = 20,
   maxMapBytes = 20 * 1024 * 1024,
+  maxColdLoadsPerMinute = 20,
+  now = Date.now,
 }) {
   const rootPrefixes = roots.filter(Boolean).map(root => path.resolve(root) + path.sep);
-  // mapPath → SourceMapConsumer; порядок вставки Map и есть порядок LRU
+  // mapPath → Promise<SourceMapConsumer|null>: промис, а не результат, —
+  // два одновременных отчёта про одну карту читают её с диска один раз.
+  // Порядок вставки Map и есть порядок LRU
   const cache = new Map();
+  let coldMinute = null;
+  let coldLoads = 0;
+
+  // Разбор карты — синхронные десятки мс в event loop бокса (у dedicated
+  // там же идёт матч), а корни лобби держат все версии всех игр: без
+  // бюджета стеки с разными картами гоняли бы LRU по кругу
+  const takeColdLoad = () => {
+    const minute = Math.floor(now() / 60000);
+
+    if (minute !== coldMinute) {
+      coldMinute = minute;
+      coldLoads = 0;
+    }
+
+    if (coldLoads >= maxColdLoadsPerMinute) {
+      return false;
+    }
+
+    coldLoads += 1;
+
+    return true;
+  };
+
+  // null — карты нет (и не появится: имя бандла хешировано) или она не
+  // годится; прочие сбои — исключение
+  const readMap = async mapPath => {
+    let stat;
+
+    try {
+      stat = await fs.stat(mapPath);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return null;
+      }
+
+      throw err;
+    }
+
+    if (!stat.isFile() || stat.size > maxMapBytes) {
+      return null;
+    }
+
+    return new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
+  };
 
   // карта бандла или null, если файл не вправе читаться / карты нет
   const loadMap = async pathname => {
@@ -62,38 +119,39 @@ export function createSymbolicator({
     }
 
     const mapPath = `${resolved}.map`;
-    const cached = cache.get(mapPath);
 
-    if (cached) {
+    if (cache.has(mapPath)) {
+      const pending = cache.get(mapPath);
+
       cache.delete(mapPath);
-      cache.set(mapPath, cached);
-      return cached;
+      cache.set(mapPath, pending);
+
+      return pending;
     }
 
-    const stat = await fs.stat(mapPath);
-
-    if (!stat.isFile() || stat.size > maxMapBytes) {
+    if (!takeColdLoad()) {
       return null;
     }
 
-    const consumer = new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
+    const pending = readMap(mapPath);
 
-    cache.set(mapPath, consumer);
+    cache.set(mapPath, pending);
 
     if (cache.size > cacheSize) {
       cache.delete(cache.keys().next().value);
     }
 
-    return consumer;
+    // сбой чтения не кешируется: один EIO не должен выключить карту навсегда
+    pending.catch(() => {
+      if (cache.get(mapPath) === pending) {
+        cache.delete(mapPath);
+      }
+    });
+
+    return pending;
   };
 
-  const symbolicateFrame = async text => {
-    const frame = parseFrame(text);
-
-    if (!frame) {
-      return text;
-    }
-
+  const symbolicateFrame = async (text, frame) => {
     let url;
 
     try {
@@ -128,20 +186,25 @@ export function createSymbolicator({
   };
 
   return async stack => {
-    const [head, ...frames] = String(stack).split('\n');
-    const out = [head];
+    const out = [];
+    let decoded = 0;
 
-    for (let i = 0; i < frames.length; i += 1) {
-      if (i >= maxFrames) {
-        out.push(frames[i]);
+    for (const line of String(stack).split('\n')) {
+      const frame =
+        decoded < maxFrames && FRAME_LINE_RE.test(line) ? parseFrame(line) : null;
+
+      if (!frame) {
+        out.push(line);
         continue;
       }
 
+      decoded += 1;
+
       try {
-        out.push(await symbolicateFrame(frames[i]));
+        out.push(await symbolicateFrame(line, frame));
       } catch {
         // одна битая карта не ломает весь стек
-        out.push(frames[i]);
+        out.push(line);
       }
     }
 

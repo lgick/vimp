@@ -387,15 +387,19 @@ warning at start instead of refusing to boot.
 | `GET /admin/client-reports?status=&gameId=&limit=&offset=` (Bearer, admin) | `{ reports, total }`, freshest `last_seen` first. `status` is `open` (default), `fixed`, `ignored` or `all`; `gameId` is optional and checked like a registry id; `limit` is clamped to `1..100` (default 50), `offset` to `0..100000`. `400 badRequest` on a bad `status` or `gameId`. A report carries every column except `status_by` — the admin's nick comes as `statusByNick` instead |
 | `PATCH /admin/client-reports/:id` (Bearer, admin, `{ status, note? }`) | sets `status` (`open` \| `fixed` \| `ignored`, required) and an optional note (≤ 500 chars), stamps the admin and the time. `{ report }`; `400 badRequest`, `404 unknownReport` |
 
-**Table `client_reports`** (`013_client_reports.sql`): one row per
-fingerprint (`CHAR(64) UNIQUE`) with `source`, `kind`, `code`, `message`,
-`stack`, `details` (JSONB), `engine_version`, `game_id`, `game_version`,
-`box`, `mode`, `user_agent`, a `count` of repeats, `first_seen` / `last_seen`
+**Table `client_reports`** (`013_client_reports.sql`,
+`014_client_reports_context.sql`): one row per fingerprint (`CHAR(64)
+UNIQUE`) with `source`, `kind`, `code`, `message`, `stack`, `details`
+(JSONB), `engine_version`, `game_id`, `game_version`, `box`, `mode`, `role`
+(`client` \| `host`, anything else becomes `null`), `page` (the pathname,
+≤ 128), `user_agent`, a `count` of repeats, `first_seen` / `last_seen`
 and the admin's `status` / `status_note` / `status_by` / `status_at`. No nick,
 player id or IP is ever stored. A batch is one `SELECT` of the known
 fingerprints plus one `INSERT … ON CONFLICT (fingerprint) DO UPDATE` over
 `jsonb_to_recordset` (duplicates inside a batch are merged in JS first — one
-command cannot touch a row twice).
+command cannot touch a row twice). On a repeat, the box's own service rows
+(`source: 'box'`) take `details` from the latest window; every other row
+keeps the first `stack` and `details` it was sent.
 
 **A repeat never changes the status.** The fingerprint is computed by the box
 and includes the engine and game versions, so a fix ships as a new version,

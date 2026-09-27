@@ -1,9 +1,10 @@
 import fs from 'node:fs';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ENGINE_VERSION } from '../../packages/engine/src/master/clientReports/engineVersion.js';
 import {
   createClientReports,
   makeDroppedEntry,
+  stopClientReports,
 } from '../../packages/engine/src/master/clientReports/index.js';
 
 // Сборка журнала клиентских ошибок для входов бокса и служебная запись
@@ -128,5 +129,45 @@ describe('createClientReports', () => {
     // счётчики обнулены — второй тик без служебной записи
     await forwarder.flush();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('stopClientReports', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('stop разрешился — хелпер разрешился без строки об ошибке', async () => {
+    const log = makeLog();
+
+    await stopClientReports({ stop: vi.fn(async () => {}) }, { log });
+
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('stop висит — хелпер разрешается по потолку 3 с', async () => {
+    vi.useFakeTimers();
+
+    const log = makeLog();
+    const done = vi.fn();
+
+    stopClientReports({ stop: () => new Promise(() => {}) }, { log }).then(done);
+
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(done).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('stop отклонился — строка об ошибке, хелпер разрешился', async () => {
+    const log = makeLog();
+
+    await expect(
+      stopClientReports({ stop: vi.fn(async () => { throw new Error('auth down'); }) }, { log }),
+    ).resolves.toBeUndefined();
+
+    expect(log.error).toHaveBeenCalledWith('[vimp:client-report] final flush failed:', 'auth down');
   });
 });

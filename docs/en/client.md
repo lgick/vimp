@@ -330,7 +330,10 @@ central journal — see [master.md](master.md#post-client-reports-client-error-r
 - errors of the host Worker: `worker.onerror`, `onmessageerror`, the init
   failure (`error`, which still rolls the room back as before) and unhandled
   rejections inside the Worker, which it forwards itself as a
-  `{ type: 'diagnostic' }` message (source `host-worker`);
+  `{ type: 'diagnostic' }` message (source `host-worker`). A Worker
+  `ErrorEvent` reaches the main thread with `error: null`, so the report
+  gets a frame built from `filename:lineno:colno` (and `Worker error` when
+  the message is empty); an init failure carries the Worker's own stack;
 - Content-Security-Policy violations (`securitypolicyviolation`, kind
   `csp`) — only in production, where the master sets CSP; violations whose
   `blockedURI` or `sourceFile` belongs to a browser extension
@@ -352,13 +355,15 @@ its logs).
 message and the first stack frame with `:line:column`; a repeat only
 increments a counter. At most 50 distinct reports per session (then one
 `console.warn('[vimp] diagnostics: session cap reached')`, and repeats of
-known ones are still counted). Sending is debounced by 2 s and flushed on
-`pagehide`; only reports whose counter grew since the last send go out,
+known ones are still counted). The first send goes 2 s after the first
+report, later sends at most every 10 s; `pagehide` and a context change send
+at once. When the game or role changes, the reports buffered so far go out
+with the old context. Only reports whose counter grew since the last send go out,
 with the increment as `count`. A request carries at most 10 reports; a batch
 over 15 000 bytes loses its `details`, then its stacks are cut to 1000
 characters, and if it is still too big the reports go one per request. The
 transport is `navigator.sendBeacon`, falling back to `fetch` with
-`keepalive`; the response is not read. The reporter swallows its own
+`keepalive` when the beacon is refused or throws; the response is not read. The reporter swallows its own
 failures and never reports an error raised while it is reporting.
 
 Fields are cut to the server's limits: `message` 500, `stack` 4000, `code`
@@ -390,8 +395,8 @@ any lobby master shows it.
 - **A row** shows how long ago it was last seen, `×count`, `kind/source`,
   `code` or the message (cut to 120 characters), `gameId@gameVersion`, the
   engine version, the box and the status. A click expands the full message,
-  the stack and `details` in scrollable `<pre>` blocks, the user agent, first
-  and last seen, the first 12 characters of the fingerprint and who set the
+  the stack and `details` in scrollable `<pre>` blocks, the user agent, the
+  tab's role (`client`/`host`) and page, first and last seen, the first 12 characters of the fingerprint and who set the
   status, when, with which note.
 - **Statuses.** The note field plus the buttons `Mark fixed`, `Ignore`,
   `Reopen` — every status but the current one. A row that no longer matches

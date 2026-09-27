@@ -26,7 +26,7 @@ import {
   readGameId,
   readPackageVersion,
 } from '../master/localGames.js';
-import { createClientReports } from '../master/clientReports/index.js';
+import { createClientReports, stopClientReports } from '../master/clientReports/index.js';
 import { ENGINE_VERSION } from '../master/clientReports/engineVersion.js';
 import { createSymbolicator } from '../master/clientReports/symbolicate.js';
 import { parseGamePath } from '../master/gameStatic.js';
@@ -98,9 +98,6 @@ const HANDSHAKE_TIMEOUT = 120000;
 // адрес сокета, за прод-Nginx — перезаписанный им X-Real-IP (X-Forwarded-For
 // не годится, там первый адрес пишет сам клиент — см. lib/clientIp.js)
 const CONNECTION_LIMIT = { limit: 30, windowMs: 60000 };
-
-// потолок последнего flush журнала клиентских ошибок при остановке
-const CLIENT_REPORTS_STOP_TIMEOUT = 3000;
 
 /**
  * Разбирает VIMP_DEDICATED_GAME: `<ref>` — раздаваемая реестром версия,
@@ -448,8 +445,7 @@ export async function startDedicatedServer({
     : null;
 
   // журнал клиентских ошибок (plan/client-reports): тот же приём, что у
-  // лобби (master/clientReports). Порт известен только после listen —
-  // проверка origin собирается на запросе, а запросы приходят после него
+  // лобби (master/clientReports)
   const clientReports = createClientReports({
     config,
     box: {
@@ -458,12 +454,9 @@ export async function startDedicatedServer({
       engineVersion: ENGINE_VERSION,
     },
     trustProxy: isProduction,
-    checkOrigin: (origin, cb) =>
-      security.createOriginValidator({
-        protocol: 'http:',
-        domain: config.get('master:domain'),
-        port: server.address().port,
-      })(origin, cb),
+    // валидатор собирается после listen (порт известен только тогда), а
+    // запросы приходят позже
+    checkOrigin: (origin, cb) => originValidator(origin, cb),
     symbolicate,
   });
 
@@ -567,7 +560,7 @@ export async function startDedicatedServer({
 
   // ***** игровой WebSocket ***** //
 
-  const checkOrigin = security.createOriginValidator({
+  const originValidator = security.createOriginValidator({
     protocol: 'http:',
     domain: config.get('master:domain'),
     port: actualPort,
@@ -621,7 +614,7 @@ export async function startDedicatedServer({
       return;
     }
 
-    checkOrigin(requestOrigin, err => {
+    originValidator(requestOrigin, err => {
       if (err) {
         console.warn(err);
         // причина close ограничена 123 байтами (ws бросает RangeError, а он
@@ -684,15 +677,7 @@ export async function startDedicatedServer({
 
     // последний flush журнала с потолком: недоступный auth не должен
     // подвешивать остановку
-    let flushTimer;
-
-    await Promise.race([
-      clientReports.forwarder.stop(),
-      new Promise(resolve => {
-        flushTimer = setTimeout(resolve, CLIENT_REPORTS_STOP_TIMEOUT);
-      }),
-    ]).catch(err => console.error('[dedicated] client reports flush failed:', err.message));
-    clearTimeout(flushTimer);
+    await stopClientReports(clientReports.forwarder);
 
     for (const ws of sockets.values()) {
       ws.close(1001);

@@ -24,6 +24,8 @@ const item = (fingerprint, extra = {}) => ({
   gameVersion: '1.0.0',
   box: 'localhost:3002',
   mode: 'lobby',
+  role: 'client',
+  page: '/',
   userAgent: null,
   ...extra,
 });
@@ -115,6 +117,38 @@ describe('ClientReportRepository.ingest', () => {
 
     expect(text).not.toMatch(/status/);
   });
+
+  it('SELECT известных сравнивает с bpchar[] — иначе UNIQUE-индекс не работает', async () => {
+    const db = ingestDb();
+
+    await new ClientReportRepository(db).ingest([item(fp('a'))]);
+
+    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('SELECT fingerprint'));
+
+    expect(text).toContain('ANY($1::bpchar[])');
+  });
+
+  it('details служебной строки бокса обновляются последним окном', async () => {
+    const db = ingestDb();
+
+    await new ClientReportRepository(db).ingest([item(fp('a'))]);
+
+    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('INSERT'));
+
+    expect(text).toContain("WHEN EXCLUDED.source = 'box'");
+  });
+
+  it('role и page пишутся в INSERT, но не обновляются при повторе', async () => {
+    const db = ingestDb();
+
+    await new ClientReportRepository(db).ingest([item(fp('a'), { role: 'host', page: '/room/abc' })]);
+
+    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('INSERT'));
+
+    expect(inserted(db)[0]).toMatchObject({ role: 'host', page: '/room/abc' });
+    expect(text).toMatch(/role text, page text/);
+    expect(text).not.toMatch(/role\s*=|page\s*=/);
+  });
 });
 
 describe('ClientReportRepository: чтение и статус', () => {
@@ -132,6 +166,8 @@ describe('ClientReportRepository: чтение и статус', () => {
     'game_version': '1.0.0',
     box: 'localhost:3002',
     mode: 'lobby',
+    role: 'host',
+    page: '/room/abc',
     'user_agent': null,
     count: '12',
     'first_seen': new Date('2026-09-27T09:00:00Z'),
@@ -175,6 +211,8 @@ describe('ClientReportRepository: чтение и статус', () => {
       gameVersion: '1.0.0',
       box: 'localhost:3002',
       mode: 'lobby',
+      role: 'host',
+      page: '/room/abc',
       userAgent: null,
       count: 12,
       firstSeen: '2026-09-27T09:00:00.000Z',
@@ -215,7 +253,7 @@ describe('ClientReportRepository: чтение и статус', () => {
   it('get: строка или null', async () => {
     const repo = new ClientReportRepository(createDbStub(() => ({ rows: [row] })));
 
-    expect((await repo.get(7)).id).toBe(7);
+    expect(await repo.get(7)).toMatchObject({ id: 7, role: 'host', page: '/room/abc' });
     await expect(
       new ClientReportRepository(createDbStub(() => ({ rows: [] }))).get(8),
     ).resolves.toBeNull();

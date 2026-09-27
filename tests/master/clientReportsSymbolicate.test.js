@@ -35,6 +35,9 @@ beforeAll(async () => {
   await fs.mkdir(path.join(root, 'assets'));
   await fs.writeFile(path.join(root, 'assets', 'bundle.js'), 'var a=1;Tr();\n');
   await fs.writeFile(path.join(root, 'assets', 'bundle.js.map'), generator.toString());
+  // вторая пара — для бюджета холодных загрузок
+  await fs.writeFile(path.join(root, 'assets', 'bundle2.js'), 'var a=1;Tr();\n');
+  await fs.writeFile(path.join(root, 'assets', 'bundle2.js.map'), generator.toString());
   // та же карта, но вне корней и у не-js файла
   await fs.writeFile(path.join(outside, 'bundle.js'), 'x');
   await fs.writeFile(path.join(outside, 'bundle.js.map'), generator.toString());
@@ -131,6 +134,76 @@ describe('createSymbolicator', () => {
     const out = await make()([HEAD, broken, V8_FRAME].join('\n'));
 
     expect(out.split('\n')).toEqual([HEAD, broken, DECODED]);
+  });
+
+  it('Firefox/Safari-стек без строки-сообщения: верхний кадр тоже расшифрован', async () => {
+    const stack = [
+      'Tr@https://h/assets/bundle.js:1:11',
+      'f@https://h/assets/bundle.js:1:11',
+    ].join('\n');
+
+    const out = await make()(stack);
+
+    expect(out.split('\n')).toEqual([DECODED, DECODED]);
+  });
+
+  it('V8-сообщение, оканчивающееся на URL с позицией, остаётся дословно', async () => {
+    const message = 'Error: failed https://h/assets/bundle.js:1:11';
+
+    const out = await make()([message, V8_FRAME].join('\n'));
+
+    expect(out.split('\n')).toEqual([message, DECODED]);
+  });
+
+  it('параллельные загрузки одной карты склеиваются', async () => {
+    const readFile = vi.spyOn(fs, 'readFile');
+    const symbolicate = make();
+    const stack = [HEAD, V8_FRAME].join('\n');
+
+    const outs = await Promise.all([symbolicate(stack), symbolicate(stack)]);
+
+    expect(outs).toEqual([[HEAD, DECODED].join('\n'), [HEAD, DECODED].join('\n')]);
+    expect(readFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('отсутствующая карта запоминается', async () => {
+    const stat = vi.spyOn(fs, 'stat');
+    const symbolicate = make();
+    const stack = [HEAD, '    at f (https://h/assets/nomap.js:1:11)'].join('\n');
+
+    await symbolicate(stack);
+    await symbolicate(stack);
+
+    expect(stat).toHaveBeenCalledTimes(1);
+  });
+
+  it('бюджет холодных загрузок: сверх — сырой кадр, новая минута — снова', async () => {
+    let t = 0;
+    const symbolicate = make({ maxColdLoadsPerMinute: 1, now: () => t });
+    const frame2 = '    at Tr (https://h/assets/bundle2.js:1:11)';
+    const decoded2 =
+      '    at modelLean (src/client/parts/Tank.js:42:5) [/assets/bundle2.js:1:11]';
+    const stack = [HEAD, V8_FRAME, frame2].join('\n');
+
+    expect((await symbolicate(stack)).split('\n')).toEqual([HEAD, DECODED, frame2]);
+
+    t += 60000;
+
+    expect((await symbolicate(stack)).split('\n')).toEqual([HEAD, DECODED, decoded2]);
+  });
+
+  it('битая карта не кешируется: следующий вызов читает её заново', async () => {
+    await fs.writeFile(path.join(root, 'assets', 'broken.js'), 'x');
+    await fs.writeFile(path.join(root, 'assets', 'broken.js.map'), '{not json');
+
+    const readFile = vi.spyOn(fs, 'readFile');
+    const symbolicate = make();
+    const stack = [HEAD, '    at b (https://h/assets/broken.js:1:1)'].join('\n');
+
+    await symbolicate(stack);
+    await symbolicate(stack);
+
+    expect(readFile).toHaveBeenCalledTimes(2);
   });
 });
 

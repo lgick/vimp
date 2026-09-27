@@ -196,7 +196,8 @@ stamps `mode: 'dedicated'` when the client sends none. The Origin check uses
 the actual listening port. In production new stacks are symbolicated from
 the hidden source maps of the engine `dist/` and of the one game's `dist/`
 (a `/games/<id>/…` frame of another id stays raw), and `*.map` files are
-never served (`denySourceMaps`) — see
+never served (`denySourceMaps` checks the decoded path, case-insensitively)
+— see
 [master.md](master.md#post-client-reports-client-error-reports), "Stack
 symbolication".
 
@@ -277,7 +278,8 @@ servers is a possible follow-up, not part of this contour today.
 ## Shutdown
 
 `SIGTERM`/`SIGINT` first make a last flush of the client error journal to
-the auth service (capped at 3 s so an unreachable auth cannot hang the stop),
+the auth service (`stopClientReports`, the same helper as the lobby's; capped
+at 3 s so an unreachable auth cannot hang the stop),
 then close the client connections, then `host.destroy()` (stops the timers
 and flushes profiles), then the HTTP server, then the process exits.
 

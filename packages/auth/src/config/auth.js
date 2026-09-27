@@ -209,6 +209,7 @@ export default {
       box: 253,
       version: 64,
       note: 500,
+      page: 128,
     },
   },
 };

@@ -6,6 +6,10 @@ import { sanitizeClientReport } from './sanitize.js';
 
 const LOG_PREFIX = '[vimp:client-report]';
 
+// сообщение отчёта — данные любого браузера: перевод строки в нём подделал
+// бы строку журнала процесса (docker logs)
+const oneLine = text => String(text).replace(/\p{Cc}+/gu, ' ');
+
 // промисифицированный колбэк lib/security.js → createOriginValidator
 const originAllowed = (checkOrigin, origin) =>
   new Promise(resolve => checkOrigin(origin, err => resolve(!err)));
@@ -110,13 +114,15 @@ export function createClientReportRoute({
           gameVersion: context.gameVersion,
           box: box.domain,
           mode: context.mode ?? box.mode,
+          role: context.role,
+          page: context.page,
           userAgent: context.userAgent,
         });
 
         if (isNew) {
           log.warn(
             `${LOG_PREFIX} new ${fingerprint.slice(0, 8)} ${item.kind}/${item.source} ` +
-              `${item.code ?? item.message.slice(0, 120)} ` +
+              `${oneLine(item.code ?? item.message.slice(0, 120))} ` +
               `(${context.gameId}@${context.gameVersion}, engine ${box.engineVersion})`,
           );
         }

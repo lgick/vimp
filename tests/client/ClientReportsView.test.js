@@ -56,6 +56,8 @@ const report = (overrides = {}) => ({
   gameVersion: '1.2.3',
   box: 'vimp.example',
   mode: 'lobby',
+  role: 'host',
+  page: '/room/abc',
   userAgent: 'UA',
   count: 4,
   firstSeen: '2026-09-01T00:00:00.000Z',
@@ -105,6 +107,7 @@ describe('ClientReportsView: безопасность', () => {
           details: { html: XSS },
           box: XSS,
           userAgent: XSS,
+          page: XSS,
           gameId: XSS,
           statusNote: XSS,
           statusAt: '2026-09-02T00:00:00.000Z',
@@ -137,6 +140,15 @@ describe('ClientReportsView: список', () => {
     expect(summary).toContain('tanks@1.2.3');
     expect(summary).toContain('engine 0.35.0');
     expect(summary).toContain('vimp.example');
+  });
+
+  it('развёрнутая часть: роль и страница текстом, пустые — прочерк', () => {
+    model.publisher.emit('changed', state([report({ id: 1 }), report({ id: 2, role: null, page: null })]));
+
+    const details = [...$('reports-list').querySelectorAll('.reports-details')];
+
+    expect(details[0].textContent).toContain('Role: host; page: /room/abc');
+    expect(details[1].textContent).toContain('Role: —; page: —');
   });
 
   it('код важнее сообщения, длинное сообщение обрезается до 120', () => {

@@ -516,7 +516,7 @@ POST /client-reports            Content-Type: application/json, body ≤ 16 KB
 The route has its own body parser (16 KB), mounted before the global one.
 Checks, in order:
 
-1. **Rate limit per address** — 10 requests a minute, *before* the body is
+1. **Rate limit per address** — 30 requests a minute, *before* the body is
    parsed. The key is `rateLimitKey(clientIp(req))`
    (`src/lib/clientIp.js`): an IPv4 address as is, an IPv6 address by its
    **/64** prefix — a subscriber owns a whole /64, so a per-address limit
@@ -558,12 +558,18 @@ row in auth is the resource to protect — hence the budget.
 **Forwarding.** Every `flushIntervalMs` (30 s) `ClientReportForwarder` drains
 the buffer oldest-first in batches of `forwardBatch` (50) to
 `POST <authServiceUrl>/client-reports` with
-`Authorization: Bearer <VIMP_CLIENT_REPORTS_TOKEN>` and a 5 s timeout. A
+`Authorization: Bearer <VIMP_CLIENT_REPORTS_TOKEN>` and a 5 s timeout. An
+entry carries the item's fields, the fingerprint, the box's `engineVersion`,
+`box` (domain) and `mode`, and from the context `gameId`, `gameVersion`,
+`role`, `page` and `userAgent`; the context fields are "first sender wins" in
+auth and are not part of the fingerprint. A
 failure (status other than 2xx, or a network error) puts the batch back into
 the buffer until the next tick; a `400` from auth is not retried (it would
 loop forever). Auth may answer `200` with `throttled > 0` — its own budget
 cut some new rows; that is auth's decision, not a failure, and the batch is
-not returned.
+not returned. On `SIGTERM`/`SIGINT` the lobby makes a final flush of the
+buffer (`stopClientReports`, capped at 3 s so an unreachable auth cannot hang
+the stop) and exits.
 
 **The `reports.dropped` entry.** Whatever the budget and the full buffer
 dropped since the last tick becomes one service entry at the head of the
@@ -606,13 +612,19 @@ file outside the allowed roots (engine `dist/`, `VIMP_GAMES_DIR`,
 `node_modules`), a non-`.js`/`.mjs` file, a missing map or one over 20 MB
 leaves the frame raw; so does any error on a frame — one broken map never
 breaks the rest. Up to 12 frames are decoded, parsed maps are kept in an LRU
-of 20, the result is capped at 8000 characters. A decoded frame reads
+of 20, the result is capped at 8000 characters. Firefox/Safari stacks have
+no message line, so their first line is decoded too (a V8 message ending in
+`url:line:col` is kept verbatim). At most 20 maps a minute are loaded from
+disk — past that the frame stays raw; a missing map is remembered, and
+concurrent loads of one map are merged into one read. A decoded frame reads
 `at <name> (src/client/…:L:C) [/assets/<bundle>.js:L:C]` — the raw place
 stays in brackets in case the map does not match. Game frames stay raw until
 the game ships its own hidden maps. `denySourceMaps` (`httpSecurity.js`,
 mounted right after the security headers, before `/games` and ViteExpress)
 answers `404` to every `*.map` in production: the maps are for the box, not
-for the outside. In dev nothing is decoded and Vite serves maps to DevTools.
+for the outside. It checks the decoded path, case-insensitively —
+`express.static` decodes the pathname itself, so `/a.js.%6dap` or
+`/a.js%2Emap` would otherwise slip through. In dev nothing is decoded and Vite serves maps to DevTools.
 
 Settings: `master:clientReports` in
 [configuration.md](configuration.md#packagesenginesrcconfigmasterjs).

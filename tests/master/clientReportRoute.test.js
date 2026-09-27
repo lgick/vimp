@@ -96,6 +96,16 @@ describe('POST /client-reports: приём', () => {
     expect(entry.fingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('role и page из контекста уходят в буфер', async () => {
+    const { buffer, post } = await start();
+    const body = report();
+
+    body.context = { ...body.context, role: 'host', page: '/room/abc' };
+
+    expect((await post(body)).status).toBe(204);
+    expect(buffer.drain(10)[0]).toMatchObject({ role: 'host', page: '/room/abc' });
+  });
+
   it('строка журнала только на новый отпечаток', async () => {
     const { log, post } = await start();
 
@@ -106,6 +116,15 @@ describe('POST /client-reports: приём', () => {
     expect(log.warn.mock.calls[0][0]).toMatch(
       /^\[vimp:client-report\] new [0-9a-f]{8} error\/client boom \(tanks@0\.22\.7, engine 0\.34\.8\)$/,
     );
+  });
+
+  it('перевод строки в message не подделывает строку журнала процесса', async () => {
+    const { log, post } = await start();
+
+    await post(report([item({ message: 'boom\n[vimp:client-report] new deadbeef fake' })]));
+
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn.mock.calls[0][0]).not.toContain('\n');
   });
 
   it('без заголовка Origin — принимается', async () => {

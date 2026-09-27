@@ -64,6 +64,8 @@ export function makeDroppedEntry(
     gameVersion: null,
     box: box.domain,
     mode: box.mode,
+    role: null,
+    page: null,
     userAgent: null,
   };
 }
@@ -142,4 +144,30 @@ export function createClientReports({
   });
 
   return { route, forwarder, buffer };
+}
+
+/**
+ * Последний flush журнала при остановке бокса — с потолком: недоступный
+ * auth не должен подвешивать остановку.
+ * @param {Object} forwarder - ClientReportForwarder.
+ * @param {Object} [options]
+ * @param {number} [options.timeoutMs=3000]
+ * @param {Object} [options.log=console]
+ * @returns {Promise<void>} Никогда не отклоняется.
+ */
+export async function stopClientReports(forwarder, { timeoutMs = 3000, log = console } = {}) {
+  let timer;
+
+  try {
+    await Promise.race([
+      forwarder.stop(),
+      new Promise(resolve => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    log.error(`${LOG_PREFIX} final flush failed:`, err.message);
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -6,8 +6,9 @@
 // Репортёр не должен стать новым источником падений и шума: каждая
 // публичная функция глушит свои исключения, повтор известной ошибки — только
 // счётчик, разных ошибок за сессию не больше maxKeysPerSession, отправка —
-// пачками с дебаунсом и дельтами счётчиков. console.* не перехватывается
-// осознанно: там шум и случайные данные в аргументах.
+// пачками с дельтами счётчиков: первая через 2 с, следующие не чаще раза в
+// 10 с. console.* не перехватывается осознанно: там шум и случайные данные в
+// аргументах.
 
 // обрезки — те же числа, что у приёма на боксе (stage_2.md, контракт)
 const MAX_MESSAGE = 500;
@@ -125,10 +126,13 @@ function isExtensionUrl(value) {
 // очередь переполнена — fetch с keepalive. Ответ не читается
 function defaultSend(url, json) {
   if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-    const blob = new Blob([json], { type: 'application/json' });
-
-    if (navigator.sendBeacon(url, blob)) {
-      return;
+    try {
+      if (navigator.sendBeacon(url, new Blob([json], { type: 'application/json' }))) {
+        return;
+      }
+    } catch {
+      // старые Chromium бросали SecurityError на Blob с application/json
+      // (crbug.com/490015) — тогда запасной fetch
     }
   }
 
@@ -151,7 +155,9 @@ function noop() {}
  * @param {Function} [opts.send] - (url, json) => void; по умолчанию beacon/fetch
  * @param {Function} [opts.now]
  * @param {number} [opts.maxKeysPerSession=50]
- * @param {number} [opts.flushDelayMs=2000]
+ * @param {number} [opts.flushDelayMs=2000] - задержка первой отправки
+ * @param {number} [opts.minIntervalMs=10000] - интервал между отправками по
+ *   таймеру; прямой flush() его не ждёт
  * @returns {{ capture, warn, flush, setContext, install }}
  */
 export function createDiagnostics({
@@ -161,6 +167,7 @@ export function createDiagnostics({
   now = Date.now,
   maxKeysPerSession = 50,
   flushDelayMs = 2000,
+  minIntervalMs = 10000,
 } = {}) {
   if (!url) {
     return {
@@ -181,6 +188,7 @@ export function createDiagnostics({
 
   let capWarned = false;
   let timer = null;
+  let lastSentAt = null;
 
   // ошибка внутри самого репортёра не должна порождать новый отчёт
   let busy = false;
@@ -220,9 +228,16 @@ export function createDiagnostics({
   }
 
   function schedule() {
-    if (timer === null) {
-      timer = setTimeout(flush, flushDelayMs);
+    if (timer !== null) {
+      return;
     }
+
+    // первая отправка — через flushDelayMs, следующие — не чаще
+    // minIntervalMs: бокс режет приём лимитом запросов с адреса, и 429
+    // молча съедал бы приросты счётчиков непрерывно повторяющейся ошибки
+    const sinceLast = lastSentAt === null ? Infinity : now() - lastSentAt;
+
+    timer = setTimeout(flush, Math.max(flushDelayMs, minIntervalMs - sinceLast));
   }
 
   function guarded(fn) {
@@ -371,14 +386,25 @@ export function createDiagnostics({
         }
       }
 
+      if (items.length > 0) {
+        lastSentAt = now();
+      }
+
       for (let i = 0; i < items.length; i += MAX_BATCH_ITEMS) {
         sendBatch(items.slice(i, i + MAX_BATCH_ITEMS));
       }
     });
   }
 
+  // смена контекста (игра, роль): накопленное уходит СО СВОИМ контекстом —
+  // иначе отчёт игры A, отправленный уже под игрой B, получил бы на боксе
+  // отпечаток и source maps игры B
   function setContext(patch) {
     try {
+      if (Object.keys(patch).some(key => ctx[key] !== patch[key])) {
+        flush();
+      }
+
       Object.assign(ctx, patch);
     } catch {
       // контекст — вспомогательный, его сбой отчёты не останавливает

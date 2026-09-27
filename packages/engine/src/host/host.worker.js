@@ -178,6 +178,9 @@ self.onmessage = async event => {
         self.postMessage({
           type: 'error',
           message: e && e.message ? e.message : String(e),
+          // стек Worker'а — для журнала клиентских ошибок: в главном потоке его
+          // уже не восстановить
+          stack: e && typeof e.stack === 'string' ? e.stack : null,
         });
       }
       break;

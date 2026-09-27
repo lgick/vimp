@@ -13,7 +13,7 @@ export class ClientReportNotFoundError extends Error {
 // колонки наружу: все, кроме status_by — вместо него ник через JOIN
 const REPORT_COLUMNS = `
   r.id, r.fingerprint, r.source, r.kind, r.code, r.message, r.stack, r.details,
-  r.engine_version, r.game_id, r.game_version, r.box, r.mode, r.user_agent,
+  r.engine_version, r.game_id, r.game_version, r.box, r.mode, r.role, r.page, r.user_agent,
   r.count, r.first_seen, r.last_seen, r.status, r.status_note, r.status_at,
   u.nick AS status_by_nick`;
 
@@ -34,6 +34,8 @@ function mapReport(row) {
     gameVersion: row.game_version,
     box: row.box,
     mode: row.mode,
+    role: row.role,
+    page: row.page,
     userAgent: row.user_agent,
     // pg отдаёт BIGINT строкой
     count: Number(row.count),
@@ -80,6 +82,8 @@ const toRecord = item => ({
   'game_version': item.gameVersion,
   box: item.box,
   mode: item.mode,
+  role: item.role,
+  page: item.page,
   'user_agent': item.userAgent,
   count: item.count,
   'first_seen': item.firstSeen.toISOString(),
@@ -105,8 +109,11 @@ export default class ClientReportRepository {
    */
   async ingest(items, { allowNew = n => n } = {}) {
     const merged = mergeDuplicates(items);
+    // ::bpchar[], а не ::text[]: колонка CHAR(64), и сравнение с text
+    // приводит её к text — UNIQUE-индекс тогда не работает, и каждая пачка
+    // проходила бы таблицу целиком
     const { rows } = await this._db.query(
-      'SELECT fingerprint FROM client_reports WHERE fingerprint = ANY($1::text[])',
+      'SELECT fingerprint FROM client_reports WHERE fingerprint = ANY($1::bpchar[])',
       [merged.map(item => item.fingerprint)],
     );
     const known = new Set(rows.map(row => row.fingerprint));
@@ -118,24 +125,30 @@ export default class ClientReportRepository {
     const passed = merged.filter(item => known.has(item.fingerprint) || allowedFresh.has(item));
 
     if (passed.length > 0) {
+      // details: у служебных записей бокса (source 'box') — разбивка
+      // последнего окна, у остальных — первые присланные
       await this._db.query(
         `INSERT INTO client_reports (fingerprint, source, kind, code, message, stack,
-           details, engine_version, game_id, game_version, box, mode, user_agent,
-           count, first_seen, last_seen)
+           details, engine_version, game_id, game_version, box, mode, role, page,
+           user_agent, count, first_seen, last_seen)
          SELECT fingerprint, source, kind, code, message, stack, details,
-           engine_version, game_id, game_version, box, mode, user_agent,
-           count, first_seen, last_seen
+           engine_version, game_id, game_version, box, mode, role, page,
+           user_agent, count, first_seen, last_seen
          FROM jsonb_to_recordset($1::jsonb) AS r(
            fingerprint text, source text, kind text, code text, message text,
            stack text, details jsonb, engine_version text, game_id text,
-           game_version text, box text, mode text, user_agent text,
+           game_version text, box text, mode text, role text, page text,
+           user_agent text,
            count bigint, first_seen timestamptz, last_seen timestamptz)
          ON CONFLICT (fingerprint) DO UPDATE SET
            count      = client_reports.count + EXCLUDED.count,
            first_seen = LEAST(client_reports.first_seen, EXCLUDED.first_seen),
            last_seen  = GREATEST(client_reports.last_seen, EXCLUDED.last_seen),
            stack      = COALESCE(client_reports.stack, EXCLUDED.stack),
-           details    = COALESCE(client_reports.details, EXCLUDED.details)`,
+           details    = CASE WHEN EXCLUDED.source = 'box'
+                          THEN EXCLUDED.details
+                          ELSE COALESCE(client_reports.details, EXCLUDED.details)
+                        END`,
         [JSON.stringify(passed.map(toRecord))],
       );
     }

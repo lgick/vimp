@@ -210,6 +210,7 @@ export default class ClientReportsView {
     }
 
     details.appendChild(this._line(`User agent: ${report.userAgent ?? '—'}`));
+    details.appendChild(this._line(`Role: ${report.role ?? '—'}; page: ${report.page ?? '—'}`));
     details.appendChild(
       this._line(
         `First seen: ${report.firstSeen ?? '—'}; last seen: ${report.lastSeen ?? '—'}` +

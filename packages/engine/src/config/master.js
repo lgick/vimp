@@ -175,7 +175,9 @@ export default {
     // известных отпечатков бюджет не тратят
     newFingerprintsPerMinute: 60,
     // ключ — адрес, для IPv6 — подсеть /64 (lib/clientIp.js → rateLimitKey)
-    rateLimit: { limit: 10, windowMs: 60000 },
+    // клиент шлёт не чаще раза в 10 с — запас на несколько вкладок за одним
+    // адресом (NAT); главная защита — бюджет новых отпечатков
+    rateLimit: { limit: 30, windowMs: 60000 },
     bodyLimit: '16kb',
     maxItemsPerRequest: 10,
   },

@@ -20,6 +20,24 @@ const SWAP_QUEUE_LIMIT = 2000;
 // предел ожидания ответа Worker'а на отладочный запрос (dump/запись)
 const DEBUG_TIMEOUT = 5000;
 
+// ErrorEvent Worker'а в главном потоке: `error` там null (исключение между
+// потоками не клонируется) — есть только message и filename/lineno/colno.
+// Кадр собирается из них: без него у отчёта нет верхнего кадра, то есть ни
+// различимого отпечатка, ни расшифровки по source map. Пустой message
+// (Worker не загрузился) бокс отбросил бы — отсюда запасной текст
+function workerErrorReport(event) {
+  if (typeof event?.error?.stack === 'string') {
+    return event.error;
+  }
+
+  const message = event?.message || 'Worker error';
+  const stack = event?.filename
+    ? `${message}\n    at ${event.filename}:${event.lineno ?? 0}:${event.colno ?? 0}`
+    : null;
+
+  return { message, stack };
+}
+
 export default class HostController {
   /**
    * @param {Object} room - настройки комнаты (имя/карта/лимит/таймеры).
@@ -85,7 +103,7 @@ export default class HostController {
   // браузера остаётся как есть
   _watchWorkerErrors(worker) {
     worker.onerror = event =>
-      this._diagnostics?.capture(event.error ?? event.message, {
+      this._diagnostics?.capture(workerErrorReport(event), {
         source: 'host-worker',
         kind: 'worker',
       });
@@ -342,27 +360,20 @@ export default class HostController {
     if (msg.type === 'ready') {
       this._finishSwap();
     } else if (msg.type === 'error') {
-      this._reportWorkerError(msg);
+      this._reportWorkerMessage(msg, 'error');
       this._abortSwap(msg.message);
     } else if (msg.type === 'diagnostic') {
-      this._reportWorkerDiagnostic(msg);
+      this._reportWorkerMessage(msg, msg.kind);
     }
   }
 
-  // сбой init Worker'а — в журнал клиентских ошибок (plan/client-reports)
-  _reportWorkerError(msg) {
-    this._diagnostics?.capture(new Error(msg.message), {
-      source: 'host-worker',
-      kind: 'error',
-    });
-  }
-
-  // необработанный reject внутри Worker'а (host.worker.js) — только в
-  // журнал: откат эстафеты завязан на 'error', не на него
-  _reportWorkerDiagnostic(msg) {
+  // сбой Worker'а, присланный сообщением ('error' — провал init,
+  // 'diagnostic' — необработанный reject): стек — самого Worker'а, а не
+  // главного потока
+  _reportWorkerMessage(msg, kind) {
     this._diagnostics?.capture(
-      { message: msg.message, stack: msg.stack },
-      { source: 'host-worker', kind: msg.kind },
+      { message: msg.message, stack: msg.stack ?? null },
+      { source: 'host-worker', kind },
     );
   }
 
@@ -426,12 +437,12 @@ export default class HostController {
         break;
 
       case 'error':
-        this._reportWorkerError(msg);
+        this._reportWorkerMessage(msg, 'error');
         this._onError?.(msg);
         break;
 
       case 'diagnostic':
-        this._reportWorkerDiagnostic(msg);
+        this._reportWorkerMessage(msg, msg.kind);
         break;
 
       case 'map_changed':

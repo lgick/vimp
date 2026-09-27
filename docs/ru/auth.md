@@ -386,15 +386,19 @@ OAuth-колбэком и `POST /nick`) вместо этого несёт `pend
 | `GET /admin/client-reports?status=&gameId=&limit=&offset=` (Bearer, админ) | `{ reports, total }`, свежие по `last_seen` сверху. `status` — `open` (по умолчанию), `fixed`, `ignored` или `all`; `gameId` необязателен и проверяется как id реестра; `limit` клампится в `1..100` (по умолчанию 50), `offset` — в `0..100000`. `400 badRequest` на неверные `status` или `gameId`. Запись несёт все колонки, кроме `status_by` — вместо него ник админа в `statusByNick` |
 | `PATCH /admin/client-reports/:id` (Bearer, админ, `{ status, note? }`) | ставит `status` (`open` \| `fixed` \| `ignored`, обязателен) и необязательную заметку (≤ 500 символов), отмечает админа и время. `{ report }`; `400 badRequest`, `404 unknownReport` |
 
-**Таблица `client_reports`** (`013_client_reports.sql`): строка на отпечаток
-(`CHAR(64) UNIQUE`) с `source`, `kind`, `code`, `message`, `stack`, `details`
-(JSONB), `engine_version`, `game_id`, `game_version`, `box`, `mode`,
+**Таблица `client_reports`** (`013_client_reports.sql`,
+`014_client_reports_context.sql`): строка на отпечаток (`CHAR(64) UNIQUE`) с
+`source`, `kind`, `code`, `message`, `stack`, `details` (JSONB),
+`engine_version`, `game_id`, `game_version`, `box`, `mode`, `role` (`client`
+\| `host`, иное становится `null`), `page` (pathname, ≤ 128),
 `user_agent`, счётчиком повторов `count`, `first_seen` / `last_seen` и
 решением админа `status` / `status_note` / `status_by` / `status_at`. Ника, id
 игрока и IP в ней нет никогда. Пачка — один `SELECT` известных отпечатков и
 один `INSERT … ON CONFLICT (fingerprint) DO UPDATE` через `jsonb_to_recordset`
 (дубликаты внутри пачки сливаются заранее в JS — одна команда не может задеть
-строку дважды).
+строку дважды). При повторе служебные строки самого бокса (`source: 'box'`)
+берут `details` из последнего окна; остальные строки сохраняют первые
+присланные `stack` и `details`.
 
 **Повтор статус не меняет.** Отпечаток считает бокс, и в него входят версии
 движка и игры: исправление выходит новой версией, а регрессия в ней — **новая

@@ -626,6 +626,10 @@ there. Instead:
 | Stop | `docker stop vimp-<domain>` |
 | Resource usage | `docker stats` |
 
+`docker stop` stops the lobby at once: it handles `SIGTERM`, flushes the
+buffered client error reports (at most 3 s) and exits, instead of being
+killed by `SIGKILL` after the stop timeout.
+
 ---
 
 [← Previous: Configuration](configuration.md) · [Next: Plugin API →](plugin-api.md)

@@ -411,8 +411,8 @@ The master server's config (see [master.md](master.md)); read by
   `maxPending: 500` (distinct fingerprints in the buffer), `logSeenMax: 5000`
   (fingerprints the process remembers as already logged),
   `newFingerprintsPerMinute: 60` (the box's budget of new fingerprints;
-  repeats are free), `rateLimit: { limit: 10, windowMs: 60000 }` (per
-  address, IPv6 by /64), `bodyLimit: '16kb'`, `maxItemsPerRequest: 10`;
+  repeats are free), `rateLimit: { limit: 30, windowMs: 60000 }` (per
+  address, IPv6 by /64; the client sends at most every 10 s), `bodyLimit: '16kb'`, `maxItemsPerRequest: 10`;
 - `iceServers` — ICE config for clients and hosts (STUN; TURN optional).
 
 ## packages/engine/src/config/lobby.js

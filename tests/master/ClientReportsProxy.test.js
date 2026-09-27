@@ -15,7 +15,12 @@ describe('ClientReportsProxy', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://auth.local/admin/client-reports?status=fixed&gameId=tanks&limit=50&offset=100',
-      { method: 'GET', headers: { authorization: 'Bearer tok' }, body: undefined },
+      {
+        method: 'GET',
+        signal: expect.any(AbortSignal),
+        headers: { authorization: 'Bearer tok' },
+        body: undefined,
+      },
     );
   });
 
@@ -38,9 +43,28 @@ describe('ClientReportsProxy', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/admin/client-reports/7%2F..%2Fx', {
       method: 'PATCH',
+      signal: expect.any(AbortSignal),
       headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'fixed', note: 'v1.2' }),
     });
+  });
+
+  it('запрос с таймаутом: signal — AbortSignal', async () => {
+    const fetchImpl = makeFetch();
+    const proxy = new ClientReportsProxy('http://auth.local', { fetchImpl });
+
+    await proxy.list('tok');
+
+    expect(fetchImpl.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('timeout: 0 — без signal', async () => {
+    const fetchImpl = makeFetch();
+    const proxy = new ClientReportsProxy('http://auth.local', { fetchImpl, timeout: 0 });
+
+    await proxy.list('tok');
+
+    expect(fetchImpl.mock.calls[0][1].signal).toBeUndefined();
   });
 
   it('отдаёт { status, json } ответа как есть', async () => {

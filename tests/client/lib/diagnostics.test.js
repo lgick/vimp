@@ -204,6 +204,72 @@ describe('diagnostics: дебаунс', () => {
   });
 });
 
+describe('diagnostics: каденс отправки', () => {
+  it('следующие отправки по таймеру — не чаще minIntervalMs', () => {
+    vi.useFakeTimers();
+
+    const { diagnostics, send } = setup();
+
+    diagnostics.capture(makeError('a'));
+    vi.advanceTimersByTime(2000);
+
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // t = 3 с: до прошлой отправки (t = 2 с) всего секунда
+    vi.advanceTimersByTime(1000);
+    diagnostics.capture(makeError('a'));
+    vi.advanceTimersByTime(2000);
+
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // t = 12 с: 10 с после прошлой отправки
+    vi.advanceTimersByTime(7000);
+
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('flush() вручную шлёт сразу, без ожидания интервала', () => {
+    vi.useFakeTimers();
+
+    const { diagnostics, send } = setup();
+
+    diagnostics.capture(makeError('a'));
+    vi.advanceTimersByTime(2000);
+    diagnostics.capture(makeError('b'));
+    diagnostics.flush();
+
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('diagnostics: смена контекста', () => {
+  it('накопленное уходит со старым контекстом, новое — с новым', () => {
+    const { diagnostics, send, sent } = setup();
+
+    diagnostics.setContext({ gameId: 'a' });
+    diagnostics.capture(makeError('x'));
+    diagnostics.setContext({ gameId: 'b' });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sent[0].context.gameId).toBe('a');
+
+    diagnostics.capture(makeError('y'));
+    diagnostics.flush();
+
+    expect(sent[1].context.gameId).toBe('b');
+  });
+
+  it('те же значения — отправки нет', () => {
+    const { diagnostics, send } = setup();
+
+    diagnostics.setContext({ gameId: 'a' });
+    diagnostics.capture(makeError('x'));
+    diagnostics.setContext({ gameId: 'a', role: 'client' });
+
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
 describe('diagnostics: ужатие пачки', () => {
   it('> 15 000 байт — сперва без details, затем короткие стеки', () => {
     const { diagnostics, sent } = setup();
@@ -236,14 +302,16 @@ describe('diagnostics: ужатие пачки', () => {
   });
 
   it('всё ещё больше — по одной записи', () => {
-    const { diagnostics, sent } = setup();
+    // 10 × 500 символов сообщения — 5 КБ, не хватит; раздуть контекст (сразу:
+    // смена контекста отправила бы накопленное)
+    const { diagnostics, sent } = setup({
+      context: { mode: 'lobby', role: 'client', page: 'p'.repeat(12000) },
+    });
 
     for (let i = 0; i < 10; i++) {
       diagnostics.capture(makeError(`${i}`.padEnd(500, 'm')));
     }
 
-    // 10 × 500 символов сообщения — 5 КБ, не хватит; раздуть контекст
-    diagnostics.setContext({ page: 'p'.repeat(12000) });
     diagnostics.flush();
 
     expect(sent).toHaveLength(10);
@@ -282,6 +350,31 @@ describe('diagnostics: транспорт', () => {
           keepalive: true,
           credentials: 'same-origin',
         }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sendBeacon бросил — fetch с keepalive', () => {
+    const beacon = vi.fn(() => {
+      throw new Error('SecurityError');
+    });
+    const fetchMock = vi.fn(() => Promise.resolve());
+
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const diagnostics = createDiagnostics({ url: URL_ });
+
+      diagnostics.capture(makeError('a'));
+      diagnostics.flush();
+
+      expect(beacon).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        URL_,
+        expect.objectContaining({ method: 'POST', keepalive: true }),
       );
     } finally {
       vi.unstubAllGlobals();

@@ -32,10 +32,31 @@ export function securityHeaders({ isProduction = false } = {}) {
 
 // Скрытые source maps лежат рядом с бандлами (plan/client-reports): их
 // читает сам бокс, а снаружи они — исходники сборки по запросу любого.
-// Только прод: в dev карты раздаёт Vite, и они нужны DevTools
+// Только прод: в dev карты раздаёт Vite, и они нужны DevTools.
+//
+// Проверяется РАСКОДИРОВАННЫЙ путь и без учёта регистра: express.static
+// (send) раскодирует pathname сам, и `/a.js.%6dap` или `/a.js%2Emap` иначе
+// прошли бы мимо проверки и отдали карту
+const SOURCE_MAP_RE = /\.map$/i;
+
 export function denySourceMaps({ isProduction = false } = {}) {
   return (req, res, next) => {
-    if (isProduction && req.path.endsWith('.map')) {
+    if (!isProduction) {
+      next();
+      return;
+    }
+
+    let pathname;
+
+    try {
+      pathname = decodeURIComponent(req.path);
+    } catch {
+      // битую процентную последовательность дальше отвергнет сам send (400)
+      next();
+      return;
+    }
+
+    if (SOURCE_MAP_RE.test(pathname)) {
       res.status(404).json({ error: 'notFound' });
       return;
     }

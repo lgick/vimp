@@ -13,7 +13,7 @@ import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import { clampGameResult, clampLimit } from '../lib/validators.js';
 import { createAdminAuth } from './adminAuth.js';
-import { createClientReports } from './clientReports/index.js';
+import { createClientReports, stopClientReports } from './clientReports/index.js';
 import ClientReportsProxy from './ClientReportsProxy.js';
 import { createClientReportsRoutes } from './clientReportsRoutes.js';
 import { ENGINE_VERSION } from './clientReports/engineVersion.js';
@@ -401,6 +401,23 @@ const clientReports = createClientReports({
 
 app.post('/client-reports', ...clientReports.route);
 clientReports.forwarder.start();
+
+// docker stop шлёт SIGTERM, а node в образе — PID 1 без init: без
+// обработчика сигнал игнорируется до SIGKILL, и буфер журнала (до
+// flushIntervalMs отчётов) терялся на каждом деплое. Dedicated делает то
+// же в своём shutdown
+let stopping = false;
+const shutdownLobby = () => {
+  if (stopping) {
+    return;
+  }
+
+  stopping = true;
+  stopClientReports(clientReports.forwarder).finally(() => process.exit(0));
+};
+
+process.on('SIGTERM', shutdownLobby);
+process.on('SIGINT', shutdownLobby);
 
 // нужен для тела PUT /auth/rank и /auth/state (Этап B4)
 app.use(express.json());

@@ -10,6 +10,7 @@ export const REPORT_SOURCES = ['client', 'host-worker', 'plugin', 'box'];
 export const REPORT_KINDS = ['error', 'rejection', 'worker', 'warn', 'csp'];
 export const REPORT_STATUSES = ['open', 'fixed', 'ignored'];
 export const REPORT_MODES = ['lobby', 'dedicated', 'solo'];
+export const REPORT_ROLES = ['client', 'host'];
 
 const FINGERPRINT_RE = /^[0-9a-f]{64}$/;
 const CODE_RE = /^[a-z0-9][a-z0-9._-]*$/i;
@@ -123,6 +124,8 @@ export function normalizeReportItem(raw, { limits, gameIdRules, now = Date.now()
     gameId: isValidGameId(gameId, gameIdRules) ? gameId : null,
     box: typeof box === 'string' && BOX_RE.test(box) ? box : null,
     mode: REPORT_MODES.includes(raw.mode) ? raw.mode : null,
+    role: REPORT_ROLES.includes(raw.role) ? raw.role : null,
+    page: cut(raw.page, limits.page),
     userAgent: cut(raw.userAgent, limits.userAgent),
   };
 }

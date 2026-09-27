@@ -9,6 +9,38 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Security
+
+- Source maps could still be downloaded in production through a
+  percent-encoded path (`/assets/index-*.js.%6dap`); `denySourceMaps` now
+  checks the decoded path, case-insensitively.
+- Stack symbolication on the server loads at most 20 source maps a minute,
+  so crafted reports cannot stall the event loop.
+
+### Fixed
+
+- Client error reports from Firefox and Safari get their top stack frame
+  symbolicated too (their stacks have no message line).
+- The lobby master flushes buffered client error reports on SIGTERM/SIGINT
+  (at most 3 s) instead of losing them on every deploy.
+- Client error messages are written to the server log on one line: a line
+  break in a report can no longer forge log lines.
+- The admin error journal proxy gives up on a hung auth service after 15 s.
+- A recurring client error no longer loses its repeat counts to the server's
+  rate limit: the reporter sends at most every 10 s (the first batch still
+  after 2 s), and `POST /client-reports` allows 30 requests a minute per
+  address.
+- Client error reports buffered before a game or role switch are sent with
+  the context they happened in.
+- Host Worker errors are reported with their location
+  (`filename:line:column`), and a failed Worker init with the Worker's own
+  stack instead of the main thread's.
+- The error reporter falls back to `fetch` when `navigator.sendBeacon`
+  throws.
+- Client error reports keep the tab's role (client/host) and page from their
+  context; the server used to drop them before forwarding. The Errors panel
+  shows both.
+
 ## [0.35.0] — 2026-09-27
 
 ### Added

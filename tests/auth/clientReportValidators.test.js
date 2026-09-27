@@ -28,6 +28,8 @@ describe('normalizeReportItem', () => {
       gameVersion: '1.2.3-beta.1',
       box: 'vimp.example.com:443',
       mode: 'dedicated',
+      role: 'host',
+      page: '/room/abc',
       userAgent: 'UA',
     }), opts);
 
@@ -47,8 +49,18 @@ describe('normalizeReportItem', () => {
       gameVersion: '1.2.3-beta.1',
       box: 'vimp.example.com:443',
       mode: 'dedicated',
+      role: 'host',
+      page: '/room/abc',
       userAgent: 'UA',
     });
+  });
+
+  it('role: чужая — null; page режется до лимита', () => {
+    expect(normalizeReportItem(item({ role: 'client' }), opts).role).toBe('client');
+    expect(normalizeReportItem(item({ role: 'admin' }), opts).role).toBeNull();
+    expect(normalizeReportItem(item({ page: 42 }), opts).page).toBeNull();
+    expect(normalizeReportItem(item({ page: '/'.repeat(500) }), opts).page).toHaveLength(limits.page);
+    expect(limits.page).toBe(128);
   });
 
   it.each([
