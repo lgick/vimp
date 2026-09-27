@@ -461,6 +461,62 @@ describe('diagnostics: install', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
   });
+
+  // мобильный браузер убивает фоновую вкладку и без pagehide
+  function setVisibility(state) {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => state,
+    });
+  }
+
+  it('visibilitychange → hidden — немедленная отправка', () => {
+    const { diagnostics, send } = setup();
+    const uninstall = diagnostics.install(window);
+
+    try {
+      diagnostics.capture(makeError('a'));
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      delete document.visibilityState;
+      uninstall();
+    }
+  });
+
+  it('visibilitychange → visible — отправки нет', () => {
+    const { diagnostics, send } = setup();
+    const uninstall = diagnostics.install(window);
+
+    try {
+      diagnostics.capture(makeError('a'));
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      delete document.visibilityState;
+      uninstall();
+    }
+  });
+
+  it('после снятия visibilitychange → hidden не отправляет', () => {
+    const { diagnostics, send } = setup();
+
+    diagnostics.install(window)();
+
+    try {
+      diagnostics.capture(makeError('a'));
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      delete document.visibilityState;
+    }
+  });
 });
 
 describe('diagnostics: CSP', () => {

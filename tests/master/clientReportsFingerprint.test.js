@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeFingerprint,
+  isFrameLine,
   normalizeMessage,
   parseFrame,
   rawTopFrame,
@@ -34,9 +35,25 @@ describe('rawTopFrame', () => {
     expect(rawTopFrame(firefox)).toBe('/assets/client-BvkP3FTH.js:84:46108');
   });
 
+  it('строка сообщения V8 с url:line:col — не кадр', () => {
+    const stack = 'Error: failed https://h/a.js:1:2\n    at f (https://h/b.js:3:4)';
+
+    expect(rawTopFrame(stack)).toBe('/b.js:3:4');
+  });
+
   it('нет кадра с URL — null', () => {
     expect(rawTopFrame('Error: x\n    at <anonymous>')).toBeNull();
     expect(rawTopFrame(null)).toBeNull();
+  });
+});
+
+describe('isFrameLine', () => {
+  it('кадр — строка `at …` или `fn@url`, сообщение — нет', () => {
+    expect(isFrameLine('    at f (https://h/a.js:1:2)')).toBe(true);
+    expect(isFrameLine('Tr@https://h/a.js:1:2')).toBe(true);
+    expect(isFrameLine('global code@https://h/a.js:1:2')).toBe(true);
+    expect(isFrameLine('TypeError: x')).toBe(false);
+    expect(isFrameLine('Error: failed https://h/a.js:1:2')).toBe(false);
   });
 });
 

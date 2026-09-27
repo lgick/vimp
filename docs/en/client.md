@@ -356,15 +356,16 @@ message and the first stack frame with `:line:column`; a repeat only
 increments a counter. At most 50 distinct reports per session (then one
 `console.warn('[vimp] diagnostics: session cap reached')`, and repeats of
 known ones are still counted). The first send goes 2 s after the first
-report, later sends at most every 10 s; `pagehide` and a context change send
-at once. When the game or role changes, the reports buffered so far go out
-with the old context. Only reports whose counter grew since the last send go out,
-with the increment as `count`. A request carries at most 10 reports; a batch
-over 15 000 bytes loses its `details`, then its stacks are cut to 1000
-characters, and if it is still too big the reports go one per request. The
-transport is `navigator.sendBeacon`, falling back to `fetch` with
-`keepalive` when the beacon is refused or throws; the response is not read. The reporter swallows its own
-failures and never reports an error raised while it is reporting.
+report, later sends at most every 10 s; `pagehide`, the tab becoming hidden
+(`visibilitychange`) and a context change send at once. When the game or role
+changes, the reports buffered so far go out with the old context. Only reports
+whose counter grew since the last send go out, with the increment as `count`.
+A request carries at most 10 reports; a batch over 15 000 bytes loses its
+`details`, then its stacks are cut to 1000 characters, and if it is still too
+big the reports go one per request. The transport is `navigator.sendBeacon`,
+falling back to `fetch` with `keepalive` when the beacon is refused or throws;
+the response is not read. The reporter swallows its own failures and never
+reports an error raised while it is reporting.
 
 Fields are cut to the server's limits: `message` 500, `stack` 4000, `code`
 64 characters, `details` 2048 bytes of JSON (larger becomes
@@ -396,8 +397,8 @@ any lobby master shows it.
   `code` or the message (cut to 120 characters), `gameId@gameVersion`, the
   engine version, the box and the status. A click expands the full message,
   the stack and `details` in scrollable `<pre>` blocks, the user agent, the
-  tab's role (`client`/`host`) and page, first and last seen, the first 12 characters of the fingerprint and who set the
-  status, when, with which note.
+  tab's role (`client`/`host`) and page, first and last seen, the first 12
+  characters of the fingerprint and who set the status, when, with which note.
 - **Statuses.** The note field plus the buttons `Mark fixed`, `Ignore`,
   `Reopen` — every status but the current one. A row that no longer matches
   the open tab leaves the list. A repeat of a report never reopens it: the

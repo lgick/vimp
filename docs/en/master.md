@@ -509,11 +509,13 @@ POST /client-reports            Content-Type: application/json, body ≤ 16 KB
 → 204                                // accepted, also when some items were dropped
 → 400 { "error": "badRequest" }
 → 403 { "error": "forbiddenOrigin" } // Origin present and not the box's own
-→ 413                                // body parser
+→ 400 { "error": "badRequest" }      // also a malformed JSON body
+→ 413 { "error": "payloadTooLarge" } // body over bodyLimit (16 KB)
 → 429 { "error": "rateLimited" }
 ```
 
-The route has its own body parser (16 KB), mounted before the global one.
+The route has its own body parser (16 KB), mounted before the global one;
+a body the parser rejects is not written to the process log.
 Checks, in order:
 
 1. **Rate limit per address** — 30 requests a minute, *before* the body is
@@ -536,9 +538,11 @@ Checks, in order:
    rawTopFrame, engineVersion, gameId, gameVersion]` (`fingerprint.js`).
    The message is normalized (digits → `N`, hex ids of 8+ characters → `H`),
    the top frame is `<pathname>:<line>:<col>` of the first stack frame with a
-   URL (V8 and Firefox/Safari formats). Versions are part of the key on
-   purpose: a regression in a new release is a new row, the fixed row of the
-   old release stays `fixed`.
+   URL (V8 and Firefox/Safari formats). A frame is an `at …` or `fn@url`
+   line; the V8 message line is never a frame, even when it ends with
+   `url:line:col` — the same rule symbolication uses (`isFrameLine`).
+   Versions are part of the key on purpose: a regression in a new release is
+   a new row, the fixed row of the old release stays `fixed`.
 
 **Aggregation and the budget of new fingerprints.** `ClientReportBuffer`
 keeps one entry per fingerprint; a repeat adds to `count` and widens
@@ -614,9 +618,11 @@ leaves the frame raw; so does any error on a frame — one broken map never
 breaks the rest. Up to 12 frames are decoded, parsed maps are kept in an LRU
 of 20, the result is capped at 8000 characters. Firefox/Safari stacks have
 no message line, so their first line is decoded too (a V8 message ending in
-`url:line:col` is kept verbatim). At most 20 maps a minute are loaded from
-disk — past that the frame stays raw; a missing map is remembered, and
-concurrent loads of one map are merged into one read. A decoded frame reads
+`url:line:col` is kept verbatim). At most 20 maps a minute are read and
+parsed — past that the frame stays raw. A missing or unusable map costs
+nothing from that budget and pushes nothing out of the LRU: it is
+remembered separately (up to 1000 paths). Concurrent loads of one map are
+merged into one read. A decoded frame reads
 `at <name> (src/client/…:L:C) [/assets/<bundle>.js:L:C]` — the raw place
 stays in brackets in case the map does not match. Game frames stay raw until
 the game ships its own hidden maps. `denySourceMaps` (`httpSecurity.js`,
@@ -624,7 +630,8 @@ mounted right after the security headers, before `/games` and ViteExpress)
 answers `404` to every `*.map` in production: the maps are for the box, not
 for the outside. It checks the decoded path, case-insensitively —
 `express.static` decodes the pathname itself, so `/a.js.%6dap` or
-`/a.js%2Emap` would otherwise slip through. In dev nothing is decoded and Vite serves maps to DevTools.
+`/a.js%2Emap` would otherwise slip through. In dev nothing is decoded and Vite
+serves maps to DevTools.
 
 Settings: `master:clientReports` in
 [configuration.md](configuration.md#packagesenginesrcconfigmasterjs).

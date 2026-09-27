@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { SourceMapConsumer } from 'source-map-js';
-import { parseFrame } from './fingerprint.js';
+import { isFrameLine, parseFrame } from './fingerprint.js';
 import { STACK_SYMBOLICATED } from './limits.js';
 
 // Расшифровка стеков журнала клиентских ошибок (plan/client-reports, этап 4):
@@ -10,12 +10,6 @@ import { STACK_SYMBOLICATED } from './limits.js';
 // отпечатка — не для каждого отчёта
 
 const SOURCE_TAIL_RE = /(?:^|\/)((?:src|node_modules)\/.*)$/;
-
-// строка стека — кадр: V8 `    at …`, Firefox/Safari `fn@scheme://…`.
-// Первая строка V8 — сообщение, у Firefox/Safari её нет вовсе: там первая
-// строка и есть верхний (самый нужный) кадр. Сообщение V8, оканчивающееся
-// на `url:line:col`, кадром не считается — у него нет ни `at `, ни `@`
-const FRAME_LINE_RE = /^\s*at\s|@[a-z][a-z0-9+.-]*:\/\//i;
 
 // путь исходника из карты без префиксов сборщика: `webpack://`, `vite://`,
 // ведущие `../` и `./`; от путей внутри src/ или node_modules/ — хвост с них
@@ -37,6 +31,8 @@ export function normalizeSource(source) {
  * @param {number} [opts.maxMapBytes=20 * 1024 * 1024]
  * @param {number} [opts.maxColdLoadsPerMinute=20] - сколько карт в минуту
  *   читать с диска; сверх — кадр остаётся сырым
+ * @param {number} [opts.maxMissing=1000] - сколько отсутствующих/негодных карт
+ *   помнить; при переполнении множество чистится целиком
  * @param {() => number} [opts.now=Date.now]
  * @returns {(stack: string) => Promise<string>}
  */
@@ -47,19 +43,28 @@ export function createSymbolicator({
   cacheSize = 20,
   maxMapBytes = 20 * 1024 * 1024,
   maxColdLoadsPerMinute = 20,
+  maxMissing = 1000,
   now = Date.now,
 }) {
   const rootPrefixes = roots.filter(Boolean).map(root => path.resolve(root) + path.sep);
-  // mapPath → Promise<SourceMapConsumer|null>: промис, а не результат, —
-  // два одновременных отчёта про одну карту читают её с диска один раз.
-  // Порядок вставки Map и есть порядок LRU
+  // mapPath → SourceMapConsumer: только настоящие карты. Порядок вставки
+  // Map и есть порядок LRU
   const cache = new Map();
+  // mapPath → Promise<SourceMapConsumer|null>: одновременные загрузки одной
+  // карты читают её с диска один раз
+  const inflight = new Map();
+  // карты, которых нет или которые не годятся (не файл, больше maxMapBytes),
+  // — отдельно от LRU: поток выдуманных путей бандлов иначе вытеснял бы из
+  // него настоящие карты. При переполнении чистится целиком — как
+  // `_logged` в ClientReportBuffer
+  const missing = new Set();
   let coldMinute = null;
   let coldLoads = 0;
 
   // Разбор карты — синхронные десятки мс в event loop бокса (у dedicated
   // там же идёт матч), а корни лобби держат все версии всех игр: без
-  // бюджета стеки с разными картами гоняли бы LRU по кругу
+  // бюджета стеки с разными картами гоняли бы LRU по кругу. Списывается
+  // только перед чтением существующей карты
   const takeColdLoad = () => {
     const minute = Math.floor(now() / 60000);
 
@@ -77,8 +82,17 @@ export function createSymbolicator({
     return true;
   };
 
-  // null — карты нет (и не появится: имя бандла хешировано) или она не
-  // годится; прочие сбои — исключение
+  const rememberMissing = mapPath => {
+    if (missing.size >= maxMissing) {
+      missing.clear();
+    }
+
+    missing.add(mapPath);
+  };
+
+  // null — карты нет, она не годится или кончился бюджет минуты; прочие
+  // сбои — исключение. Бюджет тратит только настоящее чтение с разбором:
+  // stat дёшев, а выдуманные пути бандлов не должны выжигать бюджет
   const readMap = async mapPath => {
     let stat;
 
@@ -86,6 +100,7 @@ export function createSymbolicator({
       stat = await fs.stat(mapPath);
     } catch (err) {
       if (err.code === 'ENOENT') {
+        rememberMissing(mapPath);
         return null;
       }
 
@@ -93,6 +108,11 @@ export function createSymbolicator({
     }
 
     if (!stat.isFile() || stat.size > maxMapBytes) {
+      rememberMissing(mapPath);
+      return null;
+    }
+
+    if (!takeColdLoad()) {
       return null;
     }
 
@@ -119,36 +139,41 @@ export function createSymbolicator({
     }
 
     const mapPath = `${resolved}.map`;
+    const cached = cache.get(mapPath);
 
-    if (cache.has(mapPath)) {
-      const pending = cache.get(mapPath);
-
+    if (cached) {
       cache.delete(mapPath);
-      cache.set(mapPath, pending);
+      cache.set(mapPath, cached);
 
-      return pending;
+      return cached;
     }
 
-    if (!takeColdLoad()) {
+    if (missing.has(mapPath)) {
       return null;
     }
 
-    const pending = readMap(mapPath);
+    let pending = inflight.get(mapPath);
 
-    cache.set(mapPath, pending);
-
-    if (cache.size > cacheSize) {
-      cache.delete(cache.keys().next().value);
+    if (!pending) {
+      pending = readMap(mapPath).finally(() => inflight.delete(mapPath));
+      inflight.set(mapPath, pending);
     }
 
-    // сбой чтения не кешируется: один EIO не должен выключить карту навсегда
-    pending.catch(() => {
-      if (cache.get(mapPath) === pending) {
-        cache.delete(mapPath);
-      }
-    });
+    const consumer = await pending;
 
-    return pending;
+    // в LRU попадают только настоящие карты: пустой ответ ничего не
+    // вытесняет. Карты нет — её помнит `missing`; кончился бюджет —
+    // прочитается в следующую минуту. Сбой чтения (EIO, битый JSON)
+    // исключением уходит к вызывающему и тоже не кешируется
+    if (consumer && !cache.has(mapPath)) {
+      cache.set(mapPath, consumer);
+
+      if (cache.size > cacheSize) {
+        cache.delete(cache.keys().next().value);
+      }
+    }
+
+    return consumer;
   };
 
   const symbolicateFrame = async (text, frame) => {
@@ -191,7 +216,7 @@ export function createSymbolicator({
 
     for (const line of String(stack).split('\n')) {
       const frame =
-        decoded < maxFrames && FRAME_LINE_RE.test(line) ? parseFrame(line) : null;
+        decoded < maxFrames && isFrameLine(line) ? parseFrame(line) : null;
 
       if (!frame) {
         out.push(line);

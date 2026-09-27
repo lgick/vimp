@@ -10,6 +10,16 @@ const MESSAGE_KEY_MAX = 200;
 // Firefox/Safari — `fn@URL:l:c`
 const FRAME_RE = /([a-z][a-z0-9+.-]*:\/\/[^\s()]+?):(\d+):(\d+)\)?\s*$/i;
 
+// строка стека — кадр: V8 `    at …`, Firefox/Safari `fn@scheme://…`.
+// Первая строка V8 — сообщение, у Firefox/Safari её нет вовсе. Сообщение,
+// оканчивающееся на `url:line:col`, кадром не считается — у него нет ни
+// `at `, ни `@`. Одно правило для отпечатка и расшифровки стеков
+const FRAME_LINE_RE = /^\s*at\s|@[a-z][a-z0-9+.-]*:\/\//i;
+
+export function isFrameLine(line) {
+  return FRAME_LINE_RE.test(String(line));
+}
+
 // сообщение без «шума» экземпляра: числа и длинные hex-идентификаторы.
 // Сначала hex — иначе цифры внутри идентификатора уже стали бы N
 export function normalizeMessage(message) {
@@ -51,6 +61,10 @@ export function rawTopFrame(stack) {
   }
 
   for (const line of stack.split('\n')) {
+    if (!isFrameLine(line)) {
+      continue;
+    }
+
     const frame = parseFrame(line);
 
     if (!frame) {

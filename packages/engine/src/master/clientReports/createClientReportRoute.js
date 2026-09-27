@@ -137,5 +137,20 @@ export function createClientReportRoute({
     }
   };
 
-  return [limit, express.json({ limit: bodyLimit }), handle];
+  // Сбой разбора тела (битый JSON — 400, больше bodyLimit — 413) без этого
+  // ушёл бы в обработчик Express по умолчанию: полный стек в журнал
+  // процесса на каждый такой запрос любого браузера и HTML в ответ. Отказ
+  // короткий и молчаливый, как у прочих отказов: частоту уже режет `limit`
+  const bodyError = (err, req, res, next) => {
+    if (err.status >= 400 && err.status < 500) {
+      res
+        .status(err.status)
+        .json({ error: err.status === 413 ? 'payloadTooLarge' : 'badRequest' });
+      return;
+    }
+
+    next(err);
+  };
+
+  return [limit, express.json({ limit: bodyLimit }), handle, bodyError];
 }

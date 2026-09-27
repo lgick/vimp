@@ -9,6 +9,18 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Fixed
+
+- A malformed or oversized `POST /client-reports` body gets a short JSON
+  `400`/`413` instead of Express's HTML error page and a stack trace in the
+  server log.
+- The error reporter also sends what it has buffered when the tab is hidden,
+  not only on `pagehide`: mobile browsers may kill a background tab without
+  firing it.
+- A client error whose V8 message line ends with `url:line:column` no longer
+  takes that line as the top frame of its fingerprint; fingerprints and
+  symbolication share one rule for what a stack frame is.
+
 ## [0.35.1] — 2026-09-27
 
 ### Security
@@ -16,8 +28,10 @@ bumps the minor version).
 - Source maps could still be downloaded in production through a
   percent-encoded path (`/assets/index-*.js.%6dap`); `denySourceMaps` now
   checks the decoded path, case-insensitively.
-- Stack symbolication on the server loads at most 20 source maps a minute,
-  so crafted reports cannot stall the event loop.
+- Stack symbolication on the server parses at most 20 source maps a minute,
+  so crafted reports cannot stall the event loop; frames that point at
+  bundles which do not exist cost nothing from that budget and never push
+  real maps out of the cache.
 
 ### Fixed
 

@@ -158,6 +158,38 @@ describe('POST /client-reports: отказы', () => {
     expect((await post(report([item({ message: 'x'.repeat(17 * 1024) })]))).status).toBe(413);
   });
 
+  it('битый JSON: короткий JSON 400, без стека в журнале процесса', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const { post } = await start();
+      const res = await post('{bad');
+
+      expect(res.status).toBe(400);
+      expect(res.headers.get('content-type')).toContain('application/json');
+      expect(await res.json()).toEqual({ error: 'badRequest' });
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('тело больше лимита: короткий JSON 413, без стека в журнале процесса', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const { post } = await start();
+      const res = await post('x'.repeat(20000));
+
+      expect(res.status).toBe(413);
+      expect(res.headers.get('content-type')).toContain('application/json');
+      expect(await res.json()).toEqual({ error: 'payloadTooLarge' });
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('429 после лимита', async () => {
     const { post } = await start({ limit: 2 });
 

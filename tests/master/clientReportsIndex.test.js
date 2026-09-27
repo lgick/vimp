@@ -103,7 +103,7 @@ describe('createClientReports', () => {
       log,
     });
 
-    expect(route).toHaveLength(3);
+    expect(route).toHaveLength(4);
     expect(forwarder.enabled).toBe(false);
     expect(log.warn.mock.calls[0][0]).toMatch(/forwarding disabled/);
   });

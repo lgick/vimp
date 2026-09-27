@@ -417,6 +417,7 @@ export function createDiagnostics({
    * @returns {Function} снятие перехватчиков
    */
   function install(target = window) {
+    const doc = target.document;
     // ошибки загрузки <img>/<script> приходят обычным Event на элементе —
     // это сбои ресурсов, а не исключения
     const onError = event => {
@@ -428,7 +429,14 @@ export function createDiagnostics({
       capture(event.reason, { kind: 'rejection' });
     };
     const onPageHide = () => flush();
-    const doc = target.document;
+    // фоновую вкладку мобильный браузер убивает и без pagehide: скрытие —
+    // последний надёжный момент отправить накопленное (по таймеру отчёты
+    // ждут до minIntervalMs)
+    const onVisibility = () => {
+      if (doc?.visibilityState === 'hidden') {
+        flush();
+      }
+    };
 
     try {
       target.addEventListener('error', onError);
@@ -436,6 +444,7 @@ export function createDiagnostics({
       target.addEventListener('pagehide', onPageHide);
       // событие всплывает к документу
       doc?.addEventListener('securitypolicyviolation', reportCsp);
+      doc?.addEventListener('visibilitychange', onVisibility);
     } catch {
       // нет цели — просто не ловим
     }
@@ -446,6 +455,7 @@ export function createDiagnostics({
         target.removeEventListener('unhandledrejection', onRejection);
         target.removeEventListener('pagehide', onPageHide);
         doc?.removeEventListener('securitypolicyviolation', reportCsp);
+        doc?.removeEventListener('visibilitychange', onVisibility);
       } catch {
         // снятие не должно ронять вызывающего
       }

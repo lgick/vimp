@@ -205,6 +205,60 @@ describe('createSymbolicator', () => {
 
     expect(readFile).toHaveBeenCalledTimes(2);
   });
+
+  it('выдуманные бандлы не выключают расшифровку', async () => {
+    let t = 0;
+    const symbolicate = make({ now: () => t });
+    const frame2 = '    at Tr (https://h/assets/bundle2.js:1:11)';
+    const decoded2 =
+      '    at modelLean (src/client/parts/Tank.js:42:5) [/assets/bundle2.js:1:11]';
+    const fakeStack = n =>
+      [
+        HEAD,
+        ...Array.from(
+          { length: 12 },
+          (_, i) => `    at f (https://h/assets/fake-${n}-${i}.js:1:1)`,
+        ),
+      ].join('\n');
+
+    await symbolicate([HEAD, V8_FRAME].join('\n'));
+
+    t = 60000;
+
+    await symbolicate(fakeStack(1));
+    await symbolicate(fakeStack(2));
+
+    expect(await symbolicate([HEAD, V8_FRAME].join('\n'))).toBe(
+      [HEAD, DECODED].join('\n'),
+    );
+    expect(await symbolicate([HEAD, frame2].join('\n'))).toBe([HEAD, decoded2].join('\n'));
+  });
+
+  it('выдуманные бандлы не вытесняют карты', async () => {
+    const readFile = vi.spyOn(fs, 'readFile');
+    const symbolicate = make({ cacheSize: 1 });
+    const fakes = [1, 2, 3].map(i => `    at f (https://h/assets/fake-${i}.js:1:1)`);
+
+    await symbolicate([HEAD, V8_FRAME].join('\n'));
+    await symbolicate([HEAD, ...fakes].join('\n'));
+    const out = await symbolicate([HEAD, V8_FRAME].join('\n'));
+
+    expect(out).toBe([HEAD, DECODED].join('\n'));
+    expect(readFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('переполнение множества отсутствующих карт чистит его', async () => {
+    const stat = vi.spyOn(fs, 'stat');
+    const symbolicate = make({ maxMissing: 2 });
+    const fake = i => [HEAD, `    at f (https://h/assets/fake-${i}.js:1:1)`].join('\n');
+
+    await symbolicate(fake(1));
+    await symbolicate(fake(2));
+    await symbolicate(fake(3));
+    await symbolicate(fake(1));
+
+    expect(stat).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe('normalizeSource', () => {
