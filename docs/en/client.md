@@ -800,14 +800,13 @@ Data flow:
   `new Float32Array(wasm.memory.buffer, ptr, len)` — the buffer is taken
   after the call into the core, never before it. The view is recreated
   every tick and lives only until the WASM memory grows: growth detaches
-  the buffer, and a detached view reads
-  `undefined`. Any allocating call into the core can grow it —
-  `take_frames()` builds a JSON string on the WASM heap, parts call the core
-  while parsing frames — so `lib/hotTick.js` copies out everything it needs
-  before the first such call. The camera used to be read after
-  `take_frames()` and turned into NaN: the canvas went blank until a camera
-  reset, and the sound listener made `Howl.pos()` throw, taking the ticker
-  with it. The buffer carries flags, the camera (already resolved:
+  the buffer, and a detached view reads `undefined`. Any allocating call into
+  the core can grow it — `take_frames()` builds a JSON string on the WASM
+  heap, parts call the core while parsing frames — so `lib/hotTick.js` copies
+  out everything it needs before the first such call. The camera used to be
+  read after `take_frames()` and turned into NaN: the canvas went blank until
+  a camera reset, and the sound listener made `Howl.pos()` throw, taking the
+  ticker with it. The buffer carries flags, the camera (already resolved:
   predicted position or interpolated), interpolated tank/dynamic records,
   and the game's predicted records last — the local actor's
   (`render_overlay`) followed by any bodies the game predicts itself
@@ -1136,14 +1135,14 @@ source is gone. Volume has to: a game drives it from speed (an engine loop),
 where a 30 Hz staircase would be audible, and the `maxDistance` mute has to
 land in the same frame the source leaves the radius, not 33 ms later.
 
-**A non-finite position never reaches the node.** `setValueAtTime` throws on
-NaN/Infinity, and an exception in the render tick stops the Pixi ticker —
-the game freezes. `_writePos`, the only write point, skips such a position
-and does not remember it; `_applyVolume` treats a NaN distance as beyond
-`maxDistance` and mutes the source.
-The same holds for `rate`: Howler validates volume but hands `rate`
-straight to `playbackRate.setValueAtTime`, so `updateActiveSounds` passes
-it on only when it is finite; until then the previous rate plays.
+**A non-finite value never reaches an audio parameter.** `setValueAtTime`
+throws on NaN/Infinity, and an exception in the render tick stops the Pixi
+ticker — the game freezes. `_writePos`, the only position write point,
+skips a non-finite position and does not remember it; `_applyVolume` treats
+a NaN distance as beyond `maxDistance` and mutes the source. The same holds
+for `rate`: Howler validates volume but hands `rate` straight to
+`playbackRate.setValueAtTime`, so `updateActiveSounds` passes it on only
+when it is finite; until then the previous rate plays.
 
 ## InputListener
 
