@@ -1,4 +1,4 @@
-# Этап 6. vimp-tanks: скрытые source maps, `levelView` → сервис `diagnostics`
+# Этап 6. vimp-tanks: скрытые source maps, `levelView` → сервис `diagnostics` ✅ выполнен
 
 Репозиторий: **`vimp-tanks`** (`/Users/dmitry/Sites/my/vimp-tanks`, npm
 `@vimp-games/tanks`). Зависит от этапов 3 и 4, **выпущенных в npm**

@@ -150,7 +150,7 @@ logs`); отсечённое лимитами (кроме счётчика `repo
 | 3 | [Клиент движка: глобальный перехват, сервис `diagnostics`](stage_3.md) | vimp (`packages/engine/src/client`) | 2 | ✅ выполнен |
 | 4 | [Source maps и расшифровка стеков на боксе](stage_4.md) | vimp | 2 | ✅ выполнен |
 | 5 | [Вкладка «Errors» в админке лобби](stage_5.md) | vimp | 1 | ✅ выполнен |
-| 6 | [vimp-tanks: hidden source maps, `levelView` → `diagnostics`](stage_6.md) | vimp-tanks | 3, 4 (выпущены) | ⬜ |
+| 6 | [vimp-tanks: hidden source maps, `levelView` → `diagnostics`](stage_6.md) | vimp-tanks | 3, 4 (выпущены) | ✅ выполнен |
 
 Готовый этап помечается в заголовке его файла и в колонке «Статус» меткой
 **«✅ выполнен»**. Когда выполнены все — весь каталог переносится
