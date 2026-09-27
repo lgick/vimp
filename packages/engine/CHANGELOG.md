@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.35.2] — 2026-09-27
+
 ### Fixed
 
 - A malformed or oversized `POST /client-reports` body gets a short JSON
@@ -2337,6 +2339,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.35.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.2
 [0.35.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.1
 [0.35.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.0
 [0.34.8]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.8
