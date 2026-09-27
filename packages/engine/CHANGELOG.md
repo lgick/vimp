@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.35.0] — 2026-09-27
+
 ### Added
 
 - Lobby masters and dedicated servers accept client error reports at `POST /client-reports` (same-origin, rate-limited per address or IPv6 /64, 16 KB, a per-server budget of new fingerprints) and forward them in batches to the auth service (`VIMP_CLIENT_REPORTS_TOKEN`, `master:clientReports`); every new fingerprint is also logged as `[vimp:client-report]`, and dropped reports are counted in a `reports.dropped` entry.
@@ -2287,6 +2289,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.35.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.0
 [0.34.8]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.8
 [0.34.7]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.7
 [0.34.6]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.6
