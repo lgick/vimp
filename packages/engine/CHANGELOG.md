@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.35.1] — 2026-09-27
+
 ### Security
 
 - Source maps could still be downloaded in production through a
@@ -2321,6 +2323,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.35.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.1
 [0.35.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.0
 [0.34.8]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.8
 [0.34.7]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.34.7
