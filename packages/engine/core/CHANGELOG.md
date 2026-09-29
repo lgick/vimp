@@ -13,6 +13,11 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Fixed
+
+- `find_route` no longer takes the direct segment when it crosses a penalty zone of its level:
+  the route is searched over the graph, so penalty zones also work in open line of sight.
+
 ## [0.23.0] — 2026-09-29
 
 ### Added

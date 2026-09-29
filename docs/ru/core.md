@@ -345,7 +345,7 @@ core:build` в `vimp-tanks`).
 | `comfort_clearance` | мировые единицы | желательный запас от стен | `0` (без предпочтения) |
 | `narrow_cost` | доля длины ребра | добавка при нулевом запасе, линейно до 0 при `comfort_clearance` | `0` |
 | `ledge_cost_scale` | множитель | масштаб штрафа обрыва `LEDGE_PENALTY · height`: `0` — прыжок стоит только длину, `f32::INFINITY` — обрывы запрещены | `1` |
-| `penalties` | `&[PenaltyZone]` | круги `{ level, center, radius, cost_per_unit }`: ребро с серединой внутри дороже на `cost_per_unit · (1 − d/radius)` за единицу длины | `&[]` |
+| `penalties` | `&[PenaltyZone]` | круги `{ level, center, radius, cost_per_unit }`: ребро с серединой внутри дороже на `cost_per_unit · (1 − d/radius)` за единицу длины; прямой отрезок через зону своего уровня не срезается — решает A* по рёбрам | `&[]` |
 
 `PathQuery::default()` воспроизводит `find_path_on`, который (как и
 `find_path`) теперь тонкая обёртка над `find_route`. `Route` — это

@@ -341,7 +341,7 @@ the minimum `fit`/`clear` over the cells of its line.
 | `comfort_clearance` | world units | desired distance from walls | `0` (no preference) |
 | `narrow_cost` | share of edge length | added at zero clearance, linearly down to 0 at `comfort_clearance` | `0` |
 | `ledge_cost_scale` | multiplier | scales the ledge penalty `LEDGE_PENALTY · height`: `0` — a jump costs its length, `f32::INFINITY` — ledges forbidden | `1` |
-| `penalties` | `&[PenaltyZone]` | circles `{ level, center, radius, cost_per_unit }`: an edge whose midpoint is inside costs `cost_per_unit · (1 − d/radius)` more per unit of length | `&[]` |
+| `penalties` | `&[PenaltyZone]` | circles `{ level, center, radius, cost_per_unit }`: an edge whose midpoint is inside costs `cost_per_unit · (1 − d/radius)` more per unit of length; a direct segment crossing a zone of its level is not taken as a shortcut — A* over the edges decides | `&[]` |
 
 `PathQuery::default()` reproduces `find_path_on`, which (like `find_path`)
 is now a thin wrapper over `find_route`. A `Route` is `legs: Vec<RouteLeg>`

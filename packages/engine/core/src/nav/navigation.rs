@@ -727,8 +727,9 @@ impl NavigationSystem {
         }
 
         // прямая видимость возможна только внутри одного уровня: смена
-        // уровня всегда едет по ребру рампы или обрыва
-        if start.level == end.level {
+        // уровня всегда едет по ребру рампы или обрыва. Отрезок через
+        // штрафную зону не срезается: его цену решает A* по рёбрам
+        if start.level == end.level && !crosses_penalty(query, start.level, start.pos, end.pos) {
             let clear = if query.min_width > 0.0 {
                 self.has_clear_corridor_on(start.level, start.pos, end.pos, query.min_width / 2.0)
             } else {
@@ -1366,6 +1367,30 @@ impl NavigationSystem {
 }
 
 // евклидова дистанция между узлами (вес ребра перехода)
+/// Проходит ли отрезок `a → b` уровня `level` через штрафную зону запроса.
+fn crosses_penalty(query: &PathQuery, level: u8, a: [f32; 2], b: [f32; 2]) -> bool {
+    query.penalties.iter().any(|zone| {
+        zone.level == level
+            && zone.radius > 0.0
+            && zone.cost_per_unit > 0.0
+            && point_segment_distance(zone.center, a, b) < zone.radius
+    })
+}
+
+/// Расстояние от точки до отрезка.
+fn point_segment_distance(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
+    let ab = [b[0] - a[0], b[1] - a[1]];
+    let len_sq = ab[0] * ab[0] + ab[1] * ab[1];
+
+    if len_sq <= f32::EPSILON {
+        return distance(p, a);
+    }
+
+    let t = (((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / len_sq).clamp(0.0, 1.0);
+
+    distance(p, [a[0] + ab[0] * t, a[1] + ab[1] * t])
+}
+
 fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
@@ -2049,6 +2074,65 @@ mod tests {
             "{avoiding:?}"
         );
         assert!(avoiding.cost > plain.cost);
+    }
+
+    #[test]
+    fn penalty_zone_on_the_direct_line_is_not_cut() {
+        // строка 3 видна насквозь: без зоны — один прямой отрезок
+        let nav = gapped_wall();
+        let (start, end) = (at(15.0, 35.0, 0), at(85.0, 35.0, 0));
+        let zones = [PenaltyZone {
+            level: 0,
+            center: [45.0, 35.0],
+            radius: 20.0,
+            cost_per_unit: 10.0,
+        }];
+        let plain = nav.find_route(start, end, &PathQuery::default()).unwrap();
+        let avoiding = nav
+            .find_route(
+                start,
+                end,
+                &PathQuery {
+                    penalties: &zones,
+                    ..PathQuery::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(plain.legs.len(), 1, "{plain:?}");
+        assert!(avoiding.legs.len() > 1, "{avoiding:?}");
+        assert!(
+            avoiding
+                .legs
+                .iter()
+                .all(|leg| distance(leg.point.pos, zones[0].center) >= 20.0),
+            "{avoiding:?}"
+        );
+
+        // зона другого уровня или нулевой цены прямой не мешает
+        for zone in [
+            PenaltyZone {
+                level: 1,
+                ..zones[0]
+            },
+            PenaltyZone {
+                cost_per_unit: 0.0,
+                ..zones[0]
+            },
+        ] {
+            let route = nav
+                .find_route(
+                    start,
+                    end,
+                    &PathQuery {
+                        penalties: &[zone],
+                        ..PathQuery::default()
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(route.legs.len(), 1, "{zone:?}");
+        }
     }
 
     fn has_ledge(route: &Route) -> bool {
