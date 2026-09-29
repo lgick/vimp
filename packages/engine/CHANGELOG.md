@@ -9,6 +9,12 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.35.5] — 2026-09-29
+
+### Changed
+
+- The package ships `core/Cargo.toml` of `vimp-engine-core` 0.23.0.
+
 ## [0.35.4] — 2026-09-27
 
 ### Fixed
@@ -2364,6 +2370,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.35.5]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.5
 [0.35.4]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.4
 [0.35.3]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.3
 [0.35.2]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.2
