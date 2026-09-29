@@ -13,6 +13,8 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+## [0.23.1] — 2026-09-29
+
 ### Fixed
 
 - `find_route` no longer takes the direct segment when it crosses a penalty zone of its level:
@@ -856,6 +858,7 @@ dropping it, so the entity is updated rather than recreated).
   utilities, RNG, and the `macro_rules!` ABI generators. Deliberately without
   `wasm-bindgen` — the WASM ABI wrappers are built by each game's own crate.
 
+[0.23.1]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.23.1
 [0.23.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.23.0
 [0.22.6]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.22.6
 [0.22.5]: https://github.com/lgick/vimp/releases/tag/vimp-engine-core%400.22.5
