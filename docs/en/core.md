@@ -318,6 +318,66 @@ the jump costs the game's `fallDamage`).
 Paths are searched with `find_path_on(PathPoint, PathPoint)`; a level change
 between two neighbouring points of the path means a ramp or a ledge.
 
+### Navigation queries
+
+On top of the finished graph `NavigationSystem` keeps two derived grids per
+level (built last, so graph construction does not depend on them). A cell is
+free exactly when `is_walkable_on` says so; the map border counts as blocked:
+
+- **`fit`** — the side (in cells, capped at 15) of the largest free square
+  containing the cell; `0` means blocked. A body of width `w` fits a cell when
+  `fit ≥ ceil(w / grid_step)`.
+- **`clear`** — the Chebyshev distance (in cells) to the nearest blocked cell
+  or the map border; `1` means the cell touches a wall.
+
+Every edge also carries private metadata: its kind (walk, ramp, ledge) and
+the minimum `fit`/`clear` over the cells of its line.
+
+`find_route(start, end, &PathQuery) -> Option<Route>` searches with rules:
+
+| `PathQuery` field | Unit | Meaning | Default |
+| --- | --- | --- | --- |
+| `min_width` | world units | body width: an edge whose `fit` is too small is forbidden, the direct segment needs a `has_clear_corridor_on` corridor | `0` (no limit) |
+| `comfort_clearance` | world units | desired distance from walls | `0` (no preference) |
+| `narrow_cost` | share of edge length | added at zero clearance, linearly down to 0 at `comfort_clearance` | `0` |
+| `ledge_cost_scale` | multiplier | scales the ledge penalty `LEDGE_PENALTY · height`: `0` — a jump costs its length, `f32::INFINITY` — ledges forbidden | `1` |
+| `penalties` | `&[PenaltyZone]` | circles `{ level, center, radius, cost_per_unit }`: an edge whose midpoint is inside costs `cost_per_unit · (1 − d/radius)` more per unit of length | `&[]` |
+
+`PathQuery::default()` reproduces `find_path_on`, which (like `find_path`)
+is now a thin wrapper over `find_route`. A `Route` is `legs: Vec<RouteLeg>`
+plus `cost` (length plus penalties); each `RouteLeg { point, kind }` says how
+the point is reached: `LegKind::Walk`, `LegKind::Ramp { axis, sign }` (as in
+`RampRun`) or `LegKind::Ledge { height }`. The last leg is always `end`
+(`Walk`). Entry nodes are looked up in rings of up to 4 cells of the node
+grid around the point, preferring a visible node whose `fit` suits the body;
+start and end snapping to one node give a two-leg route instead of `None`.
+
+Helpers: `clearance_on(level, x, y)` (world units from the cell centre to the
+nearest blocked cell, `0` on a blocked cell), `fits_on(level, x, y, width)`,
+`has_clear_corridor_on(level, start, end, half_width)` (the centre line and
+parallel ones on both sides, at most a cell apart and out to `±half_width`,
+cross free cells only),
+`nearest_walkable_on(level, pos, width, max_radius)` (the closest free cell
+centre that fits the body; ties by distance, then y, then x) and
+`random_point_where(rng, level, width)` (a random node of the level that fits
+the body; up to 16 tries, then `random_point`).
+
+A* (`pathfinder::find_path_with`, with a per-edge cost callback that may
+forbid an edge) runs on a binary heap with lazy deletion; ties on `f` go to
+the smaller node index, so equal queries always give equal routes.
+
+```rust
+let zones = [PenaltyZone { level: 0, center: danger, radius: 80.0, cost_per_unit: 4.0 }];
+let query = PathQuery {
+    min_width: 12.0,          // tank hull
+    comfort_clearance: 10.0,
+    narrow_cost: 1.0,
+    penalties: &zones,
+    ..PathQuery::default()
+};
+let route = nav.find_route(from, to, &query);
+```
+
 The cells of a ramp run are **not walkable** on the level the run starts
 from: a bot gets onto the wedge only through the ramp edge, never by
 stepping onto it from the side or from the far end — which is exactly what
@@ -562,7 +622,7 @@ one deploy — the version only protects framing within a room).
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| Rust unit | `packages/engine/core/src/*` (`#[cfg(test)]`) | PRNG, the nav grid, A*, the spatial grid; the client module: round-trip unpack, the interpolator (seq/dedup/late/lerp), raycast, SAT contacts and the contact solver, the hot buffer; the `GameClientDef` trait's shape validated against a fixture `TestClient` |
+| Rust unit | `packages/engine/core/src/*` (`#[cfg(test)]`) | PRNG, the nav grid, A*, clearance grids, `find_route`, the spatial grid; the client module: round-trip unpack, the interpolator (seq/dedup/late/lerp), raycast, SAT contacts and the contact solver, the hot buffer; the `GameClientDef` trait's shape validated against a fixture `TestClient` |
 | Rust integration | this repo has none — a game's simulation scenarios (driving, weapons, bots, handoff, etc.) are that game repo's concern | — |
 
 `npm run core:test` runs `cargo test --workspace`, which in this repo is

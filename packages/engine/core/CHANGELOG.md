@@ -13,6 +13,22 @@ the dependency is by version, not by path.
 
 ## [Unreleased]
 
+### Added
+
+- `NavigationSystem::find_route` with `PathQuery` (body width, comfort clearance, ledge cost scale,
+  penalty zones) returning a `Route` of typed legs (`LegKind::Walk/Ramp/Ledge`) and its cost;
+  `clearance_on`, `fits_on`, `has_clear_corridor_on`, `nearest_walkable_on`, `random_point_where`;
+  `pathfinder::find_path_with`.
+
+### Changed
+
+- A* runs on a binary heap (same paths, deterministic tie-breaking, much faster on large maps).
+
+### Fixed
+
+- `find_path_on` returned `None` when start and end snapped to the same node; the nearest-node
+  search looked at 3×3 cells only and failed next to walls.
+
 ## [0.22.6] — 2026-09-25
 
 ### Changed
