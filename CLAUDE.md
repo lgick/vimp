@@ -83,6 +83,7 @@ Trusted Publishing (no npm/cargo login, no token). Details:
 ```bash
 npm run dev / npm start      # master (dev needs mkcert certs, see getting-started)
 npm run build:app            # Vite bundle (engine app only)
+npx prettier --write <file>  # format modified JS/TS/MD files
 npx eslint . && npm test     # lint + Vitest (see Testing)
 npm run core:test            # cargo test --workspace
 npm run sim / sim:check / sim:replay <file>   # headless match, verdict, replay
@@ -122,8 +123,7 @@ reaches the app bundle, plugins load only via `GameManifest`/`GameCatalog`
 ## Testing
 
 **Rule**: any functional change adds or updates the tests covering it in the
-same change (a fix starts with a test reproducing the bug); `npx eslint .`
-and `npm test` end every change green.
+same change (a fix starts with a test reproducing the bug); `npx prettier --write <modified-files>`, `npx eslint .` and `npm test` end every change green.
 
 Vitest (+ happy-dom); tests live in `tests/`, mirroring `packages/engine/src/`
 (plus `tests/auth/` for `packages/auth/src/`, its own vitest project), never
