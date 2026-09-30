@@ -48,7 +48,10 @@
 // впереди лишних, но не может потерять уже обогнавших.
 export default class RankDistribution {
   // loader(gameId, period, maxSteps) -> { steps: [{ score, atOrAbove }], total }
-  constructor(loader, { ttlMs = 30000, maxSteps = 50000, now = () => Date.now() } = {}) {
+  constructor(
+    loader,
+    { ttlMs = 30000, maxSteps = 50000, now = () => Date.now() } = {},
+  ) {
     this._load = loader;
     this._ttlMs = ttlMs;
     this._maxSteps = maxSteps;

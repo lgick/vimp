@@ -40,10 +40,11 @@
 `(ctx) => Finding[]`. Группы и состав:
 
 **A. Пакет и сборка**
+
 - `A1` `type: "module"`; `files: ["dist"]`; `pixi.js` только в
   `peerDependencies` + `devDependencies`; `vimp-engine` в
   `devDependencies`, **не** в `dependencies`; `publishConfig.access:
-  "public"` при scoped-имени.
+"public"` при scoped-имени.
 - `A2` присутствуют скрипты `build`, `build:client`, `build:host`,
   `build:assets`, `build:manifest`, `core:build:web`, `core:build:node`,
   `core:test`, `test`.
@@ -59,11 +60,12 @@
   версии крейта движка (сегодня `0.3.2`) — ровно та ошибка, что живёт в
   street-fighters.
 - `A6` (только если собрано) `dist/manifest.json`: `engineApi ===
-  ENGINE_API_VERSION`; `id` совпадает с `hostPlugin.id` и
+ENGINE_API_VERSION`; `id` совпадает с `hostPlugin.id` и
   `clientPlugin.id`; все `entries.*` существуют на диске; `entries.wasmNode`
   указывает внутрь `dist/`; `roomDefaults` покрывает каждое поле `roomForm`.
 
 **B. Host**
+
 - `B1` наличие `id`, `engineApi`, `createCore`, `gameConfig`, `authSchema`,
   `chatCommands` (именно массив), `createModules`, `buildClientGameConfig`.
 - `B2` `engineApi` хоста, клиента и манифеста равны `ENGINE_API_VERSION`
@@ -84,6 +86,7 @@
   не войдёт).
 
 **C. Client**
+
 - `C1` наличие `id`, `engineApi`, `createClientCore`, `parts`, `bakers`,
   `styles` и всех трёх хуков `onAuth`, `onPanel`, `onLocalAction`.
 - `C2` каждый класс из `parts.gameSets` и `setId` карт объявлен в
@@ -103,12 +106,14 @@
   названо ровно `model`.
 
 **D. Снапшот**
+
 - `D1` `id` блоков уникальны.
 - `D2` `class: 'hot'` только у `indexed8` / `indexedNoNull8`; `list16` и
   `indexed32` — только `class: 'event'`.
 - `D3` `interp` только на полях `ty: 'f32'` внутри `class: 'hot'`.
 
 **E. Ассеты**
+
 - `E1` каждый зарегистрированный звук имеет пару `.webm` + `.mp3` в
   `dist/sounds/`.
 - `E2` каждый `spriteSheet.img` и `physicsDynamic[].img` карт существует в

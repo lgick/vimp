@@ -28,21 +28,17 @@ describe('contract check on the miniGame fixture', () => {
   it('finds no violation at all', () => {
     const failed = report.results.filter(result => result.status === FAIL);
 
-    expect(failed.map(result => `${result.id}: ${result.violations[0]}`)).toEqual(
-      [],
-    );
+    expect(
+      failed.map(result => `${result.id}: ${result.violations[0]}`),
+    ).toEqual([]);
   });
 
   it('passes every host, client and snapshot rule', () => {
-    const checked = report.results.filter(result =>
-      /^[BCD]/.test(result.id),
-    );
+    const checked = report.results.filter(result => /^[BCD]/.test(result.id));
 
     // B5 (roomForm) — единственное исключение: у фикстуры нет лобби-формы
     expect(
-      checked
-        .filter(result => result.status !== PASS)
-        .map(result => result.id),
+      checked.filter(result => result.status !== PASS).map(result => result.id),
     ).toEqual(['B5']);
   });
 

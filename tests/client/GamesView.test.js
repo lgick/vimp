@@ -305,7 +305,13 @@ describe('GamesView: формы и списки', () => {
 
   it('рисует свои заявки со статусом и замечанием модератора', () => {
     model.publisher.emit('mine-changed', [
-      { id: 'tanks', packageName: '@vimp-games/tanks', version: '1.0.0', status: 'rejected', moderatorNote: 'нет карт' },
+      {
+        id: 'tanks',
+        packageName: '@vimp-games/tanks',
+        version: '1.0.0',
+        status: 'rejected',
+        moderatorNote: 'нет карт',
+      },
     ]);
 
     const text = $('games-mine-list').textContent;
@@ -319,7 +325,9 @@ describe('GamesView: формы и списки', () => {
     const seen = [];
 
     view.publisher.on('update-version', e => seen.push(e));
-    model.publisher.emit('mine-changed', [{ id: 'tanks', packageName: 'p', status: 'approved' }]);
+    model.publisher.emit('mine-changed', [
+      { id: 'tanks', packageName: 'p', status: 'approved' },
+    ]);
 
     const item = $('games-mine-list').querySelector('.games-item');
 
@@ -360,7 +368,14 @@ describe('GamesView: формы и списки', () => {
       view.publisher.on(event, data => seen.push([event, data])),
     );
     model.publisher.emit('admin-changed', {
-      games: [{ id: 'tanks', packageName: 'p', status: 'pending', pendingVersion: '1.1.0' }],
+      games: [
+        {
+          id: 'tanks',
+          packageName: 'p',
+          status: 'pending',
+          pendingVersion: '1.1.0',
+        },
+      ],
       filter: 'pending',
       versions: new Map(),
     });
@@ -393,15 +408,18 @@ describe('GamesView: формы и списки', () => {
 
     view.publisher.on('set-author', data => seen.push(data));
     model.publisher.emit('admin-changed', {
-      games: [{ id: 'tanks', packageName: 'p', status: 'pending', authorNick: 'dev' }],
+      games: [
+        { id: 'tanks', packageName: 'p', status: 'pending', authorNick: 'dev' },
+      ],
       filter: 'pending',
       versions: new Map(),
     });
 
     const item = $('games-admin-list').querySelector('.games-item');
     const author = item.querySelector('.games-author-input');
-    const setAuthor = [...item.querySelectorAll('input[type="button"]')]
-      .find(btn => btn.value === 'Set author');
+    const setAuthor = [...item.querySelectorAll('input[type="button"]')].find(
+      btn => btn.value === 'Set author',
+    );
 
     expect(author.value).toBe('dev');
 
@@ -435,7 +453,11 @@ describe('GamesView: формы и списки', () => {
     const seen = [];
 
     view.publisher.on('filter', id => seen.push(id));
-    model.publisher.emit('admin-changed', { games: [], filter: 'pending', versions: new Map() });
+    model.publisher.emit('admin-changed', {
+      games: [],
+      filter: 'pending',
+      versions: new Map(),
+    });
 
     const buttons = $('games-filters').querySelectorAll('input');
 
@@ -447,11 +469,17 @@ describe('GamesView: формы и списки', () => {
   });
 
   it('ошибки рисуются в блоке своей области', () => {
-    model.publisher.emit('error', { scope: 'mine', errors: [{ name: 'request', error: 'gameExists' }] });
+    model.publisher.emit('error', {
+      scope: 'mine',
+      errors: [{ name: 'request', error: 'gameExists' }],
+    });
 
     expect($('games-submit-error').textContent).toContain('already exists');
 
-    model.publisher.emit('error', { scope: 'admin', errors: [{ name: 'package', error: 'нет manifest.json' }] });
+    model.publisher.emit('error', {
+      scope: 'admin',
+      errors: [{ name: 'package', error: 'нет manifest.json' }],
+    });
 
     expect($('games-admin-error').textContent).toContain('нет manifest.json');
   });
@@ -461,7 +489,9 @@ describe('GamesView: формы и списки', () => {
     // игру и обязан узнать об этом здесь, а не от игроков
     model.publisher.emit('warning', { scope: 'admin', code: 'catalogEmpty' });
 
-    expect($('games-admin-error').textContent).toContain('No published games left');
+    expect($('games-admin-error').textContent).toContain(
+      'No published games left',
+    );
 
     // неизвестный код едет как есть — лучше сырой, чем проглоченный
     model.publisher.emit('warning', { scope: 'admin', code: 'somethingNew' });
@@ -479,7 +509,9 @@ describe('GamesView: формы и списки', () => {
 
     // сообщение называет и id, и поле: молчаливый null падал бы позже —
     // безымянным TypeError внутри clearForm или _readForm
-    expect(() => new Fresh(model, config)).toThrow(/games-field-version.*version/);
+    expect(() => new Fresh(model, config)).toThrow(
+      /games-field-version.*version/,
+    );
   });
 });
 
@@ -492,7 +524,9 @@ describe('GamesView: удаление игры', () => {
     const seen = [];
 
     view.publisher.on('delete', e => seen.push(e));
-    model.publisher.emit('mine-changed', [{ id: 'tanks', packageName: 'p', status: 'pending' }]);
+    model.publisher.emit('mine-changed', [
+      { id: 'tanks', packageName: 'p', status: 'pending' },
+    ]);
 
     deleteBtn($('games-mine-list').querySelector('.games-item')).click();
 
@@ -535,7 +569,9 @@ describe('GamesView: графа Deleted', () => {
   };
 
   it('фильтров столько же, сколько граф в конфиге', () => {
-    expect($('games-filters').querySelectorAll('input').length).toBe(config.statuses.length);
+    expect($('games-filters').querySelectorAll('input').length).toBe(
+      config.statuses.length,
+    );
   });
 
   it('карточка показывает срок полного удаления', () => {
@@ -548,7 +584,9 @@ describe('GamesView: графа Deleted', () => {
   });
 
   it('модерировать удалённую игру нечем: только Restore', () => {
-    const values = [...render().querySelectorAll('input[type="button"]')].map(btn => btn.value);
+    const values = [...render().querySelectorAll('input[type="button"]')].map(
+      btn => btn.value,
+    );
 
     expect(values).toEqual(['Restore']);
   });

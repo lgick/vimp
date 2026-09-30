@@ -48,7 +48,9 @@ export async function confirm(question, fallback = true) {
   const hint = fallback ? 'Y/n' : 'y/N';
 
   for (;;) {
-    const answer = (await reader().question(`${PREFIX} ${question} (${hint}): `))
+    const answer = (
+      await reader().question(`${PREFIX} ${question} (${hint}): `)
+    )
       .trim()
       .toLowerCase();
 

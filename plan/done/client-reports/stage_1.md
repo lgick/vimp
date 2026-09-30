@@ -157,22 +157,22 @@ export function normalizeReportItem(raw, { limits, gameIdRules, now = Date.now()
 
 Правила `normalizeReportItem` (всё прочее в `raw` игнорируется):
 
-| Поле входа | Правило | Поле выхода |
-| --- | --- | --- |
-| `fingerprint` | строка `/^[0-9a-f]{64}$/`, иначе **вся запись null** | `fingerprint` |
-| `source` | из `REPORT_SOURCES`, иначе null-запись | `source` |
-| `kind` | из `REPORT_KINDS`, иначе null-запись | `kind` |
-| `message` | строка, обрезать до `limits.message`; пустая → null-запись | `message` |
-| `code` | строка `/^[a-z0-9][a-z0-9._-]*$/i` ≤ `limits.code`, иначе `null` | `code` |
-| `stack` | строка → обрезать до `limits.stack`; иначе `null` | `stack` |
-| `details` | простой объект (не массив, не null); `JSON.stringify` ≤ `limits.details` байт (`Buffer.byteLength`), иначе `{ truncated: true }`; не объект → `null` | `details` |
-| `count` | целое, clamp `[1, 1_000_000]`; не число → 1 | `count` |
-| `firstSeen`, `lastSeen` | число (epoch ms) или ISO-строка; вне `[now − 7 сут, now + 5 мин]` или мусор → `now`; если `firstSeen > lastSeen` — поменять местами | `firstSeen`, `lastSeen` (`Date`) |
-| `engineVersion`, `gameVersion` | `/^[0-9A-Za-z.+-]{1,64}$/`, иначе `null` | те же |
-| `gameId` | `isValidGameId(v, gameIdRules)` (передать `config.games`), иначе `null` | `gameId` |
-| `box` | `/^[a-z0-9.-]{1,253}(:\d{1,5})?$/i`, иначе `null` | `box` |
-| `mode` | из `REPORT_MODES`, иначе `null` | `mode` |
-| `userAgent` | строка, обрезать до `limits.userAgent`, иначе `null` | `userAgent` |
+| Поле входа                     | Правило                                                                                                                                              | Поле выхода                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `fingerprint`                  | строка `/^[0-9a-f]{64}$/`, иначе **вся запись null**                                                                                                 | `fingerprint`                    |
+| `source`                       | из `REPORT_SOURCES`, иначе null-запись                                                                                                               | `source`                         |
+| `kind`                         | из `REPORT_KINDS`, иначе null-запись                                                                                                                 | `kind`                           |
+| `message`                      | строка, обрезать до `limits.message`; пустая → null-запись                                                                                           | `message`                        |
+| `code`                         | строка `/^[a-z0-9][a-z0-9._-]*$/i` ≤ `limits.code`, иначе `null`                                                                                     | `code`                           |
+| `stack`                        | строка → обрезать до `limits.stack`; иначе `null`                                                                                                    | `stack`                          |
+| `details`                      | простой объект (не массив, не null); `JSON.stringify` ≤ `limits.details` байт (`Buffer.byteLength`), иначе `{ truncated: true }`; не объект → `null` | `details`                        |
+| `count`                        | целое, clamp `[1, 1_000_000]`; не число → 1                                                                                                          | `count`                          |
+| `firstSeen`, `lastSeen`        | число (epoch ms) или ISO-строка; вне `[now − 7 сут, now + 5 мин]` или мусор → `now`; если `firstSeen > lastSeen` — поменять местами                  | `firstSeen`, `lastSeen` (`Date`) |
+| `engineVersion`, `gameVersion` | `/^[0-9A-Za-z.+-]{1,64}$/`, иначе `null`                                                                                                             | те же                            |
+| `gameId`                       | `isValidGameId(v, gameIdRules)` (передать `config.games`), иначе `null`                                                                              | `gameId`                         |
+| `box`                          | `/^[a-z0-9.-]{1,253}(:\d{1,5})?$/i`, иначе `null`                                                                                                    | `box`                            |
+| `mode`                         | из `REPORT_MODES`, иначе `null`                                                                                                                      | `mode`                           |
+| `userAgent`                    | строка, обрезать до `limits.userAgent`, иначе `null`                                                                                                 | `userAgent`                      |
 
 ### 1.5. Репозиторий — `packages/auth/src/ClientReportRepository.js`
 
@@ -205,7 +205,7 @@ export default class ClientReportRepository {
    `INSERT … ON CONFLICT DO UPDATE` падает, если одна команда задевает одну
    строку дважды.
 2. **Разделить на известные и новые**: `SELECT fingerprint FROM
-   client_reports WHERE fingerprint = ANY($1::text[])`. Известные проходят
+client_reports WHERE fingerprint = ANY($1::text[])`. Известные проходят
    всегда. Из новых проходят первые `allowNew(newCount)` штук (порядок — как
    в пачке); остальные — `throttled`, в БД не пишутся. Гонку «между SELECT и
    INSERT отпечаток вставил другой запрос» закрывает `ON CONFLICT` — такая
@@ -232,10 +232,9 @@ ON CONFLICT (fingerprint) DO UPDATE SET
   details    = COALESCE(client_reports.details, EXCLUDED.details)
 ```
 
-   В JSON-параметре — snake_case-ключи, даты — ISO-строки. **Статус при
-   повторе не меняется** (решение 4 в README). Прошедших нет — запрос не
-   делать.
-4. Вернуть `{ accepted: <прошедших после слияния>, throttled: <отсечённых
+В JSON-параметре — snake_case-ключи, даты — ISO-строки. **Статус при
+повторе не меняется** (решение 4 в README). Прошедших нет — запрос не
+делать. 4. Вернуть `{ accepted: <прошедших после слияния>, throttled: <отсечённых
    новых> }`.
 
 `countRows`: `SELECT count(*)::bigint AS n FROM client_reports` → `Number(n)`.
@@ -284,7 +283,7 @@ export default class ClientReportBudget {
 - Окна — **фиксированные часовые** (`Math.floor(now() / 3600000)`): при
   смене часа счётчики обнуляются. Скользящее окно здесь не нужно.
 - `take(ip, wanted)`: `allowed = min(wanted, perIpLeft(ip), globalLeft,
-  maxRows − rows)`, не меньше 0; списать; запомнить отсечённое и причину
+maxRows − rows)`, не меньше 0; списать; запомнить отсечённое и причину
   (`'ip' | 'global' | 'maxRows'` — та, что ограничила сильнее).
 - Счётчики по IP — `Map`; при смене часа — очистить целиком (растущей
   памяти нет).
@@ -348,9 +347,9 @@ app.post(
 );
 ```
 
-   Тело — `{ items: [...] }`. Не массив или длина вне
-   `[1, config.clientReports.maxBatch]` → `400 { error: 'badRequest' }`.
-   Каждую запись — через `normalizeReportItem(item, { limits, gameIdRules:
+Тело — `{ items: [...] }`. Не массив или длина вне
+`[1, config.clientReports.maxBatch]` → `400 { error: 'badRequest' }`.
+Каждую запись — через `normalizeReportItem(item, { limits, gameIdRules:
    config.games })`; ни одной годной → `400 { error: 'badRequest' }`. Иначе:
 
 ```js
@@ -362,21 +361,22 @@ const { accepted, throttled } = await clientReportRepo.ingest(valid, {
 res.json({ accepted, throttled, rejected: items.length - valid.length });
 ```
 
-   Отсечённое бюджетом — **не ошибка**: ответ `200`, бокс такую пачку не
-   повторяет (этап 2). `byIp` уже есть в файле; `requireServiceToken` стоит
-   до парсера, чтобы чужой запрос не заставлял парсить 2 МБ.
-5. Админские маршруты рядом с `/admin/games`:
-   - `GET /admin/client-reports` (`requireAdmin`): `status` из
-     `[...REPORT_STATUSES, 'all']`, по умолчанию `'open'`, иначе 400;
-     `gameId` — необязательный, `isValidGameId(gameId, config.games)`, иначе
-     400; `limit = clampLimit(req.query.limit, 50,
-     config.clientReports.listMaxLimit)`; `offset` — целое `[0, 100000]`,
-     иначе 0. Ответ — `{ reports, total }`.
-   - `PATCH /admin/client-reports/:id` (`requireAdmin`): `id` —
-     `/^\d{1,18}$/`, иначе 400; тело `{ status, note }`: `status` из
-     `REPORT_STATUSES` обязателен; `note` — `undefined`/`null` или строка
-     ≤ `limits.note`, иначе 400. `ClientReportNotFoundError` →
-     `404 { error: 'unknownReport' }`. Ответ — `{ report }`.
+Отсечённое бюджетом — **не ошибка**: ответ `200`, бокс такую пачку не
+повторяет (этап 2). `byIp` уже есть в файле; `requireServiceToken` стоит
+до парсера, чтобы чужой запрос не заставлял парсить 2 МБ. 5. Админские маршруты рядом с `/admin/games`:
+
+- `GET /admin/client-reports` (`requireAdmin`): `status` из
+  `[...REPORT_STATUSES, 'all']`, по умолчанию `'open'`, иначе 400;
+  `gameId` — необязательный, `isValidGameId(gameId, config.games)`, иначе
+  400; `limit = clampLimit(req.query.limit, 50,
+config.clientReports.listMaxLimit)`; `offset` — целое `[0, 100000]`,
+  иначе 0. Ответ — `{ reports, total }`.
+- `PATCH /admin/client-reports/:id` (`requireAdmin`): `id` —
+  `/^\d{1,18}$/`, иначе 400; тело `{ status, note }`: `status` из
+  `REPORT_STATUSES` обязателен; `note` — `undefined`/`null` или строка
+  ≤ `limits.note`, иначе 400. `ClientReportNotFoundError` →
+  `404 { error: 'unknownReport' }`. Ответ — `{ report }`.
+
 6. Рядом с `startGamesPurgeJob(dbPool.getPool())`:
    `startClientReportsPurgeJob(dbPool.getPool());`
 7. В блоке `if (isProduction)` в начале файла — **не** `process.exit`, а
@@ -401,7 +401,7 @@ if (!env.VIMP_CLIENT_REPORTS_TOKEN) {
 - `ClientReportRepository.test.js` (заглушка `createDbStub`): `ingest`
   сливает дубликаты (одна строка, сумма `count`, min/max дат); известные
   отпечатки (ответ заглушки на `SELECT … ANY`) проходят при `allowNew: () =>
-  0`, новые — отсекаются и попадают в `throttled`; при `allowNew: n => 1`
+0`, новые — отсекаются и попадают в `throttled`; при `allowNew: n => 1`
   проходит ровно первый новый; всё прошедшее — **одним** `INSERT` с
   JSON-параметром, без прошедших `INSERT` не выполняется; `countRows`;
   `list` строит `WHERE` для `open`/`all`/`gameId`, отдаёт `total`;

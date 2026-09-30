@@ -46,7 +46,9 @@ export function createSymbolicator({
   maxMissing = 1000,
   now = Date.now,
 }) {
-  const rootPrefixes = roots.filter(Boolean).map(root => path.resolve(root) + path.sep);
+  const rootPrefixes = roots
+    .filter(Boolean)
+    .map(root => path.resolve(root) + path.sep);
   // mapPath → SourceMapConsumer: только настоящие карты. Порядок вставки
   // Map и есть порядок LRU
   const cache = new Map();
@@ -116,7 +118,9 @@ export function createSymbolicator({
       return null;
     }
 
-    return new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
+    return new SourceMapConsumer(
+      JSON.parse(await fs.readFile(mapPath, 'utf8')),
+    );
   };
 
   // карта бандла или null, если файл не вправе читаться / карты нет
@@ -196,7 +200,10 @@ export function createSymbolicator({
       return text;
     }
 
-    const pos = consumer.originalPositionFor({ line: frame.line, column: frame.col - 1 });
+    const pos = consumer.originalPositionFor({
+      line: frame.line,
+      column: frame.col - 1,
+    });
 
     if (!pos.source) {
       return text;

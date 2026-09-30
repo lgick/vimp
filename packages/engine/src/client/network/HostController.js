@@ -58,7 +58,14 @@ export default class HostController {
    */
   constructor(
     room,
-    { workerFactory, workerUrl, onReady, onError, onMapChange, diagnostics } = {},
+    {
+      workerFactory,
+      workerUrl,
+      onReady,
+      onError,
+      onMapChange,
+      diagnostics,
+    } = {},
   ) {
     this._room = room;
     this._workerFactory = workerFactory;
@@ -266,7 +273,9 @@ export default class HostController {
       const timer = setTimeout(() => {
         this._debugRequests.delete(requestId);
         reject(
-          new Error(`debug request '${action}' timed out after ${timeoutMs} ms`),
+          new Error(
+            `debug request '${action}' timed out after ${timeoutMs} ms`,
+          ),
         );
       }, timeoutMs);
 
@@ -470,7 +479,9 @@ export default class HostController {
       }
 
       case 'to_client':
-        this._deliveries.get(msg.socketId)?.onMessage(msg.payload, msg.reliable);
+        this._deliveries
+          .get(msg.socketId)
+          ?.onMessage(msg.payload, msg.reliable);
         break;
 
       case 'close_client':

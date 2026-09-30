@@ -16,9 +16,8 @@ beforeEach(() => {
   confirm.mockReset();
 });
 
-const { askGameFollow, askGameVersionAsIs, askVersion, resolveVersionAnswer } = await import(
-  '../../scripts/release/versionPrompt.js'
-);
+const { askGameFollow, askGameVersionAsIs, askVersion, resolveVersionAnswer } =
+  await import('../../scripts/release/versionPrompt.js');
 const { UsageError } = await import('../../scripts/release/errors.js');
 
 describe('askGameVersionAsIs', () => {
@@ -91,7 +90,12 @@ describe('askVersion', () => {
 
     const target = await askVersion(
       'vimp-engine',
-      { current: '0.34.4', level: 'minor', reason: 'test', published: '0.34.4' },
+      {
+        current: '0.34.4',
+        level: 'minor',
+        reason: 'test',
+        published: '0.34.4',
+      },
       { yes: false },
     );
 
@@ -101,7 +105,12 @@ describe('askVersion', () => {
   it('--yes принимает предложенный инкремент без вопроса', async () => {
     const target = await askVersion(
       'vimp-engine',
-      { current: '0.34.4', level: 'patch', reason: 'test', published: '0.34.4' },
+      {
+        current: '0.34.4',
+        level: 'patch',
+        reason: 'test',
+        published: '0.34.4',
+      },
       { yes: true },
     );
 
@@ -113,7 +122,10 @@ describe('askVersion', () => {
 describe('resolveVersionAnswer', () => {
   it('не даёт версию не больше опубликованной', () => {
     expect(() =>
-      resolveVersionAnswer('0.21.0', { current: '0.22.0', published: '0.21.0' }),
+      resolveVersionAnswer('0.21.0', {
+        current: '0.22.0',
+        published: '0.21.0',
+      }),
     ).toThrow(UsageError);
   });
 });
@@ -121,7 +133,10 @@ describe('resolveVersionAnswer', () => {
 // релиз крейта или движка игру не обязывает: вопрос отдельный, «нет» по
 // умолчанию, чтобы Enter не перевыпускал весь парк игр
 describe('askGameFollow', () => {
-  const game = { name: '@vimp-games/tanks', reason: 'крейт публикуется → можно пересобрать' };
+  const game = {
+    name: '@vimp-games/tanks',
+    reason: 'крейт публикуется → можно пересобрать',
+  };
 
   it('спрашивает с «нет» по умолчанию', async () => {
     confirm.mockResolvedValueOnce(false);
@@ -140,7 +155,9 @@ describe('askGameFollow', () => {
   });
 
   it('--yes --follow-games: выпускает, не спрашивая', async () => {
-    expect(await askGameFollow(game, { yes: true, followGames: true })).toBe(true);
+    expect(await askGameFollow(game, { yes: true, followGames: true })).toBe(
+      true,
+    );
     expect(confirm).not.toHaveBeenCalled();
   });
 });

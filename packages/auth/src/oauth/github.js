@@ -31,7 +31,9 @@ async function exchangeCode(code, redirectUri) {
   const tokenData = await tokenRes.json();
 
   if (!tokenData.access_token) {
-    throw new Error(`github token exchange failed: ${tokenData.error || 'unknown'}`);
+    throw new Error(
+      `github token exchange failed: ${tokenData.error || 'unknown'}`,
+    );
   }
 
   const profileRes = await fetch(userApiUrl, {

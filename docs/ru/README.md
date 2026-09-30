@@ -7,24 +7,24 @@
 
 ## Разделы
 
-| Страница | О чём |
-| --- | --- |
-| [getting-started.md](getting-started.md) | Локальная настройка: установка, подключение локального плагина, HTTPS-сертификаты, auth-сервис, запуск, цикл разработки, тесты, локальный мультиплеер |
-| [architecture.md](architecture.md) | Общая архитектура: мастер/хост/клиент, игровой цикл, жизненный цикл соединения, ключевые инварианты |
-| [master.md](master.md) | Мастер-сервер (точка входа): реестр комнат, REST-список серверов, каталог карт, сигналинг WebRTC, рейтинг сервера `/like`·`/unlike` |
-| [auth.md](auth.md) | Центральный auth-сервис (`packages/auth/`): OAuth-вход, глобальный ник, JWT/JWKS, rank/state по играм |
-| [host.md](host.md) | Браузерный хост: Worker с ядром, `GameCoreAdapter`, host-фасад, мета-модули, loopback хоста-игрока, роутер главного потока |
-| [core.md](core.md) | Rust-ядро движка (`vimp-engine-core`): структура `packages/engine/core/`, общие трейты/макросы, framing снапшотов, сборка, тесты |
-| [client.md](client.md) | Клиентские модули: MVC-компоненты, клиентское ядро (интерполяция/prediction/спавн снарядов), рендеринг, звук |
-| [standalone.md](standalone.md) | Standalone SDK (`vimp-engine/standalone`): играбельный матч в одной вкладке без мастера, OAuth и лобби — опции, контейнер, ассеты, чем solo отличается от прода |
-| [dedicated.md](dedicated.md) | Dedicated-сервер на Node.js: один матч одной игры 24/7 в процессе Node, прямой WebSocket, развилка точки входа, env-переменные, ограничения |
-| [network.md](network.md) | Синхронизация хост‑клиент: WebRTC-каналы, протокол портов, бинарный snapshot-кадр (v3), форматы данных, RTT |
-| [configuration.md](configuration.md) | Конфигурация движка: переменные `.env`, все файлы `packages/engine/src/config/` |
-| [debugging.md](debugging.md) | Отладочный контур: headless-прогон (`npm run sim`), формат сценария, проверки инвариантов, дампы ядра, рассинхрон предикта, браузерный рекордер |
-| [deployment.md](deployment.md) | Развертывание: подготовка VPS, добавление/удаление серверов, CI/CD |
-| [publishing.md](publishing.md) | Релиз: скрипт `npm run release`, заголовки CHANGELOG, задающие версию, публикация крейта `vimp-engine-core`, пакета `vimp-engine` и игры-плагина, раскатка прода, порядок между ними |
-| [scaffolding.md](scaffolding.md) | Скаффолдер `npm create vimp-game`: флаги, состав минимальной игры, цикл проверки (`check:contract` → `core:test` → `sim` → `dev`), разработка против локального чекаута движка |
-| [plugin-api.md](plugin-api.md) | Контракты движок ↔ игра-плагин: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, снапшот-схема, версии |
+| Страница                                 | О чём                                                                                                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [getting-started.md](getting-started.md) | Локальная настройка: установка, подключение локального плагина, HTTPS-сертификаты, auth-сервис, запуск, цикл разработки, тесты, локальный мультиплеер                                |
+| [architecture.md](architecture.md)       | Общая архитектура: мастер/хост/клиент, игровой цикл, жизненный цикл соединения, ключевые инварианты                                                                                  |
+| [master.md](master.md)                   | Мастер-сервер (точка входа): реестр комнат, REST-список серверов, каталог карт, сигналинг WebRTC, рейтинг сервера `/like`·`/unlike`                                                  |
+| [auth.md](auth.md)                       | Центральный auth-сервис (`packages/auth/`): OAuth-вход, глобальный ник, JWT/JWKS, rank/state по играм                                                                                |
+| [host.md](host.md)                       | Браузерный хост: Worker с ядром, `GameCoreAdapter`, host-фасад, мета-модули, loopback хоста-игрока, роутер главного потока                                                           |
+| [core.md](core.md)                       | Rust-ядро движка (`vimp-engine-core`): структура `packages/engine/core/`, общие трейты/макросы, framing снапшотов, сборка, тесты                                                     |
+| [client.md](client.md)                   | Клиентские модули: MVC-компоненты, клиентское ядро (интерполяция/prediction/спавн снарядов), рендеринг, звук                                                                         |
+| [standalone.md](standalone.md)           | Standalone SDK (`vimp-engine/standalone`): играбельный матч в одной вкладке без мастера, OAuth и лобби — опции, контейнер, ассеты, чем solo отличается от прода                      |
+| [dedicated.md](dedicated.md)             | Dedicated-сервер на Node.js: один матч одной игры 24/7 в процессе Node, прямой WebSocket, развилка точки входа, env-переменные, ограничения                                          |
+| [network.md](network.md)                 | Синхронизация хост‑клиент: WebRTC-каналы, протокол портов, бинарный snapshot-кадр (v3), форматы данных, RTT                                                                          |
+| [configuration.md](configuration.md)     | Конфигурация движка: переменные `.env`, все файлы `packages/engine/src/config/`                                                                                                      |
+| [debugging.md](debugging.md)             | Отладочный контур: headless-прогон (`npm run sim`), формат сценария, проверки инвариантов, дампы ядра, рассинхрон предикта, браузерный рекордер                                      |
+| [deployment.md](deployment.md)           | Развертывание: подготовка VPS, добавление/удаление серверов, CI/CD                                                                                                                   |
+| [publishing.md](publishing.md)           | Релиз: скрипт `npm run release`, заголовки CHANGELOG, задающие версию, публикация крейта `vimp-engine-core`, пакета `vimp-engine` и игры-плагина, раскатка прода, порядок между ними |
+| [scaffolding.md](scaffolding.md)         | Скаффолдер `npm create vimp-game`: флаги, состав минимальной игры, цикл проверки (`check:contract` → `core:test` → `sim` → `dev`), разработка против локального чекаута движка       |
+| [plugin-api.md](plugin-api.md)           | Контракты движок ↔ игра-плагин: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, снапшот-схема, версии                                                                              |
 
 Документация игровых правил и расширения контента (gameplay, extending,
 игровые части configuration/core) живёт в репозитории активной

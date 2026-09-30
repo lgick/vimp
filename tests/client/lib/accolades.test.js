@@ -31,7 +31,11 @@ describe('accolades (сервис пула зависимостей)', () => {
     const accolades = createAccolades();
 
     accolades.apply(payload);
-    accolades.apply({ places: { 4: { daily: 5, monthly: null } }, boards: {}, self: {} });
+    accolades.apply({
+      places: { 4: { daily: 5, monthly: null } },
+      boards: {},
+      self: {},
+    });
 
     expect(accolades.placeOf(3)).toEqual({ daily: null, monthly: null });
     expect(accolades.placeOf(4).daily).toBe(5);
@@ -44,7 +48,9 @@ describe('accolades (сервис пула зависимостей)', () => {
 
     accolades.apply(payload);
 
-    expect(accolades.boardOf('day')).toEqual([{ place: 1, nick: 'Alice', score: 90 }]);
+    expect(accolades.boardOf('day')).toEqual([
+      { place: 1, nick: 'Alice', score: 90 },
+    ]);
     // срез, которого в рассылке нет, — пустой список, а не undefined:
     // до первой рассылки это нормальное состояние, а не сбой
     expect(accolades.boardOf('month')).toEqual([]);

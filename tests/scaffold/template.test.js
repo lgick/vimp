@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +22,10 @@ import {
   loadContext,
   runRules,
 } from '../../packages/engine/src/devtools/contract/index.js';
-import { FAIL, ERROR } from '../../packages/engine/src/devtools/contract/result.js';
+import {
+  FAIL,
+  ERROR,
+} from '../../packages/engine/src/devtools/contract/result.js';
 
 // Шаблон игры никто не собирает в этом репозитории: он существует только в
 // виде токенизированных файлов, поэтому дрейф за контрактом движка ничем не
@@ -161,7 +171,10 @@ describe('vimp-contract по исходникам шаблона', () => {
   it('не нарушает ни одного правила групп B, C, D', () => {
     const failed = results
       .filter(result => result.status === FAIL)
-      .map(result => `${result.id} ${result.title}: ${result.violations.join('; ')}`);
+      .map(
+        result =>
+          `${result.id} ${result.title}: ${result.violations.join('; ')}`,
+      );
 
     expect(failed).toEqual([]);
   });

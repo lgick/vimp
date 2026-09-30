@@ -67,9 +67,9 @@
 - `packages/engine/src/devtools/VirtualClient.js:250`
 
 ```js
-  if (flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED)) {
-    applyGameData(reconstructHot(hot, snapshotKeysById));
-  }
+if (flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED)) {
+  applyGameData(reconstructHot(hot, snapshotKeysById));
+}
 ```
 
 Значит при `render_rows() != []`, но `overlay == None` и `game == None`
@@ -156,27 +156,27 @@ pub const HOT_HAS_FRAMES: u32 = 8;
 раз по флагу; этап 8a заменил это на чтение до конца буфера:
 
 ```js
-  while (i < hot.length) {
-    readRecord();
-  }
+while (i < hot.length) {
+  readRecord();
+}
 ```
 
 `readRecord` не проверяет, помещается ли запись целиком:
 
 ```js
-  const readRecord = () => {
-    const spec = snapshotKeysById[hot[i]];
+const readRecord = () => {
+  const spec = snapshotKeysById[hot[i]];
 
-    if (!spec) {
-      throw new Error(`hot buffer: unknown snapshot key id ${hot[i]}`);
-    }
+  if (!spec) {
+    throw new Error(`hot buffer: unknown snapshot key id ${hot[i]}`);
+  }
 
-    const { key, kind, width } = spec;
-    const id = kind === 'indexedNoNull8' ? `d${hot[i + 1]}` : hot[i + 1];
+  const { key, kind, width } = spec;
+  const id = kind === 'indexedNoNull8' ? `d${hot[i + 1]}` : hot[i + 1];
 
-    (game[key] ??= {})[id] = Array.from(hot.subarray(i + 2, i + width));
-    i += width;
-  };
+  (game[key] ??= {})[id] = Array.from(hot.subarray(i + 2, i + width));
+  i += width;
+};
 ```
 
 При усечённой последней записи `subarray` тихо вернёт короткую строку, части
@@ -189,14 +189,13 @@ pub const HOT_HAS_FRAMES: u32 = 8;
 В `readRecord` перед чтением полей добавить:
 
 ```js
-    // запись должна помещаться целиком: усечённая тихо дала бы строку
-    // с недостающими полями, а обход уехал бы за конец буфера
-    if (i + width > hot.length) {
-      throw new Error(
-        `hot buffer: record of key id ${hot[i]} needs ${width} floats, ` +
-          `${hot.length - i} left`,
-      );
-    }
+// запись должна помещаться целиком: усечённая тихо дала бы строку
+// с недостающими полями, а обход уехал бы за конец буфера
+if (i + width > hot.length) {
+  throw new Error(
+    `hot buffer: record of key id ${hot[i]} needs ${width} floats, ` + `${hot.length - i} left`,
+  );
+}
 ```
 
 Место — сразу после деструктуризации `const { key, kind, width } = spec;`.

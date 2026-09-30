@@ -70,8 +70,7 @@ describe('публикуемая поверхность vimp-engine', () => {
           const target = path.resolve(path.dirname(file), spec);
 
           const inside = roots.some(
-            root =>
-              target === root || target.startsWith(`${root}${path.sep}`),
+            root => target === root || target.startsWith(`${root}${path.sep}`),
           );
 
           if (!inside) {

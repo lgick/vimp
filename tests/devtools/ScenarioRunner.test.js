@@ -103,7 +103,9 @@ describe('runScenario (фикстура miniGame)', () => {
 
     expect(scene.core.bodies).toHaveLength(1);
     expect(scene.core.map.setId).toBe('m1');
-    expect(scene.clients[0].debug.interpolator.lastFrame.seq).toBeGreaterThan(0);
+    expect(scene.clients[0].debug.interpolator.lastFrame.seq).toBeGreaterThan(
+      0,
+    );
   });
 
   it('нет нарушений контракта клиентской раскладки', () => {
@@ -239,7 +241,9 @@ describe('runScenario (фикстура miniGame)', () => {
     );
 
     expect(check.status).toBe('fail');
-    expect(check.violations[0]).toMatch(/snapshot key 'e1' never produced a row/);
+    expect(check.violations[0]).toMatch(
+      /snapshot key 'e1' never produced a row/,
+    );
   });
 
   it('два прогона одного сценария дают одинаковый поток кадров', async () => {

@@ -60,7 +60,9 @@ describe('DebugReportStore', () => {
   it('неизвестный kind и пустой payload отклоняются с кодом 400', async () => {
     const store = new DebugReportStore(root);
 
-    await expect(store.save({ kind: 'evil', payload: {} })).rejects.toMatchObject({
+    await expect(
+      store.save({ kind: 'evil', payload: {} }),
+    ).rejects.toMatchObject({
       status: 400,
     });
     await expect(store.save({ kind: 'scenario' })).rejects.toMatchObject({

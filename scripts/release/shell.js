@@ -139,7 +139,9 @@ export function createShell({ dryRun = false, log = () => {} } = {}) {
     const line = formatCommand(command, args);
 
     if (dryRun) {
-      log(`  · dry-run, skipped: ${line}${options.cwd ? ` (${options.cwd})` : ''}`);
+      log(
+        `  · dry-run, skipped: ${line}${options.cwd ? ` (${options.cwd})` : ''}`,
+      );
       return { code: 0, stdout: '', stderr: '', output: '', skipped: true };
     }
 

@@ -17,10 +17,11 @@
 [
   { "ip": "…", "domain": "vimp.lgick.dev", "port": 3001 },
   {
-    "ip": "…", "domain": "test.lgick.dev", "port": 3002,
+    "ip": "…",
+    "domain": "test.lgick.dev",
+    "port": 3002,
     "dedicatedGame": "@vimp-games/tanks",
-    "settings": { "map": "arena", "maxPlayers": 8,
-                  "roundTime": 120000, "friendlyFire": false }
+    "settings": { "map": "arena", "maxPlayers": 8, "roundTime": 120000, "friendlyFire": false }
   }
 ]
 ```
@@ -52,6 +53,7 @@
 
   Привязка к непустому `VIMP_DEDICATED_GAME` намеренная: `settings` у
   лобби-мастера смысла не имеет и в его окружение попадать не должен.
+
 - JSON пишется в `.env.prod` одной строкой без внешних кавычек — так его
   читает `env_file` docker compose. `toJSON` однострочен, дополнительный
   `jq -c` в `prepare-matrix` не нужен; переводов строк внутри строковых

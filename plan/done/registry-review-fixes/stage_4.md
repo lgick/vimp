@@ -12,7 +12,7 @@
 Занять чужой ник другим регистром или через другого OAuth-провайдера
 нельзя.
 
-**Уязвим свободный ник.** Права привязаны к *строке*, а не к личности:
+**Уязвим свободный ник.** Права привязаны к _строке_, а не к личности:
 если ник из `VIMP_ADMIN_NICKS` в `users` ещё не занят — новая БД, ник
 внесён в список до первого входа человека, опечатка в списке, — то
 первый, кто под ним зарегистрируется, получит `role = 'admin'`.
@@ -123,9 +123,7 @@ export default function isEnvAdmin(admin, { nick, provider, providerUid }) {
 async function issueIdentityToken(user) {
   // личность читается из БД: обе точки выпуска токена (OAuth-колбэк и
   // POST /nick) знают id и ник, но не провайдера
-  const identity = config.admin.identities.length
-    ? await userRepo.getIdentity(user.id)
-    : null;
+  const identity = config.admin.identities.length ? await userRepo.getIdentity(user.id) : null;
   const envAdmin = isEnvAdmin(config.admin, {
     nick: user.nick,
     provider: identity?.provider,

@@ -26,11 +26,15 @@ describe('ClientReportBuffer: агрегация', () => {
   it('повторы складываются, isNew — один раз', () => {
     const { buffer } = makeBuffer();
 
-    expect(buffer.add(entry('a', { count: 2, firstSeen: 50, lastSeen: 60 }))).toEqual({
+    expect(
+      buffer.add(entry('a', { count: 2, firstSeen: 50, lastSeen: 60 })),
+    ).toEqual({
       accepted: true,
       isNew: true,
     });
-    expect(buffer.add(entry('a', { count: 3, firstSeen: 40, lastSeen: 90 }))).toEqual({
+    expect(
+      buffer.add(entry('a', { count: 3, firstSeen: 40, lastSeen: 90 })),
+    ).toEqual({
       accepted: true,
       isNew: false,
     });
@@ -199,6 +203,10 @@ describe('ClientReportBuffer: restore', () => {
     buffer.add(entry('a', { count: 1, firstSeen: 100, lastSeen: 100 }));
     buffer.restore([entry('a', { count: 4, firstSeen: 10, lastSeen: 50 })]);
 
-    expect(buffer.drain(1)[0]).toMatchObject({ count: 5, firstSeen: 10, lastSeen: 100 });
+    expect(buffer.drain(1)[0]).toMatchObject({
+      count: 5,
+      firstSeen: 10,
+      lastSeen: 100,
+    });
   });
 });

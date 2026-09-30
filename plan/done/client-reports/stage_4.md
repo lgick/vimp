@@ -19,12 +19,12 @@
 ## Что прочитать перед началом
 
 - `packages/engine/vite.config.js` — блок `build` (`rollupOptions.external:
-  ['pixi.js', 'pixi.js/unsafe-eval']`).
+['pixi.js', 'pixi.js/unsafe-eval']`).
 - `Dockerfile` (корень) — runner-стадия копирует `packages/engine/dist/`
   целиком: убедиться, что `*.map` туда попадают (glob не отсекает).
 - `packages/engine/src/master/lobby.js`: `engineDir` (стр. ~40), порядок
   middleware — `securityHeaders` (стр. ~317) → … → `app.use('/games',
-  gameStatic.handler)` (стр. ~750) → `ViteExpress.bind(app, server)`
+gameStatic.handler)` (стр. ~750) → `ViteExpress.bind(app, server)`
   (стр. ~832, в проде раздаёт `packages/engine/dist/` статикой).
 - `packages/engine/src/master/gameStatic.js` — разбор
   `/games/<id>[/<version>]/…` (`GAME_VERSION_PATTERN` из `gameRefs.js`,
@@ -186,7 +186,7 @@ id` (игра dedicated одна), в `distDir`.
 - `clientReportsSymbolicate.test.js`: во временном каталоге собрать
   фикстуру через `SourceMapGenerator` из `source-map-js`
   (`addMapping({ generated: { line: 1, column: 10 }, original: { line: 42,
-  column: 4 }, source: '../../src/client/parts/Tank.js', name: 'modelLean' })`)
+column: 4 }, source: '../../src/client/parts/Tank.js', name: 'modelLean' })`)
   → `bundle.js` + `bundle.js.map`; ожидания:
   - V8-кадр `at Tr (https://h/assets/bundle.js:1:11)` →
     `at modelLean (src/client/parts/Tank.js:42:5) [/assets/bundle.js:1:11]`;

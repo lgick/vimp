@@ -60,13 +60,16 @@ async function readTagState(shell, cwd, name) {
     // без ответа origin решать «пушить или перевыставлять» не по чему;
     // холостой прогон ничего не пушит, и сеть ему не обязательна
     if (!shell.dryRun) {
-      throw new Error(`git ls-remote origin не ответил: ${remote.output.trim()}`);
+      throw new Error(
+        `git ls-remote origin не ответил: ${remote.output.trim()}`,
+      );
     }
 
     ui.log('  · dry-run: origin не ответил, считаем, что тега там нет');
   }
 
-  const sha = result => (result.code === 0 ? result.stdout.trim() || null : null);
+  const sha = result =>
+    result.code === 0 ? result.stdout.trim() || null : null;
 
   return {
     head: sha(head),
@@ -86,7 +89,9 @@ export async function releaseTag(shell, cwd, name) {
   const action = tagAction(state);
 
   if (action === 'retrigger') {
-    ui.log(`  · тег ${name} уже в origin на HEAD — повторный пуш CI не запустит`);
+    ui.log(
+      `  · тег ${name} уже в origin на HEAD — повторный пуш CI не запустит`,
+    );
 
     const approved = await ui.confirm(
       `Перевыставить ${name} в origin (удалить и запушить), чтобы перезапустить ` +
@@ -96,7 +101,9 @@ export async function releaseTag(shell, cwd, name) {
     );
 
     if (!approved) {
-      throw new Error(`прервано: ${name} уже в origin, CI повторно не запустится`);
+      throw new Error(
+        `прервано: ${name} уже в origin, CI повторно не запустится`,
+      );
     }
   }
 

@@ -2,7 +2,9 @@
 function base64UrlToString(segment) {
   const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
 
-  return atob(base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '='));
+  return atob(
+    base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '='),
+  );
 }
 
 // декодирует base64url-сегмент JWT в байты (подпись — для crypto.subtle.verify)

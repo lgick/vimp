@@ -26,7 +26,9 @@ describe('buildLinkPlan', () => {
     ]);
 
     // сначала регистрация обоих пакетов, потом сами связи
-    expect(plan.relink.map(step => `${step.cwd}: ${step.args.join(' ')}`)).toEqual([
+    expect(
+      plan.relink.map(step => `${step.cwd}: ${step.args.join(' ')}`),
+    ).toEqual([
       '/vimp-tanks: link',
       '/vimp/packages/engine: link',
       '/vimp: link @vimp-games/tanks',
@@ -77,7 +79,14 @@ describe('buildLinkPlan', () => {
 
   it('ничего не делает, когда линков нет', () => {
     const plan = buildLinkPlan(
-      [{ name: '@vimp-games/sf', dir: '/sf', gameLinked: false, engineLinked: false }],
+      [
+        {
+          name: '@vimp-games/sf',
+          dir: '/sf',
+          gameLinked: false,
+          engineLinked: false,
+        },
+      ],
       paths,
     );
 
@@ -87,12 +96,22 @@ describe('buildLinkPlan', () => {
 
   it('обрабатывает одностороннюю связь', () => {
     const plan = buildLinkPlan(
-      [{ name: '@vimp-games/sf', dir: '/sf', gameLinked: false, engineLinked: true }],
+      [
+        {
+          name: '@vimp-games/sf',
+          dir: '/sf',
+          gameLinked: false,
+          engineLinked: true,
+        },
+      ],
       paths,
     );
 
     expect(plan.unlink.map(step => step.cwd)).toEqual(['/sf', '/sf']);
-    expect(plan.relink.map(step => step.cwd)).toEqual(['/vimp/packages/engine', '/sf']);
+    expect(plan.relink.map(step => step.cwd)).toEqual([
+      '/vimp/packages/engine',
+      '/sf',
+    ]);
   });
 
   // `npm unlink` без --no-save = `npm uninstall`: он выносит зависимость из

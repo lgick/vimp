@@ -17,8 +17,9 @@ let model;
 
 beforeEach(async () => {
   vi.resetModules();
-  LobbyModel = (await import('../../packages/engine/src/client/components/model/Lobby.js'))
-    .default;
+  LobbyModel = (
+    await import('../../packages/engine/src/client/components/model/Lobby.js')
+  ).default;
   model = new LobbyModel({ pageSize: 10, pingInterval: 5000 });
 });
 
@@ -194,7 +195,12 @@ describe('LobbyModel: leaderboard (lobby-page-plan)', () => {
     await null;
 
     expect(events).toEqual([
-      { leaderboard: [{ nick: 'a', rank: 10 }], total: 42, myPlacement: null, loaded: true },
+      {
+        leaderboard: [{ nick: 'a', rank: 10 }],
+        total: 42,
+        myPlacement: null,
+        loaded: true,
+      },
     ]);
   });
 
@@ -224,7 +230,11 @@ describe('LobbyModel: leaderboard (lobby-page-plan)', () => {
     model.setPlacement({ placement: null, total: 42, rank: 0 });
     await null;
 
-    expect(events[0].myPlacement).toEqual({ placement: null, total: 42, rank: 0 });
+    expect(events[0].myPlacement).toEqual({
+      placement: null,
+      total: 42,
+      rank: 0,
+    });
   });
 
   // code review M1: main.js вызывает это перед fetch'ем новой игры, чтобы
@@ -240,7 +250,9 @@ describe('LobbyModel: leaderboard (lobby-page-plan)', () => {
     model.clearLeaderboard();
     await null;
 
-    expect(events).toEqual([{ leaderboard: [], total: 0, myPlacement: null, loaded: false }]);
+    expect(events).toEqual([
+      { leaderboard: [], total: 0, myPlacement: null, loaded: false },
+    ]);
   });
 
   // code review мелочь (lobby-page-review-status): clearLeaderboard обнуляет

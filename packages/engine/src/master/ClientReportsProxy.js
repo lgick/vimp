@@ -33,22 +33,31 @@ export default class ClientReportsProxy {
   list(token, { status, gameId, limit, offset } = {}) {
     const query = new URLSearchParams();
 
-    Object.entries({ status, gameId, limit, offset }).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        query.set(key, String(value));
-      }
-    });
+    Object.entries({ status, gameId, limit, offset }).forEach(
+      ([key, value]) => {
+        if (value !== undefined && value !== null) {
+          query.set(key, String(value));
+        }
+      },
+    );
 
     const search = query.toString();
 
-    return this._request(`/admin/client-reports${search ? `?${search}` : ''}`, token);
+    return this._request(
+      `/admin/client-reports${search ? `?${search}` : ''}`,
+      token,
+    );
   }
 
   // решение админа по строке журнала
   setStatus(token, id, { status, note }) {
-    return this._request(`/admin/client-reports/${encodeURIComponent(id)}`, token, {
-      method: 'PATCH',
-      body: { status, note },
-    });
+    return this._request(
+      `/admin/client-reports/${encodeURIComponent(id)}`,
+      token,
+      {
+        method: 'PATCH',
+        body: { status, note },
+      },
+    );
   }
 }

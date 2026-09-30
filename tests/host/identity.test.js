@@ -23,9 +23,9 @@ describe('createGuestIdentity', () => {
   });
 
   it('возвращает валидный ник как есть', async () => {
-    await expect(createGuestIdentity().resolve({ name: 'Guest' }, 's1')).resolves.toBe(
-      'Guest',
-    );
+    await expect(
+      createGuestIdentity().resolve({ name: 'Guest' }, 's1'),
+    ).resolves.toBe('Guest');
   });
 
   it('подставляет заглушку по socketId, если ник невалиден', async () => {
@@ -126,7 +126,9 @@ describe('createTokenIdentity', () => {
 
     await expect(identity.resolve({ token: forged })).rejects.toThrow();
     await expect(
-      identity.resolve({ token: sign({ nick: 'Vanya' }, { expiresIn: '-1s' }) }),
+      identity.resolve({
+        token: sign({ nick: 'Vanya' }, { expiresIn: '-1s' }),
+      }),
     ).rejects.toThrow(/expired/);
   });
 

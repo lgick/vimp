@@ -77,8 +77,8 @@ div#games-panel(style='display:none')
 1. В конструкторе, рядом с `this._moderation`:
 
 ```js
-    this._mine = document.getElementById(elems.mineId);
-    this._title = document.getElementById(elems.titleId);
+this._mine = document.getElementById(elems.mineId);
+this._title = document.getElementById(elems.titleId);
 ```
 
 2. `show` переписать:

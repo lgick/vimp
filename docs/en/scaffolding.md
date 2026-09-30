@@ -29,19 +29,19 @@ live terminal it asks six questions (directory, game id, title, package
 name, author, repository); with `--yes`, under a pipe or in CI it takes the
 defaults silently.
 
-| Option | Meaning |
-| --- | --- |
-| `--id <id>` | game id, kebab-case — the URL segment `/games/<id>/`, the catalog key and `HostPlugin.id` (default: the directory name, normalised) |
-| `--title <title>` | human-readable title (default: the id, title-cased) |
-| `--package <name>` | npm package name (default: `@vimp-games/<id>`) |
-| `--repository <url>` | project repository, full URL or `user/repo` — written to `repository`/`homepage`; the engine links to it from the game's entry form, and rule `A7` warns when it is absent (default: not written at all) |
-| `--author <name>` | `author` in `package.json` and the `LICENSE` |
-| `--yes`, `-y` | accept all defaults, ask nothing |
-| `--force` | allow a non-empty target directory |
-| `--no-git` | skip `git init` (the first commit is always yours) |
-| `--engine-path <p>` | dev only: depend on a local engine checkout |
-| `--core-path <p>` | dev only: `[patch.crates-io]` for `vimp-engine-core` |
-| `--help`, `--version` | print usage / the scaffolder's own version |
+| Option                | Meaning                                                                                                                                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--id <id>`           | game id, kebab-case — the URL segment `/games/<id>/`, the catalog key and `HostPlugin.id` (default: the directory name, normalised)                                                                      |
+| `--title <title>`     | human-readable title (default: the id, title-cased)                                                                                                                                                      |
+| `--package <name>`    | npm package name (default: `@vimp-games/<id>`)                                                                                                                                                           |
+| `--repository <url>`  | project repository, full URL or `user/repo` — written to `repository`/`homepage`; the engine links to it from the game's entry form, and rule `A7` warns when it is absent (default: not written at all) |
+| `--author <name>`     | `author` in `package.json` and the `LICENSE`                                                                                                                                                             |
+| `--yes`, `-y`         | accept all defaults, ask nothing                                                                                                                                                                         |
+| `--force`             | allow a non-empty target directory                                                                                                                                                                       |
+| `--no-git`            | skip `git init` (the first commit is always yours)                                                                                                                                                       |
+| `--engine-path <p>`   | dev only: depend on a local engine checkout                                                                                                                                                              |
+| `--core-path <p>`     | dev only: `[patch.crates-io]` for `vimp-engine-core`                                                                                                                                                     |
+| `--help`, `--version` | print usage / the scaffolder's own version                                                                                                                                                               |
 
 `cargo` and `wasm-pack` are checked after generation. Missing ones are a
 warning, not a failure: the project is written either way, and the error

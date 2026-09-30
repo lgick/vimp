@@ -1,11 +1,18 @@
-import { parseAdminNicks, parseAdminIdentities } from '../../packages/auth/src/config/auth.js';
+import {
+  parseAdminNicks,
+  parseAdminIdentities,
+} from '../../packages/auth/src/config/auth.js';
 
 // VIMP_ADMIN_NICKS — источник истины ролей на этапе 1 направления
 // master-game-registry: список сравнивается с ником в нижнем регистре, а
 // пустая переменная означает «админов нет» и не должна ронять сервис
 describe('parseAdminNicks', () => {
   it('разбирает список, приводя к нижнему регистру и обрезая пробелы', () => {
-    expect(parseAdminNicks('lgick, Admin ,  Boss')).toEqual(['lgick', 'admin', 'boss']);
+    expect(parseAdminNicks('lgick, Admin ,  Boss')).toEqual([
+      'lgick',
+      'admin',
+      'boss',
+    ]);
   });
 
   it('принимает одиночный ник и хвостовую запятую', () => {
@@ -33,9 +40,9 @@ describe('parseAdminIdentities', () => {
   });
 
   it('отбрасывает мусор без двоеточия и с лишним двоеточием', () => {
-    expect(parseAdminIdentities('lgick,github:123,github:4:5,:,github:')).toEqual([
-      'github:123',
-    ]);
+    expect(
+      parseAdminIdentities('lgick,github:123,github:4:5,:,github:'),
+    ).toEqual(['github:123']);
   });
 
   it('пустое значение даёт пустой список (переменная не задана)', () => {

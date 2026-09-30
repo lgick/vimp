@@ -9,19 +9,16 @@ export default class PlayerDataProxy {
 
   async _request(path, token, { method = 'GET', game, params, body } = {}) {
     const query = new URLSearchParams({ game, ...params });
-    const res = await this._fetch(
-      `${this._url}${path}?${query}`,
-      {
-        method,
-        headers: {
-          // lobby-page-plan: getLeaderboard — публичный эндпоинт, вызывается
-          // без Bearer-токена (как HostRatingProxy.getPublic)
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-          ...(body ? { 'content-type': 'application/json' } : {}),
-        },
-        body: body ? JSON.stringify(body) : undefined,
+    const res = await this._fetch(`${this._url}${path}?${query}`, {
+      method,
+      headers: {
+        // lobby-page-plan: getLeaderboard — публичный эндпоинт, вызывается
+        // без Bearer-токена (как HostRatingProxy.getPublic)
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(body ? { 'content-type': 'application/json' } : {}),
       },
-    );
+      body: body ? JSON.stringify(body) : undefined,
+    });
 
     const json = await res.json().catch(() => null);
 

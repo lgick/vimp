@@ -9,6 +9,7 @@
 ## Сделано
 
 ### Средние замечания
+
 - **M1 — устаревшие данные leaderboard/placement при сбое/гонке.**
   `main.js`: `lobbyModel.clearLeaderboard()` вызывается до fetch'а новой
   игры; ответ помечается монотонным `leaderboardReqId` — устаревший ответ
@@ -24,7 +25,7 @@
   а не `index+1`.
 - **M4 — дубль строки "You", когда игрок уже в топе.**
   Первая версия фикса сравнивала `myPlacement.placement <=
-  leaderboard.length` — при ничьих на границе `LIMIT` шкалы расходятся, и
+leaderboard.length` — при ничьих на границе `LIMIT` шкалы расходятся, и
   игрок мог пропасть и из списка, и из плашки. Доработано: видимость
   плашки решается **членством по нику** в отрисованном списке
   (`view.setSelfNick(nick)`, ник задаётся один раз в `main.js` из
@@ -34,6 +35,7 @@
   безопасный дефолт.
 
 ### Низкие замечания / улучшения
+
 - **L1** — `getLeaderboard` одним запросом (`COUNT(*) OVER()` +
   `RANK() OVER()` вместо отдельного `COUNT(*)`).
 - **L3** — `clampLimit` вынесен из роутов в `lib/validators.js` обоих
@@ -49,7 +51,9 @@
   не проблема.
 
 ### L2 — TTL-кэш публичного `GET /auth/leaderboard`
+
 Внедрён по согласованному дизайну:
+
 - `packages/engine/src/master/LeaderboardCache.js` — обёртка над
   `PlayerDataProxy.getLeaderboard` с keyed TTL (`` `${game}:${limit}` ``),
   часы инъектируются, кэшируется только `status === 200`; `placement`
@@ -71,6 +75,7 @@
   `leaderboard`).
 
 ### Мелочь — кратковременная вспышка «No ranked players yet» при загрузке
+
 Исправлено: булев флаг `loaded` в `LobbyModel` (`clearLeaderboard` →
 `false`, `setLeaderboard` → `true`), пробрасывается в payload эмита
 `leaderboard`; `LobbyView.renderLeaderboard` показывает «Loading…» при

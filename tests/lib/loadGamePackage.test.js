@@ -68,7 +68,10 @@ beforeAll(async () => {
     path.join(dist, 'host-external.js'),
     `import 'nonexistent-pkg';\nexport default { id: "demo", kind: "host", engineApi: ${ENGINE_API_VERSION} };\n`,
   );
-  await writeFile(path.join(dir, 'core', 'pkg-node', 'demo.js'), 'export {};\n');
+  await writeFile(
+    path.join(dir, 'core', 'pkg-node', 'demo.js'),
+    'export {};\n',
+  );
 
   await writeFile(
     path.join(dist, 'manifest.json'),
@@ -123,10 +126,13 @@ describe('loadGamePackage', () => {
   // внешним намеренно
   describe('клиентская половина грузится по требованию', () => {
     const external = name =>
-      variant(name, manifestWith({
-        client: '/games/demo/client-external.js',
-        wasmNode: '../core/pkg-node/demo.js',
-      }));
+      variant(
+        name,
+        manifestWith({
+          client: '/games/demo/client-external.js',
+          wasmNode: '../core/pkg-node/demo.js',
+        }),
+      );
 
     it('умолчание грузит только host, отказ приходит на loadClientPlugin()', async () => {
       const pkg = await loadGamePackage(await external('lazy-client.json'));
@@ -203,7 +209,9 @@ describe('loadGamePackage', () => {
       }),
     );
 
-    await expect(loadGamePackage(file)).rejects.toThrow(/host plugin engineApi/);
+    await expect(loadGamePackage(file)).rejects.toThrow(
+      /host plugin engineApi/,
+    );
   });
 
   // `requires` пишут три места одного пакета: скрипт сборки манифеста и обе
@@ -234,7 +242,9 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      await expect(loadGamePackage(file)).resolves.toMatchObject({
+        id: 'demo',
+      });
       expect(warned()).toMatch(
         /host plugin requires accolades, which manifest\.requires does not list/,
       );
@@ -251,7 +261,9 @@ describe('loadGamePackage', () => {
 
       // половины поля не объявляют вовсе — старый пакет, собранный до его
       // появления: сверять не с чем, молчим
-      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      await expect(loadGamePackage(file)).resolves.toMatchObject({
+        id: 'demo',
+      });
       expect(warn).not.toHaveBeenCalled();
     });
 
@@ -265,7 +277,9 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      await expect(loadGamePackage(file)).resolves.toMatchObject({
+        id: 'demo',
+      });
       expect(warned()).toMatch(
         /manifest\.requires names stat\.leaderboard, which neither plugin half declares/,
       );
@@ -281,7 +295,9 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      await expect(loadGamePackage(file)).resolves.toMatchObject({
+        id: 'demo',
+      });
       expect(warn).not.toHaveBeenCalled();
     });
 
@@ -295,7 +311,9 @@ describe('loadGamePackage', () => {
         }),
       );
 
-      await expect(loadGamePackage(file)).resolves.toMatchObject({ id: 'demo' });
+      await expect(loadGamePackage(file)).resolves.toMatchObject({
+        id: 'demo',
+      });
       expect(warned()).toMatch(/host plugin requires must be an array/);
     });
   });

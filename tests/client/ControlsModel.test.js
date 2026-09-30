@@ -22,8 +22,9 @@ const ev = keyCode => ({ keyCode, preventDefault: vi.fn() });
 
 beforeEach(async () => {
   vi.resetModules();
-  ControlsModel = (await import('../../packages/engine/src/client/components/model/Controls.js'))
-    .default;
+  ControlsModel = (
+    await import('../../packages/engine/src/client/components/model/Controls.js')
+  ).default;
 });
 
 describe('ControlsModel: блокировка ввода', () => {

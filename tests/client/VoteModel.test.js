@@ -31,7 +31,9 @@ const digit = n => 48 + n;
 
 beforeEach(async () => {
   vi.resetModules();
-  VoteModel = (await import('../../packages/engine/src/client/components/model/Vote.js')).default;
+  VoteModel = (
+    await import('../../packages/engine/src/client/components/model/Vote.js')
+  ).default;
 });
 
 describe('VoteModel.createVote', () => {

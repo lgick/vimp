@@ -17,8 +17,9 @@ const makeView = () => ({ publisher: new Publisher() });
 
 beforeEach(async () => {
   vi.resetModules();
-  ChatCtrl = (await import('../../packages/engine/src/client/components/controller/Chat.js'))
-    .default;
+  ChatCtrl = (
+    await import('../../packages/engine/src/client/components/controller/Chat.js')
+  ).default;
 });
 
 describe('ChatCtrl.updateCmd', () => {

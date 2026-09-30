@@ -41,7 +41,17 @@ export default class HostRegistry {
   // аннулирования rank/skills; блокировку хостера по рейтингу проверяет
   // вызывающий (SignalingServer) до add(), т.к. это асинхронный запрос к auth
   add(
-    { name, maxPlayers, mapName, region, ip, gameId, gameVersion, hosterUserId, hidden },
+    {
+      name,
+      maxPlayers,
+      mapName,
+      region,
+      ip,
+      gameId,
+      gameVersion,
+      hosterUserId,
+      hidden,
+    },
     now = Date.now(),
   ) {
     if (this.getByIp(ip)) {
@@ -151,7 +161,8 @@ export default class HostRegistry {
   // Секрет 122-битный (uuidv4), поэтому подбор нереален и простого === хватает
   // (тайминг-атака нерелевантна). Иначе — {} (атрибуции нет, событие без хостера)
   verifiedAttribution(hostId, secret) {
-    const host = typeof hostId === 'string' ? this._hosts.get(hostId) : undefined;
+    const host =
+      typeof hostId === 'string' ? this._hosts.get(hostId) : undefined;
 
     return host && host.hosterUserId !== null && host.secret === secret
       ? { hosterUserId: host.hosterUserId, sessionId: host.hostId }
@@ -234,7 +245,8 @@ export default class HostRegistry {
   // true не приходит никогда
   getList({ offset, limit, region, search, includeHidden } = {}) {
     const online = [...this._hosts.values()].filter(
-      host => host.status === 'online' && (includeHidden === true || !host.hidden),
+      host =>
+        host.status === 'online' && (includeHidden === true || !host.hidden),
     );
 
     // прямой поиск по имени (или "gameId/name" — lobby-page-plan, формат
@@ -279,8 +291,26 @@ export default class HostRegistry {
   }
 
   // публичное представление комнаты (без ip и служебных полей)
-  _toPublic({ hostId, name, mapName, currentPlayers, maxPlayers, region, gameId, rating }) {
-    return { hostId, name, mapName, currentPlayers, maxPlayers, region, gameId, rating };
+  _toPublic({
+    hostId,
+    name,
+    mapName,
+    currentPlayers,
+    maxPlayers,
+    region,
+    gameId,
+    rating,
+  }) {
+    return {
+      hostId,
+      name,
+      mapName,
+      currentPlayers,
+      maxPlayers,
+      region,
+      gameId,
+      rating,
+    };
   }
 
   _sanitizeName(name) {

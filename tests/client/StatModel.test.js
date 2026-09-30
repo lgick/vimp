@@ -23,7 +23,9 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  StatModel = (await import('../../packages/engine/src/client/components/model/Stat.js')).default;
+  StatModel = (
+    await import('../../packages/engine/src/client/components/model/Stat.js')
+  ).default;
 });
 
 describe('StatModel.update', () => {
@@ -126,7 +128,10 @@ const BOARD = [
 
 // заглушка сервиса accolades (client/lib/accolades.js) — ровно те три
 // вопроса, которые модель ему задаёт
-const stubAccolades = ({ board = BOARD, self = { place: 42, score: 7 } } = {}) => ({
+const stubAccolades = ({
+  board = BOARD,
+  self = { place: 42, score: 7 },
+} = {}) => ({
   placeOf: () => ({ daily: null, monthly: null }),
   boardOf: period => (period === 'day' ? board : []),
   selfOf: (id, period) => (period === 'day' ? self : null),
@@ -173,7 +178,9 @@ describe("StatModel: режим 'leaderboard'", () => {
   });
 
   it('пустая рассылка (до первой) даёт пустой список, а не сбой', () => {
-    const { model } = makeBoardModel({ accolades: stubAccolades({ board: [], self: null }) });
+    const { model } = makeBoardModel({
+      accolades: stubAccolades({ board: [], self: null }),
+    });
     const emitted = [];
 
     model.publisher.on('leaderboard', data => emitted.push(data));
@@ -217,7 +224,12 @@ describe("StatModel: режим 'leaderboard'", () => {
     self = { place: 17, score: 55 };
     model.applyAccolades();
 
-    expect(emitted[1][2]).toEqual({ place: 17, nick: 'me', score: 55, isSelf: true });
+    expect(emitted[1][2]).toEqual({
+      place: 17,
+      nick: 'me',
+      score: 55,
+      isSelf: true,
+    });
   });
 
   it('игрок из топа подсвечивается на своём месте', () => {
@@ -266,10 +278,7 @@ describe("StatModel: режим 'leaderboard'", () => {
   // другой
   it('повторная конструкция перенастраивает синглтон под новую схему', () => {
     const { model } = makeBoardModel();
-    const again = new StatModel(
-      { heads: {}, bodies: {}, sortList: {} },
-      {},
-    );
+    const again = new StatModel({ heads: {}, bodies: {}, sortList: {} }, {});
 
     expect(again).toBe(model);
     expect(again.isLeaderboard).toBe(false);

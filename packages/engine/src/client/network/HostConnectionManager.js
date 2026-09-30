@@ -47,7 +47,8 @@ export default class HostConnectionManager {
     this._peers.set(clientId, peer);
 
     // каналы создаёт offerer — ловим их здесь
-    pc.ondatachannel = event => this._wireChannel(clientId, peer, event.channel);
+    pc.ondatachannel = event =>
+      this._wireChannel(clientId, peer, event.channel);
 
     pc.onicecandidate = event => {
       if (event.candidate) {
@@ -126,7 +127,8 @@ export default class HostConnectionManager {
       // (Worker сразу шлёт CONFIG_DATA по meta)
       if (peer.openCount === 2) {
         this._controller.open(clientId, {
-          onMessage: (payload, reliable) => this._deliver(peer, payload, reliable),
+          onMessage: (payload, reliable) =>
+            this._deliver(peer, payload, reliable),
           onClose: () => this._closePeer(clientId),
         });
 

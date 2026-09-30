@@ -153,7 +153,9 @@ describe('CanvasManagerModel.resize', () => {
 
     model.resize({ width: 800, height: 600 });
 
-    const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
+    const radar = events.find(
+      e => e.type === 'resize' && e.data.id === 'radar',
+    );
     expect(radar.data.sizes).toEqual({ width: 200, height: 100 });
     // размеры — числа на выходе самого парсинга, а не после Math.max
     expect(typeof radar.data.sizes.height).toBe('number');
@@ -167,7 +169,9 @@ describe('CanvasManagerModel.resize', () => {
 
     model.resize({ width: 800, height: 600 });
 
-    const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
+    const radar = events.find(
+      e => e.type === 'resize' && e.data.id === 'radar',
+    );
 
     expect(radar.data.sizes).toEqual({ width: 150, height: 150 });
     expect(typeof radar.data.sizes.height).toBe('number');
@@ -197,7 +201,9 @@ describe('CanvasManagerModel.resize', () => {
 
     model.resize({ width: 1920, height: 1080 });
 
-    const radar = events.find(e => e.type === 'resize' && e.data.id === 'radar');
+    const radar = events.find(
+      e => e.type === 'resize' && e.data.id === 'radar',
+    );
     expect(radar.data.sizes).toEqual({ width: 1, height: 1 });
   });
 });

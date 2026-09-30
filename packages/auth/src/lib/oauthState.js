@@ -5,7 +5,10 @@ import crypto from 'crypto';
 const secret = process.env.VIMP_AUTH_STATE_SECRET || 'dev-oauth-state-secret';
 
 function sign(payload) {
-  return crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  return crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('base64url');
 }
 
 export function encodeState({ returnUrl }) {

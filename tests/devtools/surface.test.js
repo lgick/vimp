@@ -227,9 +227,7 @@ describe('parseAbi', () => {
 
     expect(parseAbi(source)).toEqual({
       game: [{ name: 'load_map', args: ['str'], ret: 'Result<()>' }],
-      client: [
-        { name: 'push_frame', args: ['[u8]', 'f64'], ret: 'bool' },
-      ],
+      client: [{ name: 'push_frame', args: ['[u8]', 'f64'], ret: 'bool' }],
     });
   });
 });

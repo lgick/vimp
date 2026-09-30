@@ -32,7 +32,11 @@ export function rebaseManifest(manifest, base) {
     // entry вне assetsBase оставляем как есть: манифест с мусором в entries
     // ловит gamePackageCheck при приёме пакета, а молча «чинить» здесь чужой
     // абсолютный URL (например, на CDN самой игры) — значит его сломать
-    if (typeof from === 'string' && typeof url === 'string' && url.startsWith(from)) {
+    if (
+      typeof from === 'string' &&
+      typeof url === 'string' &&
+      url.startsWith(from)
+    ) {
       entries[key] = base + url.slice(from.length);
     }
   }

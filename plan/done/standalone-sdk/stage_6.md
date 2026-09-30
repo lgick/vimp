@@ -92,7 +92,7 @@ export default defineConfig(({ command, mode }) => {
   if (command === 'serve') {
     return {
       server: { open: true },
-      resolve: { dedupe: ['pixi.js'] },   // один экземпляр PixiJS на страницу
+      resolve: { dedupe: ['pixi.js'] }, // один экземпляр PixiJS на страницу
       optimizeDeps: { exclude: ['vimp-engine'] }, // исходники движка не пре-бандлить
     };
   }

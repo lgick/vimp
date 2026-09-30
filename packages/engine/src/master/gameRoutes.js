@@ -54,7 +54,9 @@ export function createGameRoutes({
   // застейдженные версии по id — панель модерации и «Test» показывают, что
   // именно сейчас лежит на диске рядом с одобренной версией
   function stagedVersionOf(id) {
-    return catalog.stagedManifests().find(entry => entry.id === id)?.version ?? null;
+    return (
+      catalog.stagedManifests().find(entry => entry.id === id)?.version ?? null
+    );
   }
 
   // локальное состояние игры на ЭТОМ мастере — то, чем панель отличается от
@@ -77,7 +79,10 @@ export function createGameRoutes({
       return { status, game: null };
     }
 
-    return { status: 200, game: json.games.find(game => game.id === id) ?? null };
+    return {
+      status: 200,
+      game: json.games.find(game => game.id === id) ?? null,
+    };
   }
 
   // репозиторий — единственное поле карточки, которого нет ни в манифесте,
@@ -246,7 +251,10 @@ export function createGameRoutes({
       const list = isAdmin(req.user)
         ? () => registry.listAll(req.authToken)
         : () => registry.mine(req.authToken);
-      const { status, game } = await findGame(list, id).catch(() => ({ status: 0, game: null }));
+      const { status, game } = await findGame(list, id).catch(() => ({
+        status: 0,
+        game: null,
+      }));
 
       if (status !== 200) {
         res.status(status || 502).json({ error: 'authServiceUnavailable' });
@@ -266,7 +274,11 @@ export function createGameRoutes({
       }
 
       try {
-        const answer = await registry.requestVersion(req.authToken, id, verdict.version);
+        const answer = await registry.requestVersion(
+          req.authToken,
+          id,
+          verdict.version,
+        );
 
         res.status(answer.status).json(answer.json);
       } catch (err) {
@@ -284,7 +296,10 @@ export function createGameRoutes({
     // держать не на чем. Вернёт её restore — тем же sync.run()
     async remove(req, res) {
       try {
-        const { status, json } = await registry.remove(req.authToken, req.params.id);
+        const { status, json } = await registry.remove(
+          req.authToken,
+          req.params.id,
+        );
 
         if (status === 200) {
           // remove(id) без версии снимает ВСЕ записи игры, включая
@@ -304,7 +319,10 @@ export function createGameRoutes({
     // GET /games, и её забирает штатная синхронизация
     async restore(req, res) {
       try {
-        const { status, json } = await registry.restore(req.authToken, req.params.id);
+        const { status, json } = await registry.restore(
+          req.authToken,
+          req.params.id,
+        );
 
         if (status === 200) {
           await sync.run();
@@ -328,7 +346,10 @@ export function createGameRoutes({
         }
 
         res.json({
-          games: json.games.map(game => ({ ...game, local: localStateOf(game) })),
+          games: json.games.map(game => ({
+            ...game,
+            local: localStateOf(game),
+          })),
         });
       } catch (err) {
         unavailable(res, err);
@@ -348,9 +369,10 @@ export function createGameRoutes({
     async stage(req, res) {
       const { id } = req.params;
       const { version } = req.body || {};
-      const { status, game } = await findGame(() => registry.listAll(req.authToken), id).catch(
-        () => ({ status: 0, game: null }),
-      );
+      const { status, game } = await findGame(
+        () => registry.listAll(req.authToken),
+        id,
+      ).catch(() => ({ status: 0, game: null }));
 
       if (status !== 200) {
         res.status(status || 502).json({ error: 'authServiceUnavailable' });

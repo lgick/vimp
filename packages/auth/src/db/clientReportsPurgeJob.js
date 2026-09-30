@@ -27,7 +27,9 @@ export async function purgeOldClientReports(db, { now = Date.now() } = {}) {
   const client = await db.connect();
 
   try {
-    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [LOCK_KEY]);
+    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [
+      LOCK_KEY,
+    ]);
 
     if (!lock.rows?.[0]?.got) {
       console.info('[client-reports] another purge holds the lock, skipping');
@@ -36,7 +38,9 @@ export async function purgeOldClientReports(db, { now = Date.now() } = {}) {
     }
 
     try {
-      const before = new Date(now - config.clientReports.retentionDays * DAY_MS);
+      const before = new Date(
+        now - config.clientReports.retentionDays * DAY_MS,
+      );
       const purged = await new ClientReportRepository(client).purge(before);
 
       if (purged > 0) {

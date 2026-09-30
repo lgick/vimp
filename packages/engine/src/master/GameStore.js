@@ -79,7 +79,14 @@ export default class GameStore {
     const badRef = refError(gameId, version);
 
     if (badRef) {
-      return { ok: false, version: null, distDir: null, manifest: null, compat: null, errors: [badRef] };
+      return {
+        ok: false,
+        version: null,
+        distDir: null,
+        manifest: null,
+        compat: null,
+        errors: [badRef],
+      };
     }
 
     if (version && version !== 'latest' && this.has(gameId, version)) {
@@ -168,7 +175,13 @@ export default class GameStore {
     const badRef = refError(gameId, version);
 
     if (badRef) {
-      return { ok: false, version: null, manifest: null, compat: null, errors: [badRef] };
+      return {
+        ok: false,
+        version: null,
+        manifest: null,
+        compat: null,
+        errors: [badRef],
+      };
     }
 
     const staged = await this._stage(gameId, packageName, version);
@@ -426,7 +439,11 @@ export default class GameStore {
       });
 
       if (!packument) {
-        return fail(stagingDir, null, `package "${packageName}" is not in the registry`);
+        return fail(
+          stagingDir,
+          null,
+          `package "${packageName}" is not in the registry`,
+        );
       }
 
       const resolved = resolveVersion(packument, version);
@@ -501,7 +518,12 @@ function refError(gameId, version) {
     return `invalid game id "${gameId}"`;
   }
 
-  if (version !== undefined && version !== null && version !== 'latest' && !isSegment(version)) {
+  if (
+    version !== undefined &&
+    version !== null &&
+    version !== 'latest' &&
+    !isSegment(version)
+  ) {
     return `invalid version "${version}"`;
   }
 

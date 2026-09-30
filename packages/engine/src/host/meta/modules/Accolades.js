@@ -104,7 +104,10 @@ export default class Accolades {
       return;
     }
 
-    if (this._lastRefreshAt !== null && now - this._lastRefreshAt < this._interval) {
+    if (
+      this._lastRefreshAt !== null &&
+      now - this._lastRefreshAt < this._interval
+    ) {
       return;
     }
 

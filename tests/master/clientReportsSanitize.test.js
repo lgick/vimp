@@ -20,7 +20,12 @@ const item = (over = {}) => ({
 const body = (over = {}) => ({
   v: 1,
   sessionId: '0f8c2b1e-1111-4222-8333-444455556666',
-  context: { mode: 'lobby', role: 'client', gameId: 'tanks', gameVersion: '0.22.7' },
+  context: {
+    mode: 'lobby',
+    role: 'client',
+    gameId: 'tanks',
+    gameVersion: '0.22.7',
+  },
   items: [item()],
   ...over,
 });
@@ -43,21 +48,31 @@ describe('sanitizeClientReport: форма тела', () => {
   });
 
   it('пустые, не-массив и лишние items — 400', () => {
-    expect(status(() => sanitizeClientReport(body({ items: [] }), OPTS))).toBe(400);
-    expect(status(() => sanitizeClientReport(body({ items: 'x' }), OPTS))).toBe(400);
+    expect(status(() => sanitizeClientReport(body({ items: [] }), OPTS))).toBe(
+      400,
+    );
+    expect(status(() => sanitizeClientReport(body({ items: 'x' }), OPTS))).toBe(
+      400,
+    );
     expect(
-      status(() => sanitizeClientReport(body({ items: Array(11).fill(item()) }), OPTS)),
+      status(() =>
+        sanitizeClientReport(body({ items: Array(11).fill(item()) }), OPTS),
+      ),
     ).toBe(400);
   });
 
   it('все items отброшены — 400', () => {
     expect(
-      status(() => sanitizeClientReport(body({ items: [item({ kind: 'nope' })] }), OPTS)),
+      status(() =>
+        sanitizeClientReport(body({ items: [item({ kind: 'nope' })] }), OPTS),
+      ),
     ).toBe(400);
   });
 
   it('кривой sessionId — null, а не 400', () => {
-    expect(sanitizeClientReport(body({ sessionId: 'x' }), OPTS).sessionId).toBeNull();
+    expect(
+      sanitizeClientReport(body({ sessionId: 'x' }), OPTS).sessionId,
+    ).toBeNull();
   });
 });
 
@@ -104,7 +119,10 @@ describe('sanitizeClientReport: items', () => {
   it('details больше лимита — { truncated: true }, не объект — null', () => {
     const { items } = sanitizeClientReport(
       body({
-        items: [item({ details: { big: 'x'.repeat(3000) } }), item({ details: [1] })],
+        items: [
+          item({ details: { big: 'x'.repeat(3000) } }),
+          item({ details: [1] }),
+        ],
       }),
       OPTS,
     );
@@ -115,7 +133,9 @@ describe('sanitizeClientReport: items', () => {
 
   it('даты вне окна [now − сутки, now + 5 мин] — now', () => {
     const [it0] = sanitizeClientReport(
-      body({ items: [item({ firstAt: NOW - 2 * 86400000, lastAt: NOW + 3600000 })] }),
+      body({
+        items: [item({ firstAt: NOW - 2 * 86400000, lastAt: NOW + 3600000 })],
+      }),
       OPTS,
     ).items;
 

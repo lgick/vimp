@@ -14,8 +14,9 @@ import SocketManager from '../host/meta/SocketManager.js';
 
 // имена отправителей берутся из прототипа: ручной список неизбежно отстаёт
 // от боевого класса, что уже случалось
-const SENDER_METHODS = Object.getOwnPropertyNames(SocketManager.prototype)
-  .filter(name => name.startsWith('send'));
+const SENDER_METHODS = Object.getOwnPropertyNames(
+  SocketManager.prototype,
+).filter(name => name.startsWith('send'));
 
 class RecordingSocketManager extends SocketManager {
   /**

@@ -12,7 +12,8 @@ export default {
   id: 'D3',
   name: 'snapshotInterp',
   level: ERROR,
-  title: "interp only on f32 fields of class 'hot' blocks; role 'state' is a u8 right after the row head",
+  title:
+    "interp only on f32 fields of class 'hot' blocks; role 'state' is a u8 right after the row head",
 
   check(ctx) {
     const snapshot = ctx.gameConfig?.snapshot;

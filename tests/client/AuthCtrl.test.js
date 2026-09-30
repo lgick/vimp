@@ -18,8 +18,9 @@ const makeView = () => ({
 
 beforeEach(async () => {
   vi.resetModules();
-  AuthCtrl = (await import('../../packages/engine/src/client/components/controller/Auth.js'))
-    .default;
+  AuthCtrl = (
+    await import('../../packages/engine/src/client/components/controller/Auth.js')
+  ).default;
 });
 
 describe('AuthCtrl', () => {

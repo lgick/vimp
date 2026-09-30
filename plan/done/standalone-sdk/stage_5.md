@@ -28,11 +28,11 @@ COPY --from=builder /app/packages/engine/src/dedicated ./packages/engine/src/ded
 Добавить необязательное поле `dedicatedGame`:
 
 ```yaml
-        env:
-          # ...существующее
-          VIMP_DEDICATED_GAME: ${{ matrix.dedicatedGame }}
-        with:
-          envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GAMES_MATRIX,VIMP_DEDICATED_GAME,GITHUB_ACTOR,GITHUB_TOKEN
+env:
+  # ...существующее
+  VIMP_DEDICATED_GAME: ${{ matrix.dedicatedGame }}
+with:
+  envs: IMAGE_NAME,VIMP_DOMAIN,VIMP_PORT,VIMP_AUTH_SERVICE_URL,GAMES_MATRIX,VIMP_DEDICATED_GAME,GITHUB_ACTOR,GITHUB_TOKEN
 ```
 
 и в heredoc генерации `.env.prod`:
@@ -57,31 +57,31 @@ sha256 inline-importmap'а не затрагивается) — но
 - `packages/engine/package.json` → `"dedicated": "NODE_ENV=development nodemon src/master/main.js -w src/master -w src/dedicated -w src/host -w src/lib -w src/config"`;
   корневой `package.json` → `"dedicated": "npm -w vimp-engine run dedicated"`.
 - Новые env-переменные:
-  | Переменная | Смысл |
-  | --- | --- |
-  | `VIMP_DEDICATED_GAME` | id игры; задана → процесс стартует dedicated-сервером |
+  | Переменная            | Смысл                                                                                      |
+  | --------------------- | ------------------------------------------------------------------------------------------ |
+  | `VIMP_DEDICATED_GAME` | id игры; задана → процесс стартует dedicated-сервером                                      |
   | `VIMP_DEDICATED_ROOM` | JSON-переопределения комнаты (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`) |
 - Локальный запуск требует установленного/связанного пакета игры с
   `dist/` и `dist/core-node/` (как `npm run sim`).
 
 ## Задача 5.4: документация (en + ru попарно)
 
-| Страница | Что добавить |
-| --- | --- |
-| `standalone.md` (новая, Этап 3) | SDK для репозитория игры |
-| `dedicated.md` (новая, Этап 4) | Node-сервер: схема, env, ограничения |
-| `README.md` | две новые строки в таблице + «Where to start» |
-| `configuration.md` | `VIMP_DEDICATED_GAME`, `VIMP_DEDICATED_ROOM`, вынос чтения env из `isProduction` |
-| `deployment.md` | как поднять dedicated-бокс (поле `dedicatedGame` в `SERVERS_MATRIX`), что деплой рвёт матч (эстафеты нет) |
-| `getting-started.md` | локальные запуски: лобби, dedicated, ссылка на standalone |
-| `master.md` | развилка точки входа, `GET /config` |
-| `host.md` | порт-машина как модуль, стратегии идентичности (Этап 1) |
-| `client.md` | режимы загрузки, `gameShell`, inline-хост (Этап 2) |
-| `network.md` | `WebSocketTransport`, что происходит с meta/state и RTT |
-| `publishing.md` | новая публикуемая поверхность, `howler` в `dependencies` |
-| `plugin-api.md` | `entries.wasmNode` теперь нужен не только `npm run sim`, но и dedicated-серверу |
-| `docs/ai/` | локальный прогон игры через SDK (английский, вне билингвы) |
-| `CLAUDE.md` | строки таблицы `src/standalone/`, `src/dedicated/`; третья точка входа в «Architecture» |
+| Страница                        | Что добавить                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `standalone.md` (новая, Этап 3) | SDK для репозитория игры                                                                                  |
+| `dedicated.md` (новая, Этап 4)  | Node-сервер: схема, env, ограничения                                                                      |
+| `README.md`                     | две новые строки в таблице + «Where to start»                                                             |
+| `configuration.md`              | `VIMP_DEDICATED_GAME`, `VIMP_DEDICATED_ROOM`, вынос чтения env из `isProduction`                          |
+| `deployment.md`                 | как поднять dedicated-бокс (поле `dedicatedGame` в `SERVERS_MATRIX`), что деплой рвёт матч (эстафеты нет) |
+| `getting-started.md`            | локальные запуски: лобби, dedicated, ссылка на standalone                                                 |
+| `master.md`                     | развилка точки входа, `GET /config`                                                                       |
+| `host.md`                       | порт-машина как модуль, стратегии идентичности (Этап 1)                                                   |
+| `client.md`                     | режимы загрузки, `gameShell`, inline-хост (Этап 2)                                                        |
+| `network.md`                    | `WebSocketTransport`, что происходит с meta/state и RTT                                                   |
+| `publishing.md`                 | новая публикуемая поверхность, `howler` в `dependencies`                                                  |
+| `plugin-api.md`                 | `entries.wasmNode` теперь нужен не только `npm run sim`, но и dedicated-серверу                           |
+| `docs/ai/`                      | локальный прогон игры через SDK (английский, вне билингвы)                                                |
+| `CLAUDE.md`                     | строки таблицы `src/standalone/`, `src/dedicated/`; третья точка входа в «Architecture»                   |
 
 ## Задача 5.5: `packages/engine/CHANGELOG.md`
 

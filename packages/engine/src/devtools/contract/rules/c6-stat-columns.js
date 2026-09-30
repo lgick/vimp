@@ -100,7 +100,7 @@ export default {
     // ли игра свои стили под этот список
     if (params.mode === 'leaderboard') {
       return styledLeaderboard(ctx.clientPlugin?.styles)
-        ? verdict([], 'leaderboard list, laid out by the plugin\'s own styles')
+        ? verdict([], "leaderboard list, laid out by the plugin's own styles")
         : verdict([
             "stat declares mode 'leaderboard', but ClientPlugin.styles says " +
               'nothing about #stat .stat-leaderboard: the engine CSS gives ' +

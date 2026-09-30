@@ -47,18 +47,18 @@ export default {
 };
 ```
 
-| Field | Consumer | Notes |
-| --- | --- | --- |
-| `setId` | client | selects `parts.gameSets[setId]` to build the map; falls back to `gameConfig.mapSetId` |
-| `scale` | host + core | per-map override of `gameConfig.mapScale` |
-| `spriteSheet`, `layers` | client only | the core never sees them |
-| `physicsStatic` | core | tile indexes that generate static bodies |
-| `physicsDynamic` | core + client | movable props |
-| `step` | both | tile edge length before scaling |
-| `map` | both | row-major grid of tile indexes |
-| `respawns` | host | spawn points per team |
-| `levels` | core + client | above-ground levels (2.5D); absent = flat map |
-| `ramps` | core + client | level transitions |
+| Field                            | Consumer           | Notes                                                                                                                                                                                                                       |
+| -------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `setId`                          | client             | selects `parts.gameSets[setId]` to build the map; falls back to `gameConfig.mapSetId`                                                                                                                                       |
+| `scale`                          | host + core        | per-map override of `gameConfig.mapScale`                                                                                                                                                                                   |
+| `spriteSheet`, `layers`          | client only        | the core never sees them                                                                                                                                                                                                    |
+| `physicsStatic`                  | core               | tile indexes that generate static bodies                                                                                                                                                                                    |
+| `physicsDynamic`                 | core + client      | movable props                                                                                                                                                                                                               |
+| `step`                           | both               | tile edge length before scaling                                                                                                                                                                                             |
+| `map`                            | both               | row-major grid of tile indexes                                                                                                                                                                                              |
+| `respawns`                       | host               | spawn points per team                                                                                                                                                                                                       |
+| `levels`                         | core + client      | above-ground levels (2.5D); absent = flat map                                                                                                                                                                               |
+| `ramps`                          | core + client      | level transitions                                                                                                                                                                                                           |
 | `game`, `physicsDynamic[i].game` | your core + client | opaque object (or absent), **unscaled**; reaches `GameMap::game_data()` / `dynamic_game_data(i)`, `ClientCore.set_map`, every static part (`game`) and `d{i}` parts (via `...item`). Capability `map.gameData`, rule ⚙ `E7` |
 
 ### Levels and ramps (2.5D)
@@ -80,17 +80,17 @@ level is additive — a map without these fields loads exactly as before:
   ],
 ```
 
-| Field | Consumer | Notes |
-| --- | --- | --- |
-| `levels.<n>.map` | core + client | grid of level `n`; dimensions must match `map` |
-| `levels.<n>.floor` | core + client | drivable tiles of the level |
-| `levels.<n>.walls` | core + client | railings; **must be a subset of `floor`** |
-| `levels.<n>.layers` | client only | renderLayer → tile indexes of this grid |
-| `ramps[].tile` | core + client | tile index in the grid of level `from` |
-| `ramps[].dir` | core + client | `north` = `-y`, `south` = `+y`, `west` = `-x`, `east` = `+x` |
-| `ramps[].from` / `.to` | core + client | default `0` / `1` |
-| `physicsDynamic[].level` | core | level the prop stands on; default `0` |
-| `respawns[team][i][3]` | host + core | optional level of the spawn point |
+| Field                    | Consumer      | Notes                                                        |
+| ------------------------ | ------------- | ------------------------------------------------------------ |
+| `levels.<n>.map`         | core + client | grid of level `n`; dimensions must match `map`               |
+| `levels.<n>.floor`       | core + client | drivable tiles of the level                                  |
+| `levels.<n>.walls`       | core + client | railings; **must be a subset of `floor`**                    |
+| `levels.<n>.layers`      | client only   | renderLayer → tile indexes of this grid                      |
+| `ramps[].tile`           | core + client | tile index in the grid of level `from`                       |
+| `ramps[].dir`            | core + client | `north` = `-y`, `south` = `+y`, `west` = `-x`, `east` = `+x` |
+| `ramps[].from` / `.to`   | core + client | default `0` / `1`                                            |
+| `physicsDynamic[].level` | core          | level the prop stands on; default `0`                        |
+| `respawns[team][i][3]`   | host + core   | optional level of the spawn point                            |
 
 `MapConfig::validate` rejects a map with mismatched grid dimensions, a
 railing outside `floor`, an unknown ramp tile, or a level number out of
@@ -124,12 +124,12 @@ again in a part.
 
 ### Dynamic body defaults
 
-| Property | Default |
-| --- | --- |
-| `linearDamping` | `0.0` |
-| `angularDamping` | `0.01` |
-| friction | `0.2` (fixed by the engine) |
-| restitution | `0.0` (fixed by the engine) |
+| Property         | Default                     |
+| ---------------- | --------------------------- |
+| `linearDamping`  | `0.0`                       |
+| `angularDamping` | `0.01`                      |
+| friction         | `0.2` (fixed by the engine) |
+| restitution      | `0.0` (fixed by the engine) |
 
 `density` is required; `img` and `layer` are for the client renderer.
 

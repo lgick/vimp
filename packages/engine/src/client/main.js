@@ -154,7 +154,9 @@ const isLobbyMode = bootMode === 'lobby';
 // свой бокс; SDK (solo) — только если встраивающий передал reportUrl
 const diagnostics = createDiagnostics({
   url:
-    bootMode === 'solo' ? (boot.reportUrl ?? null) : lobbyConfig.clientReportUrl,
+    bootMode === 'solo'
+      ? (boot.reportUrl ?? null)
+      : lobbyConfig.clientReportUrl,
   context: {
     mode: bootMode,
     role: 'client',
@@ -1843,7 +1845,9 @@ let hostRegistration = null;
 // Этап 5.1/6.4: скачивает каталог карт мастера активной игры (манифест +
 // все карты)
 async function fetchMasterMaps() {
-  const manifestRes = await fetch(lobbyConfig.maps.manifestUrl(activeGameManifest));
+  const manifestRes = await fetch(
+    lobbyConfig.maps.manifestUrl(activeGameManifest),
+  );
 
   if (!manifestRes.ok) {
     throw new Error(`maps manifest: HTTP ${manifestRes.status}`);
@@ -2324,7 +2328,9 @@ function initLobby() {
   // реестр игр (master-game-registry, этап 4): заявка разработчика и панель
   // модерации живут в том же лобби. Триплет поднимается вместе с лобби —
   // панель доступна любому авторизованному, кнопку модерации показывает роль
-  const gamesModel = new GamesModel(lobbyConfig.games, () => lobbyAuthModel.getToken());
+  const gamesModel = new GamesModel(lobbyConfig.games, () =>
+    lobbyAuthModel.getToken(),
+  );
   const gamesView = new GamesView(gamesModel, lobbyConfig.games);
   const games = new GamesCtrl(gamesModel, gamesView);
 
@@ -2335,11 +2341,18 @@ function initLobby() {
 
   // журнал клиентских ошибок (plan/client-reports, этап 5): кнопку «Errors»
   // видит только админ; фильтр по игре — каталог вкладки
-  const clientReportsModel = new ClientReportsModel(lobbyConfig.clientReports, () =>
-    lobbyAuthModel.getToken(),
+  const clientReportsModel = new ClientReportsModel(
+    lobbyConfig.clientReports,
+    () => lobbyAuthModel.getToken(),
   );
-  const clientReportsView = new ClientReportsView(clientReportsModel, lobbyConfig.clientReports);
-  const clientReports = new ClientReportsCtrl(clientReportsModel, clientReportsView);
+  const clientReportsView = new ClientReportsView(
+    clientReportsModel,
+    lobbyConfig.clientReports,
+  );
+  const clientReports = new ClientReportsCtrl(
+    clientReportsModel,
+    clientReportsView,
+  );
 
   clientReportsView.setGames([...gamesById.values()]);
   clientReports.setAdmin(lobbyAuthModel.getRole() === 'admin');
@@ -2361,22 +2374,24 @@ function initLobby() {
     // мастера синхронным циклом, и без очереди два черновика при пустом
     // каталоге ушли бы активироваться одновременно — активной осталась бы
     // одна игра, а форма комнаты собралась бы по другой
-    stagedActivation = stagedActivation.then(async () => {
-      if (activeGameManifest) {
-        return; // предыдущий черновик уже стал активным
-      }
+    stagedActivation = stagedActivation
+      .then(async () => {
+        if (activeGameManifest) {
+          return; // предыдущий черновик уже стал активным
+        }
 
-      // только на успехе: отказ активации уже написал в ту же строку СВОЮ
-      // причину («Failed to load X: …»), и общее «игр пока не опубликовано»
-      // затёрло бы её — админ увидел бы не то, что случилось
-      if (await selectActiveGame(manifest.id)) {
-        syncCatalogState();
-      }
-    }).catch(e => {
-      // отказ не должен заклинить очередь: следующий черновик обязан
-      // получить свой шанс стать активной игрой
-      console.error('[game] staged activation failed:', e);
-    });
+        // только на успехе: отказ активации уже написал в ту же строку СВОЮ
+        // причину («Failed to load X: …»), и общее «игр пока не опубликовано»
+        // затёрло бы её — админ увидел бы не то, что случилось
+        if (await selectActiveGame(manifest.id)) {
+          syncCatalogState();
+        }
+      })
+      .catch(e => {
+        // отказ не должен заклинить очередь: следующий черновик обязан
+        // получить свой шанс стать активной игрой
+        console.error('[game] staged activation failed:', e);
+      });
   });
 
   // создание комнаты в этой же вкладке (хост-игрок через loopback)

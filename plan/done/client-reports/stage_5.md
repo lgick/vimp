@@ -111,7 +111,7 @@ clientReports: {
 
 - `src/client/views/includes/lobby.pug` — в `div.lobby-user-actions`
   кнопка `input#reports-open(type='button', value='Errors',
-  style='display:none')` рядом с `#games-open-moderation`.
+style='display:none')` рядом с `#games-open-moderation`.
 - Новый `src/client/views/includes/reports.pug` (подключить там же, где
   `games.pug`), по образцу `games.pug`: `div#reports-panel(style='display:none')`
   → шапка (`h3` «Client errors», `input#reports-close` «Back to lobby»),
@@ -157,7 +157,7 @@ clientReports: {
   тестом (см. ниже).
 - графы — кнопки из `config.statuses`, активная выделена; смена графы или
   игры — `load({ reset: true })`; «Load more» виден, пока `items.length <
-  total`.
+total`.
 
 Контроллер: `setAdmin(isAdmin)` — показать/скрыть `#reports-open`
 (вызвать рядом с `games.setAdmin(...)` в `main.js`, стр. ~2289);
@@ -181,7 +181,7 @@ clientReports: {
   смена графы сбрасывает список, `setStatus` убирает запись из «Open»,
   ошибки → `error`.
 - `tests/client/ClientReportsView.test.js` — **XSS**: отчёт с `message:
-  '<img src=x onerror=alert(1)>'` и таким же `stack`/`details` →
+'<img src=x onerror=alert(1)>'` и таким же `stack`/`details` →
   в DOM нет элемента `img`, текст виден буквально; кнопки статуса по
   статусу записи; «Load more» скрыт при `items.length === total`.
 - `tests/client/ClientReportsCtrl.test.js` — `setAdmin(false)` прячет
@@ -212,12 +212,13 @@ npm test --silent
 ```
 
 Ручная: лобби локально (этапы 1–3 подняты), войти админом (`VIMP_ADMIN_NICKS`
-+ dev-вход), в журнале есть записи (вызвать ошибку в DevTools, как в
-`stage_3.md`) → кнопка «Errors» видна только админу; список, фильтры,
-развёрнутый стек; «Mark fixed» убирает запись из «Open» и показывает её в
-«Fixed»; повтор той же ошибки увеличивает `count` у записи в «Fixed», в
-«Open» она не возвращается. Под обычным игроком кнопки нет, прямой
-`GET /admin/client-reports` → 401/403.
+
+- dev-вход), в журнале есть записи (вызвать ошибку в DevTools, как в
+  `stage_3.md`) → кнопка «Errors» видна только админу; список, фильтры,
+  развёрнутый стек; «Mark fixed» убирает запись из «Open» и показывает её в
+  «Fixed»; повтор той же ошибки увеличивает `count` у записи в «Fixed», в
+  «Open» она не возвращается. Под обычным игроком кнопки нет, прямой
+  `GET /admin/client-reports` → 401/403.
 
 ## Готово, когда
 

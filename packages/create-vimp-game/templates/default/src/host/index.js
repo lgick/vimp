@@ -4,11 +4,7 @@ import authSchema from '../config/auth.js';
 import clientConfig from '../config/client.js';
 import createModules from './createModules.js';
 import spawnCommand from './spawnCommand.js';
-import {
-  nameCommand,
-  newRoundCommand,
-  rankCommand,
-} from './metaCommands.js';
+import { nameCommand, newRoundCommand, rankCommand } from './metaCommands.js';
 import systemMessages from './systemMessages.js';
 import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 

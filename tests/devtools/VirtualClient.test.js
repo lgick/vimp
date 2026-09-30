@@ -199,7 +199,10 @@ describe('VirtualClient', () => {
     client.pushFrame(new Uint8Array([1, 2, 3]), 10);
     client.pushFrame(new Uint8Array([4, 5]).buffer, 20);
 
-    expect(core.pushed.map(p => [...p.data])).toEqual([[1, 2, 3], [4, 5]]);
+    expect(core.pushed.map(p => [...p.data])).toEqual([
+      [1, 2, 3],
+      [4, 5],
+    ]);
     expect(client.frameCount).toBe(2);
   });
 
@@ -287,7 +290,10 @@ describe('VirtualClient', () => {
     core.debug_json = () =>
       JSON.stringify({ myGameId: 0, interpolator: { buffered: 2 } });
 
-    expect(client.debug()).toEqual({ myGameId: 0, interpolator: { buffered: 2 } });
+    expect(client.debug()).toEqual({
+      myGameId: 0,
+      interpolator: { buffered: 2 },
+    });
     expect(client.snapshot().debug.interpolator.buffered).toBe(2);
   });
 

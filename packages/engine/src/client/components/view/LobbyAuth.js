@@ -31,7 +31,9 @@ export default class LobbyAuthView {
     const { elems, providerButtonClass } = config;
 
     this._elems = elems;
-    this._providerButtons = document.querySelectorAll(`.${providerButtonClass}`);
+    this._providerButtons = document.querySelectorAll(
+      `.${providerButtonClass}`,
+    );
 
     this._container = document.getElementById(elems.containerId);
     this._loginSection = document.getElementById(elems.loginSectionId);
@@ -77,7 +79,9 @@ export default class LobbyAuthView {
     this._user.style.display = 'none';
 
     this._providerButtons.forEach(btn => {
-      btn.style.display = providers.includes(btn.dataset.provider) ? '' : 'none';
+      btn.style.display = providers.includes(btn.dataset.provider)
+        ? ''
+        : 'none';
     });
   }
 
@@ -98,11 +102,13 @@ export default class LobbyAuthView {
   }
 
   renderLoginError(code) {
-    this._loginError.textContent = LOGIN_ERROR_MESSAGES[code] || 'Sign-in failed';
+    this._loginError.textContent =
+      LOGIN_ERROR_MESSAGES[code] || 'Sign-in failed';
   }
 
   renderNickError(code) {
-    this._nickError.textContent = NICK_ERROR_MESSAGES[code] || 'Something went wrong';
+    this._nickError.textContent =
+      NICK_ERROR_MESSAGES[code] || 'Something went wrong';
   }
 
   _emitNick() {

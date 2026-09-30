@@ -155,7 +155,10 @@ export function createClientReports({
  * @param {Object} [options.log=console]
  * @returns {Promise<void>} Никогда не отклоняется.
  */
-export async function stopClientReports(forwarder, { timeoutMs = 3000, log = console } = {}) {
+export async function stopClientReports(
+  forwarder,
+  { timeoutMs = 3000, log = console } = {},
+) {
   let timer;
 
   try {

@@ -189,7 +189,7 @@ including `plan/done/repo-split/`.
 
 **Decision.** The project is split into an **engine** — an application
 deployed once (master, P2P transport, Worker infrastructure and handoff,
-meta *mechanisms*, client MVC framework, render/sound infrastructure, the
+meta _mechanisms_, client MVC framework, render/sound infrastructure, the
 Rust framework crate) — and a **game** — a dynamic plugin (client/host JS
 bundles, a WASM binary, assets) loaded by a manifest from the master.
 Composition: this repository publishes `vimp-engine` (npm) and

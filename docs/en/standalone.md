@@ -2,7 +2,7 @@
 
 `vimp-engine/standalone` runs a full match inside one browser tab: the
 authoritative host, the client and the game plugin all live in the page. No
-master server, no OAuth, no lobby screen. It exists for the *game* repository:
+master server, no OAuth, no lobby screen. It exists for the _game_ repository:
 `npm run dev` there should open a playable match against the game's own
 scripted participants.
 
@@ -100,21 +100,21 @@ export default defineConfig({
 startStandaloneGame(options): Promise<{ stop(): void }>
 ```
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `hostPlugin` | — | the live `HostPlugin` object (required) |
-| `clientPlugin` | — | the live `ClientPlugin` object (required) |
-| `wasmUrl` | — | URL of the **web** build of the game core (required) |
-| `container` | `document.body` | mount point for the UI shell *and* the canvases |
-| `assetsBase` | `'/'` | asset base of the game; sounds are read from `${assetsBase}sounds/` |
-| `playerName` | — | set → the auth form is skipped and the player enters as a guest |
-| `playerModel` | — | the `model` field of the game's `authSchema` |
-| `auth` | `{}` | any other `authSchema` fields of the game |
-| `startupVotes` | `[]` | answers to the initial vote, e.g. `[['teamChange', 'team1']]` |
-| `startupCommands` | `[]` | game chat commands sent after the votes, e.g. `['/bot 4']` |
-| `room` | `{}` | room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
-| `devMode` | `false` | `room.isDevMode`: match recorder and the host `CONSOLE` log |
-| `reportUrl` | `null` | where the client error journal is sent (`POST`, see [client.md](client.md#error-reporting-libdiagnosticsjs)); `null` — nothing is sent, solo has no server |
+| Option            | Default         | Meaning                                                                                                                                                    |
+| ----------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hostPlugin`      | —               | the live `HostPlugin` object (required)                                                                                                                    |
+| `clientPlugin`    | —               | the live `ClientPlugin` object (required)                                                                                                                  |
+| `wasmUrl`         | —               | URL of the **web** build of the game core (required)                                                                                                       |
+| `container`       | `document.body` | mount point for the UI shell _and_ the canvases                                                                                                            |
+| `assetsBase`      | `'/'`           | asset base of the game; sounds are read from `${assetsBase}sounds/`                                                                                        |
+| `playerName`      | —               | set → the auth form is skipped and the player enters as a guest                                                                                            |
+| `playerModel`     | —               | the `model` field of the game's `authSchema`                                                                                                               |
+| `auth`            | `{}`            | any other `authSchema` fields of the game                                                                                                                  |
+| `startupVotes`    | `[]`            | answers to the initial vote, e.g. `[['teamChange', 'team1']]`                                                                                              |
+| `startupCommands` | `[]`            | game chat commands sent after the votes, e.g. `['/bot 4']`                                                                                                 |
+| `room`            | `{}`            | room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`                                                                        |
+| `devMode`         | `false`         | `room.isDevMode`: match recorder and the host `CONSOLE` log                                                                                                |
+| `reportUrl`       | `null`          | where the client error journal is sent (`POST`, see [client.md](client.md#error-reporting-libdiagnosticsjs)); `null` — nothing is sent, solo has no server |
 
 Both plugins are checked against `ENGINE_API_VERSION` before anything else —
 a plugin built for another engine API is rejected up front instead of failing
@@ -174,21 +174,21 @@ is nothing to answer, and `['teamChange', '<the same team>']` only prints
 "your current team" into the chat.
 
 The engine has no notion of a "bot": scripted participants are spawned by a
-*game* chat command declared in `hostPlugin.chatCommands` — hence
+_game_ chat command declared in `hostPlugin.chatCommands` — hence
 `startupCommands: ['/bot 4']` rather than a `bots: 4` option. Keep their
 number within `room.maxPlayers`, or the game will refuse part of the batch.
 
 ## How solo differs from production
 
-| | production (lobby) | standalone (solo) |
-| --- | --- | --- |
-| host | Web Worker in the room creator's tab | **main thread** (inline), no Worker |
-| identity | OAuth via `packages/auth`, JWT verified by the host | guest: the nick comes from the form or `playerName` |
-| rank / state | fetched and flushed through the master | offline stub, nothing is persisted |
-| game catalog | `GET /games/manifest.json` from the master | an in-memory manifest built from the plugin |
-| maps | the master's map catalog, hot updates | the maps bundled in `gameConfig` |
-| transport | WebRTC (or loopback for the host-player) | loopback to the inline host |
-| Worker relay on new code | yes | not applicable |
+|                          | production (lobby)                                  | standalone (solo)                                   |
+| ------------------------ | --------------------------------------------------- | --------------------------------------------------- |
+| host                     | Web Worker in the room creator's tab                | **main thread** (inline), no Worker                 |
+| identity                 | OAuth via `packages/auth`, JWT verified by the host | guest: the nick comes from the form or `playerName` |
+| rank / state             | fetched and flushed through the master              | offline stub, nothing is persisted                  |
+| game catalog             | `GET /games/manifest.json` from the master          | an in-memory manifest built from the plugin         |
+| maps                     | the master's map catalog, hot updates               | the maps bundled in `gameConfig`                    |
+| transport                | WebRTC (or loopback for the host-player)            | loopback to the inline host                         |
+| Worker relay on new code | yes                                                 | not applicable                                      |
 
 The host runs inline because a `HostPlugin` cannot cross a `postMessage`
 boundary (functions are not cloneable) and the SDK is handed the live object.

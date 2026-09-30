@@ -86,7 +86,6 @@ export function runRules(ctx, ruleList = rules) {
  */
 export function hasBlockingFailure(report, strict = false) {
   return report.results.some(
-    result =>
-      result.status === FAIL && (strict || result.level === ERROR),
+    result => result.status === FAIL && (strict || result.level === ERROR),
   );
 }

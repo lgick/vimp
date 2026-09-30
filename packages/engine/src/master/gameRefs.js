@@ -9,4 +9,9 @@ export const PACKAGE_NAME_PATTERN =
 
 // id мастера, занятые роутами реестра (/games/lookup, /games/mine,
 // /games/submit, /games/<id>/manifest.json): игра с таким id перекрыла бы их
-export const RESERVED_GAME_IDS = new Set(['mine', 'submit', 'manifest', 'lookup']);
+export const RESERVED_GAME_IDS = new Set([
+  'mine',
+  'submit',
+  'manifest',
+  'lookup',
+]);

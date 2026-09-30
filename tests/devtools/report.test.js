@@ -70,7 +70,9 @@ const report = () => ({
       name: 'predictionDrift',
       title: 'client prediction drift below the threshold',
       status: 'fail',
-      violations: ["s1: serverTime 1200, offset 0, source 'state': #0 Δ12.5 > 1"],
+      violations: [
+        "s1: serverTime 1200, offset 0, source 'state': #0 Δ12.5 > 1",
+      ],
     },
   ],
   invariantSummary: { passed: 0, failed: 2, skipped: 0, violations: 2 },
@@ -124,7 +126,7 @@ describe('formatMarkdown', () => {
     expect(md).toContain('❌ 3. `fieldWidths`');
     expect(md).toContain("s1: 'a1' decoded 3 field(s), schema declares 4");
     expect(md).toContain('❌ 9. `predictionDrift`');
-    expect(md).toContain("#0 Δ12.5 > 1");
+    expect(md).toContain('#0 Δ12.5 > 1');
   });
 });
 
@@ -145,7 +147,9 @@ describe('writeReport', () => {
       'scene-60.json',
     ]);
 
-    const json = JSON.parse(await readFile(path.join(runDir, 'report.json'), 'utf8'));
+    const json = JSON.parse(
+      await readFile(path.join(runDir, 'report.json'), 'utf8'),
+    );
 
     // сцены вынесены в отдельные файлы — в report.json остаются только их тики
     expect(json.scenes).toBeUndefined();

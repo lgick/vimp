@@ -16,15 +16,15 @@
 
 ## Сводка находок
 
-| № | Этап | Severity | Критерий |
-| --- | --- | --- | --- |
-| 1 ✅ | [Гейт 30 Гц глушит не только позицию](#этап-1) | средняя | работоспособность, документированность |
-| 2 ✅ | [`getCameraZoom()` игнорирует `currentScale`](#этап-2) | средняя | работоспособность |
-| 3 ✅ | [E6 не воспроизводит правило `maxDistance > refDistance`](#этап-3) | средняя | работоспособность |
-| 4 ✅ | [Тройное дублирование дефолтов и списков](#этап-4) | средняя | DRY, поддерживаемость |
-| 5 ✅ | [Мелкие дефекты `SoundManager`](#этап-5) | низкая | производительность, поддерживаемость |
-| 6 ✅ | [Тестовые фабрики и непокрытые места](#этап-6) | низкая | тестируемость |
-| 7 ✅ | [Точечные правки документации](#этап-7) | низкая | документированность |
+| №    | Этап                                                               | Severity | Критерий                               |
+| ---- | ------------------------------------------------------------------ | -------- | -------------------------------------- |
+| 1 ✅ | [Гейт 30 Гц глушит не только позицию](#этап-1)                     | средняя  | работоспособность, документированность |
+| 2 ✅ | [`getCameraZoom()` игнорирует `currentScale`](#этап-2)             | средняя  | работоспособность                      |
+| 3 ✅ | [E6 не воспроизводит правило `maxDistance > refDistance`](#этап-3) | средняя  | работоспособность                      |
+| 4 ✅ | [Тройное дублирование дефолтов и списков](#этап-4)                 | средняя  | DRY, поддерживаемость                  |
+| 5 ✅ | [Мелкие дефекты `SoundManager`](#этап-5)                           | низкая   | производительность, поддерживаемость   |
+| 6 ✅ | [Тестовые фабрики и непокрытые места](#этап-6)                     | низкая   | тестируемость                          |
+| 7 ✅ | [Точечные правки документации](#этап-7)                            | низкая   | документированность                    |
 
 Безопасность: замечаний нет. Конфиг пишет автор игры, каждый ключ
 санитаризуется по отдельности, `JSON.stringify` в `console.warn` не даёт
@@ -79,7 +79,7 @@ if (writePosition) {
 Разделить два действия: громкость — покадрово, позиция — под гейтом.
 
 1. Выделить из `_updateSpatialSound` приватный `_applyVolume(sound, soundId,
-   volume, spatial)`, который возвращает `true`, если источник слышим
+volume, spatial)`, который возвращает `true`, если источник слышим
    (внутри `maxDistance`), и `false`, если заглушен:
 
    ```javascript
@@ -177,10 +177,10 @@ getCameraZoom() {
 статичная камера, `zoom = 1`):
 
 | Ширина окна | `currentScale` | Видимая полувысота, мировых ед. | `H` | Угол на краю экрана |
-| --- | --- | --- | --- | --- |
-| 1920 | 5.0 | 108 | 108 | ~60° (расчётный) |
-| 1280 | 3.33 | 162 | 108 | ~72° |
-| 800 | 2.08 | 259 | 108 | ~80° |
+| ----------- | -------------- | ------------------------------- | --- | ------------------- |
+| 1920        | 5.0            | 108                             | 108 | ~60° (расчётный)    |
+| 1280        | 3.33           | 162                             | 108 | ~72°                |
+| 800         | 2.08           | 259                             | 108 | ~80°                |
 
 На окне вполовину экрана панорама оказывается заметно шире картинки —
 именно тот дефект, ради которого зум и пробрасывали. Игрок на ноутбуке
@@ -267,10 +267,12 @@ getCameraZoom() {
 **разрешённые** значения — объявленное против дефолта:
 
 ```javascript
-let refDistance = num('refDistance', true);   // объявлено ИЛИ дефолт 200
-let maxDistance = num('maxDistance', true);   // объявлено ИЛИ дефолт 1200
+let refDistance = num('refDistance', true); // объявлено ИЛИ дефолт 200
+let maxDistance = num('maxDistance', true); // объявлено ИЛИ дефолт 1200
 
-if (maxDistance <= refDistance) { /* откат ОБОИХ на дефолт */ }
+if (maxDistance <= refDistance) {
+  /* откат ОБОИХ на дефолт */
+}
 ```
 
 Правило контракта E6 (`e6-sound-spatial.js:102-110`) сравнивает только
@@ -309,7 +311,7 @@ if (Number.isFinite(spatial.refDistance) && Number.isFinite(spatial.maxDistance)
    if (maxDistance <= refDistance) {
      violations.push(
        `maxDistance (${maxDistance}) must be greater than refDistance ` +
-       `(${refDistance}); undeclared values fall back to engine defaults`,
+         `(${refDistance}); undeclared values fall back to engine defaults`,
      );
    }
    ```
@@ -322,8 +324,8 @@ if (Number.isFinite(spatial.refDistance) && Number.isFinite(spatial.maxDistance)
    if (maxDistance <= refDistance) {
      console.warn(
        `[SoundManager] spatial.maxDistance (${maxDistance}) must exceed ` +
-       `spatial.refDistance (${refDistance}); both fall back to ` +
-       `${SPATIAL_DEFAULTS.refDistance}/${SPATIAL_DEFAULTS.maxDistance}`,
+         `spatial.refDistance (${refDistance}); both fall back to ` +
+         `${SPATIAL_DEFAULTS.refDistance}/${SPATIAL_DEFAULTS.maxDistance}`,
      );
      refDistance = SPATIAL_DEFAULTS.refDistance;
      maxDistance = SPATIAL_DEFAULTS.maxDistance;
@@ -368,12 +370,12 @@ if (Number.isFinite(spatial.refDistance) && Number.isFinite(spatial.maxDistance)
 Одно и то же знание живёт в трёх файлах, и синхронность держится на
 комментарии.
 
-| Файл | Что дублирует |
-| --- | --- |
-| `packages/engine/src/client/SoundManager.js:11-20` | `SPATIAL_DEFAULTS` (8 чисел и строк) |
-| `packages/engine/src/config/clientDefaults.js:15-45` | те же 8 значений в `parts.sounds.spatial` |
-| `packages/engine/src/client/SoundManager.js:68-70` | `SPATIAL_MODES` / `PANNING_MODELS` / `DISTANCE_MODELS` |
-| `packages/engine/src/devtools/contract/rules/e6-sound-spatial.js:3-17` | те же три списка + знаки числовых полей |
+| Файл                                                                   | Что дублирует                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------------------ |
+| `packages/engine/src/client/SoundManager.js:11-20`                     | `SPATIAL_DEFAULTS` (8 чисел и строк)                   |
+| `packages/engine/src/config/clientDefaults.js:15-45`                   | те же 8 значений в `parts.sounds.spatial`              |
+| `packages/engine/src/client/SoundManager.js:68-70`                     | `SPATIAL_MODES` / `PANNING_MODELS` / `DISTANCE_MODELS` |
+| `packages/engine/src/devtools/contract/rules/e6-sound-spatial.js:3-17` | те же три списка + знаки числовых полей                |
 
 Комментарий `SoundManager.js:6-10` честно говорит: «Значения должны
 совпадать» — и ничто их совпадение не проверяет. Сценарий поломки прямой:
@@ -436,7 +438,7 @@ if (Number.isFinite(spatial.refDistance) && Number.isFinite(spatial.maxDistance)
 4. `e6-sound-spatial.js` — импортирует `SPATIAL_DEFAULTS`,
    `SPATIAL_NUMERIC`, три списка; локальные копии удаляются. `KNOWN`
    собирается как `['mode', 'panningModel', 'distanceModel',
-   ...Object.keys(SPATIAL_NUMERIC)]`.
+...Object.keys(SPATIAL_NUMERIC)]`.
 
 5. `_resolveSpatialConfig` — `num(key, positiveOnly)` заменить на чтение
    знака из `SPATIAL_NUMERIC[key]`, чтобы знак поля тоже был объявлен один
@@ -590,7 +592,9 @@ const written = this._pannerPos.get(soundId);
 if (written === undefined) {
   this._pannerPos.set(soundId, [px, py, pz]);
 } else {
-  written[0] = px; written[1] = py; written[2] = pz;
+  written[0] = px;
+  written[1] = py;
+  written[2] = pz;
 }
 ```
 
@@ -636,19 +640,23 @@ if (written === undefined) {
    // состояние настоящего экземпляра без конструктора (тот трогает Howler).
    // Одна точка: новое поле класса добавляется здесь, а не в пяти литералах
    const makeManager = (overrides = {}) =>
-     Object.assign(Object.create(SoundManager.prototype), {
-       _sounds: new Map(),
-       _activeInstances: new Map(),
-       _registeredSounds: new Map(),
-       _equalPowerIds: new Set(),
-       _pannedIds: new Set(),
-       _pannerPos: new Map(),
-       _lastPositionWrite: -Infinity,
-       _spatial: P._resolveSpatialConfig.call({}),
-       _listenerScale: 1,
-       _listenerX: 0,
-       _listenerY: 0,
-     }, overrides);
+     Object.assign(
+       Object.create(SoundManager.prototype),
+       {
+         _sounds: new Map(),
+         _activeInstances: new Map(),
+         _registeredSounds: new Map(),
+         _equalPowerIds: new Set(),
+         _pannedIds: new Set(),
+         _pannerPos: new Map(),
+         _lastPositionWrite: -Infinity,
+         _spatial: P._resolveSpatialConfig.call({}),
+         _listenerScale: 1,
+         _listenerX: 0,
+         _listenerY: 0,
+       },
+       overrides,
+     );
    ```
 
    Существующие фабрики переписать как тонкие обёртки над ней
@@ -801,7 +809,7 @@ spatial: { mode: 'topDown', virtualElevation: 180, innerRadius: 40 },
    `mode: 'topDown'`, и именно этот полный блок документация показывает как
    образец (`docs/en|ru/client.md`, `docs/ai/04-client-plugin.md`). Правило
    кричало бы на честный копипаст из собственной документации, а лишний ключ
-   безвреден — неверное *число* и так ловится проверкой знака. Проверка
+   безвреден — неверное _число_ и так ловится проверкой знака. Проверка
    удалена, причина записана комментарием в самом правиле, чтобы её не
    добавили повторно.
 
@@ -822,15 +830,15 @@ spatial: { mode: 'topDown', virtualElevation: 180, innerRadius: 40 },
 
 ## Итоговые проверки
 
-| Проверка | Результат |
-| --- | --- |
-| движок `npx eslint .` | чисто |
-| движок `npm test` | 185 файлов, **2382 passed** (было 2365, +17) |
-| `vimp-contract --game ../vimp-tanks` | 37 passed, 0 failed, **E6 pass** |
-| `vimp-contract --game ../vimp-snakes` | 35 passed, 0 failed, 2 skipped, **E6 pass** |
-| `npm run sim` + `sim:check` | 9 passed, 0 failed, 3 skipped |
-| tanks `eslint` + `npm test` | чисто, 303 passed |
-| snakes `eslint` + `npm test` | чисто, 157 passed, 1 skipped |
+| Проверка                              | Результат                                    |
+| ------------------------------------- | -------------------------------------------- |
+| движок `npx eslint .`                 | чисто                                        |
+| движок `npm test`                     | 185 файлов, **2382 passed** (было 2365, +17) |
+| `vimp-contract --game ../vimp-tanks`  | 37 passed, 0 failed, **E6 pass**             |
+| `vimp-contract --game ../vimp-snakes` | 35 passed, 0 failed, 2 skipped, **E6 pass**  |
+| `npm run sim` + `sim:check`           | 9 passed, 0 failed, 3 skipped                |
+| tanks `eslint` + `npm test`           | чисто, 303 passed                            |
+| snakes `eslint` + `npm test`          | чисто, 157 passed, 1 skipped                 |
 
 `npm run core:test` не запускался — Rust-ядро не затрагивалось. Ручной
 браузерный смоук по-прежнему не проведён и остаётся условием релиза:

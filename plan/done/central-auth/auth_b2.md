@@ -40,8 +40,9 @@ LobbyAuth{Model,View,Ctrl}.test.js`, `tests/lib/jwt.test.js`.
 ## Критические файлы
 
 `packages/engine/src/client/main.js` + `components/{model,view,controller}/Auth.js`
-+ `views/includes/auth.pug` (логин, экран ника, проброс JWT);
-`packages/engine/src/config/master.js` (CSP).
+
+- `views/includes/auth.pug` (логин, экран ника, проброс JWT);
+  `packages/engine/src/config/master.js` (CSP).
 
 ## Предусловие
 

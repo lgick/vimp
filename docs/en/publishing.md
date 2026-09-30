@@ -99,16 +99,16 @@ would publish the old commit. Either way the version number is not burned.
 Every `release.yml` — the engine's three jobs and each game's — also refuses
 a tag whose version differs from the one in `package.json`/`Cargo.toml`.
 
-| Flag | Effect |
-| --- | --- |
-| `--dry-run` | prints and checks everything, commits/tags/pushes nothing. **Only after `--`**: `npm run release --dry-run` hands the flag to npm, not to the script — the run then goes live. Preflight refuses when it finds `npm_config_dry_run` in the environment, and the flag is stripped from every child command. A rehearsal writes no version, so the `npm publish --dry-run` packaging check answers "cannot publish over the previously published versions" for anything due a bump — that one refusal is swallowed in a rehearsal, every other one still fails the step |
-| `--only=crate,engine,scaffold,games,prod` | a subset of the steps |
-| `--game=<path>` | a game for non-interactive runs (repeatable) |
-| `--relink` | only (re)link the discovered/selected games and exit; works offline — it asks no registry. Emergency use: restore links after a `SIGKILL`. Routine use: `npm run link:games` is this flag under an easier-to-find name, for setting up local game checkouts (see [getting-started.md](getting-started.md#linking-a-local-game-plugin)) |
-| `--yes` | accept the suggested versions and the plan; games then come only from `--game`; a re-push of a tag is still asked |
-| `--no-deploy` | release everything but do not push `main`: the deploy is postponed, and `git push` lands in the closing "осталось" list |
-| `--follow-games` | with `--yes`: release the `--game` games even when only a crate/engine release offers them (without it they stay unreleased) |
-| `--help` | the full description |
+| Flag                                      | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--dry-run`                               | prints and checks everything, commits/tags/pushes nothing. **Only after `--`**: `npm run release --dry-run` hands the flag to npm, not to the script — the run then goes live. Preflight refuses when it finds `npm_config_dry_run` in the environment, and the flag is stripped from every child command. A rehearsal writes no version, so the `npm publish --dry-run` packaging check answers "cannot publish over the previously published versions" for anything due a bump — that one refusal is swallowed in a rehearsal, every other one still fails the step |
+| `--only=crate,engine,scaffold,games,prod` | a subset of the steps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--game=<path>`                           | a game for non-interactive runs (repeatable)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--relink`                                | only (re)link the discovered/selected games and exit; works offline — it asks no registry. Emergency use: restore links after a `SIGKILL`. Routine use: `npm run link:games` is this flag under an easier-to-find name, for setting up local game checkouts (see [getting-started.md](getting-started.md#linking-a-local-game-plugin))                                                                                                                                                                                                                                |
+| `--yes`                                   | accept the suggested versions and the plan; games then come only from `--game`; a re-push of a tag is still asked                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--no-deploy`                             | release everything but do not push `main`: the deploy is postponed, and `git push` lands in the closing "осталось" list                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--follow-games`                          | with `--yes`: release the `--game` games even when only a crate/engine release offers them (without it they stay unreleased)                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--help`                                  | the full description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 There is no flag to skip the checks. There is no state file either: the
 repositories and the registries are the source of truth, so a re-run after a
@@ -217,16 +217,16 @@ not push to `main` until the games are out — see the warning in step A2.
 
 ## What actually needs publishing
 
-| Changed | Crate | Engine on npm | Scaffolder on npm | Game on npm | Production |
-| --- | --- | --- | --- | --- | --- |
-| Master, markup, deploy scripts | — | — | — | — | ✅ |
-| `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | — | ✅ | **required** (pins) | when convenient | ✅ |
-| `packages/engine/core/` (Rust) | ✅ | **required** (`core/Cargo.toml`) | **required** (pins) | offered (rebuild against the new crate) | ✅ |
-| Plugin contract without an `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | when convenient | ✅ |
-| `ENGINE_API_VERSION` bump | — | ✅ | **required** (pins) | **required** | ✅ strictly last |
-| Game only (rules, maps, assets, game core) | — | — | — | ✅ | — (raise the version from the lobby, no deploy) |
-| `packages/create-vimp-game/{bin,src,templates,scripts}` | — | — | ✅ | — | — |
-| `packages/auth/` | — | — | — | — | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
+| Changed                                                                                              | Crate | Engine on npm                    | Scaffolder on npm   | Game on npm                             | Production                                                                                 |
+| ---------------------------------------------------------------------------------------------------- | ----- | -------------------------------- | ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Master, markup, deploy scripts                                                                       | —     | —                                | —                   | —                                       | ✅                                                                                         |
+| `src/lib`, `src/config`, `src/host`, `src/client`, `src/standalone`, `src/devtools`, `bin`, fixtures | —     | ✅                               | **required** (pins) | when convenient                         | ✅                                                                                         |
+| `packages/engine/core/` (Rust)                                                                       | ✅    | **required** (`core/Cargo.toml`) | **required** (pins) | offered (rebuild against the new crate) | ✅                                                                                         |
+| Plugin contract without an `ENGINE_API_VERSION` bump                                                 | —     | ✅                               | **required** (pins) | when convenient                         | ✅                                                                                         |
+| `ENGINE_API_VERSION` bump                                                                            | —     | ✅                               | **required** (pins) | **required**                            | ✅ strictly last                                                                           |
+| Game only (rules, maps, assets, game core)                                                           | —     | —                                | —                   | ✅                                      | — (raise the version from the lobby, no deploy)                                            |
+| `packages/create-vimp-game/{bin,src,templates,scripts}`                                              | —     | —                                | ✅                  | —                                       | —                                                                                          |
+| `packages/auth/`                                                                                     | —     | —                                | —                   | —                                       | ✅ its own `deploy_auth` job, migrated separately (skipped when `AUTH_SERVER_IP` is unset) |
 
 "**required** (pins)" is the scaffolder's own propagation rule: it has no
 code of its own to change, but its `prepack` hook copies the engine and crate
@@ -255,12 +255,12 @@ Since the standalone SDK, the client half of the engine is published too
 
 The developer sets versions and runs the releases. Bump rules:
 
-| Artifact | File | Rule |
-| --- | --- | --- |
-| `vimp-engine-core` | `packages/engine/core/Cargo.toml` | cargo semver (`0.x`: breaking bumps the minor), plus an entry in `packages/engine/core/CHANGELOG.md` |
-| `vimp-engine` | `packages/engine/package.json` | same, plus an entry in `packages/engine/CHANGELOG.md` |
-| `create-vimp-game` | `packages/create-vimp-game/package.json` | same, plus an entry in `packages/create-vimp-game/CHANGELOG.md`; a release forced by the pins alone is a patch and gets an automatic entry naming the new pins |
-| `@vimp-games/tanks` | `vimp-tanks/package.json` | same, in the game repo |
+| Artifact            | File                                     | Rule                                                                                                                                                           |
+| ------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vimp-engine-core`  | `packages/engine/core/Cargo.toml`        | cargo semver (`0.x`: breaking bumps the minor), plus an entry in `packages/engine/core/CHANGELOG.md`                                                           |
+| `vimp-engine`       | `packages/engine/package.json`           | same, plus an entry in `packages/engine/CHANGELOG.md`                                                                                                          |
+| `create-vimp-game`  | `packages/create-vimp-game/package.json` | same, plus an entry in `packages/create-vimp-game/CHANGELOG.md`; a release forced by the pins alone is a patch and gets an automatic entry naming the new pins |
+| `@vimp-games/tanks` | `vimp-tanks/package.json`                | same, in the game repo                                                                                                                                         |
 
 A crate bump reaches a game through its pin, `vimp-tanks/core/Cargo.toml` →
 `vimp-engine-core = "X.Y.Z"`: `npm run release` rewrites it in step B, by
@@ -273,16 +273,16 @@ level, chosen while the code is written, and `npm run release` derives the
 exact number from it (current version + level). The list is closed — the six
 Keep a Changelog names plus two of this project's own:
 
-| Sub-heading | Level | Use for |
-| --- | --- | --- |
+| Sub-heading       | Level                            | Use for                                                         |
+| ----------------- | -------------------------------- | --------------------------------------------------------------- |
 | `### ⚠️ Breaking` | minor in `0.x`, major from `1.0` | anything that can reject a plugin or config which loaded before |
-| `### Added` | minor | a new public API or behaviour |
-| `### Changed` | patch | a change that cannot break a consumer |
-| `### Deprecated` | patch | an announced future removal |
-| `### Removed` | patch | a removal that cannot break a consumer |
-| `### Fixed` | patch | a bug fix |
-| `### Security` | patch | a closed vulnerability |
-| `### Migration` | — | the mandatory companion of `⚠️ Breaking`; never stands alone |
+| `### Added`       | minor                            | a new public API or behaviour                                   |
+| `### Changed`     | patch                            | a change that cannot break a consumer                           |
+| `### Deprecated`  | patch                            | an announced future removal                                     |
+| `### Removed`     | patch                            | a removal that cannot break a consumer                          |
+| `### Fixed`       | patch                            | a bug fix                                                       |
+| `### Security`    | patch                            | a closed vulnerability                                          |
+| `### Migration`   | —                                | the mandatory companion of `⚠️ Breaking`; never stands alone    |
 
 What the script enforces in preflight, before anything is built or published
 — for the artifacts of that run only, so a typo in a journal that stays put
@@ -293,7 +293,7 @@ blocks nobody:
   release.
 - **`⚠️ Breaking` and `### Migration` come as a pair**, in both directions.
   One section may hold several such pairs — `core/CHANGELOG.md` does.
-- A heading may carry a clarification after ` — ` or in round brackets:
+- A heading may carry a clarification after `—` or in round brackets:
   `### ⚠️ Breaking — reset() also clears my_game_id`,
   `### Migration (game plugins)`. Names are case-sensitive; the `⚠️` itself
   is optional for the parser, but both journals carry it — keep to the form
@@ -307,13 +307,13 @@ blocks nobody:
   warns — but it does warn. A `##` written where a `###` was meant empties the
   section, and an empty section is what makes the artifact skippable, so the
   defect would otherwise hide itself behind "nothing changed since X.Y.Z".
-- **Examples inside code fences are not parsed** (``` ``` ``` or `~~~`), so a
+- **Examples inside code fences are not parsed** (` ` ``` or `~~~`), so a
   `Migration` section may show a changelog snippet without moving the level.
 
 What it cannot check — and the reason the level is chosen this early:
 
 - **`ENGINE_API_VERSION` is no longer bumped.** It is frozen at 4
-  (`plan/plugin-forward-compat`), and a new engine capability is *registered*
+  (`plan/plugin-forward-compat`), and a new engine capability is _registered_
   instead: add an append-only entry to `src/lib/capabilities.js` and describe
   it under `### Added`. A game asks for it through the optional
   `GameManifest.requires`, and a game that does not ask keeps running. What
@@ -442,7 +442,7 @@ npm view vimp-engine version
 ## Step A3: publish `create-vimp-game` on npm
 
 Runs **after** A1 and A2, never before: the `prepack` hook
-(`packages/create-vimp-game/scripts/write-versions.js`) reads the *local*
+(`packages/create-vimp-game/scripts/write-versions.js`) reads the _local_
 `packages/engine/package.json` and `packages/engine/core/Cargo.toml` — the
 files those two steps have just bumped — and writes the snapshot to
 `src/versions.generated.json`, which is what the template's
@@ -672,12 +672,12 @@ Both directions matter: without the reverse link the plugin's
 
 ## Rollback
 
-| Broken | Undo |
-| --- | --- |
-| Crate on crates.io | Publish a fixed patch version; `cargo yank` the bad one so nobody resolves to it |
-| Engine or game package on npm | Publish a fixed patch version (npm never overwrites) |
+| Broken                               | Undo                                                                                                                                                                                                                       |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Crate on crates.io                   | Publish a fixed patch version; `cargo yank` the bad one so nobody resolves to it                                                                                                                                           |
+| Engine or game package on npm        | Publish a fixed patch version (npm never overwrites)                                                                                                                                                                       |
 | Production runs a bad plugin version | Submit the previous version from the lobby ("My games" → "Update version") and approve it in "Moderation" — nothing checks that versions only go up. No release, no deploy: every master picks it up on its next sync pass |
-| Production runs a bad master build | `git revert` the deploy commit and push — CI rebuilds and redeploys the previous state |
+| Production runs a bad master build   | `git revert` the deploy commit and push — CI rebuilds and redeploys the previous state                                                                                                                                     |
 
 ---
 

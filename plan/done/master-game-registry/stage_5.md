@@ -14,8 +14,8 @@
 
 ```js
 const entry = games.find(game => game.id === gameId);
-if (!entry && loadGame === loadGamePackage) throw new Error(
-  `dedicated: game "${gameId}" is not listed in master:games — …`);
+if (!entry && loadGame === loadGamePackage)
+  throw new Error(`dedicated: game "${gameId}" is not listed in master:games — …`);
 ```
 
 Новый порядок разрешения игры:
@@ -46,13 +46,13 @@ if (!entry && loadGame === loadGamePackage) throw new Error(
 
 ## 5.2 Чистка «игры внутри движка»
 
-| Файл | Что убрать / изменить |
-| --- | --- |
-| корневой `package.json` | удалить `@vimp-games/snakes` и `@vimp-games/tanks` из `dependencies`; обновить `package-lock.json` (`npm install`) |
-| `Dockerfile:38-52` | удалить стейджинг `/app/game-dists` |
-| `Dockerfile:84-88` | удалить `COPY … game-dists → node_modules/@vimp-games` |
-| `Dockerfile:14-19` | переписать комментарий: `npm ci` больше не приносит игр |
-| `packages/engine/src/config/master.js:36` | `games: []` (сделано на Этапе 3) |
+| Файл                                      | Что убрать / изменить                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| корневой `package.json`                   | удалить `@vimp-games/snakes` и `@vimp-games/tanks` из `dependencies`; обновить `package-lock.json` (`npm install`) |
+| `Dockerfile:38-52`                        | удалить стейджинг `/app/game-dists`                                                                                |
+| `Dockerfile:84-88`                        | удалить `COPY … game-dists → node_modules/@vimp-games`                                                             |
+| `Dockerfile:14-19`                        | переписать комментарий: `npm ci` больше не приносит игр                                                            |
+| `packages/engine/src/config/master.js:36` | `games: []` (сделано на Этапе 3)                                                                                   |
 
 `src/devtools` в prod-образ **не добавлять**: валидатор мастера
 (`gamePackageCheck.js`) намеренно самостоятелен и не тянет `devtools/`.
@@ -146,17 +146,17 @@ for (const game of games) {
 `docs/en/` — канон, `docs/ru/` — точное зеркало; правятся **в том же
 изменении**.
 
-| Страница | Что меняется |
-| --- | --- |
-| `master.md` | каталог строится из реестра auth, а не из `master:games`; `GameStore`/`GameSync`/`GameRegistryProxy` в таблице модулей; версионные роуты `/games/:id/:version/*` и алиасы; `mapsBase`; админские роуты; скрытые тестовые комнаты; `maxGameScore` теперь из реестра |
-| `configuration.md` | `VIMP_GAMES_DIR`, блок `master:gameStore:*`; `master:games` по умолчанию пуст; `GAMES_MATRIX` — только dev/self-hosted |
-| `auth.md` | роли (`users.role`, `VIMP_ADMIN_NICKS`), таблица `games`, миграция `009`, роуты `/games*` и `/admin/games*`, почему роль читается из БД, а не из клейма |
-| `deployment.md` | `GAMES_MATRIX` больше не задаётся; том `vimp-games`; `VIMP_ADMIN_NICKS` и требование `--force-recreate auth`; раздел «Adding a second game» переписан на панель модерации |
-| `dedicated.md` | разрешение игры (`<id>` / `<id>@<version>`), загрузка из реестра, требование тома |
-| `publishing.md` | после публикации игры корневой пин не правится: версия поднимается через лобби |
-| `plugin-api.md` | мастер переписывает `assetsBase`/`entries` в отдаваемом манифесте и добавляет `mapsBase`; `entries.wasmNode` не переписывается |
-| `getting-started.md` | локальная разработка: `npm link` по-прежнему главный путь, реестр в dev игнорируется для прилинкованных игр |
-| `docs/ai/02-packaging.md` | раздел «How the master serves it» — версионные URL, откуда берётся `packageVersion`, что мастер не исполняет код пакета |
+| Страница                  | Что меняется                                                                                                                                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `master.md`               | каталог строится из реестра auth, а не из `master:games`; `GameStore`/`GameSync`/`GameRegistryProxy` в таблице модулей; версионные роуты `/games/:id/:version/*` и алиасы; `mapsBase`; админские роуты; скрытые тестовые комнаты; `maxGameScore` теперь из реестра |
+| `configuration.md`        | `VIMP_GAMES_DIR`, блок `master:gameStore:*`; `master:games` по умолчанию пуст; `GAMES_MATRIX` — только dev/self-hosted                                                                                                                                             |
+| `auth.md`                 | роли (`users.role`, `VIMP_ADMIN_NICKS`), таблица `games`, миграция `009`, роуты `/games*` и `/admin/games*`, почему роль читается из БД, а не из клейма                                                                                                            |
+| `deployment.md`           | `GAMES_MATRIX` больше не задаётся; том `vimp-games`; `VIMP_ADMIN_NICKS` и требование `--force-recreate auth`; раздел «Adding a second game» переписан на панель модерации                                                                                          |
+| `dedicated.md`            | разрешение игры (`<id>` / `<id>@<version>`), загрузка из реестра, требование тома                                                                                                                                                                                  |
+| `publishing.md`           | после публикации игры корневой пин не правится: версия поднимается через лобби                                                                                                                                                                                     |
+| `plugin-api.md`           | мастер переписывает `assetsBase`/`entries` в отдаваемом манифесте и добавляет `mapsBase`; `entries.wasmNode` не переписывается                                                                                                                                     |
+| `getting-started.md`      | локальная разработка: `npm link` по-прежнему главный путь, реестр в dev игнорируется для прилинкованных игр                                                                                                                                                        |
+| `docs/ai/02-packaging.md` | раздел «How the master serves it» — версионные URL, откуда берётся `packageVersion`, что мастер не исполняет код пакета                                                                                                                                            |
 
 `docs/ai/` — английский, вне билингвального правила, но правится тоже.
 

@@ -169,12 +169,17 @@ export default class ClientReportsView {
       [timeAgo(report.lastSeen), 'reports-when'],
       [`×${report.count}`, 'reports-count'],
       [`${report.kind}/${report.source}`, 'reports-kind'],
-      [truncate(String(report.code ?? report.message ?? ''), MESSAGE_PREVIEW), 'reports-message'],
+      [
+        truncate(String(report.code ?? report.message ?? ''), MESSAGE_PREVIEW),
+        'reports-message',
+      ],
       [report.gameId ? `${report.gameId}@${report.gameVersion ?? '—'}` : '—'],
       [`engine ${report.engineVersion ?? '—'}`],
       [report.box ?? '—'],
       [report.status, `reports-status reports-status-${report.status}`],
-    ].forEach(([text, className]) => summary.appendChild(this._span(text, className)));
+    ].forEach(([text, className]) =>
+      summary.appendChild(this._span(text, className)),
+    );
 
     details.style.display = this._expanded.has(report.id) ? '' : 'none';
     summary.onclick = () => {
@@ -199,7 +204,9 @@ export default class ClientReportsView {
     const details = document.createElement('div');
 
     details.className = 'reports-details';
-    details.appendChild(this._line(report.message ?? '', 'reports-full-message'));
+    details.appendChild(
+      this._line(report.message ?? '', 'reports-full-message'),
+    );
 
     if (report.stack) {
       details.appendChild(this._pre(report.stack));
@@ -210,7 +217,9 @@ export default class ClientReportsView {
     }
 
     details.appendChild(this._line(`User agent: ${report.userAgent ?? '—'}`));
-    details.appendChild(this._line(`Role: ${report.role ?? '—'}; page: ${report.page ?? '—'}`));
+    details.appendChild(
+      this._line(`Role: ${report.role ?? '—'}; page: ${report.page ?? '—'}`),
+    );
     details.appendChild(
       this._line(
         `First seen: ${report.firstSeen ?? '—'}; last seen: ${report.lastSeen ?? '—'}` +
@@ -218,7 +227,9 @@ export default class ClientReportsView {
       ),
     );
     details.appendChild(
-      this._line(`Fingerprint: ${String(report.fingerprint ?? '').slice(0, 12)}`),
+      this._line(
+        `Fingerprint: ${String(report.fingerprint ?? '').slice(0, 12)}`,
+      ),
     );
 
     if (report.statusAt) {

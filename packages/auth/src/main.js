@@ -43,10 +43,15 @@ import rateLimit from './lib/rateLimit.js';
 import { forAuthor } from './lib/gameViews.js';
 import resolveAuthor from './lib/gameAuthor.js';
 import isEnvAdmin from './lib/adminRights.js';
-import ClientReportRepository, { ClientReportNotFoundError } from './ClientReportRepository.js';
+import ClientReportRepository, {
+  ClientReportNotFoundError,
+} from './ClientReportRepository.js';
 import ClientReportBudget from './lib/ClientReportBudget.js';
 import { requireServiceToken } from './lib/serviceToken.js';
-import { normalizeReportItem, REPORT_STATUSES } from './lib/clientReportValidators.js';
+import {
+  normalizeReportItem,
+  REPORT_STATUSES,
+} from './lib/clientReportValidators.js';
 import { clientIp } from './lib/clientIp.js';
 
 const env = process.env;
@@ -77,7 +82,9 @@ if (isProduction) {
     process.exit(1);
   }
 
-  config.allowedOrigins = env.VIMP_AUTH_ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
+  config.allowedOrigins = env.VIMP_AUTH_ALLOWED_ORIGINS.split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 
   if (!env.VIMP_AUTH_STATE_SECRET) {
     console.error(`
@@ -97,10 +104,14 @@ if (isProduction) {
   // журнал клиентских ошибок необязателен: без секрета приём отвечает 503,
   // а боксы копят и логируют — падать из-за него сервису незачем
   if (!env.VIMP_CLIENT_REPORTS_TOKEN) {
-    console.warn('[auth] VIMP_CLIENT_REPORTS_TOKEN is not set — POST /client-reports answers 503');
+    console.warn(
+      '[auth] VIMP_CLIENT_REPORTS_TOKEN is not set — POST /client-reports answers 503',
+    );
   }
 } else if (env.VIMP_AUTH_ALLOWED_ORIGINS) {
-  config.allowedOrigins = env.VIMP_AUTH_ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
+  config.allowedOrigins = env.VIMP_AUTH_ALLOWED_ORIGINS.split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 }
 
 const userRepo = new UserRepository(dbPool.getPool());
@@ -113,23 +124,34 @@ const recountClientReports = () =>
   clientReportRepo
     .countRows()
     .then(n => clientReportBudget.setRows(n))
-    .catch(err => console.error('[client-reports] recount failed:', err.message));
+    .catch(err =>
+      console.error('[client-reports] recount failed:', err.message),
+    );
 
 recountClientReports();
-setInterval(recountClientReports, config.clientReports.budget.rowsRecountMs).unref?.();
+setInterval(
+  recountClientReports,
+  config.clientReports.budget.rowsRecountMs,
+).unref?.();
 
 // журнал отсечённого бюджетом — не чаще раза в час и одной строкой: при
 // атаке строка на каждую пачку сама стала бы флудом
-setInterval(() => {
-  const { reason, skipped } = clientReportBudget.drainThrottled();
+setInterval(
+  () => {
+    const { reason, skipped } = clientReportBudget.drainThrottled();
 
-  if (skipped > 0) {
-    console.warn(`[client-reports] throttled ${skipped} new reports (reason: ${reason})`);
-  }
-}, 60 * 60 * 1000).unref?.();
+    if (skipped > 0) {
+      console.warn(
+        `[client-reports] throttled ${skipped} new reports (reason: ${reason})`,
+      );
+    }
+  },
+  60 * 60 * 1000,
+).unref?.();
 
 function callbackUrl(provider) {
-  const base = config.publicUrl || `${config.protocol}//${config.domain}:${config.port}`;
+  const base =
+    config.publicUrl || `${config.protocol}//${config.domain}:${config.port}`;
 
   return `${base}/oauth/${provider}/callback`;
 }
@@ -191,7 +213,9 @@ function requireAuth(req, res, next) {
 async function issueIdentityToken(user) {
   // личность читается из БД: обе точки выпуска токена знают id и ник, но не
   // провайдера. Лишнего запроса без VIMP_ADMIN_IDENTITIES не появляется
-  const identity = config.admin.identities.length ? await userRepo.getIdentity(user.id) : null;
+  const identity = config.admin.identities.length
+    ? await userRepo.getIdentity(user.id)
+    : null;
   const envAdmin = isEnvAdmin(config.admin, {
     nick: user.nick,
     provider: identity?.provider,
@@ -244,16 +268,22 @@ app.post(
   async (req, res) => {
     const items = req.body?.items;
 
-    if (!Array.isArray(items) || items.length < 1 || items.length > config.clientReports.maxBatch) {
+    if (
+      !Array.isArray(items) ||
+      items.length < 1 ||
+      items.length > config.clientReports.maxBatch
+    ) {
       res.status(400).json({ error: 'badRequest' });
       return;
     }
 
     const valid = items
-      .map(item => normalizeReportItem(item, {
-        limits: config.clientReports.limits,
-        gameIdRules: config.games,
-      }))
+      .map(item =>
+        normalizeReportItem(item, {
+          limits: config.clientReports.limits,
+          gameIdRules: config.games,
+        }),
+      )
       .filter(Boolean);
 
     if (valid.length === 0) {
@@ -299,7 +329,12 @@ app.use('/nick', (req, res, next) => {
 if (!isProduction) {
   app.get(
     '/dev/login',
-    createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick }),
+    createDevLoginHandler({
+      userRepo,
+      issueIdentityToken,
+      isAllowedReturnUrl,
+      isValidNick,
+    }),
   );
 }
 
@@ -322,7 +357,9 @@ app.get('/oauth/:provider/start', byIp(oauthStartLimiter), (req, res) => {
     const provider = getProvider(providerName);
     const state = oauthState.encodeState({ returnUrl });
 
-    res.redirect(provider.getAuthorizationUrl(state, callbackUrl(providerName)));
+    res.redirect(
+      provider.getAuthorizationUrl(state, callbackUrl(providerName)),
+    );
   } catch {
     res.status(404).json({ error: 'unknownProvider' });
   }
@@ -353,15 +390,24 @@ app.get('/oauth/:provider/callback', async (req, res) => {
 
   try {
     const provider = getProvider(providerName);
-    const { providerUid } = await provider.exchangeCode(code, callbackUrl(providerName));
-    const user = await userRepo.findOrCreateByProvider(providerName, providerUid);
+    const { providerUid } = await provider.exchangeCode(
+      code,
+      callbackUrl(providerName),
+    );
+    const user = await userRepo.findOrCreateByProvider(
+      providerName,
+      providerUid,
+    );
 
     const redirectUrl = new URL(decodedState.returnUrl);
 
     if (user.nick) {
       redirectUrl.searchParams.set('token', await issueIdentityToken(user));
     } else {
-      redirectUrl.searchParams.set('pendingToken', jwtLib.signPendingToken({ sub: user.id }));
+      redirectUrl.searchParams.set(
+        'pendingToken',
+        jwtLib.signPendingToken({ sub: user.id }),
+      );
     }
 
     res.redirect(redirectUrl.toString());
@@ -448,7 +494,10 @@ function gameInputError({ id, packageName, version, title, repoUrl }) {
     return 'invalidGameId';
   }
 
-  if (packageName !== undefined && !isValidPackageName(packageName, config.games)) {
+  if (
+    packageName !== undefined &&
+    !isValidPackageName(packageName, config.games)
+  ) {
     return 'invalidPackageName';
   }
 
@@ -469,7 +518,13 @@ function gameInputError({ id, packageName, version, title, repoUrl }) {
 
 // POST /games — заявка разработчика на новую игру платформы
 app.post('/games', requireAuth, byIp(gamesLimiter), async (req, res) => {
-  const { id, packageName, title = null, repoUrl = null, version } = req.body || {};
+  const {
+    id,
+    packageName,
+    title = null,
+    repoUrl = null,
+    version,
+  } = req.body || {};
   // gameInputError проверяет ФОРМАТ и пропускает отсутствующее поле (он же
   // обслуживает частичное обновление); присутствие обязательных полей —
   // требование именно этого роута
@@ -514,38 +569,43 @@ app.post('/games', requireAuth, byIp(gamesLimiter), async (req, res) => {
 });
 
 // POST /games/:id/version — заявка на новую версию уже заведённой игры
-app.post('/games/:id/version', requireAuth, byIp(gamesLimiter), async (req, res) => {
-  const { version } = req.body || {};
+app.post(
+  '/games/:id/version',
+  requireAuth,
+  byIp(gamesLimiter),
+  async (req, res) => {
+    const { version } = req.body || {};
 
-  if (!isValidGameVersion(version, config.games)) {
-    res.status(400).json({ error: 'invalidVersion' });
-    return;
-  }
-
-  try {
-    const isAdmin = await isAdminUser(req.user.id);
-    const game = await userRepo.requestGameVersion(req.params.id, version, {
-      userId: req.user.id,
-      isAdmin,
-    });
-
-    // админ подаёт версию за чужую игру из той же панели, где ник модератора
-    // и так виден: скрывать его от него незачем
-    res.json({ game: isAdmin ? game : forAuthor(game) });
-  } catch (err) {
-    if (err instanceof GameNotFoundError) {
-      res.status(404).json({ error: 'unknownGame' });
+    if (!isValidGameVersion(version, config.games)) {
+      res.status(400).json({ error: 'invalidVersion' });
       return;
     }
 
-    if (err instanceof GameForbiddenError) {
-      res.status(403).json({ error: 'forbidden' });
-      return;
-    }
+    try {
+      const isAdmin = await isAdminUser(req.user.id);
+      const game = await userRepo.requestGameVersion(req.params.id, version, {
+        userId: req.user.id,
+        isAdmin,
+      });
 
-    throw err;
-  }
-});
+      // админ подаёт версию за чужую игру из той же панели, где ник модератора
+      // и так виден: скрывать его от него незачем
+      res.json({ game: isAdmin ? game : forAuthor(game) });
+    } catch (err) {
+      if (err instanceof GameNotFoundError) {
+        res.status(404).json({ error: 'unknownGame' });
+        return;
+      }
+
+      if (err instanceof GameForbiddenError) {
+        res.status(403).json({ error: 'forbidden' });
+        return;
+      }
+
+      throw err;
+    }
+  },
+);
 
 // DELETE /games/:id — удаление игры из реестра. Один маршрут на обе роли:
 // право решает не путь, а роль из БД (тот же приём, что у
@@ -619,20 +679,26 @@ app.post('/admin/games/:id/restore', requireAdmin, async (req, res) => {
 
 // PATCH /admin/games/:id — решение модератора
 app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
-  const { status, version, pendingVersion, note, maxGameScore, authorNick } = req.body || {};
+  const { status, version, pendingVersion, note, maxGameScore, authorNick } =
+    req.body || {};
 
   if (status !== undefined && !GAME_STATUSES.includes(status)) {
     res.status(400).json({ error: 'badRequest' });
     return;
   }
 
-  if (version !== undefined && version !== null && !isValidGameVersion(version, config.games)) {
+  if (
+    version !== undefined &&
+    version !== null &&
+    !isValidGameVersion(version, config.games)
+  ) {
     res.status(400).json({ error: 'invalidVersion' });
     return;
   }
 
   if (
-    pendingVersion !== undefined && pendingVersion !== null &&
+    pendingVersion !== undefined &&
+    pendingVersion !== null &&
     !isValidGameVersion(pendingVersion, config.games)
   ) {
     res.status(400).json({ error: 'invalidVersion' });
@@ -645,7 +711,8 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
   }
 
   if (
-    maxGameScore !== undefined && maxGameScore !== null &&
+    maxGameScore !== undefined &&
+    maxGameScore !== null &&
     !isValidMaxGameScore(maxGameScore, config.rank)
   ) {
     res.status(400).json({ error: 'invalidMaxGameScore' });
@@ -665,7 +732,9 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
   }
 
   // авторство: в теле едет ник, в колонку — id
-  const author = await resolveAuthor(authorNick, nick => userRepo.findByNick(nick));
+  const author = await resolveAuthor(authorNick, nick =>
+    userRepo.findByNick(nick),
+  );
 
   if (!author.ok) {
     res.status(author.status).json({ error: author.error });
@@ -673,7 +742,11 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
   }
 
   const patch = {
-    status, version, pendingVersion, note, maxGameScore,
+    status,
+    version,
+    pendingVersion,
+    note,
+    maxGameScore,
     authorUserId: author.authorUserId,
   };
 
@@ -685,7 +758,11 @@ app.patch('/admin/games/:id', requireAdmin, async (req, res) => {
     patch.pendingVersion = null;
   }
 
-  const updated = await userRepo.moderateGame(req.params.id, patch, req.user.id);
+  const updated = await userRepo.moderateGame(
+    req.params.id,
+    patch,
+    req.user.id,
+  );
 
   // решение могло снять с раздачи последнюю игру платформы. Отказом это не
   // является — лобби остаётся рабочим, вход и модерация от каталога не
@@ -715,12 +792,17 @@ app.get('/admin/client-reports', requireAdmin, async (req, res) => {
 
   const offset = Number(req.query.offset);
 
-  res.json(await clientReportRepo.list({
-    status,
-    gameId: gameId ?? null,
-    limit: clampLimit(req.query.limit, 50, config.clientReports.listMaxLimit),
-    offset: Number.isInteger(offset) && offset >= 0 && offset <= 100000 ? offset : 0,
-  }));
+  res.json(
+    await clientReportRepo.list({
+      status,
+      gameId: gameId ?? null,
+      limit: clampLimit(req.query.limit, 50, config.clientReports.listMaxLimit),
+      offset:
+        Number.isInteger(offset) && offset >= 0 && offset <= 100000
+          ? offset
+          : 0,
+    }),
+  );
 });
 
 // PATCH /admin/client-reports/:id — статус строки журнала. Повтор отпечатка
@@ -734,7 +816,8 @@ app.patch('/admin/client-reports/:id', requireAdmin, async (req, res) => {
   }
 
   if (
-    note !== undefined && note !== null &&
+    note !== undefined &&
+    note !== null &&
     (typeof note !== 'string' || note.length > config.clientReports.limits.note)
   ) {
     res.status(400).json({ error: 'badRequest' });
@@ -839,8 +922,13 @@ app.get('/rank', requireAuth, async (req, res) => {
 function readAttribution(body) {
   const rawHosterUserId = Number(body?.hosterUserId);
   const hosterUserId =
-    Number.isInteger(rawHosterUserId) && rawHosterUserId > 0 ? rawHosterUserId : null;
-  const sessionId = typeof body?.sessionId === 'string' && body.sessionId ? body.sessionId : null;
+    Number.isInteger(rawHosterUserId) && rawHosterUserId > 0
+      ? rawHosterUserId
+      : null;
+  const sessionId =
+    typeof body?.sessionId === 'string' && body.sessionId
+      ? body.sessionId
+      : null;
 
   return { hosterUserId, sessionId };
 }
@@ -910,7 +998,12 @@ app.put('/state', requireAuth, async (req, res) => {
     return;
   }
 
-  await userRepo.upsertState(req.user.id, gameId, state, readAttribution(req.body));
+  await userRepo.upsertState(
+    req.user.id,
+    gameId,
+    state,
+    readAttribution(req.body),
+  );
   res.json({ ok: true });
 });
 
@@ -958,11 +1051,16 @@ app.put('/host-rating/:hosterUserId', requireAuth, async (req, res) => {
   }
 
   if (!isValidVoteReason(reason)) {
-    res.json({ counted: false, ...(await userRepo.getHostRating(hosterUserId)) });
+    res.json({
+      counted: false,
+      ...(await userRepo.getHostRating(hosterUserId)),
+    });
     return;
   }
 
-  res.json(await userRepo.voteHost(hosterUserId, req.user.id, value, reason.trim()));
+  res.json(
+    await userRepo.voteHost(hosterUserId, req.user.id, value, reason.trim()),
+  );
 });
 
 // Финальный обработчик: без него отказ БД уходил в дефолтный обработчик
@@ -1054,7 +1152,9 @@ server.listen(config.port, () => {
     // те приведены к нижнему регистру для сравнения, а dev-логин заводит
     // личность по provider_uid = ник, и регистр там значим. Ссылка с чужим
     // написанием создала бы вторую личность и упёрлась в занятый ник
-    const adminNick = String(env.VIMP_ADMIN_NICKS || '').split(',')[0].trim();
+    const adminNick = String(env.VIMP_ADMIN_NICKS || '')
+      .split(',')[0]
+      .trim();
 
     console.warn(
       `    DEV login enabled (role comes from VIMP_ADMIN_NICKS):\n` +

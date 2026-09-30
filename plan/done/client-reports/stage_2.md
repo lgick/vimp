@@ -29,17 +29,17 @@ same-origin `POST /client-reports`, режет и проверяет их, сч�
   `config.get('master:security:authServiceUrl')`; `engineDir` (стр. ~40).
 - `packages/engine/src/dedicated/main.js`: `const app = express()` +
   `securityHeaders` (стр. ~416–418), `clientIp(req, { trustProxy:
-  isProduction })` (стр. ~556), чтение `authServiceUrl` (стр. ~226), раздел
+isProduction })` (стр. ~556), чтение `authServiceUrl` (стр. ~226), раздел
   «graceful shutdown» (стр. ~624) и `shutdown()` (стр. ~726) — там
   `dedicated.close()`.
 - `packages/engine/src/lib/security.js` — `createOriginValidator({ protocol,
-  domain, port })` возвращает **колбэк-функцию** `(origin, cb)`, `cb(err)`
+domain, port })` возвращает **колбэк-функцию** `(origin, cb)`, `cb(err)`
   зовётся на `process.nextTick`; `err === null` — origin разрешён (в проде —
   только `https://<domain>`, плюс `localhost`/`127.0.0.1` на порту).
 - `packages/engine/src/lib/clientIp.js` — `clientIp(req, { trustProxy })`
   (за Nginx — только `X-Real-IP`).
 - `packages/engine/src/lib/rateLimiter.js` — `new RateLimiter({ limit,
-  windowMs })`, `consume(key) → boolean`, `sweep()`.
+windowMs })`, `consume(key) → boolean`, `sweep()`.
 - `packages/engine/src/config/env.js` (`applyMasterEnv`) и
   `packages/engine/src/config/master.js` — как env попадает в конфиг.
 - `packages/engine/src/master/HostRatingProxy.js` — образец вызова auth
@@ -208,8 +208,8 @@ export function computeFingerprint({ source, kind, code, message, stack,
   Берётся первая строка, где нашёлся URL с `:line:col`; от URL остаётся
   `pathname` (`new URL(url).pathname`); непарсимый URL → строка как есть.
 - `computeFingerprint`: `sha256(JSON.stringify([source, kind, code ??
-  normalizeMessage(message), rawTopFrame(stack), engineVersion, gameId,
-  gameVersion]))`; если `extra !== null` — он дописывается последним
+normalizeMessage(message), rawTopFrame(stack), engineVersion, gameId,
+gameVersion]))`; если `extra !== null` — он дописывается последним
   элементом массива (служебной записи бокса — его домен, чтобы у каждого
   бокса была своя строка `reports.dropped`).
 
@@ -275,8 +275,8 @@ export default class ClientReportBuffer {
   `count: N`, `firstSeen = lastSeen = now`, `engineVersion`, `box`,
   `mode: box.mode`, `gameId`/`gameVersion`/`userAgent`/`stack` — `null`;
 - `fingerprint = computeFingerprint({ source: 'box', kind: 'warn', code:
-  'reports.dropped', message, engineVersion, gameId: null, gameVersion:
-  null, extra: box.domain })` — одна строка на бокс и версию движка, её
+'reports.dropped', message, engineVersion, gameId: null, gameVersion:
+null, extra: box.domain })` — одна строка на бокс и версию движка, её
   `count` копит общее число отброшенного;
 - при создании — строка в журнал процесса
   `[vimp:client-report] dropped N new reports (budget: B, bufferFull: F)`
@@ -301,7 +301,7 @@ export default class ClientReportForwarder {
 ```
 
 - `POST ${authServiceUrl}/client-reports`, заголовки `authorization: Bearer
-  ${token}`, `content-type: application/json`, тело `{ items }` (даты —
+${token}`, `content-type: application/json`, тело `{ items }` (даты —
   epoch ms, auth принимает оба формата), `signal: AbortSignal.timeout(timeoutMs)`.
 - В начале `flush`: `extraEntries()` → если не пусто, эти записи уходят
   первыми (вместе с первой порцией `drain`, не превышая `batchSize`).
@@ -344,7 +344,7 @@ export function createClientReportRoute({
 1. `const key = rateLimitKey(clientIp(req, { trustProxy }))`; пустой `key`
    или `!limiter.consume(key)` → `429 { error: 'rateLimited' }`. Лимит стоит
    **до** парсера тела (сначала middleware лимита, потом `express.json({
-   limit })`, потом обработчик).
+limit })`, потом обработчик).
 2. `origin = req.get('origin')`; если есть — промисифицировать
    `checkOrigin(origin, cb)`; `err` → `403 { error: 'forbiddenOrigin' }`.
    Нет заголовка — пропустить (same-origin навигационные запросы его могут
@@ -352,19 +352,20 @@ export function createClientReportRoute({
 3. `sanitizeClientReport(req.body, { maxItemsPerRequest })`; ошибка со
    `status` → `400 { error: 'badRequest' }`.
 4. Для каждого item: `fingerprint = computeFingerprint({ ...item,
-   engineVersion: box.engineVersion, gameId: context.gameId, gameVersion:
-   context.gameVersion })`. Если отпечаток **совсем новый**
+engineVersion: box.engineVersion, gameId: context.gameId, gameVersion:
+context.gameVersion })`. Если отпечаток **совсем новый**
    (`!buffer.isKnown(fp)` — ни в буфере, ни среди уже принимавшихся):
    - `reason = buffer.canAcceptNew()`; не `null` → `buffer.countDropped(reason)`,
      item пропускается (**без** расшифровки — спам не жжёт CPU);
    - иначе, если `symbolicate && item.stack` — `stack = await
-     symbolicate(item.stack)` в `try/catch` (ошибка расшифровки → сырой
+symbolicate(item.stack)` в `try/catch` (ошибка расшифровки → сырой
      стек).
 
    Затем `buffer.add({ fingerprint, source, kind, code, message, stack,
-   details, count, firstSeen: firstAt, lastSeen: lastAt, engineVersion:
-   box.engineVersion, gameId, gameVersion, box: box.domain, mode:
-   context.mode ?? box.mode, userAgent })`.
+details, count, firstSeen: firstAt, lastSeen: lastAt, engineVersion:
+box.engineVersion, gameId, gameVersion, box: box.domain, mode:
+context.mode ?? box.mode, userAgent })`.
+
 5. `isNew` → одна строка:
    `[vimp:client-report] new <fp[0..8]> <kind>/<source> <code ?? message[0..120]> (<gameId>@<gameVersion>, engine <engineVersion>)`.
 6. `res.status(204).end()` — **и когда часть или все записи отброшены
@@ -524,7 +525,7 @@ Job auth-стека (шаг с `envs: AUTH_SERVICE_URL,VIMP_ADMIN_NICKS,…`):
   `.env.prod` auth-стека), ротация (сменить секрет → push в `main`
   передеплоит и auth, и все боксы; до передеплоя старые боксы получают 401 и
   копят), где смотреть строки (`docker logs vimp-<domain> | grep
-  vimp:client-report`, см. раздел «Viewing logs on the VPS»).
+vimp:client-report`, см. раздел «Viewing logs on the VPS»).
 
 ## Журнал
 
@@ -559,8 +560,7 @@ curl -sk -X POST https://localhost:3002/client-reports \
 # через ≤ 30 с строка в client_reports (engine_version = версия packages/engine)
 ```
 
-То же с `-H 'origin: https://evil.example'` → 403; 11-й запрос за минуту →
-429. Без токена — только строка журнала, auth не вызывается.
+То же с `-H 'origin: https://evil.example'` → 403; 11-й запрос за минуту → 429. Без токена — только строка журнала, auth не вызывается.
 
 Бюджет: временно `newFingerprintsPerMinute: 2` (локальная правка конфига,
 не коммитить) и снять лимит запросов (`rateLimit.limit: 1000`) → три

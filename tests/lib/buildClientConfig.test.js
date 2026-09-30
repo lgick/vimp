@@ -30,7 +30,11 @@ const makeGame = () => ({
 
 describe('buildClientConfig', () => {
   it('deep-merge: движковые и игровые ветки одного модуля сливаются', () => {
-    const config = buildClientConfig(makeGame(), makeDefaults(), makeGameClient());
+    const config = buildClientConfig(
+      makeGame(),
+      makeDefaults(),
+      makeGameClient(),
+    );
 
     // движковая ветка chat сохранена, игровая добавлена
     expect(config.modules.chat.elems.cmd).toBe('cmd');

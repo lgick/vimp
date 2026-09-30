@@ -2,9 +2,9 @@
 
 One corpus of maps shared by the two checkers that enforce the same rules:
 
-* `vimp-engine-core` — `MapConfig::validate` (Rust, load time), test
+- `vimp-engine-core` — `MapConfig::validate` (Rust, load time), test
   `map::tests::shared_layered_fixtures`;
-* the contract checker — rule `E4 mapLayers` (JS, before the build), test
+- the contract checker — rule `E4 mapLayers` (JS, before the build), test
   `tests/devtools/contract/e4-map-layers.test.js`.
 
 Each file holds one map under `map`, a human note under `note` and — for the

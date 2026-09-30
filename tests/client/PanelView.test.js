@@ -25,8 +25,9 @@ const makeModel = () => ({ publisher: new Publisher() });
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  PanelView = (await import('../../packages/engine/src/client/components/view/Panel.js'))
-    .default;
+  PanelView = (
+    await import('../../packages/engine/src/client/components/view/Panel.js')
+  ).default;
 });
 
 describe('PanelView: генерация DOM по схеме', () => {
@@ -78,9 +79,7 @@ describe('PanelView.update', () => {
     view.update({ name: 'energy', value: 100 });
 
     const blocks = document.querySelectorAll('#panel-energy div div');
-    const filled = [...blocks].filter(
-      b => b.className === 'panel-bar-block',
-    );
+    const filled = [...blocks].filter(b => b.className === 'panel-bar-block');
     expect(filled.length).toBe(30);
   });
 
@@ -90,9 +89,7 @@ describe('PanelView.update', () => {
     view.update({ name: 'energy', value: 50 });
 
     const blocks = [...document.querySelectorAll('#panel-energy div div')];
-    const empty = blocks.filter(
-      b => b.className === 'panel-bar-block-empty',
-    );
+    const empty = blocks.filter(b => b.className === 'panel-bar-block-empty');
     expect(empty.length).toBe(15);
   });
 

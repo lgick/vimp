@@ -112,7 +112,7 @@ Rust-тулчейна доступа к сборке в этой сессии �
   (`^x.y.z`, версия опубликованного в A1 пакета) — сейчас `*` работал только
   потому, что оба пакета в одном npm workspace и `*` резолвился локально;
 - `scripts.build:assets` (`node ../../scripts/export-maps.js && node
-  ../../scripts/copy-game-sounds.js`) и `scripts.build:manifest`
+../../scripts/copy-game-sounds.js`) и `scripts.build:manifest`
   (`node ../../scripts/build-game-manifest.js`) — пути `../../scripts/`
   становятся `./scripts/` (скрипты теперь лежат в самом репо игры, см. A3.1);
 - добавить `repository`/`bugs`/`homepage` для нового репо (по аналогии с
@@ -169,7 +169,7 @@ registry — `npm install` в `vimp-tanks` заработает только п�
 самостоятельно (A3.1–A3.4 зелёные там):
 
 - Корневой `Cargo.toml` (`/Cargo.toml`): `members = ["packages/engine/core",
-  "games/tanks/core"]` → `members = ["packages/engine/core"]`;
+"games/tanks/core"]` → `members = ["packages/engine/core"]`;
   `workspace.dependencies` (`indexmap`, `rapier2d`, ...) можно оставить —
   они больше не нужны `vimp-engine-core` per se, но если он сам их использует
   напрямую, не трогать; если использовались только игрой — удалить
@@ -181,7 +181,7 @@ registry — `npm install` в `vimp-tanks` заработает только п�
   (или оставить alias `"build": "npm run build:app"` для обратной
   совместимости команды);
 - `git rm -r games/tanks scripts/build-game-manifest.js
-  scripts/copy-game-sounds.js scripts/export-maps.js scripts/process-audio.js`
+scripts/copy-game-sounds.js scripts/export-maps.js scripts/process-audio.js`
   (см. A3.1);
 - Удалить перенесённые тестовые файлы (A3.4) из `tests/host/`, `tests/core/`,
   `tests/client/` в движке; `vitest.config.js` — убрать проекты `tanks` и
@@ -207,7 +207,7 @@ registry — `npm install` в `vimp-tanks` заработает только п�
   комментарий/шаг, ссылающийся на `auth`, если он был совмещён ради экономии
   раннеров с игрой — сейчас `engine` job уже самодостаточен
   (`cargo test -p vimp-engine-core` + `vitest --project engine-node
-  --project engine-client` + `--project auth`), менять его не нужно, кроме
+--project engine-client` + `--project auth`), менять его не нужно, кроме
   комментария в шапке файла (строки 9-18), который сейчас описывает все 4
   job — сократить до реального состава (`lint`, `engine`);
 - `.gitignore`: убрать строки `games/tanks/build/`, `games/tanks/core/pkg-node/`,
@@ -271,7 +271,7 @@ systemMessages.js` как пример данных для `registerCodes` — �
   `package.json` монорепо движка, потерялись при A3.1 переносе — без них
   `npm run core:build` из workflow и из `docs` не существовал).
 - Найден и исправлен мёртвый симлинк `node_modules/@vimp/tanks ->
-  ../../games/tanks` (не удалённый при A3.5 — `games/tanks` там больше нет)
+../../games/tanks` (не удалённый при A3.5 — `games/tanks` там больше нет)
   и устаревший `packages/engine/package.json` `dev`-скрипт
   (`nodemon ... -w ../../games/tanks/src`, тоже переживший A3.5).
 - Локальная связка через `npm link` выполнена и проверена: `npm link` в
@@ -287,7 +287,7 @@ systemMessages.js` как пример данных для `registerCodes` — �
   - `npm run build` в `vimp-tanks` (client+host+assets+manifest) — собрал
     `dist/manifest.json`;
   - `npm run dev` в движке поднял мастер, лог подтвердил `Games loaded:
-    tanks` (т.е. `GameCatalog` резолвит `@vimp/tanks` через `npm link`-симлинк
+tanks` (т.е. `GameCatalog` резолвит `@vimp/tanks` через `npm link`-симлинк
     так же, как раньше через workspace-симлинк — подтверждает раздел
     «Границы» плана A2), `GET /servers` и `GET /` (лобби) ответили 200.
   - `vimp-tanks/.gitignore` — добавлена строка `target/` (Rust build

@@ -88,13 +88,17 @@ export default class GameSync {
       const { status, json } = await this._registry.list();
 
       if (status !== 200 || !Array.isArray(json?.games)) {
-        console.warn(`GameSync: registry answered ${status} — catalog left as is`);
+        console.warn(
+          `GameSync: registry answered ${status} — catalog left as is`,
+        );
         return;
       }
 
       games = json.games;
     } catch (err) {
-      console.warn(`GameSync: registry unreachable (${err.message}) — catalog left as is`);
+      console.warn(
+        `GameSync: registry unreachable (${err.message}) — catalog left as is`,
+      );
       return;
     }
 
@@ -126,7 +130,11 @@ export default class GameSync {
 
       seen.add(game.id);
 
-      const result = await this._store.ensure(game.id, game.packageName, game.version);
+      const result = await this._store.ensure(
+        game.id,
+        game.packageName,
+        game.version,
+      );
 
       if (!result.ok) {
         // битая игра не уносит каталог: она просто не попадает в раздачу,
@@ -300,7 +308,9 @@ export default class GameSync {
 
     // unref: опрос каталога не повод держать процесс живым
     this._timer = setInterval(() => {
-      this.run().catch(err => console.warn(`GameSync: cycle failed (${err.message})`));
+      this.run().catch(err =>
+        console.warn(`GameSync: cycle failed (${err.message})`),
+      );
     }, this._intervalMs);
     this._timer.unref?.();
   }

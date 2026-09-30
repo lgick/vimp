@@ -66,7 +66,9 @@ export async function refreshRatings(db) {
   const client = await db.connect();
 
   try {
-    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [LOCK_KEY]);
+    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [
+      LOCK_KEY,
+    ]);
 
     if (!lock.rows?.[0]?.got) {
       console.info('[ratings] another run holds the lock, skipping');
@@ -76,10 +78,15 @@ export async function refreshRatings(db) {
 
     try {
       const started = Date.now();
-      const result = await client.query(REFRESH_SQL, [config.rank.min, config.rank.max]);
+      const result = await client.query(REFRESH_SQL, [
+        config.rank.min,
+        config.rank.max,
+      ]);
       const rows = result?.rowCount ?? 0;
 
-      console.info(`[ratings] refreshed ${rows} rows in ${Date.now() - started} ms`);
+      console.info(
+        `[ratings] refreshed ${rows} rows in ${Date.now() - started} ms`,
+      );
 
       return rows;
     } finally {

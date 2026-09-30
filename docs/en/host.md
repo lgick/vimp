@@ -47,7 +47,7 @@ strategy and this switch over main-thread messages. Main-thread messages:
 
 - `init(room, handoff?)` — dynamically imports `HostPlugin` from
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
-  wasmUrl }`, built by `connectAsHost` from the active `GameManifest`),
+wasmUrl }`, built by `connectAsHost` from the active `GameManifest`),
   assembles the game config (a merge of the engine defaults
   `packages/engine/src/config/hostDefaults.js` and the `gameConfig` view —
   `packages/engine/src/lib/gameConfigView.js`, the engine's single read point
@@ -60,7 +60,7 @@ strategy and this switch over main-thread messages. Main-thread messages:
   clamped to `roomTimeMin…roomTimeMax`)/friendly fire; maps come
   from `room.maps` if the main thread fetched the master's catalog),
   initializes the core via `HostPlugin.createCore(coreConfigJson, {
-  wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies
+wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies
   `ready { mapName, seed }`. Everything except the postMessage wrapping is
   `packages/engine/src/lib/createHostRuntime.js` — the same function the
   headless runner boots a match with, so the two cannot drift apart (its
@@ -129,7 +129,7 @@ process; a second copy of it would drift exactly the way copies of
 `createHostRuntime` would.
 
 ```js
-new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identity })
+new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identity });
 ```
 
 `makeSocket(socketId)` returns the wire socket (`send`/`sendBinary`/`close`,
@@ -147,10 +147,10 @@ data)` (a wire frame `JSON [port, payload]`, dispatched by allowed ports),
 Who a participant is — the one thing the handshake cannot decide on its own —
 is a pluggable strategy, `packages/engine/src/host/identity.js`:
 
-| Strategy | Used by | `params` | `errorField` | `resolve` |
-| --- | --- | --- | --- | --- |
-| `createTokenIdentity({ jwksUrl, issuer })` | lobby (production) | `[]` | `token` | the `nick` claim of a verified identity token |
-| `createGuestIdentity({ fallbackPrefix })` | standalone / dedicated | one `name` field | `name` | the form's nickname, `Player_xxxx` as a fallback |
+| Strategy                                   | Used by                | `params`         | `errorField` | `resolve`                                        |
+| ------------------------------------------ | ---------------------- | ---------------- | ------------ | ------------------------------------------------ |
+| `createTokenIdentity({ jwksUrl, issuer })` | lobby (production)     | `[]`             | `token`      | the `nick` claim of a verified identity token    |
+| `createGuestIdentity({ fallbackPrefix })`  | standalone / dedicated | one `name` field | `name`       | the form's nickname, `Player_xxxx` as a fallback |
 
 The contract is `{ params, errorField, resolve(data, socketId) }`. `params`
 go in front of the game's `authSchema.params` in both directions (the nickname
@@ -221,7 +221,7 @@ to still being the join-time default:
   there — `playerDataSync.addRank(killerId, +1 or -1)` with the same
   win/team-kill branching as the score update.
 - **Sync back**: `flush(participantId)` `PUT`s the participant's current
-  state and *rank delta* to the master (`Promise.allSettled`, best-effort —
+  state and _rank delta_ to the master (`Promise.allSettled`, best-effort —
   a failure never propagates into the round, and a later flush retries with
   whatever's accumulated by then; it is logged, not swallowed, see
   "Diagnosing rank/state sync" below). Since server-rating stage 1, auth's `/rank` is an append-only
@@ -245,7 +245,7 @@ to still being the join-time default:
   break a round, every failure path is tolerated — so each one logs a
   `[playerData]` warning in the Worker's console instead of passing
   unnoticed: a non-`ok` `GET` on join (which leaves `rankLoaded`/`stateLoaded`
-  `false` and thereby gates off *all* later `PUT`s), a non-`ok` `PUT` on
+  `false` and thereby gates off _all_ later `PUT`s), a non-`ok` `PUT` on
   flush, and any rejected request. Silence across a whole match means the
   requests were never issued at all, which points at `createUser` rather than
   at the sync. Related invariant: the module takes `fetchImpl` and must keep
@@ -260,7 +260,7 @@ to still being the join-time default:
   `hostOptions.playerDataFetch: offlinePlayerData()`
   (`packages/engine/src/lib/offlinePlayerData.js`), whose every response is
   `{ rank: 0, state: null }`. That is not a stub for the sake of silence: an
-  empty profile *is* the correct state of such a match, and it takes the
+  empty profile _is_ the correct state of such a match, and it takes the
   network calls, the `[playerData]` warnings and the retries with it.
 - **Attribution** (code-review fix, `plan/done/server-rating/review.md` finding
   №1): every `PUT` body also carries `hostId` **and its per-room
@@ -310,10 +310,10 @@ The host facade — module wiring + the participant lifecycle:
   `SocketManager`, `PlayerDataSync`) lives in `packages/engine/src/host/meta/` modules (see "Meta modules"
   below), with dependencies passed through constructors (DI);
 - the hot `_onShotTick` is core-driven: `adapter.updateData(dt)` (a core step
-  + event drain), send throttling (`SnapshotThrottle` — a frame every
-  `networkSendRate`-th tick), `adapter.packBody()` once per tick, then a
-  per-user `adapter.packFrame(...)` (the core itself assembles the
-  prediction player block for `playerId`);
+  - event drain), send throttling (`SnapshotThrottle` — a frame every
+    `networkSendRate`-th tick), `adapter.packBody()` once per tick, then a
+    per-user `adapter.packFrame(...)` (the core itself assembles the
+    prediction player block for `playerId`);
 - **connection lifecycle**: `createUser` (registering a spectator in every
   module — called with the host Worker's verified nick, not a freely-typed
   name, see "Auth response" below), `removeUser`, `mapReady`,
@@ -327,7 +327,7 @@ The host facade — module wiring + the participant lifecycle:
   CommandProcessor) and `parseVote`; bridges for `TimerManager`/`RTTManager`
   callbacks (kicks), `reportKill`, `triggerCameraShake`, `updateRTT`;
 - **the host player is excluded from kick policies** (idle- and RTT-kicks):
-  its loopback *is* the room, so kicking it would kill the room for
+  its loopback _is_ the room, so kicking it would kill the room for
   everyone. `hostSocketId` arrives in the options (from
   `lobbyConfig.create.hostSocketId`, value `'local'`, agreed with
   `LoopbackTransport`); guests are kicked normally;
@@ -404,7 +404,7 @@ Implements the physics/bots/packing surface consumed by
   (health/ammo live in the core, the panel is their projection). `custom` is
   the only type carrying game-specific meaning outside the dictionary:
   drained as-is into the optional `HostPlugin.onCoreEvent(data, { panel,
-  vimp })` (tanks doesn't use it — `onCoreEvent` is left unset). The core
+vimp })` (tanks doesn't use it — `onCoreEvent` is left unset). The core
   operates on numeric ids (u32), meta keys by string — the adapter converts
   event ids to strings at this boundary;
 - **packing**: `packBody` → `pack_body`, `packFrame` → `pack_frame` +
@@ -589,7 +589,7 @@ classifies the meta/state channels.
 
 - **`HostController`** — spawns the Worker (from `workerUrl` in the master's
   manifest; without it, a bundled `new Worker(new URL('host.worker.js'),
-  { type: 'module' })`; the factory is injected for tests), sends
+{ type: 'module' })`; the factory is injected for tests), sends
   `init(room)`, routes `to_client`/`close_client` to registered clients, and
   forwards incoming messages to the Worker. Shared by loopback and remote
   clients; `onReady` (Worker is up) is the moment the room registers with
@@ -762,7 +762,7 @@ Host and meta module tests live in `tests/host/`:
 - `HostGame.fixture.test.js` — integration on top of the bundled **miniGame
   fixture** (`packages/engine/tests/fixtures/`), whose core is a plain JS
   object implementing the Wasm Host ABI — so this suite needs no Rust build
-  and no game plugin, and proves the host works against *any* conforming
+  and no game plugin, and proves the host works against _any_ conforming
   `HostPlugin`. The equivalent suite on a real WASM core lives in the game
   plugin's own repository. Covered: onboarding, an active player with a
   player block, movement, shooting (tracer + ammo), bots, `players_data`,

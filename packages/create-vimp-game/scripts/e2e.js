@@ -34,7 +34,9 @@ function run(command, args, cwd) {
   }
 
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} exited with ${result.status}`);
+    throw new Error(
+      `${command} ${args.join(' ')} exited with ${result.status}`,
+    );
   }
 }
 
@@ -47,7 +49,9 @@ function capture(command, args, cwd) {
 
   if (result.status !== 0) {
     process.stderr.write(result.stderr ?? '');
-    throw new Error(`${command} ${args.join(' ')} exited with ${result.status}`);
+    throw new Error(
+      `${command} ${args.join(' ')} exited with ${result.status}`,
+    );
   }
 
   return result.stdout.trim();

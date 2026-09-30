@@ -61,12 +61,21 @@ const ICE_SERVERS = [{ urls: 'stun:stun.test:3478' }];
 
 // identity-токены (server-rating этап 2): подписаны реальным RS256-ключом,
 // проверяются verifyIdentityToken по jwks — как настоящий Worker хоста
-const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
 const KID = 'test-key-1';
 const ISSUER = 'vimp-auth-test';
 
 const jwks = {
-  keys: [{ ...publicKey.export({ format: 'jwk' }), kid: KID, use: 'sig', alg: 'RS256' }],
+  keys: [
+    {
+      ...publicKey.export({ format: 'jwk' }),
+      kid: KID,
+      use: 'sig',
+      alg: 'RS256',
+    },
+  ],
 };
 
 const signToken = (sub, { issuer = ISSUER } = {}) =>
@@ -88,9 +97,18 @@ beforeEach(() => {
 
   jwksProxy = { get: vi.fn(async () => jwks) };
   hostRatingProxy = {
-    getRating: vi.fn(async () => ({ status: 200, json: { score: 0, blocked: false } })),
-    vote: vi.fn(async () => ({ status: 200, json: { score: 1, blocked: false, counted: true } })),
-    getPublic: vi.fn(async () => ({ status: 200, json: { score: 0, blocked: false } })),
+    getRating: vi.fn(async () => ({
+      status: 200,
+      json: { score: 0, blocked: false },
+    })),
+    vote: vi.fn(async () => ({
+      status: 200,
+      json: { score: 1, blocked: false, counted: true },
+    })),
+    getPublic: vi.fn(async () => ({
+      status: 200,
+      json: { score: 0, blocked: false },
+    })),
   };
 
   signaling = new SignalingServer(registry, {
@@ -108,7 +126,11 @@ beforeEach(() => {
 });
 
 // подключает фейковое соединение и возвращает { ws, id }
-const connect = async ({ ip = '9.9.9.9', region = 'EU', origin = 'https://localhost:3001' } = {}) => {
+const connect = async ({
+  ip = '9.9.9.9',
+  region = 'EU',
+  origin = 'https://localhost:3001',
+} = {}) => {
   const ws = new FakeWs();
   const req = {
     headers: { origin, 'x-region': region },
@@ -310,11 +332,15 @@ describe('register_host', () => {
 
   it('с невалидной подписью токена — invalidToken', async () => {
     const { ws } = await connect({ ip: '1.1.1.1' });
-    const forged = jwt.sign({ nick: 'x' }, crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey, {
-      algorithm: 'RS256',
-      keyid: KID,
-      issuer: ISSUER,
-    });
+    const forged = jwt.sign(
+      { nick: 'x' },
+      crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey,
+      {
+        algorithm: 'RS256',
+        keyid: KID,
+        issuer: ISSUER,
+      },
+    );
 
     ws.message({ type: 'register_host', name: 'Room', token: forged });
     await flushAsync();
@@ -334,14 +360,20 @@ describe('register_host', () => {
     ws.message({ type: 'register_host', name: 'Room', token: signToken(1) });
     await flushAsync();
 
-    expect(ws.lastSent()).toEqual({ type: 'error', code: 'authServiceUnavailable' });
+    expect(ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'authServiceUnavailable',
+    });
     expect(registry.size).toBe(0);
 
     errSpy.mockRestore();
   });
 
   it('заблокированный по рейтингу хостер не может зарегистрировать комнату', async () => {
-    hostRatingProxy.getRating.mockResolvedValue({ status: 200, json: { score: -10, blocked: true } });
+    hostRatingProxy.getRating.mockResolvedValue({
+      status: 200,
+      json: { score: -10, blocked: true },
+    });
 
     const { ws } = await connect({ ip: '1.1.1.1' });
 
@@ -433,7 +465,11 @@ describe('register_host', () => {
     await connectHost();
     const second = await connect({ ip: '1.1.1.1' });
 
-    second.ws.message({ type: 'register_host', name: 'Second', token: signToken(2) });
+    second.ws.message({
+      type: 'register_host',
+      name: 'Second',
+      token: signToken(2),
+    });
     await flushAsync();
 
     expect(second.ws.lastSent()).toEqual({ type: 'error', code: 'hostLimit' });
@@ -469,17 +505,20 @@ describe('register_host', () => {
   // за прод-Nginx адрес приходит в X-Real-IP (его прокси перезаписывает), и
   // соединения с разными X-Real-IP — разные клиенты, хотя сокет один и тот же
   it('с trustProxy ключом становится X-Real-IP', async () => {
-    const proxied = new SignalingServer(new HostRegistry({ maxPlayersLimit: 8 }), {
-      iceServers: ICE_SERVERS,
-      regionHeader: 'x-region',
-      heartbeatTimeout: 1000,
-      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
-      checkOrigin: allowAllOrigins,
-      trustProxy: true,
-      jwksProxy,
-      hostRatingProxy,
-      issuer: ISSUER,
-    });
+    const proxied = new SignalingServer(
+      new HostRegistry({ maxPlayersLimit: 8 }),
+      {
+        iceServers: ICE_SERVERS,
+        regionHeader: 'x-region',
+        heartbeatTimeout: 1000,
+        pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+        checkOrigin: allowAllOrigins,
+        trustProxy: true,
+        jwksProxy,
+        hostRatingProxy,
+        issuer: ISSUER,
+      },
+    );
 
     const register = async (realIp, userId) => {
       const ws = new FakeWs();
@@ -561,7 +600,12 @@ describe('register_host', () => {
     });
     await nextTick();
 
-    ws.message({ type: 'register_host', name: 'Room', gameId: 'tanks', token: signToken(1) });
+    ws.message({
+      type: 'register_host',
+      name: 'Room',
+      gameId: 'tanks',
+      token: signToken(1),
+    });
     await withCatalog.idle();
 
     const reply = ws.lastSent();
@@ -569,7 +613,10 @@ describe('register_host', () => {
     expect(reply.mapsVersion).toBe('tanks-maps-v2');
     // codeVersion.game.version — из каталога (источник истины), не из
     // gameVersion, заявленного хостом
-    expect(reply.codeVersion.game).toEqual({ id: 'tanks', version: 'tanks-v3' });
+    expect(reply.codeVersion.game).toEqual({
+      id: 'tanks',
+      version: 'tanks-v3',
+    });
   });
 
   it('комната на застейдженной версии регистрируется скрытой (этап 3.5)', async () => {
@@ -621,7 +668,10 @@ describe('register_host', () => {
   });
 
   it('кэширует рейтинг хостера из getRating в реестре (server-rating этап 3)', async () => {
-    hostRatingProxy.getRating.mockResolvedValue({ status: 200, json: { score: 4, blocked: false } });
+    hostRatingProxy.getRating.mockResolvedValue({
+      status: 200,
+      json: { score: 4, blocked: false },
+    });
 
     const { ws } = await connectHost();
 
@@ -657,7 +707,11 @@ describe('маршрутизация WebRTC', () => {
     const host = await connectHost();
     const client = await connect();
 
-    client.ws.message({ type: 'webrtc_offer', hostId: host.hostId, sdp: 'OFFER' });
+    client.ws.message({
+      type: 'webrtc_offer',
+      hostId: host.hostId,
+      sdp: 'OFFER',
+    });
 
     expect(host.ws.lastSent()).toEqual({
       type: 'webrtc_offer',
@@ -665,7 +719,11 @@ describe('маршрутизация WebRTC', () => {
       sdp: 'OFFER',
     });
 
-    host.ws.message({ type: 'webrtc_answer', clientId: client.id, sdp: 'ANSWER' });
+    host.ws.message({
+      type: 'webrtc_answer',
+      clientId: client.id,
+      sdp: 'ANSWER',
+    });
 
     expect(client.ws.lastSent()).toEqual({
       type: 'webrtc_answer',
@@ -679,7 +737,10 @@ describe('маршрутизация WebRTC', () => {
 
     client.ws.message({ type: 'webrtc_offer', hostId: 'nope', sdp: 'OFFER' });
 
-    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'unknownHost' });
+    expect(client.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'unknownHost',
+    });
   });
 
   it('пересылает ICE-кандидатов в обе стороны', async () => {
@@ -743,7 +804,10 @@ describe('ping_host / pong_host', () => {
     client.ws.message({ type: 'ping_host', hostId: host.hostId, pingId: 2 });
     client.ws.message({ type: 'ping_host', hostId: host.hostId, pingId: 3 });
 
-    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'rateLimited' });
+    expect(client.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'rateLimited',
+    });
 
     // третий пинг до хоста не дошёл
     const pings = host.ws.sent.filter(msg => msg.type === 'ping_host');
@@ -763,7 +827,12 @@ describe('like_host / unlike_host', () => {
     const token = signToken(9);
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'like_host', hostId: host.hostId, reason: 'good game', token });
+    client.ws.message({
+      type: 'like_host',
+      hostId: host.hostId,
+      reason: 'good game',
+      token,
+    });
     await flushAsync();
 
     expect(hostRatingProxy.vote).toHaveBeenCalledWith(token, 3, 1, 'good game');
@@ -775,7 +844,12 @@ describe('like_host / unlike_host', () => {
     const token = signToken(9);
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'unlike_host', hostId: host.hostId, reason: 'aimbot', token });
+    client.ws.message({
+      type: 'unlike_host',
+      hostId: host.hostId,
+      reason: 'aimbot',
+      token,
+    });
     await flushAsync();
 
     expect(hostRatingProxy.vote).toHaveBeenCalledWith(token, 3, -1, 'aimbot');
@@ -793,7 +867,10 @@ describe('like_host / unlike_host', () => {
     });
     await flushAsync();
 
-    expect(stranger.ws.lastSent()).toEqual({ type: 'error', code: 'voteRejected' });
+    expect(stranger.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'voteRejected',
+    });
     expect(hostRatingProxy.vote).not.toHaveBeenCalled();
   });
 
@@ -802,7 +879,11 @@ describe('like_host / unlike_host', () => {
     const client = await connect({ ip: '5.5.5.5' });
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'like_host', hostId: host.hostId, token: signToken(9) });
+    client.ws.message({
+      type: 'like_host',
+      hostId: host.hostId,
+      token: signToken(9),
+    });
     await flushAsync();
 
     expect(hostRatingProxy.vote).not.toHaveBeenCalled();
@@ -813,10 +894,17 @@ describe('like_host / unlike_host', () => {
     const client = await connect({ ip: '5.5.5.5' });
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'like_host', hostId: host.hostId, reason: 'good' });
+    client.ws.message({
+      type: 'like_host',
+      hostId: host.hostId,
+      reason: 'good',
+    });
     await flushAsync();
 
-    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
+    expect(client.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'invalidToken',
+    });
     expect(hostRatingProxy.vote).not.toHaveBeenCalled();
   });
 
@@ -827,20 +915,36 @@ describe('like_host / unlike_host', () => {
     joinRoom(client, host.hostId);
     host.ws.handlers.close(); // хост ушёл, комната удалена из реестра
 
-    client.ws.message({ type: 'like_host', hostId: host.hostId, reason: 'x', token: signToken(9) });
+    client.ws.message({
+      type: 'like_host',
+      hostId: host.hostId,
+      reason: 'x',
+      token: signToken(9),
+    });
     await flushAsync();
 
-    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'unknownHost' });
+    expect(client.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'unknownHost',
+    });
   });
 
   it('при достижении blockAt закрывает сигнальный WS хоста', async () => {
-    hostRatingProxy.vote.mockResolvedValue({ status: 200, json: { score: -10, blocked: true } });
+    hostRatingProxy.vote.mockResolvedValue({
+      status: 200,
+      json: { score: -10, blocked: true },
+    });
 
     const host = await connectHost();
     const client = await connect({ ip: '5.5.5.5' });
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'unlike_host', hostId: host.hostId, reason: 'cheat', token: signToken(9) });
+    client.ws.message({
+      type: 'unlike_host',
+      hostId: host.hostId,
+      reason: 'cheat',
+      token: signToken(9),
+    });
     await flushAsync();
 
     // WS хоста закрыт кодом 4002; его close-хендлер убрал комнату из реестра
@@ -859,22 +963,38 @@ describe('like_host / unlike_host', () => {
     const client = await connect({ ip: '5.5.5.5' });
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'like_host', hostId: host.hostId, reason: 'good', token: signToken(9) });
+    client.ws.message({
+      type: 'like_host',
+      hostId: host.hostId,
+      reason: 'good',
+      token: signToken(9),
+    });
     await flushAsync();
 
-    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'authServiceUnavailable' });
+    expect(client.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'authServiceUnavailable',
+    });
 
     errSpy.mockRestore();
   });
 
   it('обновляет закэшированный рейтинг комнаты сразу после голоса', async () => {
-    hostRatingProxy.vote.mockResolvedValue({ status: 200, json: { score: 5, blocked: false, counted: true } });
+    hostRatingProxy.vote.mockResolvedValue({
+      status: 200,
+      json: { score: 5, blocked: false, counted: true },
+    });
 
     const host = await connectHost();
     const client = await connect({ ip: '5.5.5.5' });
 
     joinRoom(client, host.hostId);
-    client.ws.message({ type: 'like_host', hostId: host.hostId, reason: 'good', token: signToken(9) });
+    client.ws.message({
+      type: 'like_host',
+      hostId: host.hostId,
+      reason: 'good',
+      token: signToken(9),
+    });
     await flushAsync();
 
     expect(registry.get(host.hostId).rating).toBe(5);
@@ -966,7 +1086,10 @@ describe('жизненный цикл хоста', () => {
     const client = await connect();
     client.ws.message({ type: 'webrtc_offer', hostId: host.hostId, sdp: 'X' });
 
-    expect(client.ws.lastSent()).toEqual({ type: 'error', code: 'unknownHost' });
+    expect(client.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'unknownHost',
+    });
   });
 
   it('sweepStaleHosts удаляет протухшую комнату и закрывает её сокет', async () => {

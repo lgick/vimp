@@ -25,7 +25,7 @@
 - Снапшот: `a1` (`indexed8`, `class: 'hot'` — акторы) и `e1` (`list16`,
   `class: 'event'` — выстрелы).
 - Бюджет предикции `PLAYER_STATE_LEN = 8`: `[x, y, angle, vx, vy, hp, ammo,
-  0]`.
+0]`.
 - Панель: `hp` (`bar`), `am` (`value`), `t` (`time`, ключ движка).
 - Боты: `ScriptedManager` + чат-команда `/spawn <n>`.
 
@@ -44,10 +44,10 @@
   `resolve.dedupe: ['pixi.js']`, `optimizeDeps.exclude: ['vimp-engine']`,
   `optimizeDeps.include: ['pixi.js', 'pixi.js/unsafe-eval', 'howler']`,
   `server.fs.allow: ['..']` для `npm link`) и две сборки `--mode
-  client|host` с обязательными опциями: `outDir: 'dist'`, `emptyOutDir:
-  false`, `assetsInlineLimit: 0`, `preserveEntrySignatures: 'strict'`,
+client|host` с обязательными опциями: `outDir: 'dist'`, `emptyOutDir:
+false`, `assetsInlineLimit: 0`, `preserveEntrySignatures: 'strict'`,
   `external: [/^pixi\.js(\/.*)?$/]`, `format: 'es'`, `entryFileNames:
-  '[mode]-[hash].js'`, `assetFileNames: 'assets/[name]-[hash][extname]'`,
+'[mode]-[hash].js'`, `assetFileNames: 'assets/[name]-[hash][extname]'`,
   `inlineDynamicImports: true`. Режим `build.lib` не используется — он
   инлайнит 2 МБ wasm вопреки `assetsInlineLimit`.
 - `vitest.config.js` — два проекта, как предписывает `docs/ai/11`:
@@ -80,14 +80,14 @@
 
 Пишутся заново по `docs/ai/02-packaging.md` и `07-maps-and-assets.md`:
 
-| Скрипт | Что делает |
-| --- | --- |
+| Скрипт                   | Что делает                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `build-game-manifest.js` | `dist/manifest.json`: `id`, `engineApi` (импорт `ENGINE_API_VERSION`, не литерал), `version` = первые 16 hex от `sha256(sha256(client)‖sha256(host)‖sha256(wasm))`, `entries.{client,host,wasm}`, `assetsBase`, `maps.{version,list}`, `roomDefaults`, `roomForm` (границы через `lib/rangeToPattern.js`); копирует `core/pkg-node/` в `dist/core-node/` с сохранением его `package.json` и удалением `.gitignore` от wasm-pack, затем проставляет `entries.wasmNode` |
-| `export-maps.js` | `src/data/maps/*.js` → `dist/maps/<name>.json` |
-| `copy-game-sounds.js` | `build/sounds/` → `dist/sounds/`; если `build/sounds/` нет — фолбэк на готовые плейсхолдеры `assets/sounds/` |
-| `copy-game-images.js` | `assets/img/` → `build/img/` и `dist/img/`; no-op, пока картинок нет |
-| `process-audio.js` | ffmpeg + EBU R128 → `assets/audio-raw/*` в `build/sounds/*.{mp3,webm}` |
-| `lib/rangeToPattern.js` | числовой диапазон → regExp для `roomForm` |
+| `export-maps.js`         | `src/data/maps/*.js` → `dist/maps/<name>.json`                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `copy-game-sounds.js`    | `build/sounds/` → `dist/sounds/`; если `build/sounds/` нет — фолбэк на готовые плейсхолдеры `assets/sounds/`                                                                                                                                                                                                                                                                                                                                                          |
+| `copy-game-images.js`    | `assets/img/` → `build/img/` и `dist/img/`; no-op, пока картинок нет                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `process-audio.js`       | ffmpeg + EBU R128 → `assets/audio-raw/*` в `build/sounds/*.{mp3,webm}`                                                                                                                                                                                                                                                                                                                                                                                                |
+| `lib/rangeToPattern.js`  | числовой диапазон → regExp для `roomForm`                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 Фолбэк в `copy-game-sounds.js` — осознанное отклонение от конвейера tanks:
 первая сборка сгенерированной игры обязана быть зелёной **без ffmpeg**,
@@ -103,7 +103,7 @@
 По `docs/en/standalone.md` и `docs/ai/11-authoring-workflow.md` (шаг 8):
 
 - `index.html` — полноэкранный `#game` + `<script type="module"
-  src="/dev/main.js">`;
+src="/dev/main.js">`;
 - `dev/main.js` — `startStandaloneGame` из `vimp-engine/standalone` с
   живыми `hostPlugin`/`clientPlugin`, `wasmUrl` через `?url`-импорт
   `core/pkg-web/{{CRATE_SNAKE}}_bg.wasm` (над импортом — комментарий, что

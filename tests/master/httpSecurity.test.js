@@ -32,7 +32,11 @@ describe('denySourceMaps', () => {
     const res = fakeRes();
     const next = vi.fn();
 
-    denySourceMaps({ isProduction: true })({ path: '/assets/a.js.map' }, res, next);
+    denySourceMaps({ isProduction: true })(
+      { path: '/assets/a.js.map' },
+      res,
+      next,
+    );
 
     expect(res.code).toBe(404);
     expect(res.body).toEqual({ error: 'notFound' });
@@ -53,7 +57,11 @@ describe('denySourceMaps', () => {
     const res = fakeRes();
     const next = vi.fn();
 
-    denySourceMaps({ isProduction: false })({ path: '/assets/a.js.map' }, res, next);
+    denySourceMaps({ isProduction: false })(
+      { path: '/assets/a.js.map' },
+      res,
+      next,
+    );
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.code).toBe(200);
@@ -80,7 +88,11 @@ describe('denySourceMaps: процентное кодирование и рег�
     const res = fakeRes();
     const next = vi.fn();
 
-    denySourceMaps({ isProduction: true })({ path: '/assets/%E0%A4%A.js' }, res, next);
+    denySourceMaps({ isProduction: true })(
+      { path: '/assets/%E0%A4%A.js' },
+      res,
+      next,
+    );
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.code).toBe(200);
@@ -90,7 +102,11 @@ describe('denySourceMaps: процентное кодирование и рег�
     const res = fakeRes();
     const next = vi.fn();
 
-    denySourceMaps({ isProduction: false })({ path: '/assets/a.js.%6dap' }, res, next);
+    denySourceMaps({ isProduction: false })(
+      { path: '/assets/a.js.%6dap' },
+      res,
+      next,
+    );
 
     expect(next).toHaveBeenCalledTimes(1);
   });
@@ -125,11 +141,14 @@ describe('denySourceMaps + express.static', () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  it.each(['/a.js.map', '/a.js.%6dap', '/a.js%2Emap'])('%s → 404', async reqPath => {
-    const res = await fetch(`${base}${reqPath}`);
+  it.each(['/a.js.map', '/a.js.%6dap', '/a.js%2Emap'])(
+    '%s → 404',
+    async reqPath => {
+      const res = await fetch(`${base}${reqPath}`);
 
-    expect(res.status).toBe(404);
-  });
+      expect(res.status).toBe(404);
+    },
+  );
 
   it('/a.js → 200', async () => {
     const res = await fetch(`${base}/a.js`);

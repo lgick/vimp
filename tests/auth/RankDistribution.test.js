@@ -14,7 +14,14 @@ describe('RankDistribution.placementOf', () => {
   //   100 очков — 2 игрока (места 1–2)
   //    90 очков — 3 игрока (места 3–5)
   //    10 очков — 4 игрока (места 6–9)
-  const nine = ladder([[100, 2], [90, 5], [10, 9]], { total: 9 });
+  const nine = ladder(
+    [
+      [100, 2],
+      [90, 5],
+      [10, 9],
+    ],
+    { total: 9 },
+  );
 
   it('значение верхней ступени — первое место', () => {
     expect(RankDistribution.placementOf(nine, 100)).toBe(1);
@@ -53,7 +60,13 @@ describe('RankDistribution.placementOf', () => {
   // потолок ступеней держит память кэша: игра, что в него не уместилась,
   // отвечает глубокому хвосту точным запросом
   it('обрезанный хвост: ниже последней ступени ответа нет, на ней — есть', () => {
-    const cut = ladder([[100, 2], [90, 5]], { total: 900, complete: false });
+    const cut = ladder(
+      [
+        [100, 2],
+        [90, 5],
+      ],
+      { total: 900, complete: false },
+    );
 
     expect(RankDistribution.placementOf(cut, 90)).toBe(3);
     expect(RankDistribution.placementOf(cut, 89)).toBeNull();
@@ -93,7 +106,12 @@ describe('RankDistribution: кэш', () => {
   // после протухания стоит столько, сколько кэш и экономит
   it('одновременные вызовы делят одну загрузку', async () => {
     let release;
-    const load = vi.fn(() => new Promise(resolve => { release = resolve; }));
+    const load = vi.fn(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        }),
+    );
     const cache = new RankDistribution(load, { ttlMs: 30000, now: () => 0 });
 
     const all = Promise.all([
@@ -110,7 +128,8 @@ describe('RankDistribution: кэш', () => {
   // отказ не залипает на весь TTL: вызывающий уходит на точный запрос, а
   // следующий пробует снова
   it('сбой загрузки отдаёт null и не кэшируется', async () => {
-    const load = vi.fn()
+    const load = vi
+      .fn()
       .mockRejectedValueOnce(new Error('down'))
       .mockResolvedValueOnce(value);
     const cache = new RankDistribution(load, { ttlMs: 30000, now: () => 0 });

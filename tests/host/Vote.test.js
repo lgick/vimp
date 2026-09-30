@@ -6,7 +6,8 @@ let Vote;
 
 beforeEach(async () => {
   vi.resetModules();
-  Vote = (await import('../../packages/engine/src/host/meta/modules/Vote.js')).default;
+  Vote = (await import('../../packages/engine/src/host/meta/modules/Vote.js'))
+    .default;
 });
 
 describe('Vote: общий список', () => {
@@ -106,7 +107,12 @@ describe('Vote: подсчёт результата', () => {
   it('reset очищает активное голосование и очередь', () => {
     const vote = new Vote();
     vote.addUser('u1');
-    vote.createVote({ name: 'v1', category: 'map', payload: [], userList: ['u1'] });
+    vote.createVote({
+      name: 'v1',
+      category: 'map',
+      payload: [],
+      userList: ['u1'],
+    });
     vote.reset();
 
     expect(vote._activeVoteName).toBeNull();

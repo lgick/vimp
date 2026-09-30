@@ -66,15 +66,23 @@ describe('E4 mapLayers', () => {
   // кейсы, которых в корпусе нет: ядро о них не знает (рендер-слои и
   // строковое направление рампы — поля клиента, serde ловит их сам)
   it('направление рампы — не одно из четырёх', () => {
-    expect(violations(broken(m => {
-      m.ramps[0].dir = 'up';
-    }))).toMatch(/dir "up" is not one of/);
+    expect(
+      violations(
+        broken(m => {
+          m.ramps[0].dir = 'up';
+        }),
+      ),
+    ).toMatch(/dir "up" is not one of/);
   });
 
   it('тайл рендер-слоя уровня отсутствует в тайл-листе', () => {
-    expect(violations(broken(m => {
-      m.levels[1].layers = { 2: [99] };
-    }))).toMatch(/layer 2 names tile 99/);
+    expect(
+      violations(
+        broken(m => {
+          m.levels[1].layers = { 2: [99] };
+        }),
+      ),
+    ).toMatch(/layer 2 names tile 99/);
   });
 
   it('открытый край над плитой нижнего уровня — законный обрыв', () => {
@@ -116,10 +124,12 @@ describe('E4 mapLayers', () => {
   });
 
   it('нарушения складываются, а не обрываются на первом', () => {
-    const result = check(broken(m => {
-      m.levels[1].walls = [8, 5];
-      m.ramps[0].tile = 99;
-    }));
+    const result = check(
+      broken(m => {
+        m.levels[1].walls = [8, 5];
+        m.ramps[0].tile = 99;
+      }),
+    );
 
     expect(result.status).toBe(FAIL);
     expect(result.violations.length).toBe(2);

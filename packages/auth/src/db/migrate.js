@@ -3,12 +3,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dbPool from './pool.js';
 
-const migrationsDir = path.resolve(fileURLToPath(import.meta.url), '..', 'migrations');
+const migrationsDir = path.resolve(
+  fileURLToPath(import.meta.url),
+  '..',
+  'migrations',
+);
 
 // прогоняет migrations/*.sql по порядку имён — идемпотентно
 // (CREATE TABLE IF NOT EXISTS), без таблицы версий: схема пока одна
 async function migrate() {
-  const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
   const client = await dbPool.getPool().connect();
 
   try {

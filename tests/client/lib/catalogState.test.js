@@ -45,7 +45,9 @@ describe('applyCatalogState', () => {
     // каталог непустой, но играбельного в нём нет (движок обновили, игры
     // просят возможность, которой в нём уже нет) — для лобби это то же
     // состояние, но сказать надо не «игр пока не опубликовано», а причину
-    const d = deps({ emptyText: 'no playable game in the lobby catalog: "tanks"' });
+    const d = deps({
+      emptyText: 'no playable game in the lobby catalog: "tanks"',
+    });
 
     applyCatalogState(undefined, d);
 

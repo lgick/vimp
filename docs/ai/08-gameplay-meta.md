@@ -7,7 +7,7 @@ alternative entirely inside your WASM core.
 ## Rounds
 
 - A round **ends when one team is wiped** — every participant of a team,
-  humans *and* bots, is not alive — and survivors remain in at most one
+  humans _and_ bots, is not alive — and survivors remain in at most one
   other team. With three or more teams the round goes on until only one
   team has anyone alive; a player leaving or switching team counts too, once
   a team has already been wiped that round.
@@ -30,13 +30,13 @@ so that a wipe cannot occur.
 
 ## Scoring
 
-| Event | Effect |
-| --- | --- |
-| Kill an enemy | killer `score +1`, killer `rank +1`, victim `deaths +1`, victim `status = 'dead'` |
-| Team kill | killer `score −1`, killer `rank −1`, victim `deaths +1` |
-| Suicide | victim `deaths +1` only — no score or rank change |
-| Killer already left | no frag, victim still dies, round still resolves |
-| Team wipe | every wiped team head `deaths +1` (once per round); at round end the surviving team head `score +1` (none on a draw) |
+| Event               | Effect                                                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Kill an enemy       | killer `score +1`, killer `rank +1`, victim `deaths +1`, victim `status = 'dead'`                                    |
+| Team kill           | killer `score −1`, killer `rank −1`, victim `deaths +1`                                                              |
+| Suicide             | victim `deaths +1` only — no score or rank change                                                                    |
+| Killer already left | no frag, victim still dies, round still resolves                                                                     |
+| Team wipe           | every wiped team head `deaths +1` (once per round); at round end the surviving team head `score +1` (none on a draw) |
 
 Rank is written **synchronously with the kill report** and there is no hook to
 change the `±1` rule. A dead player becomes a spectator (watching the killer)
@@ -87,13 +87,13 @@ announcement goes to everyone, spectators included.
 
 ## Kicks
 
-| Trigger | Threshold | Close code |
-| --- | --- | --- |
-| Latency | EMA (α = 0.1) above `rtt.maxLatency` (1000 ms) | 4003 |
-| Missed pings | more than `rtt.maxMissedPings` (5) | 4004 |
-| Idle | `idleKickTimeout.player` (120 s) / `.spectator` (`null` = off) | 4005 |
-| Room full | — | 4006 |
-| Host blocked by rating | master decision | 4002 (whole room) |
+| Trigger                | Threshold                                                      | Close code        |
+| ---------------------- | -------------------------------------------------------------- | ----------------- |
+| Latency                | EMA (α = 0.1) above `rtt.maxLatency` (1000 ms)                 | 4003              |
+| Missed pings           | more than `rtt.maxMissedPings` (5)                             | 4004              |
+| Idle                   | `idleKickTimeout.player` (120 s) / `.spectator` (`null` = off) | 4005              |
+| Room full              | —                                                              | 4006              |
+| Host blocked by rating | master decision                                                | 4002 (whole room) |
 
 The host's own connection (`socketId === 'local'`) is immune.
 
@@ -105,25 +105,25 @@ rank/state is rolled back. None of this passes through the plugin.
 
 ## Timer reference
 
-| Key | Default | Effect |
-| --- | --- | --- |
-| `timers.timeStep` | `1000/120` ms | simulation tick |
-| `timers.networkSendRate` | `4` | send a frame every 4th tick → 30 fps |
-| `timers.roundTime` | `120000` | round duration |
-| `timers.mapTime` | `600000` | map duration |
-| `timers.roomTimeMin` / `roomTimeMax` | `10000` / `3600000` | clamp for user-chosen times |
-| `timers.voteTime` | `10000` | vote window |
-| `timers.timeBlockedVote` | `30000` | per-category vote cooldown |
-| `timers.teamChangeGracePeriod` | `10000` | free team switch window |
-| `timers.roundRestartDelay` | `5000` | pause between rounds |
-| `timers.mapChangeDelay` | `2000` | pause before a map switch |
-| `timers.rttPingInterval` | `3000` | ping cadence |
-| `timers.idleCheckInterval` | `30000` | idle sweep cadence |
-| `rtt.maxMissedPings` | `5` | kick threshold |
-| `rtt.maxLatency` | `1000` | kick threshold, ms |
-| `idleKickTimeout.player` | `120000` | ms; `null` disables |
-| `idleKickTimeout.spectator` | `null` | ms; `null` disables |
-| `chatMaxLength` | `60` | authoritative message length |
+| Key                                  | Default             | Effect                               |
+| ------------------------------------ | ------------------- | ------------------------------------ |
+| `timers.timeStep`                    | `1000/120` ms       | simulation tick                      |
+| `timers.networkSendRate`             | `4`                 | send a frame every 4th tick → 30 fps |
+| `timers.roundTime`                   | `120000`            | round duration                       |
+| `timers.mapTime`                     | `600000`            | map duration                         |
+| `timers.roomTimeMin` / `roomTimeMax` | `10000` / `3600000` | clamp for user-chosen times          |
+| `timers.voteTime`                    | `10000`             | vote window                          |
+| `timers.timeBlockedVote`             | `30000`             | per-category vote cooldown           |
+| `timers.teamChangeGracePeriod`       | `10000`             | free team switch window              |
+| `timers.roundRestartDelay`           | `5000`              | pause between rounds                 |
+| `timers.mapChangeDelay`              | `2000`              | pause before a map switch            |
+| `timers.rttPingInterval`             | `3000`              | ping cadence                         |
+| `timers.idleCheckInterval`           | `30000`             | idle sweep cadence                   |
+| `rtt.maxMissedPings`                 | `5`                 | kick threshold                       |
+| `rtt.maxLatency`                     | `1000`              | kick threshold, ms                   |
+| `idleKickTimeout.player`             | `120000`            | ms; `null` disables                  |
+| `idleKickTimeout.spectator`          | `null`              | ms; `null` disables                  |
+| `chatMaxLength`                      | `60`                | authoritative message length         |
 
 Remember the shallow merge: overriding `timers` means restating **every** key.
 
@@ -147,14 +147,16 @@ sound config. Cued sounds bypass the world voice limit. An empty object
 
 `gameCodes` is fixed by the engine:
 
-| Code | Index into `gameInform.list` |
-| --- | --- |
-| `winnerTeam` | `0` |
-| `roundStart` | `1` |
-| `gameOver` | `2` |
+| Code         | Index into `gameInform.list` |
+| ------------ | ---------------------------- |
+| `winnerTeam` | `0`                          |
+| `roundStart` | `1`                          |
+| `gameOver`   | `2`                          |
 
 ```js
-gameInform: { list: ['{0} WINS!', 'ROUND START!', 'GAME OVER!'] }
+gameInform: {
+  list: ['{0} WINS!', 'ROUND START!', 'GAME OVER!'];
+}
 ```
 
 The indexes are positional — reordering the array changes the meaning of the

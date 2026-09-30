@@ -28,8 +28,9 @@ let now;
 
 beforeEach(async () => {
   vi.resetModules();
-  LobbyCtrl = (await import('../../packages/engine/src/client/components/controller/Lobby.js'))
-    .default;
+  LobbyCtrl = (
+    await import('../../packages/engine/src/client/components/controller/Lobby.js')
+  ).default;
   model = makeModel();
   view = makeView();
   now = 1000;

@@ -36,7 +36,7 @@ screen })`, который срабатывает, когда сцена при�
 - `src/config/client.js` → `componentDependencies` (стр. ~262–330):
   формат «имя сервиса → список партов».
 - `src/client/parts/Tank.js` — конструктор (`this._renderer =
-  dependencies.renderer || null` стр. ~249, `this._levelView = … ` стр. ~334).
+dependencies.renderer || null` стр. ~249, `this._levelView = … ` стр. ~334).
 - `src/client/parts/map/MapLayer.js` — конструктор
   (`this._levelView = dependencies.levelView || null` стр. ~38).
 - `vite.config.js` — ветка сборки (`build: { outDir: 'dist', … }`,
@@ -91,10 +91,10 @@ setDiagnostics(diagnostics) {
 state.diagnostics?.warn('tanks.camera.missing', payload);
 ```
 
-  (`payload` — вынести объект, который сейчас собирается прямо в вызове
-  `console.warn`, в переменную.) Одноразовость остаётся прежней —
-  `state.warned`: и консоль, и журнал получают по одному сообщению за
-  сессию.
+(`payload` — вынести объект, который сейчас собирается прямо в вызове
+`console.warn`, в переменную.) Одноразовость остаётся прежней —
+`state.warned`: и консоль, и журнал получают по одному сообщению за
+сессию.
 
 ### 6.3. Парты передают сервис
 
@@ -118,9 +118,10 @@ this._levelView?.setDiagnostics(dependencies.diagnostics ?? null);
 diagnostics: ['Tank', 'Map'],
 ```
 
-  Проверить, что `MapLayer` получает `dependencies` парта `Map` целиком
-  (сервис объявляется для `Map`, а читается в `MapLayer`); если `Map`
-  передаёт слоям урезанный объект — дописать туда `diagnostics`.
+Проверить, что `MapLayer` получает `dependencies` парта `Map` целиком
+(сервис объявляется для `Map`, а читается в `MapLayer`); если `Map`
+передаёт слоям урезанный объект — дописать туда `diagnostics`.
+
 - **Не** добавлять `'diagnostics'` в `requires` манифеста / плагина.
 
 ### 6.4. Движок в devDependencies
@@ -137,7 +138,7 @@ diagnostics: ['Tank', 'Map'],
   - `setDiagnostics` + сцена с нулевым масштабом: `camera()` дважды →
     `diagnostics.warn` вызван **один** раз с `'tanks.camera.missing'` и тем
     же объектом, что ушёл в `console.warn` (`vi.spyOn(console, 'warn')
-    .mockImplementation(() => {})`);
+.mockImplementation(() => {})`);
   - первый непустой побеждает: второй `setDiagnostics` не подменяет;
   - без `setDiagnostics` — только `console.warn`, без падения.
 - `tests/client/parts/Tank.test.js` — `dependencies.diagnostics` есть →

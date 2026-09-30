@@ -15,10 +15,10 @@ export default {
     kind: 'indexed8',
     class: 'hot',
     fields: [
-      { name: 'x',        ty: 'f32', interp: 'lerp' },
-      { name: 'y',        ty: 'f32', interp: 'lerp' },
-      { name: 'angle',    ty: 'f32', interp: 'lerpAngle' },
-      { name: 'team',     ty: 'u8' },
+      { name: 'x', ty: 'f32', interp: 'lerp' },
+      { name: 'y', ty: 'f32', interp: 'lerp' },
+      { name: 'angle', ty: 'f32', interp: 'lerpAngle' },
+      { name: 'team', ty: 'u8' },
     ],
   },
   w1: {
@@ -28,23 +28,23 @@ export default {
     fields: [
       { name: 'startX', ty: 'f32' },
       { name: 'startY', ty: 'f32' },
-      { name: 'endX',   ty: 'f32' },
-      { name: 'endY',   ty: 'f32' },
-      { name: 'wasHit', ty: 'u8'  },
-      { name: 'author', ty: 'u8'  },   // author id — last field, by convention
+      { name: 'endX', ty: 'f32' },
+      { name: 'endY', ty: 'f32' },
+      { name: 'wasHit', ty: 'u8' },
+      { name: 'author', ty: 'u8' }, // author id — last field, by convention
     ],
   },
 };
 ```
 
-| Property | Values | Notes |
-| --- | --- | --- |
-| `id` | `u8`, unique | the key byte on the wire; validation checks **uniqueness only** |
-| `kind` | `indexed8` · `indexed32` · `list16` · `indexedNoNull8` | wire shape, see below |
-| `class` | `hot` · `event` | `hot` = continuous state, `event` = one-shot |
-| `fields[].ty` | `f32` · `u8` · `u16` · `u32` | big-endian |
-| `fields[].interp` | `lerp` · `lerpAngle` · `discrete` (default) | only `f32` fields interpolate; only `hot` blocks interpolate |
-| `fields[].role` | `z` · `level` · `state` | engine-written fields of the map dynamics row, see below |
+| Property          | Values                                                 | Notes                                                           |
+| ----------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
+| `id`              | `u8`, unique                                           | the key byte on the wire; validation checks **uniqueness only** |
+| `kind`            | `indexed8` · `indexed32` · `list16` · `indexedNoNull8` | wire shape, see below                                           |
+| `class`           | `hot` · `event`                                        | `hot` = continuous state, `event` = one-shot                    |
+| `fields[].ty`     | `f32` · `u8` · `u16` · `u32`                           | big-endian                                                      |
+| `fields[].interp` | `lerp` · `lerpAngle` · `discrete` (default)            | only `f32` fields interpolate; only `hot` blocks interpolate    |
+| `fields[].role`   | `z` · `level` · `state`                                | engine-written fields of the map dynamics row, see below        |
 
 **Map dynamics row roles.** The engine builds the map's dynamic rows itself,
 so its layout is fixed: `[x, y, angle]`, then `z` (index 3, `role: 'z'`) and
@@ -65,12 +65,12 @@ without swapping them in Rust silently produces garbage.
 All integers are **big-endian**. `hasData` is a `u8` null marker: `0` = the
 entity is gone (JSON `null`), `1` = a field row follows.
 
-| Kind | Count prefix | Per row | Use for |
-| --- | --- | --- | --- |
-| `indexed8` | `u8` count | `u8 id`, `u8 hasData`, fields | up to 255 addressable entities (players) |
-| `indexed32` | `u16` count | `u32 id`, `u8 hasData`, fields | many short-lived entities (projectiles) |
-| `list16` | `u16` count | fields | anonymous events (tracers, explosions) |
-| `indexedNoNull8` | `u8` count | `u8 index`, fields | fixed-slot data that never disappears (dynamic map objects) |
+| Kind             | Count prefix | Per row                        | Use for                                                     |
+| ---------------- | ------------ | ------------------------------ | ----------------------------------------------------------- |
+| `indexed8`       | `u8` count   | `u8 id`, `u8 hasData`, fields  | up to 255 addressable entities (players)                    |
+| `indexed32`      | `u16` count  | `u32 id`, `u8 hasData`, fields | many short-lived entities (projectiles)                     |
+| `list16`         | `u16` count  | fields                         | anonymous events (tracers, explosions)                      |
+| `indexedNoNull8` | `u8` count   | `u8 index`, fields             | fixed-slot data that never disappears (dynamic map objects) |
 
 The body is a concatenation of `[u8 keyId][block]` for every key that has
 content this tick.
@@ -150,12 +150,12 @@ same entity (that is how both the predicted tail and `render_rows()` work).
 
 Returns queued event frames. Per kind, a block becomes:
 
-| Kind | JSON |
-| --- | --- |
-| `indexed8` | `{ "<id>": [fields] | null }` |
-| `indexed32` | `{ "<id in base36>": [fields] | null }` |
-| `list16` | `[[fields], …]` — an array means *effects* to the client factory |
-| `indexedNoNull8` | `{ "d<index>": [fields] }` |
+| Kind             | JSON                                                             |
+| ---------------- | ---------------------------------------------------------------- |
+| `indexed8`       | `{ "<id>": [fields]                                              | null }` |
+| `indexed32`      | `{ "<id in base36>": [fields]                                    | null }` |
+| `list16`         | `[[fields], …]` — an array means _effects_ to the client factory |
+| `indexedNoNull8` | `{ "d<index>": [fields] }`                                       |
 
 Base-36 ids match JS `id.toString(36)`.
 
@@ -171,47 +171,47 @@ on the way out. So a value packed unrounded reaches the client as a different
 number than the one the host kept — call
 `vimp_engine_core::physics::round2` on the floats you put into
 `build_snapshot_blocks`. (The engine does this for the dynamic-map-object
-block it owns; the player block is packed *and* decoded raw.)
+block it owns; the player block is packed _and_ decoded raw.)
 
 ## Port table
 
 Host → client (`wsports.server`):
 
-| Port | Name | Payload |
-| --- | --- | --- |
-| 0 | `CONFIG_DATA` | full client config (engine defaults + your client config + `prediction` + `snapshot`) |
-| 1 | `AUTH_DATA` | `authSchema` (without validators) |
-| 2 | `AUTH_RESULT` | accepted / rejected |
-| 3 | `MAP_DATA` | scaled map JSON + `setId` |
-| 4 | `FIRST_SHOT_DATA` | first full frame |
-| 5 | `SHOT_DATA` | **binary** state frame |
-| 6 | `SOUND_DATA` | system sound cue |
-| 7 | `GAME_INFORM_DATA` | `[codeIndex, params?]` → `gameInform.list` |
-| 8 | `TECH_INFORM_DATA` | `[codeIndex, params?]` → `techInformList` |
-| 9 | `MISC` | miscellaneous (e.g. nickname replacement) |
-| 10 | `PING` | latency probe |
-| 11 | `CLEAR` | destroy parts of a `setId`, or everything |
-| 12 | `CONSOLE` | forwarded console output |
-| 13 | `PANEL_DATA` | array of `'key:value'` (a bare `'key'` hides the cell) |
-| 14 | `STAT_DATA` | `[bodyRows, headRows, full?]` |
-| 15 | `CHAT_DATA` | `'group:index[:p0,p1]'` or `[text, name?, teamId?]` |
-| 16 | `VOTE_DATA` | vote payload |
-| 17 | `KEYSET_DATA` | `0` (spectator) or `1` (player) |
-| 18 | `ACCOLADES_DATA` | `{ [gameId]: { daily, monthly } }` — places in the global top, sent only when they change |
+| Port | Name               | Payload                                                                                   |
+| ---- | ------------------ | ----------------------------------------------------------------------------------------- |
+| 0    | `CONFIG_DATA`      | full client config (engine defaults + your client config + `prediction` + `snapshot`)     |
+| 1    | `AUTH_DATA`        | `authSchema` (without validators)                                                         |
+| 2    | `AUTH_RESULT`      | accepted / rejected                                                                       |
+| 3    | `MAP_DATA`         | scaled map JSON + `setId`                                                                 |
+| 4    | `FIRST_SHOT_DATA`  | first full frame                                                                          |
+| 5    | `SHOT_DATA`        | **binary** state frame                                                                    |
+| 6    | `SOUND_DATA`       | system sound cue                                                                          |
+| 7    | `GAME_INFORM_DATA` | `[codeIndex, params?]` → `gameInform.list`                                                |
+| 8    | `TECH_INFORM_DATA` | `[codeIndex, params?]` → `techInformList`                                                 |
+| 9    | `MISC`             | miscellaneous (e.g. nickname replacement)                                                 |
+| 10   | `PING`             | latency probe                                                                             |
+| 11   | `CLEAR`            | destroy parts of a `setId`, or everything                                                 |
+| 12   | `CONSOLE`          | forwarded console output                                                                  |
+| 13   | `PANEL_DATA`       | array of `'key:value'` (a bare `'key'` hides the cell)                                    |
+| 14   | `STAT_DATA`        | `[bodyRows, headRows, full?]`                                                             |
+| 15   | `CHAT_DATA`        | `'group:index[:p0,p1]'` or `[text, name?, teamId?]`                                       |
+| 16   | `VOTE_DATA`        | vote payload                                                                              |
+| 17   | `KEYSET_DATA`      | `0` (spectator) or `1` (player)                                                           |
+| 18   | `ACCOLADES_DATA`   | `{ [gameId]: { daily, monthly } }` — places in the global top, sent only when they change |
 
 Client → host (`wsports.client`):
 
-| Port | Name | Payload |
-| --- | --- | --- |
-| 0 | `CONFIG_READY` | — |
-| 1 | `AUTH_RESPONSE` | `{ …authFields, token }` |
-| 2 | `MODULES_READY` | — |
-| 3 | `MAP_READY` | — |
-| 4 | `FIRST_SHOT_READY` | — |
-| 5 | `KEYS_DATA` | `"seq:action:name"` |
-| 6 | `CHAT_DATA` | message text |
-| 7 | `VOTE_DATA` | chosen option |
-| 8 | `PONG` | latency reply |
+| Port | Name               | Payload                  |
+| ---- | ------------------ | ------------------------ |
+| 0    | `CONFIG_READY`     | —                        |
+| 1    | `AUTH_RESPONSE`    | `{ …authFields, token }` |
+| 2    | `MODULES_READY`    | —                        |
+| 3    | `MAP_READY`        | —                        |
+| 4    | `FIRST_SHOT_READY` | —                        |
+| 5    | `KEYS_DATA`        | `"seq:action:name"`      |
+| 6    | `CHAT_DATA`        | message text             |
+| 7    | `VOTE_DATA`        | chosen option            |
+| 8    | `PONG`             | latency reply            |
 
 ## Stat wire format
 

@@ -17,7 +17,7 @@ import botCommand from './botCommand.js';
 import createModules from './createModules.js';
 
 export default {
-  id: 'my-game',                       // === manifest.id
+  id: 'my-game', // === manifest.id
   engineApi: ENGINE_API_VERSION,
 
   async createCore(coreConfigJson, { wasmUrl }) {
@@ -27,29 +27,29 @@ export default {
 
   gameConfig,
   authSchema,
-  chatCommands: [botCommand],          // REQUIRED array (may be empty)
-  systemMessages,                      // optional
-  createModules,                       // REQUIRED
-  buildClientGameConfig: () => clientConfig,   // REQUIRED, called unconditionally
+  chatCommands: [botCommand], // REQUIRED array (may be empty)
+  systemMessages, // optional
+  createModules, // REQUIRED
+  buildClientGameConfig: () => clientConfig, // REQUIRED, called unconditionally
 
-  onCoreEvent(data, { vimp, panel }) {} // optional
+  onCoreEvent(data, { vimp, panel }) {}, // optional
 };
 ```
 
 ### Real obligation of each field
 
-| Field | Required? | Notes |
-| --- | --- | --- |
-| `id` | ✅ | must equal `manifest.id` |
-| `engineApi` | ✅ | generation label; must match the manifest and the client half |
-| `createCore(json, { wasmUrl })` | ✅ | async; returns the `GameCore` instance. `wasmUrl` comes in two shapes: the `.wasm` asset URL in the browser, and a `file:` URL of the Node glue (`entries.wasmNode`) under `npm run sim` — see [Two shapes of `wasmUrl`](#two-shapes-of-wasmurl) |
-| `gameConfig` | ✅ | validated field-by-field, see below |
-| `authSchema` | ✅ | sent to every joining client |
-| `chatCommands` | ✅ **array** | the engine iterates it without a guard — omit it and boot throws. Use `[]` for none |
-| `createModules` | ✅ | the engine calls it and reads `.scripted` off the result |
-| `buildClientGameConfig()` | ✅ | called unconditionally when building `CONFIG_DATA` |
-| `systemMessages` | optional | merged into the chat code registry |
-| `onCoreEvent(data, ctx)` | optional | receives `custom` core events only |
+| Field                           | Required?    | Notes                                                                                                                                                                                                                                            |
+| ------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                            | ✅           | must equal `manifest.id`                                                                                                                                                                                                                         |
+| `engineApi`                     | ✅           | generation label; must match the manifest and the client half                                                                                                                                                                                    |
+| `createCore(json, { wasmUrl })` | ✅           | async; returns the `GameCore` instance. `wasmUrl` comes in two shapes: the `.wasm` asset URL in the browser, and a `file:` URL of the Node glue (`entries.wasmNode`) under `npm run sim` — see [Two shapes of `wasmUrl`](#two-shapes-of-wasmurl) |
+| `gameConfig`                    | ✅           | validated field-by-field, see below                                                                                                                                                                                                              |
+| `authSchema`                    | ✅           | sent to every joining client                                                                                                                                                                                                                     |
+| `chatCommands`                  | ✅ **array** | the engine iterates it without a guard — omit it and boot throws. Use `[]` for none                                                                                                                                                              |
+| `createModules`                 | ✅           | the engine calls it and reads `.scripted` off the result                                                                                                                                                                                         |
+| `buildClientGameConfig()`       | ✅           | called unconditionally when building `CONFIG_DATA`                                                                                                                                                                                               |
+| `systemMessages`                | optional     | merged into the chat code registry                                                                                                                                                                                                               |
+| `onCoreEvent(data, ctx)`        | optional     | receives `custom` core events only                                                                                                                                                                                                               |
 
 > Older engine documentation lists `chatCommands` and `createModules` as
 > optional and mentions a `views: { Panel, Stat }` field. Both are wrong:
@@ -109,7 +109,7 @@ default and may be omitted — `roomDefaults.maxPlayers` (→ `hostDefaults`,
 30), `parts.weapons` (→ `{}`), `parts.friendlyFire` (→ `false`),
 `panel.fields` (→ `{}`), `spectatorTeam` (→ the `spectators` key of `teams`,
 else `null` with a `console.warn`), and the rest of the table below. Contract
-rule **B3** reports each omitted field as a *warning*, not an error.
+rule **B3** reports each omitted field as a _warning_, not an error.
 
 Plus one cross-check on what you did send: a declared `spectatorTeam` must be
 a **key of `teams`**. A typo there leaves the spectator team id `undefined`,
@@ -134,28 +134,28 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 
 ### Engine defaults you may override (`hostDefaults`)
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `isDevMode` | `false` | enables `/nr` and other dev-only commands |
-| `maxPlayers` | `30` | hard ceiling before the room-form clamp |
-| `chatMaxLength` | `60` | authoritative message length limit |
-| `timers.timeStep` | `1000 / 120` ms | simulation tick (~120 Hz) |
-| `timers.networkSendRate` | `4` | send a frame every Nth tick (4 → 30 frames/s) |
-| `timers.roundTime` | `120000` | round length |
-| `timers.mapTime` | `600000` | map length |
-| `timers.roomTimeMin` / `roomTimeMax` | `10000` / `3600000` | clamp bounds for user-chosen round/map time |
-| `timers.voteTime` | `10000` | vote duration |
-| `timers.timeBlockedVote` | `30000` | per-category vote cooldown |
-| `timers.teamChangeGracePeriod` | `10000` | free team switch window at round start |
-| `timers.roundRestartDelay` | `5000` | delay before the next round |
-| `timers.mapChangeDelay` | `2000` | delay before applying a map change |
-| `timers.rttPingInterval` | `3000` | ping interval |
-| `timers.idleCheckInterval` | `30000` | idle sweep interval |
-| `rtt.maxMissedPings` | `5` | missed pongs before a kick |
-| `rtt.maxLatency` | `1000` | EMA latency (α = 0.1) kick threshold, ms |
-| `idleKickTimeout.player` | `120000` | idle kick for players; `null` disables |
-| `idleKickTimeout.spectator` | `null` | idle kick for spectators |
-| `spectatorKeys` | `{ nextPlayer, prevPlayer }` | spectator camera controls |
+| Key                                  | Default                      | Meaning                                       |
+| ------------------------------------ | ---------------------------- | --------------------------------------------- |
+| `isDevMode`                          | `false`                      | enables `/nr` and other dev-only commands     |
+| `maxPlayers`                         | `30`                         | hard ceiling before the room-form clamp       |
+| `chatMaxLength`                      | `60`                         | authoritative message length limit            |
+| `timers.timeStep`                    | `1000 / 120` ms              | simulation tick (~120 Hz)                     |
+| `timers.networkSendRate`             | `4`                          | send a frame every Nth tick (4 → 30 frames/s) |
+| `timers.roundTime`                   | `120000`                     | round length                                  |
+| `timers.mapTime`                     | `600000`                     | map length                                    |
+| `timers.roomTimeMin` / `roomTimeMax` | `10000` / `3600000`          | clamp bounds for user-chosen round/map time   |
+| `timers.voteTime`                    | `10000`                      | vote duration                                 |
+| `timers.timeBlockedVote`             | `30000`                      | per-category vote cooldown                    |
+| `timers.teamChangeGracePeriod`       | `10000`                      | free team switch window at round start        |
+| `timers.roundRestartDelay`           | `5000`                       | delay before the next round                   |
+| `timers.mapChangeDelay`              | `2000`                       | delay before applying a map change            |
+| `timers.rttPingInterval`             | `3000`                       | ping interval                                 |
+| `timers.idleCheckInterval`           | `30000`                      | idle sweep interval                           |
+| `rtt.maxMissedPings`                 | `5`                          | missed pongs before a kick                    |
+| `rtt.maxLatency`                     | `1000`                       | EMA latency (α = 0.1) kick threshold, ms      |
+| `idleKickTimeout.player`             | `120000`                     | idle kick for players; `null` disables        |
+| `idleKickTimeout.spectator`          | `null`                       | idle kick for spectators                      |
+| `spectatorKeys`                      | `{ nextPlayer, prevPlayer }` | spectator camera controls                     |
 
 > **Trap:** the core's own `timeStep` is read straight from the engine
 > `hostDefaults` when building the core config, **not** from your merged
@@ -165,44 +165,44 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 
 ### Game-owned `gameConfig` keys
 
-| Key | Shape | Purpose |
-| --- | --- | --- |
-| `parts.models` | `{ modelId: {…} }` | player model catalog; passed verbatim to the core and to prediction |
-| `parts.weapons` | `{ weaponId: {…} }` | weapon catalog; same |
-| `parts.friendlyFire` | `boolean` | overridable per room |
-| `parts.*` (free-form) | any | extra keys are passed to the client config untouched (tanks uses `mapConstructor`, `hitscanService`) |
-| `snapshot` | schema object | the binary protocol layout — see `06-snapshot-protocol.md` |
-| `teams` | `{ teamName: teamId }` | includes the spectator team; **required** |
-| `spectatorTeam` | `string` | which key of `teams` is spectators; optional — defaults to the `spectators` key |
-| `noSpectators` | `boolean` | opt-in: no spectator concept at all. `teams` holds exactly one team, `spectatorTeam` is omitted (`spectatorTeam`/`spectatorId` are `null` in the host), a joining human is created in the playing team with their stat row there, and gets an actor from `RoundManager.admitPlayer` on `firstShotReady` — no vote, no team change. `admitPlayer` takes the first respawn slot no participant holds; if the map has none left it frees one with `scripted.removeOneForHuman(team)` (a human outranks a bot, the same rule `changeTeam` follows), and only then refuses, telling the player `TEAMS_TEAM_FULL` — under `noSpectators` there is no vote to ask for a place with, so the next round start (`/nr`, a bot command) is what hands them an actor |
-| `endlessRound` | `boolean` | opt-in: the engine never restarts the round by itself — no stat wipe when fewer than two humans are active, no round end on a team wipe, no restart when the round timer expires. `/nr` and map changes still work. Independent of `noSpectators` |
-| `scripted` | `{ namePrefix, defaultModel }` | bot naming/model defaults |
-| `maps` | `{ mapName: mapObject }` | bundled maps (replaced by the master catalog at runtime) |
-| `currentMap` | `string` | default map |
-| `mapScale` | `number` | global map scale |
-| `mapSetId` | `string` | default map construction set id |
-| `mapsInVote` | `number` | how many maps a rotation vote offers |
-| `stat` | schema | statistics table, host half |
-| `panel` | `{ fields, activeKey }` | HUD schema, host half |
-| `soundCues` | `{ roundStart, victory, defeat, frag, death }` | engine event → sound name |
-| `initialVote` | `string` | vote sent to a player after their first frame |
-| `playerState.defaultState` | any JSON | starting profile blob for a player with no saved record |
-| `roomDefaults.maxPlayers` | `number` | room-size ceiling offered in the lobby |
-| `roomForm` | array | lobby form schema (manifest only, not read at runtime) |
-| `coreParams` | any JSON | opaque parameters of the **game's own** core: merged into the `game` half of the core config (`buildCoreConfig`), where the keys the engine knows (`friendlyFire`, `models`, `weapons`, `playerKeys`, `panel`) win. The engine neither reads nor validates the rest — a new core parameter needs no engine release (tanks passes its 2.5D fall parameters this way) |
+| Key                        | Shape                                          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parts.models`             | `{ modelId: {…} }`                             | player model catalog; passed verbatim to the core and to prediction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `parts.weapons`            | `{ weaponId: {…} }`                            | weapon catalog; same                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `parts.friendlyFire`       | `boolean`                                      | overridable per room                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `parts.*` (free-form)      | any                                            | extra keys are passed to the client config untouched (tanks uses `mapConstructor`, `hitscanService`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `snapshot`                 | schema object                                  | the binary protocol layout — see `06-snapshot-protocol.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `teams`                    | `{ teamName: teamId }`                         | includes the spectator team; **required**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `spectatorTeam`            | `string`                                       | which key of `teams` is spectators; optional — defaults to the `spectators` key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `noSpectators`             | `boolean`                                      | opt-in: no spectator concept at all. `teams` holds exactly one team, `spectatorTeam` is omitted (`spectatorTeam`/`spectatorId` are `null` in the host), a joining human is created in the playing team with their stat row there, and gets an actor from `RoundManager.admitPlayer` on `firstShotReady` — no vote, no team change. `admitPlayer` takes the first respawn slot no participant holds; if the map has none left it frees one with `scripted.removeOneForHuman(team)` (a human outranks a bot, the same rule `changeTeam` follows), and only then refuses, telling the player `TEAMS_TEAM_FULL` — under `noSpectators` there is no vote to ask for a place with, so the next round start (`/nr`, a bot command) is what hands them an actor |
+| `endlessRound`             | `boolean`                                      | opt-in: the engine never restarts the round by itself — no stat wipe when fewer than two humans are active, no round end on a team wipe, no restart when the round timer expires. `/nr` and map changes still work. Independent of `noSpectators`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `scripted`                 | `{ namePrefix, defaultModel }`                 | bot naming/model defaults                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `maps`                     | `{ mapName: mapObject }`                       | bundled maps (replaced by the master catalog at runtime)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `currentMap`               | `string`                                       | default map                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `mapScale`                 | `number`                                       | global map scale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `mapSetId`                 | `string`                                       | default map construction set id                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `mapsInVote`               | `number`                                       | how many maps a rotation vote offers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `stat`                     | schema                                         | statistics table, host half                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `panel`                    | `{ fields, activeKey }`                        | HUD schema, host half                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `soundCues`                | `{ roundStart, victory, defeat, frag, death }` | engine event → sound name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `initialVote`              | `string`                                       | vote sent to a player after their first frame                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `playerState.defaultState` | any JSON                                       | starting profile blob for a player with no saved record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `roomDefaults.maxPlayers`  | `number`                                       | room-size ceiling offered in the lobby                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `roomForm`                 | array                                          | lobby form schema (manifest only, not read at runtime)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `coreParams`               | any JSON                                       | opaque parameters of the **game's own** core: merged into the `game` half of the core config (`buildCoreConfig`), where the keys the engine knows (`friendlyFire`, `models`, `weapons`, `playerKeys`, `panel`) win. The engine neither reads nor validates the rest — a new core parameter needs no engine release (tanks passes its 2.5D fall parameters this way)                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### Room overrides — the whitelist
 
 `applyRoomOverrides` honours exactly five things plus the map catalog:
 
-| Field | Effect |
-| --- | --- |
-| `maps` | replaces the bundled catalog with the master's; if the default map is gone, the first catalog map is used |
-| `maxPlayers` | clamped to `1 .. roomDefaults.maxPlayers` |
-| `map` | applied only if present in the catalog |
-| `roundTime` | clamped to `roomTimeMin .. roomTimeMax` |
-| `mapTime` | clamped the same way |
-| `friendlyFire` | boolean only |
+| Field          | Effect                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------- |
+| `maps`         | replaces the bundled catalog with the master's; if the default map is gone, the first catalog map is used |
+| `maxPlayers`   | clamped to `1 .. roomDefaults.maxPlayers`                                                                 |
+| `map`          | applied only if present in the catalog                                                                    |
+| `roundTime`    | clamped to `roomTimeMin .. roomTimeMax`                                                                   |
+| `mapTime`      | clamped the same way                                                                                      |
+| `friendlyFire` | boolean only                                                                                              |
 
 **Everything else in the room form is silently dropped.** Do not design a
 game whose rules depend on a custom room setting — there is no path for it to
@@ -219,7 +219,9 @@ export default function createModules(ctx) {
 The context is exactly:
 
 ```js
-{ participants, coreAdapter, panel, stat, chat, socketManager, scripted }
+{
+  (participants, coreAdapter, panel, stat, chat, socketManager, scripted);
+}
 ```
 
 - `participants` — the participant registry (humans + bots). Besides the
@@ -264,15 +266,15 @@ and are not affected.
 
 The engine calls exactly five methods:
 
-| Method | When | Returns |
-| --- | --- | --- |
-| `createMap(scaledMapData)` | on every map load (data already scaled) | — |
-| `getCountsPerTeam()` | when balancing teams | `{ teamName: count }` |
-| `removeScripted(team?)` | clearing bots (all, or one team) | — |
-| `createScripted(count, team?)` | spawning bots | number actually created |
-| `removeOneForHuman(team)` | a human needs a slot in a full team | `boolean` — freed or not |
+| Method                         | When                                    | Returns                  |
+| ------------------------------ | --------------------------------------- | ------------------------ |
+| `createMap(scaledMapData)`     | on every map load (data already scaled) | —                        |
+| `getCountsPerTeam()`           | when balancing teams                    | `{ teamName: count }`    |
+| `removeScripted(team?)`        | clearing bots (all, or one team)        | —                        |
+| `createScripted(count, team?)` | spawning bots                           | number actually created  |
+| `removeOneForHuman(team)`      | a human needs a slot in a full team     | `boolean` — freed or not |
 
-A `getCount()` method is *not* called by the engine; add it only for your own
+A `getCount()` method is _not_ called by the engine; add it only for your own
 chat commands.
 
 ## `chatCommands`
@@ -293,8 +295,19 @@ export default {
 Handler context:
 
 ```js
-{ participants, chat, scripted, roundManager, voteCoordinator, timerManager,
-  playerDataSync, teams, spectatorTeam, spectatorId, isDevMode }
+{
+  (participants,
+    chat,
+    scripted,
+    roundManager,
+    voteCoordinator,
+    timerManager,
+    playerDataSync,
+    teams,
+    spectatorTeam,
+    spectatorId,
+    isDevMode);
+}
 ```
 
 The engine parses **no** commands of its own: `CommandProcessor` is a bare
@@ -316,19 +329,19 @@ Chat system messages travel as short codes; the **texts live on the client**
 
 Engine-reserved groups — do not use these letters:
 
-| Group | Indexes | Meaning |
-| --- | --- | --- |
-| `s` | 0–6 | team full, your team, new team, now spectator, kill report, joined, left |
-| `v` | 0–5 | vote created / started / accepted / unavailable / passed / failed |
-| `m` | 0–1 | current map, next map |
-| `c` | 0–1 | command not found, rank |
-| `n` | 0–1 | invalid name, name changed |
+| Group | Indexes | Meaning                                                                  |
+| ----- | ------- | ------------------------------------------------------------------------ |
+| `s`   | 0–6     | team full, your team, new team, now spectator, kill report, joined, left |
+| `v`   | 0–5     | vote created / started / accepted / unavailable / passed / failed        |
+| `m`   | 0–1     | current map, next map                                                    |
+| `c`   | 0–1     | command not found, rank                                                  |
+| `n`   | 0–1     | invalid name, name changed                                               |
 
 Your own codes pick any other letter (tanks uses `b`, the test fixture uses
 `g`):
 
 ```js
-export default { BOTS_SPAWNED: 'g:0' };   // client text: '{0} bot(s) spawned'
+export default { BOTS_SPAWNED: 'g:0' }; // client text: '{0} bot(s) spawned'
 ```
 
 Registration is a blind `Object.assign` into the engine registry — a colliding
@@ -422,14 +435,14 @@ The engine keeps a per-`(user, game)` profile on the auth service:
 From `onCoreEvent` the `vimp` object gives you:
 
 ```js
-vimp.addPlayerPoints(gameId, delta)     // points of the CURRENT game
-vimp.finishPlayerGame(gameId)           // that game is over: sum it, max it
-vimp.getPlayerRating(gameId, period)    // { value, placement, total } | null
-vimp.isPlayerRatingLoaded(gameId, period) // has THAT slice arrived yet?
-vimp.refreshPlayerPlacement(gameId, p)  // re-ask the master for one place
-vimp.getPlayerState(gameId)             // your blob
-vimp.setPlayerState(gameId, state)      // replace it
-vimp.flushPlayerData({ urgent })        // REQUEST a sync to the master
+vimp.addPlayerPoints(gameId, delta); // points of the CURRENT game
+vimp.finishPlayerGame(gameId); // that game is over: sum it, max it
+vimp.getPlayerRating(gameId, period); // { value, placement, total } | null
+vimp.isPlayerRatingLoaded(gameId, period); // has THAT slice arrived yet?
+vimp.refreshPlayerPlacement(gameId, p); // re-ask the master for one place
+vimp.getPlayerState(gameId); // your blob
+vimp.setPlayerState(gameId, state); // replace it
+vimp.flushPlayerData({ urgent }); // REQUEST a sync to the master
 ```
 
 `period` is `'day' | 'month' | 'all'`.
@@ -476,8 +489,7 @@ host Worker takes the room down.
   per `minFlushInterval` (300 s, jittered ±20 % per room so that hundreds of
   servers do not write on the same second). Five minutes, not one, because the
   scale this is built for is 100 games × 100 servers × 8 players: at two
-  writes per participant per interval that is 530 writes a second instead of
-  2700. Results merge in the room's memory while they wait — sums add, maxima
+  writes per participant per interval that is 530 writes a second instead of 2700. Results merge in the room's memory while they wait — sums add, maxima
   take the maximum — so the interval costs the freshness of the GLOBAL
   ratings and nothing else; the player's own numbers are local and instant;
 - a room-wide queue capped at `maxRequestsPerSecond`, and an exponential room
@@ -514,7 +526,7 @@ It is best-effort and never rejects, so there is nothing to await and nothing
 to catch.
 
 ```js
-vimp.overrideMapData(scaledMapData)  // what _startRound places people on
+vimp.overrideMapData(scaledMapData); // what _startRound places people on
 ```
 
 `overrideMapData` is for a game that rebuilds its geometry on the fly instead
@@ -563,13 +575,13 @@ handoff is survivable.
 
 ## Kicks and close codes
 
-| Code | Reason |
-| --- | --- |
+| Code   | Reason                                                                                               |
+| ------ | ---------------------------------------------------------------------------------------------------- |
 | `4002` | the host's account was blocked by server rating — the whole room is evacuated (issued by the master) |
-| `4003` | EMA latency above `rtt.maxLatency` |
-| `4004` | more than `rtt.maxMissedPings` unanswered pings |
-| `4005` | idle beyond `idleKickTimeout.<role>` |
-| `4006` | room full |
+| `4003` | EMA latency above `rtt.maxLatency`                                                                   |
+| `4004` | more than `rtt.maxMissedPings` unanswered pings                                                      |
+| `4005` | idle beyond `idleKickTimeout.<role>`                                                                 |
+| `4006` | room full                                                                                            |
 
 The host's own client is socket id `'local'` and is immune to all of these.
 There is **no kick vote** in the engine; social moderation is the master's
@@ -577,12 +589,12 @@ There is **no kick vote** in the engine; social moderation is the master's
 
 Technical messages are indexed into the client's `techInformList`:
 
-| Key | Index |
-| --- | --- |
-| `fullServer` | 0 |
-| `anotherDevice` | 1 |
-| `loading` | 2 |
-| `kickIdle` | 3 |
-| `kickForMaxLatency` | 4 |
-| `kickForMissedPings` | 5 |
-| `roomFull` | 6 |
+| Key                  | Index |
+| -------------------- | ----- |
+| `fullServer`         | 0     |
+| `anotherDevice`      | 1     |
+| `loading`            | 2     |
+| `kickIdle`           | 3     |
+| `kickForMaxLatency`  | 4     |
+| `kickForMissedPings` | 5     |
+| `roomFull`           | 6     |

@@ -66,11 +66,11 @@ security-чувствительный код без выигрыша. Завис
 В `applyMasterEnv` добавить, рядом с остальными:
 
 ```js
-  // корень хранилища игровых пакетов (направление master-game-registry) —
-  // в проде это смонтированный том, переживающий пересоздание контейнера
-  if (env.VIMP_GAMES_DIR) {
-    config.set('master:gameStore:dir', env.VIMP_GAMES_DIR);
-  }
+// корень хранилища игровых пакетов (направление master-game-registry) —
+// в проде это смонтированный том, переживающий пересоздание контейнера
+if (env.VIMP_GAMES_DIR) {
+  config.set('master:gameStore:dir', env.VIMP_GAMES_DIR);
+}
 ```
 
 ### `.gitignore`
@@ -134,9 +134,11 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles })
   ```js
   await tar.x({
     cwd: destDir,
-    strip: 2,                       // срезает 'package/dist'
-    filter: (path, entry) => { /* см. ниже */ },
-    preservePaths: false,           // (дефолт) — не доверять абсолютным путям
+    strip: 2, // срезает 'package/dist'
+    filter: (path, entry) => {
+      /* см. ниже */
+    },
+    preservePaths: false, // (дефолт) — не доверять абсолютным путям
     onwarn: (code, message) => warnings.push(`${code}: ${message}`),
   });
   ```
@@ -147,6 +149,7 @@ export async function extractDist(buffer, destDir, { maxBytes, maxFiles })
      хардлинки, устройства);
   3. считать файлы и суммарный размер, бросать при превышении `maxFiles` /
      `maxBytes`.
+
 - `destDir` создаётся `fs.mkdir(destDir, { recursive: true })` до вызова.
 
 ## 2.3 `packages/engine/src/master/gamePackageCheck.js` (новый)
@@ -252,16 +255,16 @@ export default class GameStore {
 `tests/fixtures/gamePackages.js` — хелпер, **собирающий тарболл в памяти**
 через `tar.c` (бинарник в репозиторий не коммитить). Варианты:
 
-| Фикстура | Что содержит |
-| --- | --- |
-| `valid` | `package/dist/` с корректным манифестом, одной картой, тремя entries |
-| `wrongId` | `manifest.id` не совпадает с запрошенным |
-| `brokenManifest` | невалидный JSON |
-| `escapingEntry` | `entries.client` вида `../../etc/passwd` |
-| `missingMap` | `maps.list` называет карту, которой нет в `dist/maps/` |
-| `tooManyFiles` | файлов больше `maxFiles` |
-| `withSymlink` | запись-симлинк внутри `package/dist/` |
-| `extraFiles` | `package/src/`, `package/README.md` — обязаны быть отброшены |
+| Фикстура         | Что содержит                                                         |
+| ---------------- | -------------------------------------------------------------------- |
+| `valid`          | `package/dist/` с корректным манифестом, одной картой, тремя entries |
+| `wrongId`        | `manifest.id` не совпадает с запрошенным                             |
+| `brokenManifest` | невалидный JSON                                                      |
+| `escapingEntry`  | `entries.client` вида `../../etc/passwd`                             |
+| `missingMap`     | `maps.list` называет карту, которой нет в `dist/maps/`               |
+| `tooManyFiles`   | файлов больше `maxFiles`                                             |
+| `withSymlink`    | запись-симлинк внутри `package/dist/`                                |
+| `extraFiles`     | `package/src/`, `package/README.md` — обязаны быть отброшены         |
 
 ### Файлы тестов
 

@@ -4,13 +4,21 @@ import os from 'os';
 import path from 'path';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vimp-auth-jwt-'));
-const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
 
 const privateKeyPath = path.join(tmpDir, 'jwt.pem');
 const publicKeyPath = path.join(tmpDir, 'jwt.pub.pem');
 
-fs.writeFileSync(privateKeyPath, privateKey.export({ type: 'pkcs1', format: 'pem' }));
-fs.writeFileSync(publicKeyPath, publicKey.export({ type: 'spki', format: 'pem' }));
+fs.writeFileSync(
+  privateKeyPath,
+  privateKey.export({ type: 'pkcs1', format: 'pem' }),
+);
+fs.writeFileSync(
+  publicKeyPath,
+  publicKey.export({ type: 'spki', format: 'pem' }),
+);
 
 vi.mock('../../packages/auth/src/config/auth.js', () => ({
   default: {
@@ -41,7 +49,9 @@ describe('jwt (auth)', () => {
     const admin = jwtLib.verifyToken(
       jwtLib.signIdentityToken({ sub: 1, nick: 'Admin', role: 'admin' }),
     );
-    const plain = jwtLib.verifyToken(jwtLib.signIdentityToken({ sub: 2, nick: 'Player1' }));
+    const plain = jwtLib.verifyToken(
+      jwtLib.signIdentityToken({ sub: 2, nick: 'Player1' }),
+    );
 
     expect(admin.role).toBe('admin');
     expect(plain.role).toBe('user');
@@ -56,7 +66,9 @@ describe('jwt (auth)', () => {
   });
 
   it('отклоняет токен, подписанный другим ключом', async () => {
-    const otherKeyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const otherKeyPair = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    });
     const jwt = (await import('jsonwebtoken')).default;
     const forged = jwt.sign({ sub: '1', nick: 'x' }, otherKeyPair.privateKey, {
       algorithm: 'RS256',

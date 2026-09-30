@@ -31,10 +31,10 @@ export default {
       kind: 'indexed8',
       class: 'hot',
       fields: [
-        { name: 'x',     ty: 'f32', interp: 'lerp' },
-        { name: 'y',     ty: 'f32', interp: 'lerp' },
+        { name: 'x', ty: 'f32', interp: 'lerp' },
+        { name: 'y', ty: 'f32', interp: 'lerp' },
         { name: 'angle', ty: 'f32', interp: 'lerpAngle' },
-        { name: 'team',  ty: 'u8' },
+        { name: 'team', ty: 'u8' },
       ],
     },
     e1: {
@@ -62,7 +62,12 @@ export default {
       physicsStatic: [1],
       physicsDynamic: [],
       step: 32,
-      respawns: { team1: [[100, 100, 0], [200, 100, 0]] },
+      respawns: {
+        team1: [
+          [100, 100, 0],
+          [200, 100, 0],
+        ],
+      },
       map: [
         [1, 1, 1, 1],
         [1, 0, 0, 1],
@@ -79,10 +84,10 @@ export default {
   roomDefaults: { maxPlayers: 4 },
 
   stat: {
-    name:    { key: 0, bodyMethod: '=', headSync: true, headMethod: '#' },
-    status:  { key: 1, bodyMethod: '=', bodyValue: '', headValue: '' },
-    score:   { key: 2, bodyMethod: '+', bodyValue: 0, headMethod: '+', headValue: 0 },
-    deaths:  { key: 3, bodyMethod: '+', bodyValue: 0, headMethod: '+', headValue: 0 },
+    name: { key: 0, bodyMethod: '=', headSync: true, headMethod: '#' },
+    status: { key: 1, bodyMethod: '=', bodyValue: '', headValue: '' },
+    score: { key: 2, bodyMethod: '+', bodyValue: 0, headMethod: '+', headValue: 0 },
+    deaths: { key: 3, bodyMethod: '+', bodyValue: 0, headMethod: '+', headValue: 0 },
     latency: { key: 4, bodyMethod: '=' },
   },
 
@@ -98,8 +103,8 @@ export default {
 
   playerKeys: {
     forward: { key: 1 << 0 },
-    back:    { key: 1 << 1 },
-    fire:    { key: 1 << 2, type: 1 },
+    back: { key: 1 << 1 },
+    fire: { key: 1 << 2, type: 1 },
   },
 };
 ```
@@ -124,15 +129,21 @@ export default {
   modules: {
     canvasManager: {
       canvases: {
-        vimp: { width: 640, height: 400, aspectRatio: '16:10',
-                baseScale: '5:1', dynamicCamera: false, shakeCamera: false },
+        vimp: {
+          width: 640,
+          height: 400,
+          aspectRatio: '16:10',
+          baseScale: '5:1',
+          dynamicCamera: false,
+          shakeCamera: false,
+        },
       },
     },
 
     controls: {
       keySetList: [
-        {},                                           // [0] spectator
-        { 87: 'forward', 83: 'back', 74: 'fire' },    // [1] player
+        {}, // [0] spectator
+        { 87: 'forward', 83: 'back', 74: 'fire' }, // [1] player
       ],
     },
 
@@ -148,43 +159,51 @@ export default {
             '{0} joined the game',
             '{0} left the game',
           ],
-          v: ['A vote has been created', 'Voting has started',
-              'Your vote has been accepted', 'Voting is temporarily unavailable',
-              'Vote passed', 'Vote failed'],
+          v: [
+            'A vote has been created',
+            'Voting has started',
+            'Your vote has been accepted',
+            'Voting is temporarily unavailable',
+            'Vote passed',
+            'Vote failed',
+          ],
           m: ['Current map: {0}', 'Next map: {0}'],
           c: ['Command not found'],
           n: ['Invalid name', '{0} changed name to {1}'],
-          g: ['{0} scripted participant(s) spawned'],   // game-owned group
+          g: ['{0} scripted participant(s) spawned'], // game-owned group
         },
       },
     },
 
     panel: {
       keys: { h: 'energy' },
-      fields: [
-        { name: 'energy', elem: 'panel-energy', type: 'bar', max: 100, blocks: 10 },
-      ],
+      fields: [{ name: 'energy', elem: 'panel-energy', type: 'bar', max: 100, blocks: 10 }],
     },
 
     stat: {
       params: {
         columns: ['names', 'status', 'score', 'deaths', 'latency'],
-        heads:  { 1: 'team1' },
+        heads: { 1: 'team1' },
         bodies: { 1: 'team1', 2: 'spectators' },
-        sortList: { team1: [[2, true], [3, false]] },
+        sortList: {
+          team1: [
+            [2, true],
+            [3, false],
+          ],
+        },
       },
     },
 
     vote: {
       params: {
         templates: {
-          teamChange:        ['Choose a team', 'teams', true],
+          teamChange: ['Choose a team', 'teams', true],
           mapChangeBySystem: ['Choose the next map'],
-          mapChangeByUser:   ['{0} suggested the map: {1}', ['Yes', 'No']],
+          mapChangeByUser: ['{0} suggested the map: {1}', ['Yes', 'No']],
         },
         menu: [
           ['teamChange', ['Switch team', 'teams']],
-          ['mapChange',  ['Suggest map', 'maps']],
+          ['mapChange', ['Suggest map', 'maps']],
         ],
       },
     },
@@ -202,7 +221,7 @@ import gameConfig from './game.js';
 export default {
   elems: {
     authId: 'auth',
-    fieldsId: 'auth-fields',     // NOT formId — this is the id the engine reads
+    fieldsId: 'auth-fields', // NOT formId — this is the id the engine reads
     errorId: 'auth-error',
     enterId: 'auth-enter',
     titleId: 'auth-title',
@@ -211,15 +230,17 @@ export default {
   texts: {
     title: 'Mini Game',
     sections: [
-      { heading: 'Controls', lines: [
-        { keys: 'W, S', text: 'move' },
-        { keys: 'J', text: 'fire' },
-      ] },
+      {
+        heading: 'Controls',
+        lines: [
+          { keys: 'W, S', text: 'move' },
+          { keys: 'J', text: 'fire' },
+        ],
+      },
     ],
   },
   params: [
-    { name: 'model', value: 'm1',
-      options: { validator: 'isValidModel', storage: 'model' } },
+    { name: 'model', value: 'm1', options: { validator: 'isValidModel', storage: 'model' } },
   ],
   validators: {
     isValidModel: model => model in gameConfig.parts.models,
@@ -270,7 +291,7 @@ export default function createModules(ctx) {
 
 ```js
 export default {
-  SCRIPTED_SPAWNED: 'g:0',   // client text: '{0} scripted participant(s) spawned'
+  SCRIPTED_SPAWNED: 'g:0', // client text: '{0} scripted participant(s) spawned'
 };
 ```
 
@@ -324,8 +345,7 @@ export default class ScriptedManager {
 
       if (!targetTeam) {
         targetTeam = playableTeams.sort(
-          (a, b) =>
-            this._participants.getTeamSize(a) - this._participants.getTeamSize(b),
+          (a, b) => this._participants.getTeamSize(a) - this._participants.getTeamSize(b),
         )[0];
       }
 
@@ -333,8 +353,7 @@ export default class ScriptedManager {
       if (
         !targetTeam ||
         !this._respawns[targetTeam] ||
-        this._participants.getTeamSize(targetTeam) >=
-          this._respawns[targetTeam].length
+        this._participants.getTeamSize(targetTeam) >= this._respawns[targetTeam].length
       ) {
         continue;
       }
@@ -509,10 +528,10 @@ export default {
   m1: {
     constructor: 'Tank',
     currentWeapon: 'w1',
-    size: 2,                       // aspect 4:3 → width size*4, height size*3
+    size: 2, // aspect 4:3 → width size*4, height size*3
     accelerationFactor: 1000,
     brakingFactor: 10,
-    maxForwardSpeed: 260,          // units/s
+    maxForwardSpeed: 260, // units/s
     maxReverseSpeed: -130,
     baseTurnTorqueFactor: 215,
     damping: { linear: 3, angular: 100.0 },
@@ -532,16 +551,16 @@ export default {
     impulseMagnitude: 5000,
     damage: 40,
     range: 1500,
-    fireRate: 0.01,               // cooldown in SECONDS (0 = none)
-    spread: 0,                    // radians
-    consumption: 1,               // ammo per shot
+    fireRate: 0.01, // cooldown in SECONDS (0 = none)
+    spread: 0, // radians
+    consumption: 1, // ammo per shot
     cameraShake: { intensity: 20, duration: 200 },
   },
   w2: {
     type: 'explosive',
     constructor: 'Bomb',
     time: 300,
-    shotOutcomeId: 'w2e',         // snapshot key used for the detonation event
+    shotOutcomeId: 'w2e', // snapshot key used for the detonation event
     size: 8,
     fireRate: 0.1,
     damage: 70,
@@ -561,18 +580,20 @@ starting ammo is the `value` of the matching `panel.fields` entry.
 ```js
 export default {
   m1: {
-    id: 1, kind: 'indexed8', class: 'hot',
+    id: 1,
+    kind: 'indexed8',
+    class: 'hot',
     fields: [
-      { name: 'x',           ty: 'f32', interp: 'lerp' },
-      { name: 'y',           ty: 'f32', interp: 'lerp' },
-      { name: 'angle',       ty: 'f32', interp: 'lerpAngle' },
+      { name: 'x', ty: 'f32', interp: 'lerp' },
+      { name: 'y', ty: 'f32', interp: 'lerp' },
+      { name: 'angle', ty: 'f32', interp: 'lerpAngle' },
       { name: 'gunRotation', ty: 'f32', interp: 'lerpAngle' },
-      { name: 'vx',          ty: 'f32', interp: 'lerp' },
-      { name: 'vy',          ty: 'f32', interp: 'lerp' },
-      { name: 'engineLoad',  ty: 'f32', interp: 'lerp' },
-      { name: 'condition',   ty: 'u8' },
-      { name: 'size',        ty: 'u8' },
-      { name: 'team',        ty: 'u8' },
+      { name: 'vx', ty: 'f32', interp: 'lerp' },
+      { name: 'vy', ty: 'f32', interp: 'lerp' },
+      { name: 'engineLoad', ty: 'f32', interp: 'lerp' },
+      { name: 'condition', ty: 'u8' },
+      { name: 'size', ty: 'u8' },
+      { name: 'team', ty: 'u8' },
     ],
   },
   // w1 (tracers) — list16 event; w2 (bombs) — indexed32 event;
@@ -588,12 +609,12 @@ to the Rust row structs, and validation only checks the count and types.
 ```js
 const sounds = {
   roundStart: { file: 'round-start', priority: 200, volume: 0.3 },
-  victory:    { file: 'victory',     priority: 200, volume: 0.3 },
-  defeat:     { file: 'defeat',      priority: 200, volume: 0.3 },
-  frag:       { file: 'frag',        priority: 150, volume: 0.3 },
-  gameOver:   { file: 'game-over',   priority: 150, volume: 0.3 },
-  shot:       { file: 'shot',        priority: 100, volume: 0.4 },
-  explosion:  { file: 'explosion',   priority: 100, volume: 0.4 },
+  victory: { file: 'victory', priority: 200, volume: 0.3 },
+  defeat: { file: 'defeat', priority: 200, volume: 0.3 },
+  frag: { file: 'frag', priority: 150, volume: 0.3 },
+  gameOver: { file: 'game-over', priority: 150, volume: 0.3 },
+  shot: { file: 'shot', priority: 100, volume: 0.4 },
+  explosion: { file: 'explosion', priority: 100, volume: 0.4 },
   tankEngine: { file: 'tank-engine', priority: 50, loop: true, volume: 0.5 },
 };
 ```
@@ -731,11 +752,17 @@ function initiateBotVote(ctx, gameId, count, team) {
   const userList = ctx.participants
     .getHumans()
     .map(u => u.gameId)
-    .filter(id => id !== gameId);        // the proposer does not vote
+    .filter(id => id !== gameId); // the proposer does not vote
 
   ctx.voteCoordinator.createVote({
-    voteName, voteCategory, payload, userList, gameId,
-    resultFunc: result => { /* apply or drop */ },
+    voteName,
+    voteCategory,
+    payload,
+    userList,
+    gameId,
+    resultFunc: result => {
+      /* apply or drop */
+    },
   });
 }
 ```
@@ -744,13 +771,13 @@ function initiateBotVote(ctx, gameId, count, team) {
 
 ```js
 export default {
-  BOT_PLAYERS_ONLY:      'b:0',   // Only active players can use /bot
-  BOT_INVALID_COUNT:     'b:1',
-  BOT_INVALID_TEAM:      'b:2',
-  BOT_CREATED_FOR_TEAM:  'b:3',   // {0} bot(s) created for {1}
+  BOT_PLAYERS_ONLY: 'b:0', // Only active players can use /bot
+  BOT_INVALID_COUNT: 'b:1',
+  BOT_INVALID_TEAM: 'b:2',
+  BOT_CREATED_FOR_TEAM: 'b:3', // {0} bot(s) created for {1}
   BOT_REMOVED_FROM_TEAM: 'b:4',
-  BOT_CREATED:           'b:5',
-  BOT_REMOVED:           'b:6',
+  BOT_CREATED: 'b:5',
+  BOT_REMOVED: 'b:6',
 };
 ```
 

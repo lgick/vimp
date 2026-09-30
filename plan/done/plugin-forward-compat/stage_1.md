@@ -19,22 +19,26 @@ ABI-метода или ломает матч на замороженной ст
 Источники, из которых собирается поверхность (все — существующие модули, ни
 один не дублируется руками):
 
-| Раздел слепка | Источник |
-| --- | --- |
-| `requiredGameConfig` | `REQUIRED_GAME_CONFIG_PATHS` + `SPECTATOR_CONFIG_PATH` из `src/lib/gamePlugin.js:44-58` |
-| `clientServices` | `SERVICES` из `src/devtools/contract/rules/c4-component-dependencies.js:10` |
-| `formControls` | реестр контролов (этап 3; до него — литералы из `src/client/lib/formBuilder.js`) |
-| `ports.server` / `ports.client` | `src/config/wsports.js` |
-| `manifestFields` | список полей `GameManifest`, которые читает движок (собирается из `GameCatalog.js`, `loadGamePackage.js`, `gamePlugin.js`) |
+| Раздел слепка                               | Источник                                                                                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requiredGameConfig`                        | `REQUIRED_GAME_CONFIG_PATHS` + `SPECTATOR_CONFIG_PATH` из `src/lib/gamePlugin.js:44-58`                                                            |
+| `clientServices`                            | `SERVICES` из `src/devtools/contract/rules/c4-component-dependencies.js:10`                                                                        |
+| `formControls`                              | реестр контролов (этап 3; до него — литералы из `src/client/lib/formBuilder.js`)                                                                   |
+| `ports.server` / `ports.client`             | `src/config/wsports.js`                                                                                                                            |
+| `manifestFields`                            | список полей `GameManifest`, которые читает движок (собирается из `GameCatalog.js`, `loadGamePackage.js`, `gamePlugin.js`)                         |
 | `hostPluginMembers` / `clientPluginMembers` | имена, которые движок читает с объектов плагина (`id`, `engineApi`, `gameConfig`, `createCore`, `authSchema`, `buildClientGameConfig`, `hooks`, …) |
-| `abi.game` / `abi.client` | имена и сигнатуры методов из `packages/engine/core/src/abi.rs` (см. 1.2) |
-| `abiOps` | реестр опкодов `dispatch` (появляется на этапе 4, до него — пустой массив) |
+| `abi.game` / `abi.client`                   | имена и сигнатуры методов из `packages/engine/core/src/abi.rs` (см. 1.2)                                                                           |
+| `abiOps`                                    | реестр опкодов `dispatch` (появляется на этапе 4, до него — пустой массив)                                                                         |
 
 Формат записи ABI-метода — имя плюс нормализованная сигнатура, чтобы ловить
 нарушение И3:
 
 ```json
-{ "name": "pack_frame", "args": ["f64","u32","bool","f32","f32","bool","Option<String>","i32"], "ret": "usize" }
+{
+  "name": "pack_frame",
+  "args": ["f64", "u32", "bool", "f32", "f32", "bool", "Option<String>", "i32"],
+  "ret": "usize"
+}
 ```
 
 ## 1.2 Разбор `abi.rs`
@@ -116,7 +120,7 @@ packages/engine/tests/fixtures/
   никогда. Если для прохождения теста хочется поправить фикстуру — это и есть
   тот самый слом, ради обнаружения которого корпус существует.
 - Комментарий-шапка в каждом каталоге: `// ЗАМОРОЖЕНО. Снимок плагина
-  <дата>. Не править: правка фикстуры маскирует слом совместимости.`
+<дата>. Не править: правка фикстуры маскирует слом совместимости.`
 - Новое поколение добавляется **только** при осознанном изменении контракта,
   копированием текущего `miniGame`.
 - `gen-api3` пишется вручную как реконструкция плагина до бампа v4:
@@ -145,6 +149,7 @@ headless-матч существующим контуром: `packages/engine/sr
 ## Файлы этапа
 
 Создаются:
+
 - `packages/engine/src/devtools/surface/collect.js`
 - `packages/engine/src/devtools/surface/abiParse.js`
 - `packages/engine/bin/vimp-surface.js`
@@ -155,6 +160,7 @@ headless-матч существующим контуром: `packages/engine/sr
 - `tests/devtools/conformance.test.js`
 
 Правятся:
+
 - `package.json` (корневой) — скрипт `surface:update`
 - `vitest.config.js` — при необходимости расширить `include`
 

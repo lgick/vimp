@@ -16,10 +16,7 @@ import { loadGamePackage } from '../lib/loadGamePackage.js';
 // пути в манифесте. Его отсутствие не ошибка — просто игра не прогоняется
 // headless своим настоящим ядром.
 
-const FIXTURE_DIR = new URL(
-  '../../tests/fixtures/miniGame/',
-  import.meta.url,
-);
+const FIXTURE_DIR = new URL('../../tests/fixtures/miniGame/', import.meta.url);
 
 // значение поля source у фикстуры: по нему отличается «своя игра, схему
 // которой инструмент знает» от чужого плагина (см. builtinScenario.js)

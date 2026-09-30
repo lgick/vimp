@@ -201,7 +201,12 @@ describe('HostRegistry.sweepStale', () => {
 
 describe('HostRegistry hidden (тестовые комнаты застейдженных версий)', () => {
   it('комната с hidden не попадает в общий список', () => {
-    registry.add({ name: 'public', mapName: 'arena', region: 'EU', ip: '10.1.0.1' });
+    registry.add({
+      name: 'public',
+      mapName: 'arena',
+      region: 'EU',
+      ip: '10.1.0.1',
+    });
     registry.add({
       name: 'staged',
       mapName: 'arena',
@@ -219,8 +224,19 @@ describe('HostRegistry hidden (тестовые комнаты застейдж�
   });
 
   it('includeHidden отдаёт и скрытые — для админского запроса', () => {
-    registry.add({ name: 'public', mapName: 'arena', region: 'EU', ip: '10.1.0.1' });
-    registry.add({ name: 'staged', mapName: 'arena', region: 'EU', ip: '10.1.0.2', hidden: true });
+    registry.add({
+      name: 'public',
+      mapName: 'arena',
+      region: 'EU',
+      ip: '10.1.0.1',
+    });
+    registry.add({
+      name: 'staged',
+      mapName: 'arena',
+      region: 'EU',
+      ip: '10.1.0.2',
+      hidden: true,
+    });
 
     const list = registry.getList({ includeHidden: true });
 
@@ -228,13 +244,24 @@ describe('HostRegistry hidden (тестовые комнаты застейдж�
   });
 
   it('includeHidden из строки запроса не открывает скрытые комнаты', () => {
-    registry.add({ name: 'staged', mapName: 'arena', region: 'EU', ip: '10.1.0.2', hidden: true });
+    registry.add({
+      name: 'staged',
+      mapName: 'arena',
+      region: 'EU',
+      ip: '10.1.0.2',
+      hidden: true,
+    });
 
     expect(registry.getList({ includeHidden: 'true' }).total).toBe(0);
   });
 
   it('по умолчанию комната не скрыта', () => {
-    const host = registry.add({ name: 'room', mapName: 'arena', region: 'EU', ip: '10.1.0.3' });
+    const host = registry.add({
+      name: 'room',
+      mapName: 'arena',
+      region: 'EU',
+      ip: '10.1.0.3',
+    });
 
     expect(host.hidden).toBe(false);
   });
@@ -306,7 +333,9 @@ describe('HostRegistry.getList', () => {
     const result = registry.getList({});
 
     expect(result.total).toBe(2);
-    expect(result.servers.find(s => s.hostId === banned.hostId)).toBeUndefined();
+    expect(
+      result.servers.find(s => s.hostId === banned.hostId),
+    ).toBeUndefined();
   });
 
   // lobby-page-plan: серверный поиск "gameId/name" — формат совпадает с
@@ -409,7 +438,9 @@ describe('HostRegistry: рейтинг хостера (server-rating этап 3)
     const b = registry.add({ name: 'b', ip: '2.2.2.2', hosterUserId: 42 });
     registry.add({ name: 'c', ip: '3.3.3.3', hosterUserId: 99 });
 
-    expect(registry.getHostIdsForHoster(42).sort()).toEqual([a.hostId, b.hostId].sort());
+    expect(registry.getHostIdsForHoster(42).sort()).toEqual(
+      [a.hostId, b.hostId].sort(),
+    );
     expect(registry.getHostIdsForHoster(99)).toEqual([expect.any(String)]);
     expect(registry.getHostIdsForHoster(7)).toEqual([]);
   });

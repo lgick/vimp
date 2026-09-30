@@ -49,15 +49,20 @@
 ## 2.5 Формат сценария ✅ выполнен
 
 ```json
-{ "version": 1, "seed": 3812, "map": "arena",
+{
+  "version": 1,
+  "seed": 3812,
+  "map": "arena",
   "config": { "networkSendRate": 1 },
   "participants": [{ "id": "p1", "name": "P1", "model": "m1" }],
   "timeline": [
-    { "tick": 0,  "op": "join", "who": "p1", "team": "team1" },
-    { "tick": 12, "op": "key",  "who": "p1", "action": "down", "name": "forward" },
+    { "tick": 0, "op": "join", "who": "p1", "team": "team1" },
+    { "tick": 12, "op": "key", "who": "p1", "action": "down", "name": "forward" },
     { "tick": 30, "op": "chat", "who": "p1", "text": "/nr" }
   ],
-  "ticks": 1200, "dumpTicks": [6, 1200] }
+  "ticks": 1200,
+  "dumpTicks": [6, 1200]
+}
 ```
 
 Операции: `join`, `leave`, `key`, `chat`, `vote`. `seed` уезжает в

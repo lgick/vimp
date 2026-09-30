@@ -34,8 +34,8 @@ tool is useful from the first commit. Groups: **A** packaging and build,
 Wire it as `"check:contract": "vimp-contract"` in your `package.json` and
 run it before `npm run sim`: the runner reports the same problems, but only
 after a core build and only for the code paths the scenario happens to
-touch. Full rule list: the engine's `docs/en/debugging.md` → *Contract
-check*.
+touch. Full rule list: the engine's `docs/en/debugging.md` → _Contract
+check_.
 
 ## Running it
 
@@ -48,14 +48,14 @@ npm run sim:replay <scenario.json>                    # shorthand for --scenario
 npm run sim:check                                     # verdict to stdout, no files
 ```
 
-| Option | Meaning |
-| --- | --- |
-| `--scenario <path>` | scenario JSON (see below); omitted → a built-in smoke scenario (read the warning under this table) |
-| `--game <path>` | your package directory, or its `dist/manifest.json` |
-| `--core <path>` | Node build of your core, overriding `entries.wasmNode` — only together with `--game`, otherwise the run silently falls back to the fixture |
-| `--out <dir>` | report root (default `.debug`) |
-| `--no-write` | print the report instead of writing files |
-| `--determinism` | run the scenario twice and compare the frame streams |
+| Option              | Meaning                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--scenario <path>` | scenario JSON (see below); omitted → a built-in smoke scenario (read the warning under this table)                                         |
+| `--game <path>`     | your package directory, or its `dist/manifest.json`                                                                                        |
+| `--core <path>`     | Node build of your core, overriding `entries.wasmNode` — only together with `--game`, otherwise the run silently falls back to the fixture |
+| `--out <dir>`       | report root (default `.debug`)                                                                                                             |
+| `--no-write`        | print the report instead of writing files                                                                                                  |
+| `--determinism`     | run the scenario twice and compare the frame streams                                                                                       |
 
 **Do not judge your plugin by the built-in scenario.** Run without
 `--scenario` and one participant joins, holds a key and releases it. The
@@ -95,7 +95,7 @@ installed copy if you skip it). Point the manifest at the copy:
 URL. Without it, pass `--core <path>` on every run.
 
 Your `createCore`/`createClientCore` must accept it: it is a JS module, not
-a `.wasm` asset — see `03-host-plugin.md` § *Two shapes of `wasmUrl`*.
+a `.wasm` asset — see `03-host-plugin.md` § _Two shapes of `wasmUrl`_.
 
 For the runner to work from an **installed copy** of your game and not only
 from a checkout, copy the Node glue **into the published `dist/`** at build
@@ -120,9 +120,9 @@ verdict about code you no longer ship.
   "config": { "timers": { "networkSendRate": 1 } },
   "participants": [{ "id": "p1", "name": "P1", "model": "m1" }],
   "timeline": [
-    { "tick": 0,  "op": "join", "who": "p1", "team": "team1" },
-    { "tick": 12, "op": "key",  "who": "p1", "action": "down", "name": "forward" },
-    { "tick": 90, "op": "key",  "who": "p1", "action": "up",   "name": "forward" },
+    { "tick": 0, "op": "join", "who": "p1", "team": "team1" },
+    { "tick": 12, "op": "key", "who": "p1", "action": "down", "name": "forward" },
+    { "tick": 90, "op": "key", "who": "p1", "action": "up", "name": "forward" },
     { "tick": 30, "op": "chat", "who": "p1", "text": "/nr" }
   ],
   "unusedSnapshotKeys": ["explosion"],
@@ -131,29 +131,29 @@ verdict about code you no longer ship.
 }
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `version` | must be `1` |
-| `seed` | uint32 PRNG seed of the match — the same seed reproduces the same world |
-| `map` | starting map name (default: your `roomDefaults.map`) |
-| `config` | patch merged into your assembled `gameConfig` before the core is created; **timers go only under `config.timers`** (`{ "timers": { "networkSendRate": 1 } }`) — a top-level key patches the game config and is never routed into timers |
-| `room` | extra room overrides, as the lobby form would send them |
-| `participants` | `[{ id, name, model }]`; `id` is a scenario-local handle referenced by `who` |
-| `timeline` | ops (`join`, `leave`, `key`, `chat`, `vote`), sorted by `tick` |
-| `unusedSnapshotKeys` | snapshot keys this scenario deliberately never produces; `"*"` = "this scenario does not audit key coverage", which makes invariant 2 skip (what the built-in scenario uses on a game it does not know) |
-| `divergence` | prediction-drift thresholds (and `angles`, components compared on the circle); `{}` = defaults, `null` = detector off, which makes invariant 9 skip |
-| `ticks` | total ticks to run (default `600`) |
-| `dumpTicks` | ticks at which a full scene slice is written out |
+| Field                | Meaning                                                                                                                                                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`            | must be `1`                                                                                                                                                                                                                             |
+| `seed`               | uint32 PRNG seed of the match — the same seed reproduces the same world                                                                                                                                                                 |
+| `map`                | starting map name (default: your `roomDefaults.map`)                                                                                                                                                                                    |
+| `config`             | patch merged into your assembled `gameConfig` before the core is created; **timers go only under `config.timers`** (`{ "timers": { "networkSendRate": 1 } }`) — a top-level key patches the game config and is never routed into timers |
+| `room`               | extra room overrides, as the lobby form would send them                                                                                                                                                                                 |
+| `participants`       | `[{ id, name, model }]`; `id` is a scenario-local handle referenced by `who`                                                                                                                                                            |
+| `timeline`           | ops (`join`, `leave`, `key`, `chat`, `vote`), sorted by `tick`                                                                                                                                                                          |
+| `unusedSnapshotKeys` | snapshot keys this scenario deliberately never produces; `"*"` = "this scenario does not audit key coverage", which makes invariant 2 skip (what the built-in scenario uses on a game it does not know)                                 |
+| `divergence`         | prediction-drift thresholds (and `angles`, components compared on the circle); `{}` = defaults, `null` = detector off, which makes invariant 9 skip                                                                                     |
+| `ticks`              | total ticks to run (default `600`)                                                                                                                                                                                                      |
+| `dumpTicks`          | ticks at which a full scene slice is written out                                                                                                                                                                                        |
 
 Ops:
 
-| `op` | Fields |
-| --- | --- |
-| `join` | `who`, `team` — a real `ClientCore` is created for this participant |
-| `leave` | `who` |
-| `key` | `who`, `action` (`down`/`up`), `name` (a `playerKeys` name) |
-| `chat` | `who`, `text` (chat commands included) |
-| `vote` | `who`, `data` |
+| `op`    | Fields                                                              |
+| ------- | ------------------------------------------------------------------- |
+| `join`  | `who`, `team` — a real `ClientCore` is created for this participant |
+| `leave` | `who`                                                               |
+| `key`   | `who`, `action` (`down`/`up`), `name` (a `playerKeys` name)         |
+| `chat`  | `who`, `text` (chat commands included)                              |
+| `vote`  | `who`, `data`                                                       |
 
 The tick step is **not** a scenario field: it comes from your
 `gameConfig.timers.timeStep`, and the runner drives the engine's real game
@@ -167,20 +167,20 @@ Every run ends with these, each `pass` / `fail` / `skip` (`skip` = nothing
 in this run to check; it never hides a violation). Most of them exist
 because the matching mistake is otherwise silent.
 
-| # | Name | Catches |
-| --- | --- | --- |
-| 1 | `finiteValues` | `NaN`/`Infinity` in a decoded field or the hot buffer |
-| 2 | `snapshotKeysUsed` | a snapshot key that produced no rows — the entity never spawns, or its id disagrees between host and client (declare intentional cases in `unusedSnapshotKeys`) |
-| 3 | `fieldWidths` | decoded field count ≠ schema field count — your `build_snapshot_blocks` row order or width drifted from the schema |
-| 4 | `frameFormat` | wrong frame version byte, or `decode_frame` throwing |
-| 5 | `hotLayout` | hot-buffer traversal not consuming exactly `len` floats |
-| 6 | `panelContract` | a `panel.fields` entry that never reaches the client panel schema (the value arrives named `undefined`) |
-| 7 | `renderCoverage` | a live snapshot key missing from `gameSets`/`entitiesOnCanvas` — the classic black canvas |
-| 8 | `keyBindings` | `playerKeys` ↔ `keySetList` ↔ the key names your scenario uses |
-| 9 | `predictionDrift` | client prediction drifting from the authoritative state beyond the threshold |
-| 10 | `roundLifecycle` | the round never ends, no winner, no respawns, participants leaked |
-| 11 | `actorLeak` | `players_data()` disagreeing with the engine's active participants |
-| 12 | `determinism` | two identical runs producing different frames — compared by per-frame hash, collected only under `--determinism` |
+| #   | Name               | Catches                                                                                                                                                         |
+| --- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `finiteValues`     | `NaN`/`Infinity` in a decoded field or the hot buffer                                                                                                           |
+| 2   | `snapshotKeysUsed` | a snapshot key that produced no rows — the entity never spawns, or its id disagrees between host and client (declare intentional cases in `unusedSnapshotKeys`) |
+| 3   | `fieldWidths`      | decoded field count ≠ schema field count — your `build_snapshot_blocks` row order or width drifted from the schema                                              |
+| 4   | `frameFormat`      | wrong frame version byte, or `decode_frame` throwing                                                                                                            |
+| 5   | `hotLayout`        | hot-buffer traversal not consuming exactly `len` floats                                                                                                         |
+| 6   | `panelContract`    | a `panel.fields` entry that never reaches the client panel schema (the value arrives named `undefined`)                                                         |
+| 7   | `renderCoverage`   | a live snapshot key missing from `gameSets`/`entitiesOnCanvas` — the classic black canvas                                                                       |
+| 8   | `keyBindings`      | `playerKeys` ↔ `keySetList` ↔ the key names your scenario uses                                                                                                  |
+| 9   | `predictionDrift`  | client prediction drifting from the authoritative state beyond the threshold                                                                                    |
+| 10  | `roundLifecycle`   | the round never ends, no winner, no respawns, participants leaked                                                                                               |
+| 11  | `actorLeak`        | `players_data()` disagreeing with the engine's active participants                                                                                              |
+| 12  | `determinism`      | two identical runs producing different frames — compared by per-frame hash, collected only under `--determinism`                                                |
 
 Numbers 2, 3, 6, 7 and 8 are the checklist items from `10-pitfalls.md`,
 mechanised. If your plugin passes them on a scenario that exercises every
@@ -190,11 +190,11 @@ entity type, most of the "nothing renders" class is already dead.
 
 `.debug/run-<timestamp>/`:
 
-| File | Contents |
-| --- | --- |
-| `report.md` | the verdict — read this first |
-| `report.json` | the same, machine-readable, plus `snapshotSchema` (the frame stream is not written — under `--determinism` it is compared in memory as hashes) |
-| `scene-<tick>.json` | per dumped tick: every client's reconstructed scene, camera, panel, and a dump of the authoritative world |
+| File                | Contents                                                                                                                                       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `report.md`         | the verdict — read this first                                                                                                                  |
+| `report.json`       | the same, machine-readable, plus `snapshotSchema` (the frame stream is not written — under `--determinism` it is compared in memory as hashes) |
+| `scene-<tick>.json` | per dumped tick: every client's reconstructed scene, camera, panel, and a dump of the authoritative world                                      |
 
 `report.md` ends with `## Invariants` — one line per contract, and one
 indented line per violation naming the client, the key and the value. Also
@@ -270,7 +270,7 @@ replica may lag the frame by up to one render frame). What remains is
 whatever your replica does not simulate — collisions, explosion impulses,
 teleports — each a one-off spike the next reconciliation absorbs. Keep
 those out of a drift-watching scenario, or set `"divergence": null` for it.
-The failure you are hunting is drift that *grows*.
+The failure you are hunting is drift that _grows_.
 
 Two more things a scenario has to respect, both learned the hard way:
 
@@ -290,11 +290,11 @@ real human input), record it and bring it back into the headless loop. In a
 dev build of the engine the host tab exposes:
 
 ```js
-await window.__vimpDebug.startRecording();   // start
+await window.__vimpDebug.startRecording(); // start
 // … reproduce the bug …
-await window.__vimpDebug.stopRecording();    // stop + upload to .debug/
-window.__vimpDebug.dump();                   // host meta + world dump, right now
-window.__vimpDebug.divergence();             // this client's drift records
+await window.__vimpDebug.stopRecording(); // stop + upload to .debug/
+window.__vimpDebug.dump(); // host meta + world dump, right now
+window.__vimpDebug.divergence(); // this client's drift records
 ```
 
 The recording **is** a scenario file in the format above: run it with

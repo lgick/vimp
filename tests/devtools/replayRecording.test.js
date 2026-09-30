@@ -13,7 +13,7 @@ import {
 // без единой правки файла. Иначе браузерный баг остаётся в браузере.
 
 describe('запись браузерной половины → headless-прогон', () => {
-  it('записанный матч прогоняется runner\'ом и даёт живой контур', async () => {
+  it("записанный матч прогоняется runner'ом и даёт живой контур", async () => {
     const { host } = await createFixtureHost({ opts: { seed: 3812 } });
     const gameId = await connectPlayer(host);
 
@@ -29,7 +29,10 @@ describe('запись браузерной половины → headless-про
 
     // событийный ключ фикстуры в этом сценарии не стреляет — объявляется
     // явно, иначе инвариант 2 честно посчитает это «сущность не спавнится»
-    const report = await runScenario({ ...scenario, unusedSnapshotKeys: ['e1'] });
+    const report = await runScenario({
+      ...scenario,
+      unusedSnapshotKeys: ['e1'],
+    });
 
     expect(report.invariantSummary.failed).toBe(0);
     expect(report.participants).toHaveLength(1);

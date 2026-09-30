@@ -48,7 +48,9 @@ export default class WorkerCatalog {
     }
 
     if (files.length > 1) {
-      console.warn(`[worker catalog] multiple bundles found: ${files.join(', ')}`);
+      console.warn(
+        `[worker catalog] multiple bundles found: ${files.join(', ')}`,
+      );
 
       files.sort(
         (a, b) =>

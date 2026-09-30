@@ -18,7 +18,7 @@
 
 Образец стиля — соседний `e3-sound-registry.js`: уровень `WARN`, хелперы
 `skip`/`verdict` из `../result.js`, сообщения по-английски, комментарий
-сверху объясняет *почему* правило существует.
+сверху объясняет _почему_ правило существует.
 
 ```javascript
 import { WARN, skip, verdict } from '../result.js';
@@ -39,12 +39,7 @@ const NUMERIC = {
   rolloffFactor: 'non-negative',
 };
 
-const KNOWN = [
-  'mode',
-  'panningModel',
-  'distanceModel',
-  ...Object.keys(NUMERIC),
-];
+const KNOWN = ['mode', 'panningModel', 'distanceModel', ...Object.keys(NUMERIC)];
 
 // Блок spatial необязателен: игра без него получает движковые дефолты и
 // звучит правильно. Но объявленный блок с опечаткой — это тихий отказ:
@@ -76,31 +71,21 @@ export default {
 
     for (const key of Object.keys(spatial)) {
       if (!KNOWN.includes(key)) {
-        violations.push(
-          `unknown key "${key}": valid keys are ${KNOWN.join(', ')}`,
-        );
+        violations.push(`unknown key "${key}": valid keys are ${KNOWN.join(', ')}`);
       }
     }
 
     if (spatial.mode !== undefined && !MODES.includes(spatial.mode)) {
-      violations.push(
-        `mode "${spatial.mode}" is unknown: valid modes are ${MODES.join(', ')}`,
-      );
+      violations.push(`mode "${spatial.mode}" is unknown: valid modes are ${MODES.join(', ')}`);
     }
 
-    if (
-      spatial.panningModel !== undefined &&
-      !PANNING_MODELS.includes(spatial.panningModel)
-    ) {
+    if (spatial.panningModel !== undefined && !PANNING_MODELS.includes(spatial.panningModel)) {
       violations.push(
         `panningModel "${spatial.panningModel}" is unknown: valid models are ${PANNING_MODELS.join(', ')}`,
       );
     }
 
-    if (
-      spatial.distanceModel !== undefined &&
-      !DISTANCE_MODELS.includes(spatial.distanceModel)
-    ) {
+    if (spatial.distanceModel !== undefined && !DISTANCE_MODELS.includes(spatial.distanceModel)) {
       violations.push(
         `distanceModel "${spatial.distanceModel}" is unknown: valid models are ${DISTANCE_MODELS.join(', ')}`,
       );
@@ -113,9 +98,7 @@ export default {
         continue;
       }
 
-      const ok =
-        Number.isFinite(value) &&
-        (sign === 'positive' ? value > 0 : value >= 0);
+      const ok = Number.isFinite(value) && (sign === 'positive' ? value > 0 : value >= 0);
 
       if (!ok) {
         violations.push(`${key} must be a ${sign} number, got ${value}`);

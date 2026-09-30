@@ -13,7 +13,10 @@ const MARKS = { [PASS]: '✅', [FAIL]: '❌', [SKIP]: '⏭️' };
  */
 export function formatContract(report, { quiet = false } = {}) {
   const { summary } = report;
-  const lines = [`# Contract report — ${report.game.id ?? '(unknown game)'}`, ''];
+  const lines = [
+    `# Contract report — ${report.game.id ?? '(unknown game)'}`,
+    '',
+  ];
 
   lines.push(`- game: \`${report.game.dir}\``);
   lines.push(`- engine API: v${report.game.engineApi}`);

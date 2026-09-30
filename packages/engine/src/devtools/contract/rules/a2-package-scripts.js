@@ -29,8 +29,6 @@ export default {
     const scripts = ctx.pkg.scripts ?? {};
     const missing = REQUIRED.filter(name => !scripts[name]);
 
-    return verdict(
-      missing.map(name => `script "${name}" is missing`),
-    );
+    return verdict(missing.map(name => `script "${name}" is missing`));
   },
 };

@@ -30,7 +30,12 @@ const makeFetch = ({ day = () => top([]), month = () => top([]) } = {}) =>
     url.includes('period=day') ? day(url, opts) : month(url, opts),
   );
 
-const makeAccolades = (fetchImpl, list, now = () => 0, getRating = () => null) =>
+const makeAccolades = (
+  fetchImpl,
+  list,
+  now = () => 0,
+  getRating = () => null,
+) =>
   new Accolades({
     participants: participants(list),
     gameId: 'snakes',
@@ -53,7 +58,9 @@ describe('Accolades: места участников в глобальном т�
 
     await accolades.refresh();
 
-    expect(placesOf(accolades.shift())).toEqual({ 0: { daily: 1, monthly: 4 } });
+    expect(placesOf(accolades.shift())).toEqual({
+      0: { daily: 1, monthly: 4 },
+    });
   });
 
   it('бот и гость получают null: записи в auth у них нет', async () => {
@@ -97,7 +104,11 @@ describe('Accolades: места участников в глобальном т�
       },
     });
     const clock = { now: 0 };
-    const accolades = makeAccolades(fetchImpl, [player(0, 'Alice')], () => clock.now);
+    const accolades = makeAccolades(
+      fetchImpl,
+      [player(0, 'Alice')],
+      () => clock.now,
+    );
 
     await accolades.refresh();
     accolades.shift();
@@ -105,8 +116,8 @@ describe('Accolades: места участников в глобальном т�
     clock.now += lobbyConfig.accolades.refreshInterval;
     await accolades.refresh();
 
-    const [, opts] = fetchImpl.mock.calls.find(([url]) =>
-      url.includes('period=day&') || url.endsWith('period=day'),
+    const [, opts] = fetchImpl.mock.calls.find(
+      ([url]) => url.includes('period=day&') || url.endsWith('period=day'),
     );
 
     expect(opts.headers['if-none-match']).toBeUndefined();
@@ -123,7 +134,11 @@ describe('Accolades: места участников в глобальном т�
   it('периодический tick не ходит чаще refreshInterval', async () => {
     let clock = 0;
     const fetchImpl = makeFetch();
-    const accolades = makeAccolades(fetchImpl, [{ gameId: 0, name: 'Alice' }], () => clock);
+    const accolades = makeAccolades(
+      fetchImpl,
+      [{ gameId: 0, name: 'Alice' }],
+      () => clock,
+    );
 
     await accolades.refresh();
     const afterFirst = fetchImpl.mock.calls.length;
@@ -151,7 +166,11 @@ describe('Accolades: места участников в глобальном т�
       },
     });
     const clock = { now: 0 };
-    const accolades = makeAccolades(fetchImpl, [player(0, 'Alice')], () => clock.now);
+    const accolades = makeAccolades(
+      fetchImpl,
+      [player(0, 'Alice')],
+      () => clock.now,
+    );
 
     await accolades.refresh();
     accolades.shift();
@@ -229,7 +248,9 @@ describe('Accolades: места участников в глобальном т�
 
     await accolades.refresh();
 
-    expect(accolades.shift().self).toEqual({ 0: { day: { place: 431, score: 12 } } });
+    expect(accolades.shift().self).toEqual({
+      0: { day: { place: 431, score: 12 } },
+    });
   });
 
   // гость и бот в рассылку своей строки не попадают по той же причине, по

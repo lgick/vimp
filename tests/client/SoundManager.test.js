@@ -609,7 +609,12 @@ describe('SoundManager.setListenerPosition: зум', () => {
   const makeZoomCtx = () => makeManager();
 
   it('мусорный зум не доходит до геометрии', () => {
-    for (const args of [[0, 0], [0, 0, 0], [0, 0, NaN], [0, 0, -1]]) {
+    for (const args of [
+      [0, 0],
+      [0, 0, 0],
+      [0, 0, NaN],
+      [0, 0, -1],
+    ]) {
       const ctx = makeZoomCtx();
 
       ctx.setListenerPosition(...args);
@@ -628,7 +633,6 @@ describe('SoundManager.setListenerPosition: зум', () => {
 });
 
 describe('SoundManager.updateActiveSounds', () => {
-
   it('не зовёт rate повторно, если значение не изменилось', () => {
     const sound = makeHowl();
     const ctx = makeLoopCtx(
@@ -674,7 +678,6 @@ describe('SoundManager.updateActiveSounds', () => {
 // обрывами, поэтому запись позиции ограничена с двух сторон: порогом
 // смещения (неподвижный источник) и гейтом частоты (движущийся).
 describe('SoundManager: экономия записей позиции', () => {
-
   it('неподвижный источник переписывает позицию один раз', () => {
     const sound = makeHowl();
     const ctx = makeSpatialCtx();
@@ -930,7 +933,11 @@ describe('SoundManager: неконечные значения', () => {
     });
 
     ctx._internalPlay = vi.fn(candidate => {
-      ctx._activeInstances.set(1, { sound, ownerId: candidate.id, loop: false });
+      ctx._activeInstances.set(1, {
+        sound,
+        ownerId: candidate.id,
+        loop: false,
+      });
 
       return 1;
     });

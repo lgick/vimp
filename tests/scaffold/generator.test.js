@@ -183,7 +183,12 @@ describe('generate', () => {
   // движок берёт ссылку в футере формы входа только из этих полей, фолбэка
   // нет (lib/packageLink.js), поэтому проставить их должен скаффолдер
   it('--repository пишет repository и homepage, раскрывая шорткат user/repo', async () => {
-    await generate({ templateDir, targetDir, tokens, repository: 'lgick/space-arena' });
+    await generate({
+      templateDir,
+      targetDir,
+      tokens,
+      repository: 'lgick/space-arena',
+    });
 
     const manifest = JSON.parse(
       await readFile(path.join(targetDir, 'package.json'), 'utf8'),
@@ -193,7 +198,9 @@ describe('generate', () => {
       type: 'git',
       url: 'git+https://github.com/lgick/space-arena.git',
     });
-    expect(manifest.homepage).toBe('https://github.com/lgick/space-arena#readme');
+    expect(manifest.homepage).toBe(
+      'https://github.com/lgick/space-arena#readme',
+    );
   });
 
   it('полный URL берётся как есть', async () => {

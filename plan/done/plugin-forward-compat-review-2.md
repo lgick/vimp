@@ -9,14 +9,14 @@
 
 ## Состояние базы (проверено, не со слов)
 
-| Проверка | Результат |
-| --- | --- |
-| `npx eslint .` | 0 ошибок |
-| `npm test` | 161 файл / 1851 тест — зелено |
-| `npm run core:test` | зелено (в т.ч. `abi::tests`) |
-| `node bin/vimp-surface.js` | «слепок совпадает» |
-| `vimp-contract --game snakes` / `tanks` | все правила ✅ (C10, B2 — зелёные) |
-| Браузер (`npm run dev`, оба матча) | см. раздел «Браузерное тестирование» |
+| Проверка                                | Результат                            |
+| --------------------------------------- | ------------------------------------ |
+| `npx eslint .`                          | 0 ошибок                             |
+| `npm test`                              | 161 файл / 1851 тест — зелено        |
+| `npm run core:test`                     | зелено (в т.ч. `abi::tests`)         |
+| `node bin/vimp-surface.js`              | «слепок совпадает»                   |
+| `vimp-contract --game snakes` / `tanks` | все правила ✅ (C10, B2 — зелёные)   |
+| Браузер (`npm run dev`, оба матча)      | см. раздел «Браузерное тестирование» |
 
 Все 14 находок прошлого прохода действительно исправлены — каждую перечитал
 по коду, а не по отметке «✅ выполнен». Архитектура этапов 1–5 держится:
@@ -88,10 +88,7 @@ vimp-snakes/src/client/index.js                     → поля нет
 ```js
 requireCompatible({
   id: hostPlugin.id,
-  requires: requires ?? [
-    ...(hostPlugin.requires ?? []),
-    ...(clientPlugin.requires ?? []),
-  ],
+  requires: requires ?? [...(hostPlugin.requires ?? []), ...(clientPlugin.requires ?? [])],
 });
 ```
 
@@ -177,7 +174,10 @@ if (!abi.ops.includes(resolved)) {
 1. Пробовать **всю цепочку**, от активного имени к выведенным: у реестра
    уже есть `chain(value)`, дающий `[{value:'debug.json'}, {value:'debug.dump'}]`.
    ```js
-   const names = abiOps.chain(op).map(entry => entry.value).reverse();
+   const names = abiOps
+     .chain(op)
+     .map(entry => entry.value)
+     .reverse();
    const known = names.find(name => abi.ops.includes(name));
 
    if (known === undefined) {
@@ -339,7 +339,7 @@ Auth-форма строится с **пустым** `ctx` (`buildForm(descripto
 
 - **`catch (err)` с неиспользуемой переменной.** Находка 14 прошлого прохода
   предлагала включить `caughtErrors: 'all'` + `caughtErrorsIgnorePattern:
-  '^_'`. В конфиг это не попало; вместо этого `bin/vimp-surface.js:46`
+'^_'`. В конфиг это не попало; вместо этого `bin/vimp-surface.js:46`
   переписан на `catch {`. В `master/GameCatalog.js` таких `catch (err)`
   осталось четыре (строки ~44, ~65, ~112, ~130) — то есть в одном коммите
   два стиля на одну ситуацию. Либо включить правило и вычистить, либо
@@ -371,17 +371,17 @@ Auth-форма строится с **пустым** `ctx` (`buildForm(descripto
 Прогнано вручную в Chrome, оба матча — на живом мастере с обеими
 установленными играми.
 
-| Что проверялось | Результат |
-| --- | --- |
-| Каталог `/games/manifest.json` | обе игры; у `snakes` — `requires: ["accolades"]`, поля `compat` нет (движок возможность даёт) |
-| Лобби, переключение игры в селекторе | форма перестраивается, у tanks появляются `roundTime`/`mapTime`/`friendlyFire`/`Map` |
-| Живая валидация room-формы (этап 3 + `formUnit`) | `maxPlayers = 99` → «MAX PLAYERS: must be ≤ 32»; `roundTime = 5` → «must be ≥ 10»; `roundTime = abc` → «must be a number»; исправление гасит строку по своему полю |
-| Единица `unit: 's'` | поле показывает `120`, таймер матча стартует с 2:00 — конвертация display↔stored цела на обеих половинах |
-| Скрытие поля с единственным вариантом | `Map` у snakes (одна карта `arena`) строки не даёт, у tanks — селект из трёх |
-| Snakes: комната → auth → матч | комната создаётся, «Player1 joined the game», змея едет, кристаллы на месте |
-| Tanks: комната → auth → выбор команды → раунд | «Your new team: team1», «ROUND START!», HUD и радар живые |
-| Опкод `dispatch` на живом ядре | `window.__vimpDebug.dump()` отдаёт `core.{bodies,colliders,map,nav,rng,spatial,step}` — дамп пришёл через `_op('debug.json')`, то есть путь реестр → `dispatchCoreOp` → `abi::dispatch_result` работает вживую |
-| Консоль | ни одной ошибки и ни одного предупреждения за сессию (в т.ч. ни одного `abi_describe is not JSON`) |
+| Что проверялось                                  | Результат                                                                                                                                                                                                      |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Каталог `/games/manifest.json`                   | обе игры; у `snakes` — `requires: ["accolades"]`, поля `compat` нет (движок возможность даёт)                                                                                                                  |
+| Лобби, переключение игры в селекторе             | форма перестраивается, у tanks появляются `roundTime`/`mapTime`/`friendlyFire`/`Map`                                                                                                                           |
+| Живая валидация room-формы (этап 3 + `formUnit`) | `maxPlayers = 99` → «MAX PLAYERS: must be ≤ 32»; `roundTime = 5` → «must be ≥ 10»; `roundTime = abc` → «must be a number»; исправление гасит строку по своему полю                                             |
+| Единица `unit: 's'`                              | поле показывает `120`, таймер матча стартует с 2:00 — конвертация display↔stored цела на обеих половинах                                                                                                       |
+| Скрытие поля с единственным вариантом            | `Map` у snakes (одна карта `arena`) строки не даёт, у tanks — селект из трёх                                                                                                                                   |
+| Snakes: комната → auth → матч                    | комната создаётся, «Player1 joined the game», змея едет, кристаллы на месте                                                                                                                                    |
+| Tanks: комната → auth → выбор команды → раунд    | «Your new team: team1», «ROUND START!», HUD и радар живые                                                                                                                                                      |
+| Опкод `dispatch` на живом ядре                   | `window.__vimpDebug.dump()` отдаёт `core.{bodies,colliders,map,nav,rng,spatial,step}` — дамп пришёл через `_op('debug.json')`, то есть путь реестр → `dispatchCoreOp` → `abi::dispatch_result` работает вживую |
+| Консоль                                          | ни одной ошибки и ни одного предупреждения за сессию (в т.ч. ни одного `abi_describe is not JSON`)                                                                                                             |
 
 Не проверено в браузере (нужен искусственный стенд, отдельная сессия):
 контрольный опыт плана — игра под `engineApi: 3` в `node_modules`; игра с
@@ -453,13 +453,13 @@ sim` на обеих играх — зелено. Тест на алиас во�
 
 ## Влияние на релиз
 
-| Артефакт | Находки | Подзаголовок `[Unreleased]` | Уровень |
-| --- | --- | --- | --- |
-| npm `vimp-engine` | 5, 6, 7 | `### Security` | patch |
-| npm `vimp-engine` | 1 (сверка half↔manifest), 2, 3, 4 | `### Fixed` | patch |
-| крейт `vimp-engine-core` | 9 (константа опкода) | `### Changed` | patch |
-| крейт `vimp-engine-core` | 8 | запись за уже выпущенную 0.9.1 | — |
-| `vimp-snakes` | 1 (`requires` в половинах) | журнал игры | patch |
+| Артефакт                 | Находки                           | Подзаголовок `[Unreleased]`    | Уровень |
+| ------------------------ | --------------------------------- | ------------------------------ | ------- |
+| npm `vimp-engine`        | 5, 6, 7                           | `### Security`                 | patch   |
+| npm `vimp-engine`        | 1 (сверка half↔manifest), 2, 3, 4 | `### Fixed`                    | patch   |
+| крейт `vimp-engine-core` | 9 (константа опкода)              | `### Changed`                  | patch   |
+| крейт `vimp-engine-core` | 8                                 | запись за уже выпущенную 0.9.1 | —       |
+| `vimp-snakes`            | 1 (`requires` в половинах)        | журнал игры                    | patch   |
 
 `⚠️ Breaking` не требуется нигде: ни одна правка не отвергает плагин или
 конфиг, который загружался раньше. Находки 5–7 ужесточают проверку

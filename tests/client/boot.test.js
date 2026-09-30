@@ -28,7 +28,9 @@ describe('boot', () => {
   });
 
   it('читает dedicated-режим из /config и доклеивает wsUrl по умолчанию', async () => {
-    const fetchImpl = vi.fn(async () => ok({ mode: 'dedicated', gameId: 'mini' }));
+    const fetchImpl = vi.fn(async () =>
+      ok({ mode: 'dedicated', gameId: 'mini' }),
+    );
     const cfg = await resolveBootConfig(fetchImpl);
 
     expect(fetchImpl).toHaveBeenCalledWith('/config');
@@ -70,13 +72,18 @@ describe('boot', () => {
   });
 
   it('404 и невалидный ответ — тоже lobby-режим', async () => {
-    const cfg = await resolveBootConfig(async () => ({ ok: false, status: 404 }));
+    const cfg = await resolveBootConfig(async () => ({
+      ok: false,
+      status: 404,
+    }));
 
     expect(cfg).toEqual({ mode: 'lobby' });
 
     resetBootConfig();
 
-    const garbage = await resolveBootConfig(async () => ok({ mode: 'nonsense' }));
+    const garbage = await resolveBootConfig(async () =>
+      ok({ mode: 'nonsense' }),
+    );
 
     expect(garbage).toEqual({ mode: 'lobby' });
   });

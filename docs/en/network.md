@@ -45,7 +45,7 @@ client's network layer — [packages/engine/src/client/network/](../../packages/
     clear/shake). Delivery must be guaranteed — losing such a frame
     permanently loses an explosion or an uncreated tank.
   - **`state`** (unreliable-unordered, `ordered: false, maxRetransmits:
-    0`): purely positional binary frames (`m1`/`c1`/`c2` + camera + player
+0`): purely positional binary frames (`m1`/`c1`/`c2` + camera + player
     block). Losing one is compensated by the next frame.
   - meta/state classification happens on the host side while packing (a
     frame with event blocks → meta, otherwise → state). The client
@@ -94,14 +94,14 @@ only the pipe underneath differs. All three expose the same shape — a
 `Publisher` with `message`/`close`, plus `connect`/`send(data, reliable)`/`close`
 — so the dispatcher never learns which one it is talking to.
 
-| | `WebRtcManager` (lobby) | `LoopbackTransport` (host tab, solo) | `WebSocketTransport` (dedicated) |
-| --- | --- | --- | --- |
-| Pipe | two `RTCDataChannel`s | postMessage to the Worker / a direct call in the same thread | one WebSocket |
-| meta/state split | yes | no | no |
-| `reliable` flag | picks the channel | ignored | ignored |
-| Frame ordering | `meta` ordered, `state` unordered | ordered | ordered (TCP) |
-| Binary frames | `ArrayBuffer` over `state`/`meta` | `ArrayBuffer` | `ArrayBuffer` (`binaryType` must be set) |
-| Backpressure | positional frames dropped on `bufferedAmount` | none needed | server-side |
+|                  | `WebRtcManager` (lobby)                       | `LoopbackTransport` (host tab, solo)                         | `WebSocketTransport` (dedicated)         |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------- |
+| Pipe             | two `RTCDataChannel`s                         | postMessage to the Worker / a direct call in the same thread | one WebSocket                            |
+| meta/state split | yes                                           | no                                                           | no                                       |
+| `reliable` flag  | picks the channel                             | ignored                                                      | ignored                                  |
+| Frame ordering   | `meta` ordered, `state` unordered             | ordered                                                      | ordered (TCP)                            |
+| Binary frames    | `ArrayBuffer` over `state`/`meta`             | `ArrayBuffer`                                                | `ArrayBuffer` (`binaryType` must be set) |
+| Backpressure     | positional frames dropped on `bufferedAmount` | none needed                                                  | server-side                              |
 
 Two consequences are worth spelling out for the dedicated server. **RTT
 measurement changes meaning**: PING/PONG travel over the reliable pipe, so
@@ -120,41 +120,41 @@ unchanged — only the object implementing `open`/`send`/`disconnect` differs.
 
 ### Server → client
 
-| Port | Name | Format | Description |
-| :--: | --- | :--: | --- |
-| 0 | `CONFIG_DATA` | JSON | The client config (a merge of `packages/engine/src/config/clientDefaults.js` + the game plugin's `src/config/client.js` (e.g. `vimp-tanks`'s) + `prediction`) |
-| 1 | `AUTH_DATA` | JSON | Auth form data |
-| 2 | `AUTH_RESULT` | JSON | Auth errors (or `null`) |
-| 3 | `MAP_DATA` | JSON | Map data |
-| 4 | `FIRST_SHOT_DATA` | JSON | The game's first frame (one-shot, bypasses the interpolation buffer): `[gameSnapshot, 0, serverTime, 0]` |
-| 5 | `SHOT_DATA` | **binary** | The game's snapshot frame (see below) |
-| 6 | `SOUND_DATA` | JSON | A system sound name (`roundStart`, `victory`, `frag`, …) |
-| 7 | `GAME_INFORM_DATA` | JSON | On-screen game messages (`[code, params?]`: `0` team victory, `1` round start, `2` game over — [packages/engine/src/config/gameCodes.js](../../packages/engine/src/config/gameCodes.js) is the source of truth shared by the host (`SocketManager.sendGameInform`) and the client (`main.js`'s `GAME_ROUND_START_CODE`)) |
-| 8 | `TECH_INFORM_DATA` | JSON | "Black screen" technical messages (`[code, params?]`: server full, loading, kicks); no data — hide the screen |
-| 9 | `MISC` | JSON | Miscellaneous data (`{key, value}`; currently — a name change in localStorage) |
-| 10 | `PING` | JSON | A ping id for RTT measurement |
-| 11 | `CLEAR` | JSON | A full or partial (by `setId`) canvas clear |
-| 12 | `CONSOLE` | JSON | Host debug log (dev only): `SocketManager.sendConsole`, printed by the client as `[vimp:debug][host] …` — the Worker is isolated from the tab's DevTools, see [debugging.md](debugging.md#host-logs-in-the-client-console) |
-| 13 | `PANEL_DATA` | JSON | The HUD panel (per-user, only on change) |
-| 14 | `STAT_DATA` | JSON | Stats (broadcast, only on change) |
-| 15 | `CHAT_DATA` | JSON | A chat message (broadcast or personal) |
-| 16 | `VOTE_DATA` | JSON | Vote data |
-| 17 | `KEYSET_DATA` | JSON | The active key set: `0` — spectator, `1` — player; sent on a status change, and on a map change (the spectator set right before `CLEAR`) |
-| 18 | `ACCOLADES_DATA` | JSON | Global leaderboard placements for the room's participants, produced by `host/meta/modules/Accolades.js` and applied client-side by `lib/accolades.js` |
+| Port | Name               |   Format   | Description                                                                                                                                                                                                                                                                                                              |
+| :--: | ------------------ | :--------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+|  0   | `CONFIG_DATA`      |    JSON    | The client config (a merge of `packages/engine/src/config/clientDefaults.js` + the game plugin's `src/config/client.js` (e.g. `vimp-tanks`'s) + `prediction`)                                                                                                                                                            |
+|  1   | `AUTH_DATA`        |    JSON    | Auth form data                                                                                                                                                                                                                                                                                                           |
+|  2   | `AUTH_RESULT`      |    JSON    | Auth errors (or `null`)                                                                                                                                                                                                                                                                                                  |
+|  3   | `MAP_DATA`         |    JSON    | Map data                                                                                                                                                                                                                                                                                                                 |
+|  4   | `FIRST_SHOT_DATA`  |    JSON    | The game's first frame (one-shot, bypasses the interpolation buffer): `[gameSnapshot, 0, serverTime, 0]`                                                                                                                                                                                                                 |
+|  5   | `SHOT_DATA`        | **binary** | The game's snapshot frame (see below)                                                                                                                                                                                                                                                                                    |
+|  6   | `SOUND_DATA`       |    JSON    | A system sound name (`roundStart`, `victory`, `frag`, …)                                                                                                                                                                                                                                                                 |
+|  7   | `GAME_INFORM_DATA` |    JSON    | On-screen game messages (`[code, params?]`: `0` team victory, `1` round start, `2` game over — [packages/engine/src/config/gameCodes.js](../../packages/engine/src/config/gameCodes.js) is the source of truth shared by the host (`SocketManager.sendGameInform`) and the client (`main.js`'s `GAME_ROUND_START_CODE`)) |
+|  8   | `TECH_INFORM_DATA` |    JSON    | "Black screen" technical messages (`[code, params?]`: server full, loading, kicks); no data — hide the screen                                                                                                                                                                                                            |
+|  9   | `MISC`             |    JSON    | Miscellaneous data (`{key, value}`; currently — a name change in localStorage)                                                                                                                                                                                                                                           |
+|  10  | `PING`             |    JSON    | A ping id for RTT measurement                                                                                                                                                                                                                                                                                            |
+|  11  | `CLEAR`            |    JSON    | A full or partial (by `setId`) canvas clear                                                                                                                                                                                                                                                                              |
+|  12  | `CONSOLE`          |    JSON    | Host debug log (dev only): `SocketManager.sendConsole`, printed by the client as `[vimp:debug][host] …` — the Worker is isolated from the tab's DevTools, see [debugging.md](debugging.md#host-logs-in-the-client-console)                                                                                               |
+|  13  | `PANEL_DATA`       |    JSON    | The HUD panel (per-user, only on change)                                                                                                                                                                                                                                                                                 |
+|  14  | `STAT_DATA`        |    JSON    | Stats (broadcast, only on change)                                                                                                                                                                                                                                                                                        |
+|  15  | `CHAT_DATA`        |    JSON    | A chat message (broadcast or personal)                                                                                                                                                                                                                                                                                   |
+|  16  | `VOTE_DATA`        |    JSON    | Vote data                                                                                                                                                                                                                                                                                                                |
+|  17  | `KEYSET_DATA`      |    JSON    | The active key set: `0` — spectator, `1` — player; sent on a status change, and on a map change (the spectator set right before `CLEAR`)                                                                                                                                                                                 |
+|  18  | `ACCOLADES_DATA`   |    JSON    | Global leaderboard placements for the room's participants, produced by `host/meta/modules/Accolades.js` and applied client-side by `lib/accolades.js`                                                                                                                                                                    |
 
 ### Client → server
 
-| Port | Name | Description |
-| :--: | --- | --- |
-| 0 | `CONFIG_READY` | Config received, canvas ready |
-| 1 | `AUTH_RESPONSE` | Auth form data plus the lobby identity JWT (`{model, ..., token}`); the host derives the nick from the verified token, not from a form field (Stage B3, see [auth.md](auth.md)) |
-| 2 | `MODULES_READY` | Client modules initialized |
-| 3 | `MAP_READY` | Map loaded and built |
-| 4 | `FIRST_SHOT_READY` | First frame applied, ready for the game loop |
-| 5 | `KEYS_DATA` | Input: the string `"seq:action:name"` (see below) |
-| 6 | `CHAT_DATA` | A chat message / command |
-| 7 | `VOTE_DATA` | A vote response `[voteName, value]` or a list request (`'maps'`, `'teams'`) |
-| 8 | `PONG` | A reply to PING (the ping id) |
+| Port | Name               | Description                                                                                                                                                                     |
+| :--: | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|  0   | `CONFIG_READY`     | Config received, canvas ready                                                                                                                                                   |
+|  1   | `AUTH_RESPONSE`    | Auth form data plus the lobby identity JWT (`{model, ..., token}`); the host derives the nick from the verified token, not from a form field (Stage B3, see [auth.md](auth.md)) |
+|  2   | `MODULES_READY`    | Client modules initialized                                                                                                                                                      |
+|  3   | `MAP_READY`        | Map loaded and built                                                                                                                                                            |
+|  4   | `FIRST_SHOT_READY` | First frame applied, ready for the game loop                                                                                                                                    |
+|  5   | `KEYS_DATA`        | Input: the string `"seq:action:name"` (see below)                                                                                                                               |
+|  6   | `CHAT_DATA`        | A chat message / command                                                                                                                                                        |
+|  7   | `VOTE_DATA`        | A vote response `[voteName, value]` or a list request (`'maps'`, `'teams'`)                                                                                                     |
+|  8   | `PONG`             | A reply to PING (the ping id)                                                                                                                                                   |
 
 The host enables client ports in stages (the port state machine in
 [packages/engine/src/host/host.worker.js](../../packages/engine/src/host/host.worker.js)): only
@@ -189,23 +189,24 @@ Details:
   there the reason is delivered as a separate `TECH_INFORM_DATA` over `meta`
   before closing; a WebSocket (dedicated, signaling) carries the code itself.
 
-  | Code | Key | Sent by | Client |
-  | --- | --- | --- | --- |
-  | `4000` | `staleHost` | `master/SignalingServer.js` | host's signaling socket, no player UI |
-  | `4001` | `invalidOrigin` | `master/SignalingServer.js`, `dedicated/main.js` | stays put, shows the reason |
-  | `4002` | `blocked` | `master/SignalingServer.js` | hoster blocked by rating; room evacuated |
-  | `4003` | `kickForMaxLatency` | `host/HostGame.js` | reloads after 3 s |
-  | `4004` | `kickForMissedPings` | `host/HostGame.js` | reloads after 3 s |
-  | `4005` | `kickIdle` | `host/HostGame.js` | reloads after 3 s |
-  | `4006` | `roomFull` | `host/PortMachine.js` | stays put, shows the reason |
-  | `4008` | `handshakeTimeout` | `dedicated/main.js` | stays put, shows the reason |
-  | `4009` | `tooManyConnections` | `dedicated/main.js` | stays put, shows the reason |
+  | Code   | Key                  | Sent by                                          | Client                                   |
+  | ------ | -------------------- | ------------------------------------------------ | ---------------------------------------- |
+  | `4000` | `staleHost`          | `master/SignalingServer.js`                      | host's signaling socket, no player UI    |
+  | `4001` | `invalidOrigin`      | `master/SignalingServer.js`, `dedicated/main.js` | stays put, shows the reason              |
+  | `4002` | `blocked`            | `master/SignalingServer.js`                      | hoster blocked by rating; room evacuated |
+  | `4003` | `kickForMaxLatency`  | `host/HostGame.js`                               | reloads after 3 s                        |
+  | `4004` | `kickForMissedPings` | `host/HostGame.js`                               | reloads after 3 s                        |
+  | `4005` | `kickIdle`           | `host/HostGame.js`                               | reloads after 3 s                        |
+  | `4006` | `roomFull`           | `host/PortMachine.js`                            | stays put, shows the reason              |
+  | `4008` | `handshakeTimeout`   | `dedicated/main.js`                              | stays put, shows the reason              |
+  | `4009` | `tooManyConnections` | `dedicated/main.js`                              | stays put, shows the reason              |
 
   "Stays put" is the policy rule of
   [`src/client/network/policyClose.js`](../../packages/engine/src/client/network/policyClose.js)
   (`shouldReloadAfterClose`, `POLICY_CLOSE_INFORMS`): reloading would spend
   another connection against the same limit, restart the same timer, leave the
   same origin or fail to free a slot. `4007` is free.
+
 - After `FIRST_SHOT_READY` the user gets the game's initial vote (e.g. a
   team-selection vote in `vimp-tanks`) and starts receiving frames.
 
@@ -245,17 +246,17 @@ a copy of the body.
 
 ### Frame layout (v5)
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `port` | Uint8 | Always `5` (SHOT_DATA) |
-| `version` | Uint8 | `SNAPSHOT_FORMAT_VERSION` |
-| `seq` | Uint32 | An incrementing frame number |
-| `serverTime` | Float64 | The server's `Date.now()` |
-| `cameraFlags` | Uint8 | bit0 hasCamera, bit1 forceReset, bit2 hasShake, bit3 hasPlayer |
-| camera | 2×Float32 | `[x, y]` (if hasCamera) |
-| shake | Uint8 len + ASCII | The string `'intensity:duration'` (if hasShake) |
-| player block | see below | Only for the playing user (if hasPlayer) |
-| body blocks | to the end of the buffer | `Uint8 keyId` + content per `kind` |
+| Field         | Type                     | Description                                                    |
+| ------------- | ------------------------ | -------------------------------------------------------------- |
+| `port`        | Uint8                    | Always `5` (SHOT_DATA)                                         |
+| `version`     | Uint8                    | `SNAPSHOT_FORMAT_VERSION`                                      |
+| `seq`         | Uint32                   | An incrementing frame number                                   |
+| `serverTime`  | Float64                  | The server's `Date.now()`                                      |
+| `cameraFlags` | Uint8                    | bit0 hasCamera, bit1 forceReset, bit2 hasShake, bit3 hasPlayer |
+| camera        | 2×Float32                | `[x, y]` (if hasCamera)                                        |
+| shake         | Uint8 len + ASCII        | The string `'intensity:duration'` (if hasShake)                |
+| player block  | see below                | Only for the playing user (if hasPlayer)                       |
+| body blocks   | to the end of the buffer | `Uint8 keyId` + content per `kind`                             |
 
 **Player block** (the foundation of client-side prediction): `gameId`
 (Uint8), `lastInputSeq` (Uint32), the player actor's exact state as
@@ -270,13 +271,13 @@ in the plugin's own snapshot schema — the engine only enforces the block
 layout (id + typed fields). Example from the reference plugin
 (`vimp-tanks`):
 
-| Key | id | kind | Data format |
-| :--: | :--: | --- | --- |
-| `m1` | 1 | `tanks` | `{gameId: [x, y, angle, gunRotation, vx, vy, engineLoad, condition, size, teamId, angvel] \| null}`; `null` — remove from the canvas |
-| `w1` | 2 | `tracers` | array `[startX, startY, endX, endY, bodyX, bodyY, wasHit, shooterId]` |
-| `w2` | 3 | `bombs` | `{shotId(base36): [x, y, angle, size, time, ownerId] \| null}` |
-| `w2e` | 4 | `explosions` | array `[x, y, radius]` |
-| `c1`/`c2` | 5/6 | `dynamics` | `{'dN': [x, y, angle] \| [x, y, angle, vx, vy, angvel]}` — dynamic map elements; the velocity tail is optional (see below) |
+|    Key    | id  | kind         | Data format                                                                                                                          |
+| :-------: | :-: | ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+|   `m1`    |  1  | `tanks`      | `{gameId: [x, y, angle, gunRotation, vx, vy, engineLoad, condition, size, teamId, angvel] \| null}`; `null` — remove from the canvas |
+|   `w1`    |  2  | `tracers`    | array `[startX, startY, endX, endY, bodyX, bodyY, wasHit, shooterId]`                                                                |
+|   `w2`    |  3  | `bombs`      | `{shotId(base36): [x, y, angle, size, time, ownerId] \| null}`                                                                       |
+|   `w2e`   |  4  | `explosions` | array `[x, y, radius]`                                                                                                               |
+| `c1`/`c2` | 5/6 | `dynamics`   | `{'dN': [x, y, angle] \| [x, y, angle, vx, vy, angvel]}` — dynamic map elements; the velocity tail is optional (see below)           |
 
 Every float is originally rounded by the host to 2 decimals; the decoder
 restores values by rounding the Float32 again (the player block isn't
@@ -310,7 +311,7 @@ A field may also declare `role` — its role in the engine's own contract, as
 opposed to its game-owned `name`. Today there are two, and they come as a
 pair in the map-dynamics block: `role: 'z'` at index 3 and `role: 'level'`
 at index 4 make the dynamic row layered (the body's height above its level
-and its level). The engine used to detect that pair by field *name*, so
+and its level). The engine used to detect that pair by field _name_, so
 renaming a field silently returned a flat row; now the roles are the only
 authority, and a map load fails loudly when a role sits at the wrong index,
 when only one of the pair is declared, or when fields named `z`/`level`
@@ -406,10 +407,10 @@ of keys with no values (containers are hidden).
 [packages/engine/src/host/meta/modules/Stat.js](../../packages/engine/src/host/meta/modules/Stat.js)):
 
 - **`statArray[0]`** — table rows: `[row id, table number, cell array |
-  null, tbody number]`. `null` instead of cells — remove the row; an empty
+null, tbody number]`. `null` instead of cells — remove the row; an empty
   string in a cell — clear the value; `undefined`/omitted — don't change.
 - **`statArray[1]`** — headers: `[table number, cell array, tHead row
-  number]`.
+number]`.
 - **`statArray[2]`** — a full-update flag (boolean, optional).
 
 A player row's cells: `[name, status, score, deaths, latency]` (order —

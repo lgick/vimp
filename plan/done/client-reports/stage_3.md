@@ -22,7 +22,7 @@
 
 - `packages/engine/src/client/main.js`:
   - стр. ~141–150: `injectedBoot`, `const boot = injectedBoot ?? (await
-    resolveBootConfig())`, `bootMode`, `isLobbyMode` — самая ранняя точка,
+resolveBootConfig())`, `bootMode`, `isLobbyMode` — самая ранняя точка,
     где известен режим;
   - места присваивания `activeGameManifest` (`grep -n "activeGameManifest ="`):
     ветка `boot.manifest` (стр. ~152) и `selectActiveGame` (стр. ~2061);
@@ -31,9 +31,9 @@
   - `connectAsHost` (стр. ~1534) и `new HostController(room, {…})`
     (стр. ~1596).
 - `packages/engine/src/client/boot.js` — `mode: 'lobby' | 'solo' |
-  'dedicated'`; SDK зовёт `setBootConfig` до `import('./main.js')`.
+'dedicated'`; SDK зовёт `setBootConfig` до `import('./main.js')`.
 - `packages/engine/src/config/lobby.js` — там же `debugReportUrl:
-  '/debug/report'` (стр. ~146).
+'/debug/report'` (стр. ~146).
 - `packages/engine/src/client/network/HostController.js` — конструктор
   `(room, { workerFactory, workerUrl, onReady, onError, onMapChange })`,
   `_createWorker`, все места `this._worker.onmessage = …` (при эстафете
@@ -79,14 +79,14 @@ export function createDiagnostics(opts) { … }
   4000, `code` 64, `details` 2048 байт JSON (больше → `{ truncated: true }`).
 - `capture(error, { source = 'client', kind = 'error' } = {})`:
   `message = error?.message ?? String(error)`, `stack = typeof error?.stack
-  === 'string' ? error.stack : null`. Не-`Error` (строка, объект из
+=== 'string' ? error.stack : null`. Не-`Error` (строка, объект из
   `reject(...)`) — через `String(...)` в `try/catch`.
 - `warn(code, details = null, { source = 'plugin', message } = {})`:
   `kind: 'warn'`; `code` проверяется `/^[a-z0-9][a-z0-9._-]{0,63}$/i`,
   иначе `'invalid-code'`; `message` по умолчанию = `code`; `stack` —
   `new Error().stack`, обрезанный (место вызова полезно при разборе).
 - **Дедупликация**: ключ `${source}|${kind}|${code ?? message}|<первая
-  строка стека с «:цифры:цифры»>`; повтор — `count++`, `lastAt = now()`.
+строка стека с «:цифры:цифры»>`; повтор — `count++`, `lastAt = now()`.
 - **Потолок сессии**: после `maxKeysPerSession` разных ключей новые ключи
   игнорируются (повторы уже известных — считаются дальше). Один раз
   `console.warn('[vimp] diagnostics: session cap reached')`.
@@ -99,10 +99,10 @@ export function createDiagnostics(opts) { … }
   `crypto.randomUUID()` (есть в браузерах и в happy-dom; нет — fallback на
   `Math.random().toString(16)`), один на экземпляр.
 - **Транспорт по умолчанию**: `navigator.sendBeacon(url, new Blob([json],
-  { type: 'application/json' }))`; нет `sendBeacon` или он вернул `false` →
+{ type: 'application/json' }))`; нет `sendBeacon` или он вернул `false` →
   `fetch(url, { method: 'POST', body: json, headers: { 'content-type':
-  'application/json' }, keepalive: true, credentials: 'same-origin' })
-  .catch(() => {})`.
+'application/json' }, keepalive: true, credentials: 'same-origin' })
+.catch(() => {})`.
 - `install(target = window)` → функция снятия:
   - `error`: только `event instanceof ErrorEvent` (ошибки загрузки ресурсов
     `<img>`/`<script>` приходят обычным `Event` на элементе — их
@@ -123,12 +123,12 @@ export function createDiagnostics(opts) { … }
     `eval`, `wasm-eval`, `data`, `blob` и пустая строка — как есть);
   - `message: \`CSP ${event.effectiveDirective} blocked ${blocked}\``;
   - `details: { directive: event.effectiveDirective, disposition:
-    event.disposition, sourceFile: <без query>, line: event.lineNumber,
-    column: event.columnNumber, sample: (event.sample || '').slice(0, 40) }`;
+event.disposition, sourceFile: <без query>, line: event.lineNumber,
+column: event.columnNumber, sample: (event.sample || '').slice(0, 40) }`;
   - дедуп и счётчик — общие (ключ по `message`), то есть одно правило CSP,
     сработавшее тысячу раз, — одна запись с `count`.
-  CSP мастер ставит **только в проде** (`packages/engine/src/config/master.js`,
-  блок `security`), поэтому в dev этих записей не будет — это ожидаемо.
+    CSP мастер ставит **только в проде** (`packages/engine/src/config/master.js`,
+    блок `security`), поэтому в dev этих записей не будет — это ожидаемо.
 - `setContext(patch)` — слияние в контекст (игра выбрана, стал хостом).
 - **Безопасность самого репортёра**: каждая публичная функция — в
   `try/catch` без повторного броска; флаг реентерабельности (ошибка внутри
@@ -166,16 +166,13 @@ const diagnostics = createDiagnostics({
 diagnostics.install(window);
 ```
 
-   Ошибки **до** этой строки (импорты, `resolveBootConfig`) не ловятся —
-   это осознанно: без режима неизвестно, куда слать.
-2. После **каждого** присваивания `activeGameManifest`:
-   `diagnostics.setContext({ gameId: activeGameManifest.id ?? null,
+Ошибки **до** этой строки (импорты, `resolveBootConfig`) не ловятся —
+это осознанно: без режима неизвестно, куда слать. 2. После **каждого** присваивания `activeGameManifest`:
+`diagnostics.setContext({ gameId: activeGameManifest.id ?? null,
    gameVersion: activeGameManifest.version ?? null })` (проверить имена
-   полей манифеста в `GameManifest`, `docs/en/plugin-api.md`).
-3. В `connectAsHost`: `diagnostics.setContext({ role: 'host' })`; при
-   выходе из роли хоста (найти, где `hostController` обнуляется) —
-   `setContext({ role: 'client' })`.
-4. В `availableServices` — **урезанный фасад**, без `flush`/`install`:
+полей манифеста в `GameManifest`, `docs/en/plugin-api.md`). 3. В `connectAsHost`: `diagnostics.setContext({ role: 'host' })`; при
+выходе из роли хоста (найти, где `hostController` обнуляется) —
+`setContext({ role: 'client' })`. 4. В `availableServices` — **урезанный фасад**, без `flush`/`install`:
 
 ```js
 // журнал клиентских ошибок для партов игры (plan/client-reports):
@@ -216,14 +213,14 @@ self.addEventListener('unhandledrejection', event => {
 - в **каждом** месте, где новому Worker назначается `onmessage`
   (первичное создание и эстафета), назначить и
   `worker.onerror = event => this._diagnostics?.capture(event.error ??
-  event.message, { source: 'host-worker', kind: 'worker' })` и
+event.message, { source: 'host-worker', kind: 'worker' })` и
   `worker.onmessageerror` (`message: 'messageerror'`, `kind: 'worker'`);
   **не** вызывать `event.preventDefault()` — консольный вывод браузера
   остаётся как есть;
 - в `_onWorkerMessage`: `type === 'diagnostic'` → `capture({ message,
-  stack }, { source: 'host-worker', kind: msg.kind })` и выход; существующая
+stack }, { source: 'host-worker', kind: msg.kind })` и выход; существующая
   ветка `type === 'error'` дополнительно зовёт `capture(new
-  Error(msg.message), { source: 'host-worker', kind: 'error' })` —
+Error(msg.message), { source: 'host-worker', kind: 'error' })` —
   **поведение отката не меняется**.
 
 ### 3.5. SDK (solo) — `packages/engine/src/standalone/`
@@ -265,7 +262,7 @@ self.addEventListener('unhandledrejection', event => {
   - `install`: `window.dispatchEvent(new ErrorEvent('error', { error }))` →
     запись; обычный `Event('error')` (ресурс) — нет; `PromiseRejectionEvent`
     (или ручной `Event('unhandledrejection')` с полем `reason`) → `kind:
-    'rejection'`; снятие слушателей;
+'rejection'`; снятие слушателей;
   - CSP: `new Event('securitypolicyviolation')` на `document` с полями
     `effectiveDirective`, `blockedURI` (`https://cdn.example/x.js?t=1`),
     `sourceFile`, `lineNumber`, `disposition`, `sample` (через
@@ -278,11 +275,11 @@ self.addEventListener('unhandledrejection', event => {
   - реентерабельность: `send`, бросающий при каждом вызове, не зацикливает.
 - `tests/client/network/HostController.test.js` (если файла нет — создать по
   образцу соседних): `onerror` Worker'а → `capture` с `source:
-  'host-worker'`; сообщение `diagnostic` → `capture`, откат не вызывается;
+'host-worker'`; сообщение `diagnostic` → `capture`, откат не вызывается;
   `error` из init → и `onError` (как раньше), и `capture`.
 - `tests/client/clientServices.test.js` — `diagnostics` в `SERVICES`.
 - Тест реестра capability (найти существующий — `grep -rn "map.bodyState"
-  tests/`) — `diagnostics` на месте.
+tests/`) — `diagnostics` на месте.
 
 ## Документация (en + ru; плюс `docs/ai/`)
 
@@ -296,7 +293,7 @@ self.addEventListener('unhandledrejection', event => {
 - `plugin-api.md` — сервис пула `diagnostics`: объявление в
   `componentDependencies`, API, пример
   `this._diagnostics = dependencies.diagnostics ?? null;
-  this._diagnostics?.warn('mygame.something', { … })`, правило «в
+this._diagnostics?.warn('mygame.something', { … })`, правило «в
   `requires` не писать — на старом движке будет `undefined`», формат `code`.
 - `standalone.md` — опция `reportUrl`.
 - `docs/ai/04-client-plugin.md` — тот же сервис в списке движковых
@@ -329,7 +326,9 @@ node packages/engine/bin/vimp-surface.js      # без --write: расхожде
 в матч, в DevTools:
 
 ```js
-setTimeout(() => { throw new TypeError('probe-sync'); });
+setTimeout(() => {
+  throw new TypeError('probe-sync');
+});
 Promise.reject(new Error('probe-async'));
 ```
 

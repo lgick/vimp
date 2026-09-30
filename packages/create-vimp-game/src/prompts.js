@@ -47,7 +47,10 @@ export async function askValid(question, fallback, isValid, hint) {
 // Дефолты пересчитываются по ходу: человек, назвавший каталог
 // `space-arena`, ждёт «Space Arena» и `@vimp-games/space-arena`, а не
 // значения, выведенные из аргументов до вопросов
-export async function askAnswers(defaults, { interactive = true, derive } = {}) {
+export async function askAnswers(
+  defaults,
+  { interactive = true, derive } = {},
+) {
   if (!interactive) {
     return { ...defaults };
   }
@@ -74,7 +77,10 @@ export async function askAnswers(defaults, { interactive = true, derive } = {}) 
       author: await ask('Author', defaults.author),
       // пустой ответ допустим: поля repository тогда не будет вовсе, о чём
       // скажет правило контракта A7
-      repository: await ask('Repository (URL or user/repo)', defaults.repository),
+      repository: await ask(
+        'Repository (URL or user/repo)',
+        defaults.repository,
+      ),
     };
   } finally {
     closePrompts();

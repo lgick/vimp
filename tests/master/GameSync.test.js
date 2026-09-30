@@ -5,7 +5,12 @@ import GameSync from '../../packages/engine/src/master/GameSync.js';
 // этап 3). Инвариант: отказ реестра или битый пакет одной игры не снимают с
 // раздачи то, что уже работает.
 
-const manifestOf = id => ({ id, version: `${id}-hash`, entries: {}, assetsBase: `/games/${id}/` });
+const manifestOf = id => ({
+  id,
+  version: `${id}-hash`,
+  entries: {},
+  assetsBase: `/games/${id}/`,
+});
 
 const makeStore = (overrides = {}) => ({
   ensure: vi.fn(async (id, pkg, version) => ({
@@ -69,11 +74,19 @@ describe('GameSync', () => {
   it('ставит новую игру реестра в каталог активной версией', async () => {
     const catalog = makeCatalog();
     const store = makeStore();
-    const sync = new GameSync({ registry: makeRegistry([tanks]), store, catalog });
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store,
+      catalog,
+    });
 
     await sync.run();
 
-    expect(store.ensure).toHaveBeenCalledWith('tanks', '@vimp-games/tanks', '0.16.1');
+    expect(store.ensure).toHaveBeenCalledWith(
+      'tanks',
+      '@vimp-games/tanks',
+      '0.16.1',
+    );
     expect(catalog.upsert).toHaveBeenCalledWith({
       id: 'tanks',
       version: '0.16.1',
@@ -145,7 +158,14 @@ describe('GameSync', () => {
     const store = makeStore({
       ensure: vi.fn(async (id, pkg, version) =>
         id === 'tanks'
-          ? { ok: false, version, distDir: null, manifest: null, compat: null, errors: ['нет dist/manifest.json'] }
+          ? {
+              ok: false,
+              version,
+              distDir: null,
+              manifest: null,
+              compat: null,
+              errors: ['нет dist/manifest.json'],
+            }
           : {
               ok: true,
               version,
@@ -156,13 +176,21 @@ describe('GameSync', () => {
             },
       ),
     });
-    const sync = new GameSync({ registry: makeRegistry([tanks, snakes]), store, catalog });
+    const sync = new GameSync({
+      registry: makeRegistry([tanks, snakes]),
+      store,
+      catalog,
+    });
 
     await sync.run();
 
     expect(catalog.upsert).toHaveBeenCalledTimes(1);
-    expect(catalog.upsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'snakes' }));
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('нет dist/manifest.json'));
+    expect(catalog.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'snakes' }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('нет dist/manifest.json'),
+    );
   });
 
   it('игра, исчезнувшая из реестра, снимается с раздачи', async () => {
@@ -172,7 +200,10 @@ describe('GameSync', () => {
 
     await sync.run();
 
-    registry.list.mockResolvedValueOnce({ status: 200, json: { games: [snakes] } });
+    registry.list.mockResolvedValueOnce({
+      status: 200,
+      json: { games: [snakes] },
+    });
     await sync.run();
 
     expect(catalog.remove).toHaveBeenCalledWith('tanks');
@@ -192,11 +223,19 @@ describe('GameSync', () => {
     await sync.run();
     await sync.run();
 
-    expect(store.ensure).not.toHaveBeenCalledWith('tanks', expect.anything(), expect.anything());
-    expect(catalog.upsert).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'tanks' }));
+    expect(store.ensure).not.toHaveBeenCalledWith(
+      'tanks',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(catalog.upsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'tanks' }),
+    );
     expect(catalog.remove).not.toHaveBeenCalled();
     // сообщение об игноре реестра — один раз на игру, а не каждый проход
-    expect(info.mock.calls.filter(([text]) => text.includes('linked locally'))).toHaveLength(1);
+    expect(
+      info.mock.calls.filter(([text]) => text.includes('linked locally')),
+    ).toHaveLength(1);
   });
 
   it('prune получает раздаваемые версии в пределах keepVersions и все черновики', async () => {
@@ -248,7 +287,9 @@ describe('GameSync', () => {
     await sync.run();
 
     expect(store.ensure).not.toHaveBeenCalled();
-    expect(store.prune).toHaveBeenCalledWith(new Map([['tanks', new Set(['0.16.1'])]]));
+    expect(store.prune).toHaveBeenCalledWith(
+      new Map([['tanks', new Set(['0.16.1'])]]),
+    );
   });
 
   it('черновик локальной игры снимается, когда раздаётся ТА ЖЕ сборка', async () => {
@@ -282,7 +323,10 @@ describe('GameSync', () => {
     // сборку с локальной было нельзя — ради чего «Тест» в dev и нужен
     const catalog = makeCatalog();
 
-    catalog.getManifest.mockReturnValue({ ...manifestOf('tanks'), version: 'local-hash' });
+    catalog.getManifest.mockReturnValue({
+      ...manifestOf('tanks'),
+      version: 'local-hash',
+    });
     catalog.stagedManifests.mockReturnValue([
       { id: 'tanks', version: '0.16.1', manifest: manifestOf('tanks') },
     ]);
@@ -304,7 +348,11 @@ describe('GameSync', () => {
 
     catalog.getManifest.mockReturnValue(manifestOf('tanks'));
     catalog.stagedManifests.mockReturnValue([
-      { id: 'tanks', version: '0.17.0', manifest: { ...manifestOf('tanks'), version: 'next-hash' } },
+      {
+        id: 'tanks',
+        version: '0.17.0',
+        manifest: { ...manifestOf('tanks'), version: 'next-hash' },
+      },
     ]);
 
     const sync = new GameSync({
@@ -348,7 +396,9 @@ describe('GameSync', () => {
 
     await sync.run();
 
-    expect(store.prune).toHaveBeenCalledWith(new Map([['snakes', new Set(['0.9.1'])]]));
+    expect(store.prune).toHaveBeenCalledWith(
+      new Map([['snakes', new Set(['0.9.1'])]]),
+    );
   });
 
   it('застейдженная версия игры вне одобренного каталога остаётся в keep', async () => {
@@ -362,7 +412,11 @@ describe('GameSync', () => {
     ]);
 
     const store = makeStore();
-    const sync = new GameSync({ registry: makeRegistry([tanks]), store, catalog });
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store,
+      catalog,
+    });
 
     await sync.run();
 
@@ -377,7 +431,11 @@ describe('GameSync', () => {
   it('повторный проход без изменений в реестре не трогает каталог', async () => {
     const catalog = makeCatalog();
     const store = makeStore();
-    const sync = new GameSync({ registry: makeRegistry([tanks]), store, catalog });
+    const sync = new GameSync({
+      registry: makeRegistry([tanks]),
+      store,
+      catalog,
+    });
 
     await sync.run();
 
@@ -441,7 +499,11 @@ describe('GameSync', () => {
 
   it('два одновременных run() дают один поход в реестр', async () => {
     const registry = makeRegistry([tanks]);
-    const sync = new GameSync({ registry, store: makeStore(), catalog: makeCatalog() });
+    const sync = new GameSync({
+      registry,
+      store: makeStore(),
+      catalog: makeCatalog(),
+    });
 
     await Promise.all([sync.run(), sync.run()]);
 
@@ -450,7 +512,9 @@ describe('GameSync', () => {
 
   it('удалённые prune пути отдаются в onPruned', async () => {
     const onPruned = vi.fn();
-    const store = makeStore({ prune: vi.fn(async () => ['/games-dir/tanks/0.15.0']) });
+    const store = makeStore({
+      prune: vi.fn(async () => ['/games-dir/tanks/0.15.0']),
+    });
     const sync = new GameSync({
       registry: makeRegistry([tanks]),
       store,

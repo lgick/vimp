@@ -506,8 +506,7 @@ describe('unpushedTags', () => {
       'git tag --contains @{u}':
         'vimp-engine-core@0.10.0\nvimp-engine@0.29.0\n',
       'git tag --points-at @{u}': '',
-      'git ls-remote --tags origin':
-        'abc\trefs/tags/vimp-engine-core@0.10.0\n',
+      'git ls-remote --tags origin': 'abc\trefs/tags/vimp-engine-core@0.10.0\n',
     });
 
     expect(await unpushedTags(shell, '/repo')).toEqual(['vimp-engine@0.29.0']);
@@ -818,15 +817,15 @@ describe('режим запуска публикации', () => {
 
     // `--dry-run` вариант (checkPublishable) остаётся — не он под запретом
     expect(source.match(/shell\.publish\(/g)).toBe(null);
-    expect(
-      source.match(/\[\s*'publish',\s*'-p',\s*CRATE_NAME\s*\]/),
-    ).toBe(null);
-    expect(
-      source.match(/\[\s*'publish',\s*'-w',\s*ENGINE_NAME\s*\]/),
-    ).toBe(null);
-    expect(
-      source.match(/\[\s*'publish',\s*'-w',\s*SCAFFOLD_NAME\s*\]/),
-    ).toBe(null);
+    expect(source.match(/\[\s*'publish',\s*'-p',\s*CRATE_NAME\s*\]/)).toBe(
+      null,
+    );
+    expect(source.match(/\[\s*'publish',\s*'-w',\s*ENGINE_NAME\s*\]/)).toBe(
+      null,
+    );
+    expect(source.match(/\[\s*'publish',\s*'-w',\s*SCAFFOLD_NAME\s*\]/)).toBe(
+      null,
+    );
   });
 });
 
@@ -960,7 +959,12 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
 
     shell.read = async (command, args, options) =>
       args[0] === 'log'
-        ? { code: 0, stdout: 'abc chore: bump create-vimp-game to 0.4.4\n', stderr: '', output: '' }
+        ? {
+            code: 0,
+            stdout: 'abc chore: bump create-vimp-game to 0.4.4\n',
+            stderr: '',
+            output: '',
+          }
         : read(command, args, options);
 
     // адрес лобби дописывается к напоминанию: у разработчика он может быть
@@ -1064,7 +1068,12 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
 
     shell.read = async (command, args, options) => {
       if (args[0] === 'tag' && args[1] === '--contains') {
-        return { code: 0, stdout: 'vimp-engine@0.9.9\n', stderr: '', output: '' };
+        return {
+          code: 0,
+          stdout: 'vimp-engine@0.9.9\n',
+          stderr: '',
+          output: '',
+        };
       }
       if (args[0] === 'tag' || args[0] === 'ls-remote') {
         return { code: 0, stdout: '', stderr: '', output: '' };
@@ -1083,7 +1092,9 @@ describe('sim игры при поднятом ENGINE_API_VERSION', () => {
     });
 
     expect(shell.calls).toContain('write git push');
-    expect(shell.calls).not.toContain('write git push origin vimp-engine@0.9.9');
+    expect(shell.calls).not.toContain(
+      'write git push origin vimp-engine@0.9.9',
+    );
     expect(report.remaining).toEqual([
       'тег vimp-engine@0.9.9 не в origin — проверьте коммит и запушьте: ' +
         'git push origin vimp-engine@0.9.9',
@@ -1319,7 +1330,9 @@ describe('rebuildEntry', () => {
         engineVersion: '0.34.4',
         engineReleased: true,
       }),
-    ).toBe('Rebuilt against `vimp-engine-core` 0.22.3 and `vimp-engine` 0.34.4.');
+    ).toBe(
+      'Rebuilt against `vimp-engine-core` 0.22.3 and `vimp-engine` 0.34.4.',
+    );
   });
 
   it('релиз одного движка: крейт на том же пине не называется', () => {
@@ -1360,10 +1373,11 @@ describe('rebuildEntry', () => {
   });
 
   it('ничего не сменилось — записи нет', () => {
-    expect(rebuildEntry({ crateVersion: null, engineVersion: null })).toBe(null);
+    expect(rebuildEntry({ crateVersion: null, engineVersion: null })).toBe(
+      null,
+    );
   });
 });
-
 
 // релиз движка ради нового крейта при пустой [Unreleased] раньше уходил без
 // записи — в журнале движка так пропали 0.34.2…0.34.4
@@ -1429,9 +1443,18 @@ describe('publishEngine: запись вынужденного релиза', ()
 
 describe('actionsUrl', () => {
   it.each([
-    ['git@github.com:lgick/vimp-tanks.git\n', 'https://github.com/lgick/vimp-tanks/actions'],
-    ['https://github.com/lgick/vimp.git', 'https://github.com/lgick/vimp/actions'],
-    ['git+ssh://git@github.com/lgick/vimp.git', 'https://github.com/lgick/vimp/actions'],
+    [
+      'git@github.com:lgick/vimp-tanks.git\n',
+      'https://github.com/lgick/vimp-tanks/actions',
+    ],
+    [
+      'https://github.com/lgick/vimp.git',
+      'https://github.com/lgick/vimp/actions',
+    ],
+    [
+      'git+ssh://git@github.com/lgick/vimp.git',
+      'https://github.com/lgick/vimp/actions',
+    ],
     ['git@gitlab.com:x/y.git', null],
   ])('%s → %s', (remote, url) => {
     expect(actionsUrl(remote)).toBe(url);

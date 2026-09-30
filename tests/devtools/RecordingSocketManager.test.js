@@ -55,9 +55,13 @@ describe('RecordingSocketManager', () => {
   // FIRST_SHOT_DATA, а не панель с keySet'ом вложенных вызовов
   it('составной отправитель публикуется раньше своих вложенных', () => {
     const delivered = [];
-    const socket = new RecordingSocketManager(wsports.server, {}, {
-      onFrame: frame => delivered.push(frame.method),
-    });
+    const socket = new RecordingSocketManager(
+      wsports.server,
+      {},
+      {
+        onFrame: frame => delivered.push(frame.method),
+      },
+    );
     const { game, panel, stat } = services();
 
     socket.injectServices(game, panel, stat);

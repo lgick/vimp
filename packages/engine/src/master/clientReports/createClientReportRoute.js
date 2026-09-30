@@ -91,7 +91,10 @@ export function createClientReportRoute({
 
           if (symbolicate && stack) {
             try {
-              stack = String(await symbolicate(stack)).slice(0, STACK_SYMBOLICATED);
+              stack = String(await symbolicate(stack)).slice(
+                0,
+                STACK_SYMBOLICATED,
+              );
             } catch {
               stack = item.stack;
             }

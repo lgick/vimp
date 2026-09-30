@@ -22,7 +22,9 @@ let Chat;
 
 beforeEach(async () => {
   vi.resetModules();
-  Chat = (await import('../../packages/engine/src/host/meta/modules/chat/Chat.js')).default;
+  Chat = (
+    await import('../../packages/engine/src/host/meta/modules/chat/Chat.js')
+  ).default;
 });
 
 describe('buildSystemMessage', () => {

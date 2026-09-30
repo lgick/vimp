@@ -4,15 +4,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 let LobbyAuthModel;
 
 const encodeSegment = obj =>
-  btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  btoa(JSON.stringify(obj))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 
-const makeToken = payload => `${encodeSegment({ alg: 'RS256' })}.${encodeSegment(payload)}.sig`;
+const makeToken = payload =>
+  `${encodeSegment({ alg: 'RS256' })}.${encodeSegment(payload)}.sig`;
 
 const config = {
   serviceUrl: 'http://auth.test',
   providers: ['github'],
   tokenStorageKey: 'vimpAuthToken',
-  queryParams: { token: 'token', pendingToken: 'pendingToken', error: 'authError' },
+  queryParams: {
+    token: 'token',
+    pendingToken: 'pendingToken',
+    error: 'authError',
+  },
 };
 
 let model;
@@ -186,7 +194,9 @@ describe('LobbyAuthModel: submitNick', () => {
       'http://auth.test/nick',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'Bearer pending-abc' }),
+        headers: expect.objectContaining({
+          Authorization: 'Bearer pending-abc',
+        }),
       }),
     );
     expect(events).toEqual([{ nick: 'Vanya' }]);
@@ -255,7 +265,9 @@ describe('LobbyAuthModel: loginUrl', () => {
 // показывать ли кнопку «Модерация». Право проверяют мастер и auth-сервис
 describe('LobbyAuthModel: getRole', () => {
   it('отдаёт роль из токена', () => {
-    model.boot(`?token=${makeToken({ sub: 'u1', nick: 'Vanya', role: 'admin' })}`);
+    model.boot(
+      `?token=${makeToken({ sub: 'u1', nick: 'Vanya', role: 'admin' })}`,
+    );
 
     expect(model.getRole()).toBe('admin');
   });

@@ -64,8 +64,12 @@ describe('LobbyAuthView: переключение секций', () => {
     model.publisher.emit('login-required', ['github']);
 
     expect(document.getElementById('lobby-auth').style.display).toBe('block');
-    expect(document.getElementById('lobby-auth-login').style.display).toBe('block');
-    expect(document.getElementById('lobby-auth-nick').style.display).toBe('none');
+    expect(document.getElementById('lobby-auth-login').style.display).toBe(
+      'block',
+    );
+    expect(document.getElementById('lobby-auth-nick').style.display).toBe(
+      'none',
+    );
     expect(document.getElementById('lobby').style.display).toBe('none');
     expect(document.getElementById('lobby-user').style.display).toBe('none');
   });
@@ -73,21 +77,32 @@ describe('LobbyAuthView: переключение секций', () => {
   it('login-required фильтрует кнопки провайдеров по списку', () => {
     model.publisher.emit('login-required', ['github']);
 
-    expect(document.getElementById('lobby-auth-login-github').style.display).toBe('');
-    expect(document.getElementById('lobby-auth-login-google').style.display).toBe('none');
+    expect(
+      document.getElementById('lobby-auth-login-github').style.display,
+    ).toBe('');
+    expect(
+      document.getElementById('lobby-auth-login-google').style.display,
+    ).toBe('none');
   });
 
   it('nick-required показывает форму ника, очищает инпут и ошибку', () => {
     document.getElementById('lobby-auth-nick-input').value = 'stale';
-    document.getElementById('lobby-auth-nick-error').textContent = 'stale error';
+    document.getElementById('lobby-auth-nick-error').textContent =
+      'stale error';
 
     model.publisher.emit('nick-required');
 
     expect(document.getElementById('lobby-auth').style.display).toBe('block');
-    expect(document.getElementById('lobby-auth-login').style.display).toBe('none');
-    expect(document.getElementById('lobby-auth-nick').style.display).toBe('block');
+    expect(document.getElementById('lobby-auth-login').style.display).toBe(
+      'none',
+    );
+    expect(document.getElementById('lobby-auth-nick').style.display).toBe(
+      'block',
+    );
     expect(document.getElementById('lobby-auth-nick-input').value).toBe('');
-    expect(document.getElementById('lobby-auth-nick-error').textContent).toBe('');
+    expect(document.getElementById('lobby-auth-nick-error').textContent).toBe(
+      '',
+    );
   });
 
   it('authenticated скрывает lobby-auth и показывает lobby + бейдж ника', () => {
@@ -96,7 +111,9 @@ describe('LobbyAuthView: переключение секций', () => {
     expect(document.getElementById('lobby-auth').style.display).toBe('none');
     expect(document.getElementById('lobby').style.display).toBe('flex');
     expect(document.getElementById('lobby-user').style.display).toBe('flex');
-    expect(document.getElementById('lobby-user-nick').textContent).toBe('Vanya');
+    expect(document.getElementById('lobby-user-nick').textContent).toBe(
+      'Vanya',
+    );
   });
 });
 
@@ -155,7 +172,9 @@ describe('LobbyAuthView: ошибки', () => {
   it('login-error с неизвестным кодом рендерит дружелюбный fallback', () => {
     model.publisher.emit('login-error', 'somethingWeird');
 
-    expect(document.getElementById('lobby-auth-login-error').textContent).toBe('Sign-in failed');
+    expect(document.getElementById('lobby-auth-login-error').textContent).toBe(
+      'Sign-in failed',
+    );
   });
 
   it('nick-error nickTaken рендерит человекочитаемое сообщение', () => {

@@ -10,12 +10,21 @@ import HostRegistry from '../../packages/engine/src/master/HostRegistry.js';
 // поднимает сервер и из теста не импортируется, поэтому проверяются
 // обработчики и их композиция с middleware — ровно та, что расставлена там.
 
-const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
 const KID = 'test-key-1';
 const ISSUER = 'vimp-auth-test';
 
 const jwks = {
-  keys: [{ ...publicKey.export({ format: 'jwk' }), kid: KID, use: 'sig', alg: 'RS256' }],
+  keys: [
+    {
+      ...publicKey.export({ format: 'jwk' }),
+      kid: KID,
+      use: 'sig',
+      alg: 'RS256',
+    },
+  ],
 };
 
 const signToken = role =>
@@ -72,7 +81,12 @@ beforeEach(() => {
   };
 
   store = {
-    inspect: vi.fn(async () => ({ ok: true, version: '1.1.0', manifest: {}, errors: [] })),
+    inspect: vi.fn(async () => ({
+      ok: true,
+      version: '1.1.0',
+      manifest: {},
+      errors: [],
+    })),
     // разбор пакета без заранее известного id: он читается из манифеста
     // внутри тарболла (форма заявки спрашивает только пакет и версию)
     inspectPackage: vi.fn(async () => ({
@@ -95,7 +109,9 @@ beforeEach(() => {
   };
 
   catalog = {
-    stagedManifests: vi.fn(() => [{ id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } }]),
+    stagedManifests: vi.fn(() => [
+      { id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } },
+    ]),
     upsert: vi.fn(),
     remove: vi.fn(),
     getManifest: vi.fn(() => ({ id: 'tanks', version: 'hash' })),
@@ -119,7 +135,10 @@ describe('POST /games/submit', () => {
 
     const res = fakeRes();
 
-    await routes.submit({ authToken: 't', body: { packageName: '@vimp-games/none' } }, res);
+    await routes.submit(
+      { authToken: 't', body: { packageName: '@vimp-games/none' } },
+      res,
+    );
 
     expect(res.code).toBe(400);
     expect(res.body.errors).toHaveLength(1);
@@ -157,7 +176,10 @@ describe('POST /games/submit', () => {
 
     const res = fakeRes();
 
-    await routes.submit({ authToken: 't', body: { packageName: '@vimp-games/tanks' } }, res);
+    await routes.submit(
+      { authToken: 't', body: { packageName: '@vimp-games/tanks' } },
+      res,
+    );
 
     expect(res.code).toBe(400);
     expect(res.body).toEqual({ error: 'badRequest' });
@@ -168,7 +190,10 @@ describe('POST /games/submit', () => {
     const res = fakeRes();
 
     await routes.submit(
-      { authToken: 't', body: { packageName: '@vimp-games/tanks', version: 'latest' } },
+      {
+        authToken: 't',
+        body: { packageName: '@vimp-games/tanks', version: 'latest' },
+      },
       res,
     );
 
@@ -204,13 +229,19 @@ describe('POST /games/submit', () => {
     expect(res.code).toBe(201);
     expect(registry.submit).toHaveBeenCalledWith(
       't',
-      expect.objectContaining({ id: 'tanks', title: 'Tanks', repoUrl: 'https://example.com/repo' }),
+      expect.objectContaining({
+        id: 'tanks',
+        title: 'Tanks',
+        repoUrl: 'https://example.com/repo',
+      }),
     );
   });
 });
 
 describe('GET /games/lookup', () => {
-  const query = (over = {}) => ({ query: { package: '@vimp-games/tanks', ...over } });
+  const query = (over = {}) => ({
+    query: { package: '@vimp-games/tanks', ...over },
+  });
 
   it('отдаёт поля манифеста, версии npm и репозиторий пакета', async () => {
     const fetchImpl = vi.fn(async () => ({
@@ -219,7 +250,12 @@ describe('GET /games/lookup', () => {
       json: async () => ({
         'dist-tags': { latest: '1.1.0' },
         versions: {
-          '1.1.0': { repository: { type: 'git', url: 'git+https://github.com/lgick/vimp-tanks.git' } },
+          '1.1.0': {
+            repository: {
+              type: 'git',
+              url: 'git+https://github.com/lgick/vimp-tanks.git',
+            },
+          },
         },
       }),
     }));
@@ -342,7 +378,10 @@ describe('POST /games/mine/:id/version', () => {
 
     const res = fakeRes();
 
-    await routes.requestVersion({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+    await routes.requestVersion(
+      { authToken: 't', params: { id: 'tanks' }, body: {} },
+      res,
+    );
 
     expect(res.code).toBe(404);
     expect(registry.requestVersion).not.toHaveBeenCalled();
@@ -356,7 +395,11 @@ describe('POST /games/mine/:id/version', () => {
       res,
     );
 
-    expect(store.inspect).toHaveBeenCalledWith('tanks', '@vimp-games/tanks', '1.1.0');
+    expect(store.inspect).toHaveBeenCalledWith(
+      'tanks',
+      '@vimp-games/tanks',
+      '1.1.0',
+    );
     expect(registry.requestVersion).toHaveBeenCalledWith('t', 'tanks', '1.1.0');
   });
 
@@ -406,10 +449,19 @@ describe('POST /admin/games/:id/stage', () => {
   it('кладёт скачанную версию в каталог НЕ раздаваемой и отдаёт манифест', async () => {
     const res = fakeRes();
 
-    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+    await routes.stage(
+      { authToken: 't', params: { id: 'tanks' }, body: {} },
+      res,
+    );
 
-    expect(store.ensure).toHaveBeenCalledWith('tanks', '@vimp-games/tanks', '1.1.0');
-    expect(catalog.upsert).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+    expect(store.ensure).toHaveBeenCalledWith(
+      'tanks',
+      '@vimp-games/tanks',
+      '1.1.0',
+    );
+    expect(catalog.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ active: false }),
+    );
     expect(res.body.manifest).toEqual({ id: 'tanks', version: 'hash' });
   });
 
@@ -424,11 +476,16 @@ describe('POST /admin/games/:id/stage', () => {
 
     const res = fakeRes();
 
-    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+    await routes.stage(
+      { authToken: 't', params: { id: 'tanks' }, body: {} },
+      res,
+    );
 
     expect(catalog.remove).toHaveBeenCalledWith('tanks', '1.0.5');
     expect(catalog.remove).toHaveBeenCalledTimes(1);
-    expect(catalog.upsert).toHaveBeenCalledWith(expect.objectContaining({ version: '1.1.0' }));
+    expect(catalog.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '1.1.0' }),
+    );
   });
 
   it('повторный «Тест» той же версии сам себя не снимает', async () => {
@@ -438,7 +495,10 @@ describe('POST /admin/games/:id/stage', () => {
 
     const res = fakeRes();
 
-    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+    await routes.stage(
+      { authToken: 't', params: { id: 'tanks' }, body: {} },
+      res,
+    );
 
     expect(catalog.remove).not.toHaveBeenCalled();
   });
@@ -449,11 +509,17 @@ describe('POST /admin/games/:id/stage', () => {
     // listAll от имени пользователя, и только потом скачивание. Разжалованный
     // админ с ещё живым токеном получает 403 от auth и не успевает ничего
     // положить на диск. Тест не даёт переставить шаги местами при рефакторинге
-    registry.listAll.mockResolvedValue({ status: 403, json: { error: 'forbidden' } });
+    registry.listAll.mockResolvedValue({
+      status: 403,
+      json: { error: 'forbidden' },
+    });
 
     const res = fakeRes();
 
-    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+    await routes.stage(
+      { authToken: 't', params: { id: 'tanks' }, body: {} },
+      res,
+    );
 
     expect(res.code).toBe(403);
     expect(store.ensure).not.toHaveBeenCalled();
@@ -461,11 +527,18 @@ describe('POST /admin/games/:id/stage', () => {
   });
 
   it('битый пакет — 400, каталог не трогается', async () => {
-    store.ensure.mockResolvedValue({ ok: false, version: null, errors: ['нет manifest.json'] });
+    store.ensure.mockResolvedValue({
+      ok: false,
+      version: null,
+      errors: ['нет manifest.json'],
+    });
 
     const res = fakeRes();
 
-    await routes.stage({ authToken: 't', params: { id: 'tanks' }, body: {} }, res);
+    await routes.stage(
+      { authToken: 't', params: { id: 'tanks' }, body: {} },
+      res,
+    );
 
     expect(res.code).toBe(400);
     expect(catalog.upsert).not.toHaveBeenCalled();
@@ -481,12 +554,17 @@ describe('PATCH /admin/games/:id', () => {
       res,
     );
 
-    expect(registry.moderate).toHaveBeenCalledWith('t', 'tanks', { status: 'approved' });
+    expect(registry.moderate).toHaveBeenCalledWith('t', 'tanks', {
+      status: 'approved',
+    });
     expect(sync.run).toHaveBeenCalled();
   });
 
   it('отказ реестра синхронизацию не запускает', async () => {
-    registry.moderate.mockResolvedValue({ status: 403, json: { error: 'forbidden' } });
+    registry.moderate.mockResolvedValue({
+      status: 403,
+      json: { error: 'forbidden' },
+    });
 
     const res = fakeRes();
 
@@ -514,7 +592,10 @@ describe('DELETE /games/mine/:id', () => {
   });
 
   it('отказ реестра каталог не трогает', async () => {
-    registry.remove.mockResolvedValue({ status: 403, json: { error: 'forbidden' } });
+    registry.remove.mockResolvedValue({
+      status: 403,
+      json: { error: 'forbidden' },
+    });
 
     const res = fakeRes();
 
@@ -551,7 +632,10 @@ describe('POST /admin/games/:id/restore', () => {
   });
 
   it('отказ реестра синхронизацию не запускает', async () => {
-    registry.restore.mockResolvedValue({ status: 404, json: { error: 'unknownGame' } });
+    registry.restore.mockResolvedValue({
+      status: 404,
+      json: { error: 'unknownGame' },
+    });
 
     const res = fakeRes();
 
@@ -593,7 +677,12 @@ describe('GET /servers', () => {
   const list = async token => {
     const hosts = new HostRegistry({ maxPlayersLimit: 8 });
 
-    hosts.add({ name: 'public', ip: '1.1.1.1', maxPlayers: 8, gameId: 'tanks' });
+    hosts.add({
+      name: 'public',
+      ip: '1.1.1.1',
+      maxPlayers: 8,
+      gameId: 'tanks',
+    });
     hosts.add({
       name: 'staged',
       ip: '2.2.2.2',
@@ -604,12 +693,16 @@ describe('GET /servers', () => {
 
     const req = {
       query: {},
-      get: name => (name === 'authorization' && token ? `Bearer ${token}` : undefined),
+      get: name =>
+        name === 'authorization' && token ? `Bearer ${token}` : undefined,
     };
 
     await new Promise(resolve => adminAuth.optional(req, fakeRes(), resolve));
 
-    return hosts.getList({ ...req.query, includeHidden: adminAuth.isAdmin(req.user) });
+    return hosts.getList({
+      ...req.query,
+      includeHidden: adminAuth.isAdmin(req.user),
+    });
   };
 
   it('без токена скрытые комнаты не видны', async () => {
@@ -621,7 +714,10 @@ describe('GET /servers', () => {
   it('админский токен показывает и тестовые комнаты', async () => {
     const { servers } = await list(signToken('admin'));
 
-    expect(servers.map(({ name }) => name).sort()).toEqual(['public', 'staged']);
+    expect(servers.map(({ name }) => name).sort()).toEqual([
+      'public',
+      'staged',
+    ]);
   });
 });
 
@@ -634,7 +730,10 @@ describe('/games/… (статика игр)', () => {
     const served = [];
     const mounted = [];
     const gameStatic = createGameStatic({
-      catalog: { getDistDir: (id, version) => dirs[version ? `${id}@${version}` : id] ?? null },
+      catalog: {
+        getDistDir: (id, version) =>
+          dirs[version ? `${id}@${version}` : id] ?? null,
+      },
       staticImpl: dir => {
         mounted.push(dir);
 
@@ -660,7 +759,11 @@ describe('/games/… (статика игр)', () => {
     const res = fakeRes();
     const next = vi.fn();
 
-    gameStatic.handler({ method: 'GET', url: '/tanks/9.9.9/client.js' }, res, next);
+    gameStatic.handler(
+      { method: 'GET', url: '/tanks/9.9.9/client.js' },
+      res,
+      next,
+    );
 
     expect(res.code).toBe(404);
     expect(res.body).toEqual({ error: 'unknownGame' });
@@ -668,7 +771,9 @@ describe('/games/… (статика игр)', () => {
   });
 
   it('отсутствующий файл живой версии — 404, req.url восстановлен', () => {
-    const { gameStatic } = make({ dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' } });
+    const { gameStatic } = make({
+      dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' },
+    });
     const res = fakeRes();
     const next = vi.fn();
     const req = { method: 'GET', url: '/tanks/0.16.1/nope.js' };
@@ -689,9 +794,15 @@ describe('/games/… (статика игр)', () => {
     const res = fakeRes();
     const next = vi.fn();
 
-    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js?import' }, res, next);
+    gameStatic.handler(
+      { method: 'GET', url: '/tanks/0.16.1/client.js?import' },
+      res,
+      next,
+    );
 
-    expect(served).toEqual([{ dir: '/games-dir/tanks/0.16.1', url: '/client.js?import' }]);
+    expect(served).toEqual([
+      { dir: '/games-dir/tanks/0.16.1', url: '/client.js?import' },
+    ]);
     expect(res.code).toBe(200);
     expect(next).not.toHaveBeenCalled();
   });
@@ -699,11 +810,17 @@ describe('/games/… (статика игр)', () => {
   it('не-GET по версионному пути уходит next(): «файла нет» тут неизвестно', () => {
     // serve-static пропускает всё, кроме GET/HEAD, не заглядывая в диск —
     // отвечать на такой запрос 404 значило бы выдумать результат
-    const { gameStatic } = make({ dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' } });
+    const { gameStatic } = make({
+      dirs: { 'tanks@0.16.1': '/games-dir/tanks/0.16.1' },
+    });
     const res = fakeRes();
     const next = vi.fn();
 
-    gameStatic.handler({ method: 'POST', url: '/tanks/0.16.1/client.js' }, res, next);
+    gameStatic.handler(
+      { method: 'POST', url: '/tanks/0.16.1/client.js' },
+      res,
+      next,
+    );
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.body).toBeNull();
@@ -741,13 +858,25 @@ describe('/games/… (статика игр)', () => {
       files: ['/games-dir/tanks/0.16.1/client.js'],
     });
 
-    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js' }, fakeRes(), vi.fn());
-    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js' }, fakeRes(), vi.fn());
+    gameStatic.handler(
+      { method: 'GET', url: '/tanks/0.16.1/client.js' },
+      fakeRes(),
+      vi.fn(),
+    );
+    gameStatic.handler(
+      { method: 'GET', url: '/tanks/0.16.1/client.js' },
+      fakeRes(),
+      vi.fn(),
+    );
     // второй запрос берёт маунт из кэша
     expect(mounted).toHaveLength(1);
 
     expect(gameStatic.drop('/games-dir/tanks/0.16.1')).toBe(true);
-    gameStatic.handler({ method: 'GET', url: '/tanks/0.16.1/client.js' }, fakeRes(), vi.fn());
+    gameStatic.handler(
+      { method: 'GET', url: '/tanks/0.16.1/client.js' },
+      fakeRes(),
+      vi.fn(),
+    );
 
     // маунт создан заново — иначе Map росла бы на каждую скачанную версию
     expect(mounted).toHaveLength(2);

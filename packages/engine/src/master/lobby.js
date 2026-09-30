@@ -13,7 +13,10 @@ import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
 import { clampGameResult, clampLimit } from '../lib/validators.js';
 import { createAdminAuth } from './adminAuth.js';
-import { createClientReports, stopClientReports } from './clientReports/index.js';
+import {
+  createClientReports,
+  stopClientReports,
+} from './clientReports/index.js';
 import ClientReportsProxy from './ClientReportsProxy.js';
 import { createClientReportsRoutes } from './clientReportsRoutes.js';
 import { ENGINE_VERSION } from './clientReports/engineVersion.js';
@@ -42,7 +45,12 @@ config.set('master', (await import('../config/master.js')).default);
 
 // пути мастера якорятся от расположения этого файла, а не от cwd —
 // сервер можно запускать из любой директории
-const engineDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
+const engineDir = path.resolve(
+  fileURLToPath(import.meta.url),
+  '..',
+  '..',
+  '..',
+);
 // node_modules, где резолвятся пакеты игр (Этап A2): до разъезда репозиториев
 // (Этап A3) это npm workspace-симлинк на games/<id>, после — обычная
 // зависимость, установленная деплоем
@@ -146,9 +154,13 @@ const hostRatingProxy = new HostRatingProxy(
 // build` в репозитории игры, например vimp-tanks); в dev entries указывают
 // на Vite-исходники (HMR), maps/assetsBase — из уже собранного dist (как и
 // WorkerCatalog, требует установки/сборки игры один раз перед первым запуском)
-const gameCatalog = new GameCatalog(config.get('master:games'), nodeModulesDir, {
-  dev: !isProduction,
-});
+const gameCatalog = new GameCatalog(
+  config.get('master:games'),
+  nodeModulesDir,
+  {
+    dev: !isProduction,
+  },
+);
 
 // хранилище игровых пакетов (master-game-registry, этап 2): одобренные игры
 // приезжают из npm registry на диск мастера, а не npm-зависимостью образа
@@ -233,7 +245,9 @@ console.info('------------------------------------------');
 console.info('Master Server Settings:');
 console.info(`-> Domain: ${config.get('master:domain')}`);
 console.info(`-> Port: ${config.get('master:port')}`);
-console.info(`-> Region threshold: ${config.get('master:servers:regionThreshold')}`);
+console.info(
+  `-> Region threshold: ${config.get('master:servers:regionThreshold')}`,
+);
 console.info(
   `-> Max players per host: declared by the game (roomDefaults.maxPlayers); ${config.get('master:host:maxPlayersLimit')} for an unknown game`,
 );
@@ -370,7 +384,8 @@ const symbolicate = isProduction
       resolveFile: pathname => {
         if (pathname.startsWith('/games/')) {
           const parsed = parseGamePath(pathname.slice('/games'.length));
-          const dir = parsed && gameCatalog.getDistDir(parsed.id, parsed.version);
+          const dir =
+            parsed && gameCatalog.getDistDir(parsed.id, parsed.version);
 
           return dir ? path.join(dir, parsed.rest) : null;
         }
@@ -427,7 +442,10 @@ app.use(express.json());
 // кроме админов, — поэтому токен здесь читается, но не требуется
 app.get('/servers', adminAuth.optional, (req, res) => {
   res.json(
-    registry.getList({ ...req.query, includeHidden: adminAuth.isAdmin(req.user) }),
+    registry.getList({
+      ...req.query,
+      includeHidden: adminAuth.isAdmin(req.user),
+    }),
   );
 });
 
@@ -490,7 +508,9 @@ function forwardPlayerData(req, res, call) {
 }
 
 app.get('/auth/rank', (req, res) =>
-  forwardPlayerData(req, res, (token, game) => playerDataProxy.getRank(token, game)),
+  forwardPlayerData(req, res, (token, game) =>
+    playerDataProxy.getRank(token, game),
+  ),
 );
 
 // атрибуция rank_events/state_snapshots (server-rating кодревью №1) идёт от
@@ -523,7 +543,10 @@ function maxGameScoreOf(game) {
 }
 
 app.put('/auth/rank', (req, res) => {
-  const attribution = registry.verifiedAttribution(req.body?.hostId, req.body?.hostSecret);
+  const attribution = registry.verifiedAttribution(
+    req.body?.hostId,
+    req.body?.hostSecret,
+  );
 
   if (!writeAllowed(req, attribution)) {
     res.status(429).json({ error: 'tooManyWrites' });
@@ -555,11 +578,16 @@ app.put('/auth/rank', (req, res) => {
 });
 
 app.get('/auth/state', (req, res) =>
-  forwardPlayerData(req, res, (token, game) => playerDataProxy.getState(token, game)),
+  forwardPlayerData(req, res, (token, game) =>
+    playerDataProxy.getState(token, game),
+  ),
 );
 
 app.put('/auth/state', (req, res) => {
-  const attribution = registry.verifiedAttribution(req.body?.hostId, req.body?.hostSecret);
+  const attribution = registry.verifiedAttribution(
+    req.body?.hostId,
+    req.body?.hostSecret,
+  );
 
   if (!writeAllowed(req, attribution)) {
     res.status(429).json({ error: 'tooManyWrites' });
@@ -579,7 +607,9 @@ app.get('/auth/placement', (req, res) => {
     return;
   }
 
-  forwardPlayerData(req, res, (token, game) => placementCache.get(token, game, period));
+  forwardPlayerData(req, res, (token, game) =>
+    placementCache.get(token, game, period),
+  );
 });
 
 // REST API: все три среза одним походом хоста (snakes-v3 этап 3.3) —
@@ -622,7 +652,11 @@ app.get('/auth/leaderboard', (req, res) => {
     return;
   }
 
-  const limit = clampLimit(req.query.limit, 10, config.get('master:leaderboard:maxLimit'));
+  const limit = clampLimit(
+    req.query.limit,
+    10,
+    config.get('master:leaderboard:maxLimit'),
+  );
   const period = readPeriod(req.query.period);
 
   if (!period) {
@@ -681,9 +715,19 @@ app.get('/games/manifest.json', (req, res) => {
 // и до статики `/games` — иначе `mine` и `submit` уехали бы в `:id`
 // разбор пакета для формы заявки: тот же лимитер, что у submit — роут
 // ходит в сеть за чужим тарболлом, и без лимита это усилитель трафика
-app.get('/games/lookup', adminAuth.authenticated, limitSubmits, gameRoutes.lookup);
+app.get(
+  '/games/lookup',
+  adminAuth.authenticated,
+  limitSubmits,
+  gameRoutes.lookup,
+);
 app.get('/games/mine', adminAuth.authenticated, gameRoutes.mine);
-app.post('/games/submit', adminAuth.authenticated, limitSubmits, gameRoutes.submit);
+app.post(
+  '/games/submit',
+  adminAuth.authenticated,
+  limitSubmits,
+  gameRoutes.submit,
+);
 app.post(
   '/games/mine/:id/version',
   adminAuth.authenticated,
@@ -693,12 +737,21 @@ app.post(
 // удаление игры: тот же лимитер, что у заявки — роут дёргает auth и
 // синхронизацию каталога. Роль здесь не проверяется (`authenticated`, не
 // `required`): игру удаляет и её автор, а решает auth по роли из БД
-app.delete('/games/mine/:id', adminAuth.authenticated, limitSubmits, gameRoutes.remove);
+app.delete(
+  '/games/mine/:id',
+  adminAuth.authenticated,
+  limitSubmits,
+  gameRoutes.remove,
+);
 
 app.get('/admin/games', adminAuth.required, gameRoutes.adminList);
 // раньше `/admin/games/:id/versions`: сегментов столько же, и `manifest.json`
 // иначе уехал бы в `:id`
-app.get('/admin/games/manifest.json', adminAuth.required, gameRoutes.stagedManifests);
+app.get(
+  '/admin/games/manifest.json',
+  adminAuth.required,
+  gameRoutes.stagedManifests,
+);
 app.get('/admin/games/:id/versions', adminAuth.required, gameRoutes.versions);
 app.post('/admin/games/:id/stage', adminAuth.required, gameRoutes.stage);
 app.post('/admin/games/:id/restore', adminAuth.required, gameRoutes.restore);
@@ -706,7 +759,11 @@ app.patch('/admin/games/:id', adminAuth.required, gameRoutes.moderate);
 
 // журнал клиентских ошибок (plan/client-reports, этап 5): только админ
 app.get('/admin/client-reports', adminAuth.required, clientReportsRoutes.list);
-app.patch('/admin/client-reports/:id', adminAuth.required, clientReportsRoutes.setStatus);
+app.patch(
+  '/admin/client-reports/:id',
+  adminAuth.required,
+  clientReportsRoutes.setStatus,
+);
 
 // Версионное URL-пространство игр (master-game-registry, этап 3):
 // /games/<id>/<version>/… адресует конкретную скачанную версию, а
@@ -901,7 +958,10 @@ setInterval(() => {
     .refreshRatings()
     .catch(err => console.error('[rating] refresh cycle failed:', err.message))
     .finally(() => {
-      setTimeout(scheduleRatingsRefresh, config.get('master:rating:refreshInterval'));
+      setTimeout(
+        scheduleRatingsRefresh,
+        config.get('master:rating:refreshInterval'),
+      );
     });
 })();
 

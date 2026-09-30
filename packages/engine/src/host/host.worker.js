@@ -77,7 +77,8 @@ async function onInit(room, handoff = null) {
   // отладочный прогон крутил ровно тот код, что и прод
   const runtime = await createHostRuntime(room, {
     hostOptions: {
-      onMapChange: mapName => self.postMessage({ type: 'map_changed', mapName }),
+      onMapChange: mapName =>
+        self.postMessage({ type: 'map_changed', mapName }),
       handoff,
     },
   });

@@ -45,7 +45,7 @@ export function createAdminAuth(jwksProxy, issuer)
   `verifyIdentityToken(token, { jwks: await jwksProxy.get(), issuer })` —
   ровно как `SignalingServer._verifyToken`.
 - Кладёт `req.user = { id: Number(payload.sub), nick: payload.nick,
-  role: payload.role ?? 'user' }`.
+role: payload.role ?? 'user' }`.
 - `required` — без токена `401 {error:'unauthorized'}`, без роли
   `admin`/`superadmin` — `403 {error:'forbidden'}`.
 - `optional` — просто заполняет `req.user`, если токен валиден, и всегда
@@ -59,16 +59,16 @@ auth, где `requireAdmin` перечитывает роль из БД (Эта�
 
 ## 4.2 Роуты мастера (`lobby.js`)
 
-| Метод | Путь | Доступ | Действие |
-| --- | --- | --- | --- |
-| `GET` | `/games/mine` | `optional`+токен | прокси `GET /games/mine` auth |
-| `POST` | `/games/submit` | `required`(любой авторизованный) | валидация пакета → прокси `POST /games` |
-| `POST` | `/games/mine/:id/version` | авторизованный | валидация версии → прокси `POST /games/:id/version` |
-| `GET` | `/admin/games` | админ | прокси `GET /admin/games` + локальное состояние каждой игры |
-| `GET` | `/admin/games/manifest.json` | админ | манифесты застейдженных версий (`catalog.stagedManifests()`) |
-| `POST` | `/admin/games/:id/stage` | админ | `store.inspect` → `catalog.upsert({active:false})`; ответ — вердикт + манифест |
-| `PATCH` | `/admin/games/:id` | админ | прокси `PATCH /admin/games/:id` → сразу `gameSync.run()` |
-| `GET` | `/admin/games/:id/versions` | админ | `npmRegistry.listVersions` — какие версии есть в npm |
+| Метод   | Путь                         | Доступ                           | Действие                                                                       |
+| ------- | ---------------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| `GET`   | `/games/mine`                | `optional`+токен                 | прокси `GET /games/mine` auth                                                  |
+| `POST`  | `/games/submit`              | `required`(любой авторизованный) | валидация пакета → прокси `POST /games`                                        |
+| `POST`  | `/games/mine/:id/version`    | авторизованный                   | валидация версии → прокси `POST /games/:id/version`                            |
+| `GET`   | `/admin/games`               | админ                            | прокси `GET /admin/games` + локальное состояние каждой игры                    |
+| `GET`   | `/admin/games/manifest.json` | админ                            | манифесты застейдженных версий (`catalog.stagedManifests()`)                   |
+| `POST`  | `/admin/games/:id/stage`     | админ                            | `store.inspect` → `catalog.upsert({active:false})`; ответ — вердикт + манифест |
+| `PATCH` | `/admin/games/:id`           | админ                            | прокси `PATCH /admin/games/:id` → сразу `gameSync.run()`                       |
+| `GET`   | `/admin/games/:id/versions`  | админ                            | `npmRegistry.listVersions` — какие версии есть в npm                           |
 
 ### Правила
 
@@ -85,7 +85,7 @@ auth, где `requireAdmin` перечитывает роль из БД (Эта�
   чтобы админ увидел игру в лобби сразу; остальные мастера подтянут её в
   течение `refreshInterval`.
 - «Локальное состояние» в `GET /admin/games` — `{ downloaded: bool,
-  stagedVersion: string|null, lastError: string|null }` из `GameStore` и
+stagedVersion: string|null, lastError: string|null }` из `GameStore` и
   каталога. Это то, чем панель отличается от голого списка из БД.
 - `GET /servers` (`lobby.js:229`) получает `adminAuth.optional` и передаёт
   `{ includeHidden: req.user?.role === 'admin' || req.user?.role === 'superadmin' }`
@@ -158,7 +158,9 @@ auth, где `requireAdmin` перечитывает роль из БД (Эта�
  * так админ может поднять по нему комнату, не трогая каталог игроков.
  * @param {Object} manifest
  */
-function registerGameManifest(manifest) { /* gamesById.set + populateGameSelect */ }
+function registerGameManifest(manifest) {
+  /* gamesById.set + populateGameSelect */
+}
 ```
 
 - В селекторе такая игра помечается суффиксом «(тест)».

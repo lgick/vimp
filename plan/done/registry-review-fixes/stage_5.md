@@ -56,41 +56,41 @@
 **Правка.** В `createGameRoutes` завести кэш на уровне замыкания:
 
 ```js
-  // Вердикт разбора пакета: форма всегда делает lookup перед submit, и
-  // без кэша заявка стоит платформе двух скачиваний тарболла и двух
-  // походов в npm. TTL короткий намеренно: опубликованную версию
-  // подменить нельзя, но пакет могли снять (unpublish), и держать
-  // вердикт дольше минуты незачем
-  const INSPECT_TTL = 60000;
-  const inspected = new Map(); // `${packageName}@${version}` -> {at, verdict, meta}
+// Вердикт разбора пакета: форма всегда делает lookup перед submit, и
+// без кэша заявка стоит платформе двух скачиваний тарболла и двух
+// походов в npm. TTL короткий намеренно: опубликованную версию
+// подменить нельзя, но пакет могли снять (unpublish), и держать
+// вердикт дольше минуты незачем
+const INSPECT_TTL = 60000;
+const inspected = new Map(); // `${packageName}@${version}` -> {at, verdict, meta}
 
-  async function inspectPackage(packageName, version) {
-    const key = `${packageName}@${version ?? ''}`;
-    const hit = inspected.get(key);
+async function inspectPackage(packageName, version) {
+  const key = `${packageName}@${version ?? ''}`;
+  const hit = inspected.get(key);
 
-    if (hit && Date.now() - hit.at < INSPECT_TTL) {
-      return hit;
-    }
+  if (hit && Date.now() - hit.at < INSPECT_TTL) {
+    return hit;
+  }
 
-    const [verdict, meta] = await Promise.all([
-      store.inspectPackage(packageName, version),
-      packageMeta(packageName, version),
-    ]);
-    const entry = { at: Date.now(), verdict, meta };
+  const [verdict, meta] = await Promise.all([
+    store.inspectPackage(packageName, version),
+    packageMeta(packageName, version),
+  ]);
+  const entry = { at: Date.now(), verdict, meta };
 
-    inspected.set(key, entry);
+  inspected.set(key, entry);
 
-    // кэш ограничен: ключ приходит от пользователя, и расти ему нельзя
-    if (inspected.size > 64) {
-      for (const [oldKey, value] of inspected) {
-        if (Date.now() - value.at >= INSPECT_TTL) {
-          inspected.delete(oldKey);
-        }
+  // кэш ограничен: ключ приходит от пользователя, и расти ему нельзя
+  if (inspected.size > 64) {
+    for (const [oldKey, value] of inspected) {
+      if (Date.now() - value.at >= INSPECT_TTL) {
+        inspected.delete(oldKey);
       }
     }
-
-    return entry;
   }
+
+  return entry;
+}
 ```
 
 `lookup` и `submit` переводятся на `inspectPackage(...)`. `submit`
@@ -119,8 +119,11 @@
 **после**
 
 ```js
-  const game = await userRepo.getGame(req.params.id);
-  if (!game) { res.status(404).json({ error: 'unknownGame' }); return; }
+const game = await userRepo.getGame(req.params.id);
+if (!game) {
+  res.status(404).json({ error: 'unknownGame' });
+  return;
+}
 ```
 
 Комментарий: несуществующая игра обязана отвечать `unknownGame`, а не
@@ -147,8 +150,7 @@
 // тексты ошибок сообщали бы об одном и том же по-разному
 async function requestPackument(packageName, accept, { registryUrl, fetchImpl, timeout }) {
   const url = packumentUrl(registryUrl, packageName);
-  const fail = message =>
-    new Error(`npm registry did not answer (${packageName}): ${message}`);
+  const fail = message => new Error(`npm registry did not answer (${packageName}): ${message}`);
   let res;
 
   try {
@@ -161,7 +163,7 @@ async function requestPackument(packageName, accept, { registryUrl, fetchImpl, t
   }
 
   if (res.status === 404) {
-    return null;   // «пакета нет» — не отказ; форму ответа выбирает вызывающий
+    return null; // «пакета нет» — не отказ; форму ответа выбирает вызывающий
   }
 
   if (!res.ok) {

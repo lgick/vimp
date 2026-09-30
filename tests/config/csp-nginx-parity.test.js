@@ -10,10 +10,7 @@ import masterConfig from '../../packages/engine/src/config/master.js';
 // повторный дрейф без развёртывания nginx.
 function readNginxCspTemplate() {
   const installScript = readFileSync(
-    new URL(
-      '../../.github/deployment/install-system.sh',
-      import.meta.url,
-    ),
+    new URL('../../.github/deployment/install-system.sh', import.meta.url),
     'utf8',
   );
 
@@ -56,7 +53,9 @@ test('CSP в nginx-шаблоне install-system.sh совпадает с securi
 // (https://auth.example.com), поэтому сверяем именно с этой подстановкой.
 function readDocsCspSnippet(docPath) {
   const doc = readFileSync(new URL(docPath, import.meta.url), 'utf8');
-  const match = doc.match(/add_header Content-Security-Policy "([^"]+)" always;/);
+  const match = doc.match(
+    /add_header Content-Security-Policy "([^"]+)" always;/,
+  );
   if (!match) {
     throw new Error(`Content-Security-Policy snippet not found in ${docPath}`);
   }

@@ -91,7 +91,10 @@ describe('shell', () => {
     expect(written.skipped).toBe(true);
     expect(lines.at(-1)).toContain('dry-run');
 
-    const checked = await shell.check('echo', 'node', ['-e', 'console.log("ok")']);
+    const checked = await shell.check('echo', 'node', [
+      '-e',
+      'console.log("ok")',
+    ]);
 
     expect(checked.stdout.trim()).toBe('ok');
     expect(lines.at(-2)).toContain('▸ echo');

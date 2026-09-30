@@ -123,7 +123,9 @@ export default class SignalingServer {
         if (msg && this._handlers[msg.type]) {
           // register_host/like_host/unlike_host — async (проверка identity-
           // токена по JWKS, запрос рейтинга к auth); остальные — синхронные
-          const pending = Promise.resolve(this._handlers[msg.type].call(this, session, msg)).catch(err => {
+          const pending = Promise.resolve(
+            this._handlers[msg.type].call(this, session, msg),
+          ).catch(err => {
             console.error(`[signaling] handler "${msg.type}" failed:`, err);
           });
 
@@ -161,7 +163,10 @@ export default class SignalingServer {
   // (server-rating этап 2): без него/при неверной подписи регистрация
   // отклоняется, т.к. атрибуция и проверка блокировки по рейтингу требуют
   // проверенного userId
-  async _onRegisterHost(session, { name, maxPlayers, mapName, gameId, gameVersion, token }) {
+  async _onRegisterHost(
+    session,
+    { name, maxPlayers, mapName, gameId, gameVersion, token },
+  ) {
     if (session.hostId) {
       this._sendError(session, 'alreadyRegistered');
       return;
@@ -203,7 +208,10 @@ export default class SignalingServer {
       try {
         ({ json } = await this._hostRatingProxy.getRating(token));
       } catch (err) {
-        console.error('[rating] getRating failed at register_host:', err.message);
+        console.error(
+          '[rating] getRating failed at register_host:',
+          err.message,
+        );
         this._sendError(session, 'authServiceUnavailable');
         return;
       }
@@ -235,7 +243,9 @@ export default class SignalingServer {
       // действие, а комната админа живёт минуты. Лечится пересчётом в
       // HostRegistry.getList (момент выдачи GET /servers) — если счёт
       // тестовых комнат вырастет
-      hidden: gameId ? this._gameCatalog?.isStaged?.(gameId, gameVersion) === true : false,
+      hidden: gameId
+        ? this._gameCatalog?.isStaged?.(gameId, gameVersion) === true
+        : false,
       region: session.region,
       ip: session.ip,
     });
@@ -261,7 +271,10 @@ export default class SignalingServer {
     // без каталога/gameId — только движковая половина, как раньше
     const codeVersion = {
       engine: this._codeVersion,
-      game: { id: host.gameId, version: gameManifest?.version ?? gameVersion ?? null },
+      game: {
+        id: host.gameId,
+        version: gameManifest?.version ?? gameVersion ?? null,
+      },
     };
 
     // mapsVersion/codeVersion — актуальные версии каталога карт и
@@ -325,7 +338,8 @@ export default class SignalingServer {
   // обмен ICE-кандидатами в обе стороны:
   // клиент адресует hostId, хост адресует clientId
   _onIceCandidate(session, { targetId, candidate }) {
-    const target = this._sessions.get(targetId) ?? this._getHostSession(targetId);
+    const target =
+      this._sessions.get(targetId) ?? this._getHostSession(targetId);
 
     if (!target) {
       return;
@@ -480,7 +494,10 @@ export default class SignalingServer {
 
         this._registry.setRatingForHoster(hosterUserId, json.score ?? 0);
       } catch (err) {
-        console.error(`[rating] refresh failed for hoster ${hosterUserId}:`, err.message);
+        console.error(
+          `[rating] refresh failed for hoster ${hosterUserId}:`,
+          err.message,
+        );
       }
     }
   }
@@ -494,7 +511,10 @@ export default class SignalingServer {
 
     try {
       const jwks = await this._jwksProxy.get();
-      const payload = await verifyIdentityToken(token, { jwks, issuer: this._issuer });
+      const payload = await verifyIdentityToken(token, {
+        jwks,
+        issuer: this._issuer,
+      });
 
       return Number(payload.sub);
     } catch {

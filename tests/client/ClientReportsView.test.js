@@ -94,7 +94,9 @@ beforeEach(async () => {
 
 const $ = id => document.getElementById(id);
 const actions = () =>
-  [...$('reports-list').querySelectorAll('.reports-action-btn')].map(btn => btn.dataset.status);
+  [...$('reports-list').querySelectorAll('.reports-action-btn')].map(
+    btn => btn.dataset.status,
+  );
 
 describe('ClientReportsView: безопасность', () => {
   it('поля отчёта выводятся буквально, без разметки', () => {
@@ -131,7 +133,8 @@ describe('ClientReportsView: список', () => {
   it('свёрнутая строка: давность, счётчик, вид, сообщение, версии, бокс, статус', () => {
     model.publisher.emit('changed', state([report()]));
 
-    const summary = $('reports-list').querySelector('.reports-summary').textContent;
+    const summary =
+      $('reports-list').querySelector('.reports-summary').textContent;
 
     expect(summary).toContain('5 min ago');
     expect(summary).toContain('×4');
@@ -143,7 +146,10 @@ describe('ClientReportsView: список', () => {
   });
 
   it('развёрнутая часть: роль и страница текстом, пустые — прочерк', () => {
-    model.publisher.emit('changed', state([report({ id: 1 }), report({ id: 2, role: null, page: null })]));
+    model.publisher.emit(
+      'changed',
+      state([report({ id: 1 }), report({ id: 2, role: null, page: null })]),
+    );
 
     const details = [...$('reports-list').querySelectorAll('.reports-details')];
 
@@ -154,10 +160,15 @@ describe('ClientReportsView: список', () => {
   it('код важнее сообщения, длинное сообщение обрезается до 120', () => {
     model.publisher.emit(
       'changed',
-      state([report({ id: 1, code: 'level.bad' }), report({ id: 2, message: 'x'.repeat(300) })]),
+      state([
+        report({ id: 1, code: 'level.bad' }),
+        report({ id: 2, message: 'x'.repeat(300) }),
+      ]),
     );
 
-    const messages = [...$('reports-list').querySelectorAll('.reports-message')];
+    const messages = [
+      ...$('reports-list').querySelectorAll('.reports-message'),
+    ];
 
     expect(messages[0].textContent).toBe('level.bad');
     expect(messages[1].textContent).toHaveLength(120);
@@ -245,10 +256,15 @@ describe('ClientReportsView: панель и фильтры', () => {
 
     const buttons = [...$('reports-filters').querySelectorAll('input')];
 
-    expect(buttons.map(btn => btn.value)).toEqual(['Open', 'Fixed', 'Ignored', 'All']);
-    expect(buttons.filter(btn => btn.classList.contains('active')).map(b => b.value)).toEqual([
+    expect(buttons.map(btn => btn.value)).toEqual([
+      'Open',
       'Fixed',
+      'Ignored',
+      'All',
     ]);
+    expect(
+      buttons.filter(btn => btn.classList.contains('active')).map(b => b.value),
+    ).toEqual(['Fixed']);
 
     buttons[3].click();
     expect(seen).toEqual(['all']);

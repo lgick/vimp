@@ -29,7 +29,8 @@ const makeRm = (overrides = {}) =>
     snapshotManager: overrides.snapshotManager || {},
     playerDataSync: overrides.playerDataSync,
     teams: overrides.teams || { red: 1, blue: 2, spec: 3 },
-    spectatorTeam: 'spectatorTeam' in overrides ? overrides.spectatorTeam : 'spec',
+    spectatorTeam:
+      'spectatorTeam' in overrides ? overrides.spectatorTeam : 'spec',
     spectatorId: 'spectatorId' in overrides ? overrides.spectatorId : 3,
     noSpectators: overrides.noSpectators,
     endlessRound: overrides.endlessRound,
@@ -329,7 +330,9 @@ describe('RoundManager.overrideMapData', () => {
       step: 64,
       respawns: { players: [[9, 9, 0]] },
       volumes,
-      levels: { 1: { map: [[0, 1]], floor: [1], walls: [], volumes: { 2: 1 } } },
+      levels: {
+        1: { map: [[0, 1]], floor: [1], walls: [], volumes: { 2: 1 } },
+      },
     });
 
     expect(rm._scaledMapData.volumes).toEqual(volumes);
@@ -350,7 +353,7 @@ describe('RoundManager.overrideMapData', () => {
 // endlessRound: раунд не заканчивается и не перезапускается сам — правило
 // «активных людей меньше двух» обнуляло бы stat на каждом входе и выходе
 describe('RoundManager: endlessRound', () => {
-  const makeCtx = (endlessRound) => {
+  const makeCtx = endlessRound => {
     const users = {
       u: {
         gameId: 'u',
@@ -375,7 +378,12 @@ describe('RoundManager: endlessRound', () => {
       participants,
       endlessRound,
       game: { createPlayer: vi.fn() },
-      stat: { moveUser: vi.fn(), updateUser: vi.fn(), reset: vi.fn(), updateHead: vi.fn() },
+      stat: {
+        moveUser: vi.fn(),
+        updateUser: vi.fn(),
+        reset: vi.fn(),
+        updateHead: vi.fn(),
+      },
       chat: { pushSystemByUser: vi.fn() },
       socketManager: { sendPlayerDefaultShot: vi.fn() },
       timerManager: {
@@ -386,7 +394,14 @@ describe('RoundManager: endlessRound', () => {
       },
     });
 
-    rm._scaledMapData = { respawns: { red: [[0, 0, 0], [1, 1, 0]] } };
+    rm._scaledMapData = {
+      respawns: {
+        red: [
+          [0, 0, 0],
+          [1, 1, 0],
+        ],
+      },
+    };
     rm.initiateNewRound = vi.fn();
 
     return rm;
@@ -511,7 +526,14 @@ describe('RoundManager.changeTeam: слот респауна', () => {
   it('успешный переход занимает свободный слот новой команды', () => {
     const rm = makeCtx();
 
-    rm._scaledMapData = { respawns: { red: [[0, 0, 0], [1, 1, 0]] } };
+    rm._scaledMapData = {
+      respawns: {
+        red: [
+          [0, 0, 0],
+          [1, 1, 0],
+        ],
+      },
+    };
 
     rm.changeTeam('u', 'red');
 
@@ -850,7 +872,11 @@ describe('RoundManager: исход раунда при трёх командах
       _panel: { reset: vi.fn() },
       _voteCoordinator: { reset: vi.fn() },
       _snapshotManager: { reset: vi.fn() },
-      _game: { clear: vi.fn(), createMap: vi.fn(), isAlive: id => alive.has(id) },
+      _game: {
+        clear: vi.fn(),
+        createMap: vi.fn(),
+        isAlive: id => alive.has(id),
+      },
     });
     Object.assign(rm._stat, { reset: vi.fn(), moveUser: vi.fn() });
     Object.assign(rm._participants, {

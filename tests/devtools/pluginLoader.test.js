@@ -46,7 +46,10 @@ beforeAll(async () => {
     path.join(dist, 'client-abc.js'),
     `export default { id: "demo", kind: "client", engineApi: ${ENGINE_API_VERSION} };\n`,
   );
-  await writeFile(path.join(dir, 'core', 'pkg-node', 'demo.js'), 'export {};\n');
+  await writeFile(
+    path.join(dir, 'core', 'pkg-node', 'demo.js'),
+    'export {};\n',
+  );
   await writeFile(
     path.join(dist, 'manifest.json'),
     JSON.stringify({

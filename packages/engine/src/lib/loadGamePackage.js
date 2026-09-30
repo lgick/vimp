@@ -205,8 +205,8 @@ function warnOnRequiresMismatch(manifest, plugins) {
   // правка ломала бы каждый уже опубликованный пакет. Объявленное пустым
   // (`requires: []`) — это утверждение «ничего не нужно», и оно расходится
   // с манифестом наравне с неполным списком
-  const halves = Object.values(plugins).filter(
-    plugin => Array.isArray(plugin.requires),
+  const halves = Object.values(plugins).filter(plugin =>
+    Array.isArray(plugin.requires),
   );
 
   if (halves.length === 0) {

@@ -28,9 +28,13 @@ export default class LobbyView {
 
     // вкладки правой панели (lobby-page-plan)
     this._tabServersBtn = document.getElementById(elems.tabServersBtnId);
-    this._tabLeaderboardBtn = document.getElementById(elems.tabLeaderboardBtnId);
+    this._tabLeaderboardBtn = document.getElementById(
+      elems.tabLeaderboardBtnId,
+    );
     this._serversContent = document.getElementById(elems.serversContentId);
-    this._leaderboardContent = document.getElementById(elems.leaderboardContentId);
+    this._leaderboardContent = document.getElementById(
+      elems.leaderboardContentId,
+    );
     this._leaderboardList = document.getElementById(elems.leaderboardListId);
     this._leaderboardTitle = document.getElementById(elems.leaderboardTitleId);
     this._leaderboardTotal = document.getElementById(elems.leaderboardTotalId);
@@ -53,7 +57,10 @@ export default class LobbyView {
       version.textContent = ENGINE_VERSION;
     }
 
-    renderProjectLink(document.getElementById(elems.linkId), ENGINE_PROJECT_URL);
+    renderProjectLink(
+      document.getElementById(elems.linkId),
+      ENGINE_PROJECT_URL,
+    );
 
     // заголовок игры для "<TITLE> TOP-N" (SVG-ориентир) — задаётся controller'ом
     // при выборе игры (сама модель не хранит title манифеста)
@@ -93,11 +100,14 @@ export default class LobbyView {
       });
     });
 
-    this._search.oninput = () => this.publisher.emit('search', this._search.value);
+    this._search.oninput = () =>
+      this.publisher.emit('search', this._search.value);
     this._more.onclick = () => this.publisher.emit('more');
 
-    this._tabServersBtn.onclick = () => this.publisher.emit('show-tab', 'servers');
-    this._tabLeaderboardBtn.onclick = () => this.publisher.emit('show-tab', 'leaderboard');
+    this._tabServersBtn.onclick = () =>
+      this.publisher.emit('show-tab', 'servers');
+    this._tabLeaderboardBtn.onclick = () =>
+      this.publisher.emit('show-tab', 'leaderboard');
 
     for (const [period, btn] of this._periodBtns) {
       btn.onclick = () => this.publisher.emit('show-period', period);
@@ -160,8 +170,7 @@ export default class LobbyView {
   renderLeaderboard({ leaderboard, total, myPlacement, loaded = true }) {
     const period = this._periodTitle ? ` — ${this._periodTitle}` : '';
 
-    this._leaderboardTitle.textContent =
-      `${this._gameTitle.toUpperCase()} TOP-${this._leaderboardLimit}${period}`;
+    this._leaderboardTitle.textContent = `${this._gameTitle.toUpperCase()} TOP-${this._leaderboardLimit}${period}`;
     this._leaderboardTotal.textContent = `Total: ${total} players`;
 
     this._leaderboardList.textContent = '';
@@ -217,7 +226,8 @@ export default class LobbyView {
     // списке, ни в плашке. Ники уникальны (users_nick_lower_unique_idx),
     // так что membership по нику однозначен
     const inTop =
-      this._selfNick !== '' && leaderboard.some(entry => entry.nick === this._selfNick);
+      this._selfNick !== '' &&
+      leaderboard.some(entry => entry.nick === this._selfNick);
 
     if (inTop) {
       this._myPlacement.textContent = '';
@@ -290,7 +300,8 @@ export default class LobbyView {
 
     ratingEl.className = 'lobby-card-rating';
     ratingEl.classList.toggle('is-negative', server.rating < 0);
-    ratingEl.textContent = server.rating > 0 ? `+${server.rating}` : `${server.rating}`;
+    ratingEl.textContent =
+      server.rating > 0 ? `+${server.rating}` : `${server.rating}`;
 
     const latencyEl = document.createElement('span');
 

@@ -42,7 +42,7 @@
   0 строк → `NickAlreadySetError`.
 - **F7. Регистрозависимая уникальность ника.** Новая миграция
   `002_nick_case_insensitive.sql` — `CREATE UNIQUE INDEX IF NOT EXISTS ...
-  ON users (lower(nick))`.
+ON users (lower(nick))`.
 - **F8. Нестойкое сравнение HMAC + слабые дефолты.**
   `oauthState.decodeState` сравнивает подпись через
   `crypto.timingSafeEqual`; в проде сервис требует
@@ -57,7 +57,7 @@
 - **F10. Общий `_defaultState`.** Клонируется (`structuredClone`) на каждую
   запись участника.
 - **F11. `PUT /state` без ограничений.** `express.json({ limit: '16kb' })`
-  + проверка, что `state` — объект (не массив/строка/число).
+  - проверка, что `state` — объект (не массив/строка/число).
 - **F12. Rate-limit.** `packages/auth/src/lib/rateLimiter.js` (тот же
   паттерн, что у мастера) — 5 запросов/мин на IP для `POST /nick`, 20/мин
   для `GET /oauth/:provider/start`. IP клиента берётся из

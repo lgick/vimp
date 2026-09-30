@@ -164,7 +164,7 @@ describe('HostController', () => {
 // Эстафета Worker'ов (Этап 5.2): swapWorker заменяет Worker на новую версию
 // кода — старый отдаёт handoff-состояние на границе раунда, новый поднимается
 // с ним, клиенты переподключаются внутренними connect'ами; WebRTC не рвётся.
-describe('HostController: эстафета Worker\'ов (5.2)', () => {
+describe("HostController: эстафета Worker'ов (5.2)", () => {
   let workers; // фейковые Worker'ы в порядке создания
   let onReady;
   let controller;
@@ -187,7 +187,11 @@ describe('HostController: эстафета Worker\'ов (5.2)', () => {
     onReady = vi.fn();
     controller = new HostController(
       { name: 'Room', maps: { a: 1 } },
-      { workerFactory: factory, workerUrl: '/assets/host.worker-Old.js', onReady },
+      {
+        workerFactory: factory,
+        workerUrl: '/assets/host.worker-Old.js',
+        onReady,
+      },
     );
 
     workers[0].emit({ type: 'ready' });
@@ -279,11 +283,16 @@ describe('HostController: эстафета Worker\'ов (5.2)', () => {
     const onMessage = vi.fn();
 
     controller.open('s3', { onMessage, onClose: vi.fn() });
-    next.emit({ type: 'to_client', socketId: 's3', payload: 'x', reliable: true });
+    next.emit({
+      type: 'to_client',
+      socketId: 's3',
+      payload: 'x',
+      reliable: true,
+    });
     expect(onMessage).toHaveBeenCalledWith('x', true);
   });
 
-  it('error нового Worker\'а: старый возобновляется, очередь дослана ему', async () => {
+  it("error нового Worker'а: старый возобновляется, очередь дослана ему", async () => {
     const swap = controller.swapWorker('/new.js');
 
     workers[0].emit({ type: 'handoff_state', state: {} });
@@ -327,7 +336,7 @@ describe('HostController: эстафета Worker\'ов (5.2)', () => {
     expect(connects.filter(id => id === 's3').length).toBeGreaterThan(0);
   });
 
-  it('destroy во время эстафеты гасит оба Worker\'а', () => {
+  it("destroy во время эстафеты гасит оба Worker'а", () => {
     controller.swapWorker('/new.js').catch(() => {});
     workers[0].emit({ type: 'handoff_state', state: {} });
 

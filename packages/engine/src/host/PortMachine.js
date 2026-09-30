@@ -32,7 +32,14 @@ export default class PortMachine {
    * @param {Function} deps.makeSocket - (socketId) => { send, sendBinary, close }.
    * @param {Object} deps.identity - стратегия идентичности (./identity.js).
    */
-  constructor({ host, socketManager, clientCfg, authSchema, makeSocket, identity }) {
+  constructor({
+    host,
+    socketManager,
+    clientCfg,
+    authSchema,
+    makeSocket,
+    identity,
+  }) {
     this._host = host;
     this._socketManager = socketManager;
     this._clientCfg = clientCfg;

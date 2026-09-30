@@ -23,7 +23,9 @@ describe('rebaseManifest', () => {
     expect(result.assetsBase).toBe('/games/tanks/0.16.1/');
     expect(result.entries.client).toBe('/games/tanks/0.16.1/client-Xyz.js');
     expect(result.entries.host).toBe('/games/tanks/0.16.1/host-Xyz.js');
-    expect(result.entries.wasm).toBe('/games/tanks/0.16.1/assets/core_bg-Xyz.wasm');
+    expect(result.entries.wasm).toBe(
+      '/games/tanks/0.16.1/assets/core_bg-Xyz.wasm',
+    );
   });
 
   it('не трогает entries.wasmNode — это путь файловой системы, не URL', () => {

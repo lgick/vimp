@@ -58,4 +58,6 @@ await build({
   logLevel: 'info',
 });
 
-console.log(`[sync-pixi-vendor] pixi.js (bundled, code-split) → ${path.relative(engineDir, outdir)}`);
+console.log(
+  `[sync-pixi-vendor] pixi.js (bundled, code-split) → ${path.relative(engineDir, outdir)}`,
+);

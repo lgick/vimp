@@ -48,7 +48,9 @@ const makeView = (model = makeModel()) => {
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  StatView = (await import('../../packages/engine/src/client/components/view/Stat.js')).default;
+  StatView = (
+    await import('../../packages/engine/src/client/components/view/Stat.js')
+  ).default;
 });
 
 describe('StatView: генерация DOM по схеме', () => {

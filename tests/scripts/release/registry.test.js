@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
-import { crateIndexPath, parseNpmView } from '../../../scripts/release/registry.js';
+import {
+  crateIndexPath,
+  parseNpmView,
+} from '../../../scripts/release/registry.js';
 
 describe('crateIndexPath', () => {
   it('раскладывает имя по правилам sparse-индекса', () => {

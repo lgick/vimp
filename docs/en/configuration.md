@@ -32,16 +32,16 @@ from `packages/engine/src/config/master.js` apply instead. The
 [dedicated server](dedicated.md) applies them **always** — the game, port and
 room settings have no other source.
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `NODE_ENV` | `production` / `development` | — |
-| `VIMP_DOMAIN` | The master's domain. **Required** in production (the process exits with an error otherwise) | `localhost` |
-| `VIMP_MASTER_PORT` | The master server's port | `3002` |
-| `VIMP_AUTH_SERVICE_URL` | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth)) | `http://localhost:3010` |
-| `VIMP_DEDICATED_GAME` | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master. A scoped package name is fetched straight from npm, so `VIMP_AUTH_SERVICE_URL` is not needed; only a game id has to be resolved through the registry | — |
-| `VIMP_DEDICATED_ROOM` | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure. In production it is filled from the `settings` field of `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-game-box-dedicatedgame)) | `{}` |
-| `VIMP_GAMES_DIR` | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate | `<repoRoot>/.games` |
-| `VIMP_CLIENT_REPORTS_TOKEN` | Shared secret between the boxes and the auth service (`master:clientReports:token`): the box forwards client error reports to the auth service with it ([master.md](master.md#post-client-reports-client-error-reports)). Empty — forwarding is off, the box only logs new fingerprints. In production it comes from the `CLIENT_REPORTS_TOKEN` GitHub secret ([deployment.md](deployment.md#client-error-reports-secret-client_reports_token)) | — |
+| Variable                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                         | Default                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `NODE_ENV`                  | `production` / `development`                                                                                                                                                                                                                                                                                                                                                                                                                    | —                       |
+| `VIMP_DOMAIN`               | The master's domain. **Required** in production (the process exits with an error otherwise)                                                                                                                                                                                                                                                                                                                                                     | `localhost`             |
+| `VIMP_MASTER_PORT`          | The master server's port                                                                                                                                                                                                                                                                                                                                                                                                                        | `3002`                  |
+| `VIMP_AUTH_SERVICE_URL`     | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth))                                                                                                                                                                                                 | `http://localhost:3010` |
+| `VIMP_DEDICATED_GAME`       | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master. A scoped package name is fetched straight from npm, so `VIMP_AUTH_SERVICE_URL` is not needed; only a game id has to be resolved through the registry                                            | —                       |
+| `VIMP_DEDICATED_ROOM`       | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure. In production it is filled from the `settings` field of `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-game-box-dedicatedgame))                                                                                                                                          | `{}`                    |
+| `VIMP_GAMES_DIR`            | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate                                                                                                                                                                                                                                                          | `<repoRoot>/.games`     |
+| `VIMP_CLIENT_REPORTS_TOKEN` | Shared secret between the boxes and the auth service (`master:clientReports:token`): the box forwards client error reports to the auth service with it ([master.md](master.md#post-client-reports-client-error-reports)). Empty — forwarding is off, the box only logs new fingerprints. In production it comes from the `CLIENT_REPORTS_TOKEN` GitHub secret ([deployment.md](deployment.md#client-error-reports-secret-client_reports_token)) | —                       |
 
 **There is no environment variable for the game catalog.** The lobby master's
 catalog comes from the game registry of the central auth service and from
@@ -80,16 +80,16 @@ Read in [packages/auth/src/main.js](../../packages/auth/src/main.js) when
 `NODE_ENV=production`; the service exits at startup if any of these are
 missing (see [auth.md](auth.md#running)).
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `VIMP_AUTH_DATABASE_URL` | PostgreSQL connection string | `postgres://localhost:5432/vimp_auth` |
-| `VIMP_AUTH_PORT` | The auth service's port | `3010` |
-| `VIMP_AUTH_PUBLIC_URL` | Its own public origin, used to build the OAuth `redirect_uri`. **Required** in production | — (dev falls back to `http://localhost:PORT`) |
-| `VIMP_AUTH_ALLOWED_ORIGINS` | CSV of master origins allowed to CORS `POST /nick` and to receive an OAuth redirect (`returnUrl`). **Required** in production | `https://localhost:3002` (dev only) |
-| `VIMP_AUTH_STATE_SECRET` | HMAC secret for the stateless OAuth `state` param. **Required** in production | — |
-| `VIMP_AUTH_GITHUB_CLIENT_ID` / `VIMP_AUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth App credentials. **Required** in production | — |
-| `VIMP_ADMIN_NICKS` | CSV of nicks granted `role = 'admin'` on every token issue. Optional; an unregistered nick on the list is claimed by whoever signs up with it first (see [auth.md](auth.md#running)) | — (no admins) |
-| `VIMP_ADMIN_IDENTITIES` | CSV of `provider:uid` admin identities (`github:1234567`). Optional; while set it fully overrides `VIMP_ADMIN_NICKS` | — |
+| Variable                                                        | Purpose                                                                                                                                                                              | Default                                       |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| `VIMP_AUTH_DATABASE_URL`                                        | PostgreSQL connection string                                                                                                                                                         | `postgres://localhost:5432/vimp_auth`         |
+| `VIMP_AUTH_PORT`                                                | The auth service's port                                                                                                                                                              | `3010`                                        |
+| `VIMP_AUTH_PUBLIC_URL`                                          | Its own public origin, used to build the OAuth `redirect_uri`. **Required** in production                                                                                            | — (dev falls back to `http://localhost:PORT`) |
+| `VIMP_AUTH_ALLOWED_ORIGINS`                                     | CSV of master origins allowed to CORS `POST /nick` and to receive an OAuth redirect (`returnUrl`). **Required** in production                                                        | `https://localhost:3002` (dev only)           |
+| `VIMP_AUTH_STATE_SECRET`                                        | HMAC secret for the stateless OAuth `state` param. **Required** in production                                                                                                        | —                                             |
+| `VIMP_AUTH_GITHUB_CLIENT_ID` / `VIMP_AUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth App credentials. **Required** in production                                                                                                                             | —                                             |
+| `VIMP_ADMIN_NICKS`                                              | CSV of nicks granted `role = 'admin'` on every token issue. Optional; an unregistered nick on the list is claimed by whoever signs up with it first (see [auth.md](auth.md#running)) | — (no admins)                                 |
+| `VIMP_ADMIN_IDENTITIES`                                         | CSV of `provider:uid` admin identities (`github:1234567`). Optional; while set it fully overrides `VIMP_ADMIN_NICKS`                                                                 | —                                             |
 
 ## packages/engine/src/config/hostDefaults.js — engine host defaults
 
@@ -99,29 +99,29 @@ spectator keyset (spectating is an engine mechanism). The host Worker
 merges it with the active game plugin's `HostPlugin.gameConfig` and layers
 the room's settings on top.
 
-| Parameter | Value | Description |
-| --- | --- | --- |
-| `isDevMode` | `false` | Development-mode flag: unlocks dev chat commands and the debug recorder in `HostGame` ([debugging.md](debugging.md#the-recorder)). A room sets it from `room.isDevMode`, which the client fills from `import.meta.env.DEV` — in a production bundle it stays `false` |
-| `maxPlayers` | `30` | The default participant limit; a host's room clamps it to the creator's setting (capped by the game's `roomDefaults.maxPlayers`), counted by humans |
-| `chatMaxLength` | `60` | The max chat message length (authoritative on the host; must match the `maxlength` of the input in `chat.pug`) |
-| `spectatorKeys` | `nextPlayer`/`prevPlayer` | Commands of a spectator or inactive player (switching the observed player) |
+| Parameter       | Value                     | Description                                                                                                                                                                                                                                                          |
+| --------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isDevMode`     | `false`                   | Development-mode flag: unlocks dev chat commands and the debug recorder in `HostGame` ([debugging.md](debugging.md#the-recorder)). A room sets it from `room.isDevMode`, which the client fills from `import.meta.env.DEV` — in a production bundle it stays `false` |
+| `maxPlayers`    | `30`                      | The default participant limit; a host's room clamps it to the creator's setting (capped by the game's `roomDefaults.maxPlayers`), counted by humans                                                                                                                  |
+| `chatMaxLength` | `60`                      | The max chat message length (authoritative on the host; must match the `maxlength` of the input in `chat.pug`)                                                                                                                                                       |
+| `spectatorKeys` | `nextPlayer`/`prevPlayer` | Commands of a spectator or inactive player (switching the observed player)                                                                                                                                                                                           |
 
 ### Timers (`timers`, ms)
 
-| Parameter | Value | Description |
-| --- | --- | --- |
-| `timeStep` | `1000/120` | The core's physics tick step (~120 Hz) |
-| `networkSendRate` | `4` | A snapshot is sent every Nth tick (4 → 30 packets/sec) |
-| `roundTime` | `120000` | Round duration |
-| `mapTime` | `600000` | Map duration |
+| Parameter                     | Value               | Description                                                                                                     |
+| ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `timeStep`                    | `1000/120`          | The core's physics tick step (~120 Hz)                                                                          |
+| `networkSendRate`             | `4`                 | A snapshot is sent every Nth tick (4 → 30 packets/sec)                                                          |
+| `roundTime`                   | `120000`            | Round duration                                                                                                  |
+| `mapTime`                     | `600000`            | Map duration                                                                                                    |
 | `roomTimeMin` / `roomTimeMax` | `10000` / `3600000` | Server-side clamp bounds for the room's user-set `roundTime`/`mapTime` (the lobby form is not a trust boundary) |
-| `voteTime` | `10000` | How long a vote window stays open |
-| `timeBlockedVote` | `30000` | Cooldown between votes on the same topic |
-| `teamChangeGracePeriod` | `10000` | The team-change window at round start |
-| `roundRestartDelay` | `5000` | Pause between rounds |
-| `mapChangeDelay` | `2000` | Pause before a map switch after a vote |
-| `rttPingInterval` | `3000` | RTT ping interval |
-| `idleCheckInterval` | `30000` | How often idleness is checked |
+| `voteTime`                    | `10000`             | How long a vote window stays open                                                                               |
+| `timeBlockedVote`             | `30000`             | Cooldown between votes on the same topic                                                                        |
+| `teamChangeGracePeriod`       | `10000`             | The team-change window at round start                                                                           |
+| `roundRestartDelay`           | `5000`              | Pause between rounds                                                                                            |
+| `mapChangeDelay`              | `2000`              | Pause before a map switch after a vote                                                                          |
+| `rttPingInterval`             | `3000`              | RTT ping interval                                                                                               |
+| `idleCheckInterval`           | `30000`             | How often idleness is checked                                                                                   |
 
 ### Kicks (`rtt`, `idleKickTimeout`)
 
@@ -239,13 +239,13 @@ set is game-owned. The canvas elements are generated by `main.js` from
 this config (the key is the element id; `width`/`height` — the initial
 size before the first resize):
 
-| Parameter | Description |
-| --- | --- |
-| `aspectRatio` | The aspect ratio (`'16:9'`). The canvas fills the window while keeping the ratio. Without it — 100% of the window |
-| `fixSize` | A fixed size in px (`'150'` — a square, `'200:100'` — a rectangle). Disables `aspectRatio` and adaptive scaling |
-| `baseScale` | The base zoom (`'numerator:denominator'`). For adaptive canvases — the scale at a reference width of 1920px (`result = width/1920 × baseScale`); for fixed ones — a constant multiplier |
-| `dynamicCamera` | Enables the dynamic camera (look-ahead + speed-based zoom) |
-| `shakeCamera` | Allows camera shake |
+| Parameter       | Description                                                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspectRatio`   | The aspect ratio (`'16:9'`). The canvas fills the window while keeping the ratio. Without it — 100% of the window                                                                       |
+| `fixSize`       | A fixed size in px (`'150'` — a square, `'200:100'` — a rectangle). Disables `aspectRatio` and adaptive scaling                                                                         |
+| `baseScale`     | The base zoom (`'numerator:denominator'`). For adaptive canvases — the scale at a reference width of 1920px (`result = width/1920 × baseScale`); for fixed ones — a constant multiplier |
+| `dynamicCamera` | Enables the dynamic camera (look-ahead + speed-based zoom)                                                                                                                              |
+| `shakeCamera`   | Allows camera shake                                                                                                                                                                     |
 
 Adaptive scaling guarantees the same field of view on any monitor
 (reference: Full HD, 1920px).
@@ -305,7 +305,7 @@ game-owned:
   to the next pair.
 - **`vote`** — DOM ids/classes (engine) and **vote templates**
   (`templates`, game): `[a title with {0} placeholders, options (an
-  array — static, a string — request the list from the host), timeOff]`.
+array — static, a string — request the list from the host), timeOff]`.
   `menu` — the main vote menu's items.
 - **`gameInform`** / **`techInformList`** — templates for on-screen game
   messages (the element id — engine, the `list` texts — game) and
@@ -473,7 +473,8 @@ host: the lobby happens before connecting to a host.
   (sums add, maxima take the maximum), so nothing is lost, the player sees
   their own numbers immediately, and the urgent boundaries still bypass the
   interval. Nothing is sent when nothing changed, so a quiet room
-  writes nothing at all; a game only ever *requests* a flush;
+  writes nothing at all; a game only ever _requests_ a flush;
+
 - `leaderboardUrl: '/auth/leaderboard'`, `placementUrl: '/auth/placement'`,
   `leaderboardLimit: 10` (lobby page plan) — the master's proxied game
   leaderboard/placement endpoints (see

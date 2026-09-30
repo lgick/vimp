@@ -2,7 +2,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // корень репозитория — якорь от расположения файла, не от cwd
-const rootDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..', '..', '..');
+const rootDir = path.resolve(
+  fileURLToPath(import.meta.url),
+  '..',
+  '..',
+  '..',
+  '..',
+  '..',
+);
 
 export default {
   name: 'VIMP Master Server',

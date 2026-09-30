@@ -234,8 +234,7 @@ export default class PanelView {
     }
 
     const { blocksToShow, blink } = pendingTarget;
-    const step =
-      blocksToShow > 0 ? BAR_FILL_DURATION_MS / blocksToShow : 0;
+    const step = blocksToShow > 0 ? BAR_FILL_DURATION_MS / blocksToShow : 0;
 
     for (let index = 0; index < blocksToShow; index += 1) {
       bar.blockTimers.push(

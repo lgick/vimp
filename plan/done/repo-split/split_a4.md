@@ -20,7 +20,7 @@
 ## Сделано
 
 - `Dockerfile`: убраны стадия `core-builder` (Rust/wasm-pack) и `npm run
-  game:build`; node-стадия (`builder`) делает `npm ci` (ставит `@vimp/tanks`
+game:build`; node-стадия (`builder`) делает `npm ci` (ставит `@vimp/tanks`
   из registry) + `npm run build:app`; runner копирует
   `packages/engine/dist`, master (`config`/`lib`/`master`) и
   `node_modules/@vimp/tanks/dist` (вместо прежнего `games/tanks/dist`).
@@ -32,7 +32,7 @@
   `npm ci` в Dockerfile не поставил бы его).
 - `GameCatalog` (`packages/engine/src/master/GameCatalog.js`): при чтении
   `manifest.json` добавлена проверка `manifest.engineApi !==
-  ENGINE_API_VERSION` — несовместимая игра пропускается с `console.warn` и
+ENGINE_API_VERSION` — несовместимая игра пропускается с `console.warn` и
   не попадает в `manifestList`, тем же паттерном, что уже был для
   отсутствующего манифеста / несовпадения `manifest.id`. Тест добавлен в
   `tests/master/GameCatalog.test.js`.

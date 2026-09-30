@@ -170,7 +170,11 @@ export async function validateGame(dir) {
     problems.push(`version=${pkg.version ?? '—'} не вида X.Y.Z`);
   }
 
-  const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
+  const deps = {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
 
   if (!deps['vimp-engine']) {
     problems.push('vimp-engine отсутствует в зависимостях');
@@ -258,7 +262,10 @@ export async function checkGitState(dir) {
     problems.push('рабочее дерево не чистое');
   }
 
-  const remote = await capture('git', ['remote'], { cwd: dir, allowFailure: true });
+  const remote = await capture('git', ['remote'], {
+    cwd: dir,
+    allowFailure: true,
+  });
 
   if (remote.stdout.trim() === '') {
     problems.push('нет remote');

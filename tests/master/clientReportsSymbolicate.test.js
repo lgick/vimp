@@ -2,7 +2,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { SourceMapGenerator } from 'source-map-js';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import {
   createSymbolicator,
   normalizeSource,
@@ -34,14 +42,26 @@ beforeAll(async () => {
 
   await fs.mkdir(path.join(root, 'assets'));
   await fs.writeFile(path.join(root, 'assets', 'bundle.js'), 'var a=1;Tr();\n');
-  await fs.writeFile(path.join(root, 'assets', 'bundle.js.map'), generator.toString());
+  await fs.writeFile(
+    path.join(root, 'assets', 'bundle.js.map'),
+    generator.toString(),
+  );
   // вторая пара — для бюджета холодных загрузок
-  await fs.writeFile(path.join(root, 'assets', 'bundle2.js'), 'var a=1;Tr();\n');
-  await fs.writeFile(path.join(root, 'assets', 'bundle2.js.map'), generator.toString());
+  await fs.writeFile(
+    path.join(root, 'assets', 'bundle2.js'),
+    'var a=1;Tr();\n',
+  );
+  await fs.writeFile(
+    path.join(root, 'assets', 'bundle2.js.map'),
+    generator.toString(),
+  );
   // та же карта, но вне корней и у не-js файла
   await fs.writeFile(path.join(outside, 'bundle.js'), 'x');
   await fs.writeFile(path.join(outside, 'bundle.js.map'), generator.toString());
-  await fs.writeFile(path.join(root, 'assets', 'data.json.map'), generator.toString());
+  await fs.writeFile(
+    path.join(root, 'assets', 'data.json.map'),
+    generator.toString(),
+  );
 });
 
 afterAll(async () => {
@@ -68,13 +88,17 @@ describe('createSymbolicator', () => {
   });
 
   it('Firefox/Safari-кадр → то же', async () => {
-    const out = await make()([HEAD, 'Tr@https://h/assets/bundle.js:1:11'].join('\n'));
+    const out = await make()(
+      [HEAD, 'Tr@https://h/assets/bundle.js:1:11'].join('\n'),
+    );
 
     expect(out.split('\n')[1]).toBe(DECODED);
   });
 
   it('кадры после maxFrames остаются сырыми', async () => {
-    const out = await make({ maxFrames: 1 })([HEAD, V8_FRAME, V8_FRAME].join('\n'));
+    const out = await make({ maxFrames: 1 })(
+      [HEAD, V8_FRAME, V8_FRAME].join('\n'),
+    );
 
     expect(out.split('\n')).toEqual([HEAD, DECODED, V8_FRAME]);
   });
@@ -99,12 +123,19 @@ describe('createSymbolicator', () => {
     const readFile = vi.spyOn(fs, 'readFile');
     const stat = vi.spyOn(fs, 'stat');
     const escape = make({
-      resolveFile: () => path.join(root, '..', path.basename(outside), 'bundle.js'),
+      resolveFile: () =>
+        path.join(root, '..', path.basename(outside), 'bundle.js'),
     });
-    const notJs = make({ resolveFile: () => path.join(root, 'assets', 'data.json') });
+    const notJs = make({
+      resolveFile: () => path.join(root, 'assets', 'data.json'),
+    });
 
-    expect(await escape([HEAD, V8_FRAME].join('\n'))).toBe([HEAD, V8_FRAME].join('\n'));
-    expect(await notJs([HEAD, V8_FRAME].join('\n'))).toBe([HEAD, V8_FRAME].join('\n'));
+    expect(await escape([HEAD, V8_FRAME].join('\n'))).toBe(
+      [HEAD, V8_FRAME].join('\n'),
+    );
+    expect(await notJs([HEAD, V8_FRAME].join('\n'))).toBe(
+      [HEAD, V8_FRAME].join('\n'),
+    );
     expect(readFile).not.toHaveBeenCalled();
     expect(stat).not.toHaveBeenCalled();
   });
@@ -162,14 +193,19 @@ describe('createSymbolicator', () => {
 
     const outs = await Promise.all([symbolicate(stack), symbolicate(stack)]);
 
-    expect(outs).toEqual([[HEAD, DECODED].join('\n'), [HEAD, DECODED].join('\n')]);
+    expect(outs).toEqual([
+      [HEAD, DECODED].join('\n'),
+      [HEAD, DECODED].join('\n'),
+    ]);
     expect(readFile).toHaveBeenCalledTimes(1);
   });
 
   it('отсутствующая карта запоминается', async () => {
     const stat = vi.spyOn(fs, 'stat');
     const symbolicate = make();
-    const stack = [HEAD, '    at f (https://h/assets/nomap.js:1:11)'].join('\n');
+    const stack = [HEAD, '    at f (https://h/assets/nomap.js:1:11)'].join(
+      '\n',
+    );
 
     await symbolicate(stack);
     await symbolicate(stack);
@@ -185,11 +221,19 @@ describe('createSymbolicator', () => {
       '    at modelLean (src/client/parts/Tank.js:42:5) [/assets/bundle2.js:1:11]';
     const stack = [HEAD, V8_FRAME, frame2].join('\n');
 
-    expect((await symbolicate(stack)).split('\n')).toEqual([HEAD, DECODED, frame2]);
+    expect((await symbolicate(stack)).split('\n')).toEqual([
+      HEAD,
+      DECODED,
+      frame2,
+    ]);
 
     t += 60000;
 
-    expect((await symbolicate(stack)).split('\n')).toEqual([HEAD, DECODED, decoded2]);
+    expect((await symbolicate(stack)).split('\n')).toEqual([
+      HEAD,
+      DECODED,
+      decoded2,
+    ]);
   });
 
   it('битая карта не кешируется: следующий вызов читает её заново', async () => {
@@ -198,7 +242,9 @@ describe('createSymbolicator', () => {
 
     const readFile = vi.spyOn(fs, 'readFile');
     const symbolicate = make();
-    const stack = [HEAD, '    at b (https://h/assets/broken.js:1:1)'].join('\n');
+    const stack = [HEAD, '    at b (https://h/assets/broken.js:1:1)'].join(
+      '\n',
+    );
 
     await symbolicate(stack);
     await symbolicate(stack);
@@ -231,13 +277,17 @@ describe('createSymbolicator', () => {
     expect(await symbolicate([HEAD, V8_FRAME].join('\n'))).toBe(
       [HEAD, DECODED].join('\n'),
     );
-    expect(await symbolicate([HEAD, frame2].join('\n'))).toBe([HEAD, decoded2].join('\n'));
+    expect(await symbolicate([HEAD, frame2].join('\n'))).toBe(
+      [HEAD, decoded2].join('\n'),
+    );
   });
 
   it('выдуманные бандлы не вытесняют карты', async () => {
     const readFile = vi.spyOn(fs, 'readFile');
     const symbolicate = make({ cacheSize: 1 });
-    const fakes = [1, 2, 3].map(i => `    at f (https://h/assets/fake-${i}.js:1:1)`);
+    const fakes = [1, 2, 3].map(
+      i => `    at f (https://h/assets/fake-${i}.js:1:1)`,
+    );
 
     await symbolicate([HEAD, V8_FRAME].join('\n'));
     await symbolicate([HEAD, ...fakes].join('\n'));
@@ -250,7 +300,8 @@ describe('createSymbolicator', () => {
   it('переполнение множества отсутствующих карт чистит его', async () => {
     const stat = vi.spyOn(fs, 'stat');
     const symbolicate = make({ maxMissing: 2 });
-    const fake = i => [HEAD, `    at f (https://h/assets/fake-${i}.js:1:1)`].join('\n');
+    const fake = i =>
+      [HEAD, `    at f (https://h/assets/fake-${i}.js:1:1)`].join('\n');
 
     await symbolicate(fake(1));
     await symbolicate(fake(2));

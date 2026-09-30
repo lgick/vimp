@@ -4,7 +4,13 @@ import { ERROR, skip, verdict } from '../result.js';
 // prevPlayer наблюдатель заперт на одной камере; занятый движковый код
 // (чат, голосование, статистика, escape, enter) до игры не доходит;
 // расхождение имён с playerKeys даёт клавишу, которая ничего не шлёт.
-const ENGINE_CODES = { 9: 'stat', 13: 'enter', 27: 'escape', 67: 'chat', 77: 'vote' };
+const ENGINE_CODES = {
+  9: 'stat',
+  13: 'enter',
+  27: 'escape',
+  67: 'chat',
+  77: 'vote',
+};
 const SPECTATOR_ACTIONS = ['nextPlayer', 'prevPlayer'];
 
 export default {
@@ -51,9 +57,7 @@ export default {
 
       for (const action of declared) {
         if (!bound.has(action)) {
-          violations.push(
-            `playerKeys."${action}" has no key in keySetList[1]`,
-          );
+          violations.push(`playerKeys."${action}" has no key in keySetList[1]`);
         }
       }
 

@@ -263,7 +263,10 @@ describe('fetchPackageMeta', () => {
     versions: {
       '1.0.0': { repository: 'lgick/vimp-tanks' },
       '1.2.3': {
-        repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp-tanks.git' },
+        repository: {
+          type: 'git',
+          url: 'git+ssh://git@github.com/lgick/vimp-tanks.git',
+        },
       },
     },
   };
@@ -271,7 +274,10 @@ describe('fetchPackageMeta', () => {
   it('просит ПОЛНЫЙ пакумент: тощая форма repository не отдаёт', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(full));
 
-    await fetchPackageMeta('@vimp-games/tanks', '1.2.3', { registryUrl, fetchImpl });
+    await fetchPackageMeta('@vimp-games/tanks', '1.2.3', {
+      registryUrl,
+      fetchImpl,
+    });
 
     const [url, options] = fetchImpl.mock.calls[0];
 
@@ -283,7 +289,10 @@ describe('fetchPackageMeta', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(full));
 
     await expect(
-      fetchPackageMeta('@vimp-games/tanks', '1.2.3', { registryUrl, fetchImpl }),
+      fetchPackageMeta('@vimp-games/tanks', '1.2.3', {
+        registryUrl,
+        fetchImpl,
+      }),
     ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-tanks' });
   });
 
@@ -291,10 +300,16 @@ describe('fetchPackageMeta', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(full));
 
     await expect(
-      fetchPackageMeta('@vimp-games/tanks', undefined, { registryUrl, fetchImpl }),
+      fetchPackageMeta('@vimp-games/tanks', undefined, {
+        registryUrl,
+        fetchImpl,
+      }),
     ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-tanks' });
     await expect(
-      fetchPackageMeta('@vimp-games/tanks', 'latest', { registryUrl, fetchImpl }),
+      fetchPackageMeta('@vimp-games/tanks', 'latest', {
+        registryUrl,
+        fetchImpl,
+      }),
     ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-tanks' });
   });
 
@@ -304,7 +319,10 @@ describe('fetchPackageMeta', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(full));
 
     await expect(
-      fetchPackageMeta('@vimp-games/tanks', '9.9.9', { registryUrl, fetchImpl }),
+      fetchPackageMeta('@vimp-games/tanks', '9.9.9', {
+        registryUrl,
+        fetchImpl,
+      }),
     ).resolves.toEqual({ repoUrl: 'https://github.com/lgick/vimp-root' });
   });
 
@@ -317,11 +335,19 @@ describe('fetchPackageMeta', () => {
   });
 
   it.each([
-    ['недоступный реестр', async () => { throw new Error('ECONNRESET'); }],
+    [
+      'недоступный реестр',
+      async () => {
+        throw new Error('ECONNRESET');
+      },
+    ],
     ['не-200', async () => jsonResponse(null, 500)],
   ])('%s — отказ, а не «репозитория нет»', async (_name, fetchImpl) => {
     await expect(
-      fetchPackageMeta('@vimp-games/tanks', '1.0.0', { registryUrl, fetchImpl }),
+      fetchPackageMeta('@vimp-games/tanks', '1.0.0', {
+        registryUrl,
+        fetchImpl,
+      }),
     ).rejects.toThrow(/npm registry did not answer/);
   });
 });
@@ -329,8 +355,16 @@ describe('fetchPackageMeta', () => {
 describe('normalizeRepoUrl', () => {
   it.each([
     ['шорткат', 'lgick/vimp-tanks', 'https://github.com/lgick/vimp-tanks'],
-    ['github:', 'github:lgick/vimp-tanks', 'https://github.com/lgick/vimp-tanks'],
-    ['gitlab:', 'gitlab:lgick/vimp-tanks', 'https://gitlab.com/lgick/vimp-tanks'],
+    [
+      'github:',
+      'github:lgick/vimp-tanks',
+      'https://github.com/lgick/vimp-tanks',
+    ],
+    [
+      'gitlab:',
+      'gitlab:lgick/vimp-tanks',
+      'https://gitlab.com/lgick/vimp-tanks',
+    ],
     [
       'git+https',
       { type: 'git', url: 'git+https://github.com/lgick/vimp-tanks.git' },
@@ -346,7 +380,11 @@ describe('normalizeRepoUrl', () => {
       { url: 'git@github.com:lgick/vimp-tanks.git' },
       'https://github.com/lgick/vimp-tanks',
     ],
-    ['git://', 'git://github.com/lgick/vimp-tanks.git', 'https://github.com/lgick/vimp-tanks'],
+    [
+      'git://',
+      'git://github.com/lgick/vimp-tanks.git',
+      'https://github.com/lgick/vimp-tanks',
+    ],
     ['уже http(s)', 'https://example.com/repo', 'https://example.com/repo'],
   ])('%s приводится к http(s)', (_name, input, expected) => {
     expect(normalizeRepoUrl(input)).toBe(expected);

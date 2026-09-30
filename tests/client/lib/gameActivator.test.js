@@ -65,7 +65,10 @@ describe('gameActivator.createGameActivator', () => {
   it('две версии одной игры дают два разных плагина (master-game-registry)', async () => {
     const v1 = { parts: { a: 1 } };
     const v2 = { parts: { a: 2 } };
-    const loadClientPlugin = vi.fn().mockResolvedValueOnce(v1).mockResolvedValueOnce(v2);
+    const loadClientPlugin = vi
+      .fn()
+      .mockResolvedValueOnce(v1)
+      .mockResolvedValueOnce(v2);
     const gamesById = new Map([['tanks', { id: 'tanks', version: 'hash-1' }]]);
     const activate = createGameActivator({ gamesById, loadClientPlugin });
 
@@ -99,7 +102,9 @@ describe('gameActivator.createGameActivator', () => {
     const activate = createGameActivator({ gamesById, loadClientPlugin });
 
     await expect(activate('tanks')).rejects.toThrow('network');
-    await expect(activate('tanks')).resolves.toMatchObject({ manifest: { version: 'hash-1' } });
+    await expect(activate('tanks')).resolves.toMatchObject({
+      manifest: { version: 'hash-1' },
+    });
     expect(loadClientPlugin).toHaveBeenCalledTimes(2);
   });
 

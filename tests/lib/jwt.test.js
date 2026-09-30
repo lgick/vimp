@@ -1,7 +1,10 @@
 import crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
 import jwt from 'jsonwebtoken';
-import { decodeJwtPayload, verifyIdentityToken } from '../../packages/engine/src/lib/jwt.js';
+import {
+  decodeJwtPayload,
+  verifyIdentityToken,
+} from '../../packages/engine/src/lib/jwt.js';
 
 const encodeSegment = obj =>
   Buffer.from(JSON.stringify(obj))
@@ -10,7 +13,8 @@ const encodeSegment = obj =>
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-const makeToken = payload => `${encodeSegment({ alg: 'RS256' })}.${encodeSegment(payload)}.sig`;
+const makeToken = payload =>
+  `${encodeSegment({ alg: 'RS256' })}.${encodeSegment(payload)}.sig`;
 
 describe('decodeJwtPayload', () => {
   it('разбирает payload валидного JWT', () => {
@@ -34,7 +38,9 @@ describe('decodeJwtPayload', () => {
 });
 
 describe('verifyIdentityToken', () => {
-  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+  });
   const kid = 'test-key-1';
   const issuer = 'vimp-auth-test';
 
@@ -68,42 +74,56 @@ describe('verifyIdentityToken', () => {
   });
 
   it('отклоняет токен, подписанный другим ключом', async () => {
-    const otherKeyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const otherKeyPair = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    });
     const forged = jwt.sign({ nick: 'x' }, otherKeyPair.privateKey, {
       algorithm: 'RS256',
       keyid: kid,
       issuer,
     });
 
-    await expect(verifyIdentityToken(forged, { jwks, issuer })).rejects.toThrow();
+    await expect(
+      verifyIdentityToken(forged, { jwks, issuer }),
+    ).rejects.toThrow();
   });
 
   it('отклоняет неизвестный issuer', async () => {
     const token = sign({ nick: 'Vanya' }, { issuer: 'someone-else' });
 
-    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(/issuer/);
+    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(
+      /issuer/,
+    );
   });
 
   it('отклоняет просроченный токен', async () => {
     const token = sign({ nick: 'Vanya' }, { expiresIn: '-1s' });
 
-    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(/expired/);
+    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(
+      /expired/,
+    );
   });
 
   it('отклоняет токен без ника', async () => {
     const token = sign({}, {});
 
-    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(/nick/);
+    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(
+      /nick/,
+    );
   });
 
   it('отклоняет неизвестный kid', async () => {
     const token = sign({ nick: 'Vanya' }, { keyid: 'other-key' });
 
-    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(/key/);
+    await expect(verifyIdentityToken(token, { jwks, issuer })).rejects.toThrow(
+      /key/,
+    );
   });
 
   it('отклоняет не-строку и битый токен', async () => {
     await expect(verifyIdentityToken(null, { jwks, issuer })).rejects.toThrow();
-    await expect(verifyIdentityToken('not-a-jwt', { jwks, issuer })).rejects.toThrow();
+    await expect(
+      verifyIdentityToken('not-a-jwt', { jwks, issuer }),
+    ).rejects.toThrow();
   });
 });

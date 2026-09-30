@@ -43,7 +43,7 @@ const BUILTIN_NOTICE =
 // wasmUrl не смотрит, поэтому прогон был бы зелёным, не тронув ядро игры
 const STRAY_CORE_NOTICE =
   'notice: --core without --game does nothing: the run falls back to the\n' +
-  "notice: built-in fixture, whose core is plain JS. Add --game <path>.\n\n";
+  'notice: built-in fixture, whose core is plain JS. Add --game <path>.\n\n';
 
 async function main(argv) {
   const args = parseArgs(argv);

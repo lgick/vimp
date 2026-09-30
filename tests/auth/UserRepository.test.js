@@ -7,7 +7,10 @@ import UserRepository, {
   GameLimitError,
 } from '../../packages/auth/src/UserRepository.js';
 import config from '../../packages/auth/src/config/auth.js';
-import { refreshRatings, msUntilNextRun } from '../../packages/auth/src/db/ratingsJob.js';
+import {
+  refreshRatings,
+  msUntilNextRun,
+} from '../../packages/auth/src/db/ratingsJob.js';
 import RankDistribution from '../../packages/auth/src/db/RankDistribution.js';
 
 function createDbStub(handlers) {
@@ -18,7 +21,16 @@ describe('UserRepository', () => {
   it('findOrCreateByProvider возвращает существующего пользователя без INSERT', async () => {
     const db = createDbStub(text => {
       if (text.startsWith('SELECT')) {
-        return { rows: [{ id: 1, provider: 'github', 'provider_uid': 'u1', nick: 'Player1' }] };
+        return {
+          rows: [
+            {
+              id: 1,
+              provider: 'github',
+              'provider_uid': 'u1',
+              nick: 'Player1',
+            },
+          ],
+        };
       }
 
       throw new Error('unexpected query: ' + text);
@@ -38,7 +50,11 @@ describe('UserRepository', () => {
       }
 
       if (text.startsWith('INSERT')) {
-        return { rows: [{ id: 2, provider: 'github', 'provider_uid': 'u2', nick: null }] };
+        return {
+          rows: [
+            { id: 2, provider: 'github', 'provider_uid': 'u2', nick: null },
+          ],
+        };
       }
 
       throw new Error('unexpected query: ' + text);
@@ -71,7 +87,9 @@ describe('UserRepository', () => {
 
     const repo = new UserRepository(db);
 
-    await expect(repo.setNick(1, 'NewNick')).rejects.toThrow(NickAlreadySetError);
+    await expect(repo.setNick(1, 'NewNick')).rejects.toThrow(
+      NickAlreadySetError,
+    );
   });
 
   it('setNick возвращает обновлённого пользователя при успехе', async () => {
@@ -137,15 +155,24 @@ describe('UserRepository', () => {
 
     const repo = new UserRepository(db);
 
-    await repo.recordGameResult(1, 'tanks', { points: 120, best: 90 }, {
-      hosterUserId: 2,
-      sessionId: 's1',
-    });
-
-    expect(db.query).toHaveBeenCalledWith(
-      expect.any(String),
-      [1, 'tanks', 2, 's1', 120, 90],
+    await repo.recordGameResult(
+      1,
+      'tanks',
+      { points: 120, best: 90 },
+      {
+        hosterUserId: 2,
+        sessionId: 's1',
+      },
     );
+
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
+      1,
+      'tanks',
+      2,
+      's1',
+      120,
+      90,
+    ]);
   });
 
   // агрегат срезов (миграция 008) пишется ТЕМ ЖЕ запросом, что и леджер:
@@ -158,7 +185,10 @@ describe('UserRepository', () => {
       return { rows: [] };
     });
 
-    await new UserRepository(db).recordGameResult(1, 'tanks', { points: 120, best: 90 });
+    await new UserRepository(db).recordGameResult(1, 'tanks', {
+      points: 120,
+      best: 90,
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatch(/INSERT INTO rank_events/);
@@ -169,8 +199,12 @@ describe('UserRepository', () => {
     // на границе суток они разъезжаются
     expect(calls[0]).toMatch(/event\.created_at AT TIME ZONE 'utc'/);
     // максимум берётся максимумом, сумма складывается
-    expect(calls[0]).toMatch(/best = GREATEST\(rank_periods\.best, EXCLUDED\.best\)/);
-    expect(calls[0]).toMatch(/points = rank_periods\.points \+ EXCLUDED\.points/);
+    expect(calls[0]).toMatch(
+      /best = GREATEST\(rank_periods\.best, EXCLUDED\.best\)/,
+    );
+    expect(calls[0]).toMatch(
+      /points = rank_periods\.points \+ EXCLUDED\.points/,
+    );
   });
 
   // snakes-v3: главный выигрыш по нагрузке — на записи ровно один запрос,
@@ -182,7 +216,10 @@ describe('UserRepository', () => {
       return { rows: [] };
     });
 
-    await new UserRepository(db).recordGameResult(1, 'tanks', { points: 10, best: 10 });
+    await new UserRepository(db).recordGameResult(1, 'tanks', {
+      points: 10,
+      best: 10,
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).not.toMatch(/SUM\(delta\)/);
@@ -192,7 +229,10 @@ describe('UserRepository', () => {
   it('recordGameResult не пишет ничего при нулевом результате', async () => {
     const db = createDbStub(() => ({ rows: [] }));
 
-    await new UserRepository(db).recordGameResult(1, 'tanks', { points: 0, best: 0 });
+    await new UserRepository(db).recordGameResult(1, 'tanks', {
+      points: 0,
+      best: 0,
+    });
 
     expect(db.query).not.toHaveBeenCalled();
   });
@@ -242,7 +282,12 @@ describe('UserRepository', () => {
 
     const repo = new UserRepository(db);
 
-    await repo.upsertState(1, 'tanks', { skill: 2 }, { hosterUserId: 2, sessionId: 's1' });
+    await repo.upsertState(
+      1,
+      'tanks',
+      { skill: 2 },
+      { hosterUserId: 2, sessionId: 's1' },
+    );
 
     expect(calls[0]).toMatch(/SELECT state/);
     expect(calls[1]).toMatch(/INSERT INTO state_snapshots/);
@@ -255,7 +300,9 @@ describe('UserRepository', () => {
         return { rows: [{ state: { skill: 1 } }] };
       }
 
-      expect(text).toMatch(/ON CONFLICT \(user_id, game_id, session_id\) DO NOTHING/);
+      expect(text).toMatch(
+        /ON CONFLICT \(user_id, game_id, session_id\) DO NOTHING/,
+      );
       return { rows: [] };
     });
 
@@ -381,7 +428,10 @@ describe('UserRepository', () => {
         return { rows: [{ total: '-10' }] };
       }
 
-      if (text === 'SELECT DISTINCT user_id, game_id FROM rank_events WHERE hoster_user_id = $1') {
+      if (
+        text ===
+        'SELECT DISTINCT user_id, game_id FROM rank_events WHERE hoster_user_id = $1'
+      ) {
         return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }] };
       }
 
@@ -389,7 +439,9 @@ describe('UserRepository', () => {
         return { rows: [{ total: '3' }] };
       }
 
-      if (text.startsWith('SELECT DISTINCT user_id, game_id FROM state_snapshots')) {
+      if (
+        text.startsWith('SELECT DISTINCT user_id, game_id FROM state_snapshots')
+      ) {
         return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }] };
       }
 
@@ -407,7 +459,9 @@ describe('UserRepository', () => {
     expect(calls).toContain(
       'UPDATE rank_events SET voided = true WHERE hoster_user_id = $1 AND voided = false',
     );
-    expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(true);
+    expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(
+      true,
+    );
   });
 
   it('voteHost не повторяет аннулирование, если хостер уже был заблокирован', async () => {
@@ -459,7 +513,9 @@ describe('UserRepository', () => {
         return { rows: [{ total: '-10' }] };
       }
 
-      if (text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')) {
+      if (
+        text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')
+      ) {
         throw new Error('auth db unavailable mid-void');
       }
 
@@ -468,9 +524,13 @@ describe('UserRepository', () => {
 
     const repo = new UserRepository(db);
 
-    await expect(repo.voteHost(5, 9, -1, 'cheat')).rejects.toThrow('auth db unavailable mid-void');
+    await expect(repo.voteHost(5, 9, -1, 'cheat')).rejects.toThrow(
+      'auth db unavailable mid-void',
+    );
 
-    expect(calls.some(text => text.startsWith('INSERT INTO host_ratings'))).toBe(false);
+    expect(
+      calls.some(text => text.startsWith('INSERT INTO host_ratings')),
+    ).toBe(false);
   });
 
   it('voidHosterContributions гасит непогашенные rank_events, пересчитывает кэш и откатывает states к самому раннему снапшоту', async () => {
@@ -478,8 +538,15 @@ describe('UserRepository', () => {
     const db = createDbStub(text => {
       calls.push(text);
 
-      if (text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')) {
-        return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }, { 'user_id': 2, 'game_id': 'tanks' }] };
+      if (
+        text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')
+      ) {
+        return {
+          rows: [
+            { 'user_id': 1, 'game_id': 'tanks' },
+            { 'user_id': 2, 'game_id': 'tanks' },
+          ],
+        };
       }
 
       if (text.startsWith('UPDATE rank_events')) {
@@ -490,7 +557,9 @@ describe('UserRepository', () => {
         return { rows: [{ total: '0' }] };
       }
 
-      if (text.startsWith('SELECT DISTINCT user_id, game_id FROM state_snapshots')) {
+      if (
+        text.startsWith('SELECT DISTINCT user_id, game_id FROM state_snapshots')
+      ) {
         return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }] };
       }
 
@@ -512,9 +581,15 @@ describe('UserRepository', () => {
     // агрегат срезов — производная того же леджера, и аннулирование обязано
     // дойти и до него: `best` это максимум, вычесть из него нельзя, поэтому
     // пересчёт, а не правка. Плюс уборка окон, от которых не осталось событий
-    expect(calls.filter(text => text.includes('INSERT INTO rank_periods')).length).toBe(2);
-    expect(calls.filter(text => text.startsWith('DELETE FROM rank_periods')).length).toBe(2);
-    expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(true);
+    expect(
+      calls.filter(text => text.includes('INSERT INTO rank_periods')).length,
+    ).toBe(2);
+    expect(
+      calls.filter(text => text.startsWith('DELETE FROM rank_periods')).length,
+    ).toBe(2);
+    expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(
+      true,
+    );
   });
 
   it('voidHosterContributions игрока без событий на баненном сервере не трогает', async () => {
@@ -601,7 +676,9 @@ describe('UserRepository', () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/FROM rank_periods/);
       expect(text).toMatch(/p\.best AS rank/);
-      expect(text).toMatch(/date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)::date/);
+      expect(text).toMatch(
+        /date_trunc\('day', now\(\) AT TIME ZONE 'utc'\)::date/,
+      );
       // леджер на этом пути не читается вовсе — в этом весь смысл агрегата
       expect(text).not.toMatch(/rank_events/);
       expect(text).not.toMatch(/FROM ratings/);
@@ -622,7 +699,9 @@ describe('UserRepository', () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/FROM rank_periods/);
       expect(text).toMatch(/p\.points AS rank/);
-      expect(text).toMatch(/date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)::date/);
+      expect(text).toMatch(
+        /date_trunc\('month', now\(\) AT TIME ZONE 'utc'\)::date/,
+      );
       expect(text).not.toMatch(/rank_events/);
       expect(values).toEqual(['tanks', 10, 'm']);
 
@@ -675,12 +754,18 @@ describe('UserRepository', () => {
     const calls = [];
     const db = placementStub({
       own: 40,
-      ladder: [[100, 1], [40, 3], [10, 9]],
+      ladder: [
+        [100, 1],
+        [40, 3],
+        [10, 9],
+      ],
       total: 9,
       calls,
     });
 
-    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+    await expect(
+      new UserRepository(db).getPlacement(1, 'tanks', 'day'),
+    ).resolves.toEqual({
       // одна ступень строго выше 40 — на ней и выше стоит один игрок
       placement: 2,
       total: 9,
@@ -700,7 +785,9 @@ describe('UserRepository', () => {
     const calls = [];
     const db = placementStub({ own: 300, ladder: [[300, 2]], total: 5, calls });
 
-    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'month')).resolves.toEqual({
+    await expect(
+      new UserRepository(db).getPlacement(1, 'tanks', 'month'),
+    ).resolves.toEqual({
       placement: 1,
       total: 5,
       rank: 300,
@@ -714,17 +801,29 @@ describe('UserRepository', () => {
   // это и убирает 1200 тяжёлых запросов в секунду на целевом масштабе
   it('getPlacement: лестница грузится один раз на всех игроков', async () => {
     const calls = [];
-    const db = placementStub({ own: 40, ladder: [[100, 1], [40, 3]], total: 3, calls });
+    const db = placementStub({
+      own: 40,
+      ladder: [
+        [100, 1],
+        [40, 3],
+      ],
+      total: 3,
+      calls,
+    });
     const repo = new UserRepository(db);
 
     await repo.getPlacement(1, 'tanks', 'day');
     await repo.getPlacement(2, 'tanks', 'day');
     await repo.getPlacement(3, 'tanks', 'day');
 
-    expect(calls.filter(({ text }) => text.includes('at_or_above'))).toHaveLength(1);
+    expect(
+      calls.filter(({ text }) => text.includes('at_or_above')),
+    ).toHaveLength(1);
     // а своё значение читается живым у каждого: устаревать может только
     // окружение, не собственный счёт
-    expect(calls.filter(({ text }) => text.includes('AS rank'))).toHaveLength(3);
+    expect(calls.filter(({ text }) => text.includes('AS rank'))).toHaveLength(
+      3,
+    );
   });
 
   // наплыв входов в комнату на холодный ключ обязан дать ОДИН запрос, а не по
@@ -741,15 +840,27 @@ describe('UserRepository', () => {
       repo.getPlacement(3, 'tanks', 'day'),
     ]);
 
-    expect(calls.filter(({ text }) => text.includes('at_or_above'))).toHaveLength(1);
+    expect(
+      calls.filter(({ text }) => text.includes('at_or_above')),
+    ).toHaveLength(1);
   });
 
   // значение выше верхней ступени — первое место; ничьи делят место
   // (competition ranking, как `place` в getLeaderboard)
   it('getPlacement: разделившие значение делят место', async () => {
-    const db = placementStub({ own: 90, ladder: [[100, 2], [90, 5], [10, 9]], total: 9 });
+    const db = placementStub({
+      own: 90,
+      ladder: [
+        [100, 2],
+        [90, 5],
+        [10, 9],
+      ],
+      total: 9,
+    });
 
-    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+    await expect(
+      new UserRepository(db).getPlacement(1, 'tanks', 'day'),
+    ).resolves.toEqual({
       // двое стоят выше 90 — значит место третье, и его делят все с 90
       placement: 3,
       total: 9,
@@ -760,7 +871,9 @@ describe('UserRepository', () => {
   it('getPlacement: неранжированный получает placement === null без лестницы', async () => {
     const db = placementStub({ own: null, ladder: [[10, 1]], total: 1 });
 
-    await expect(new UserRepository(db).getPlacement(1, 'tanks', 'day')).resolves.toEqual({
+    await expect(
+      new UserRepository(db).getPlacement(1, 'tanks', 'day'),
+    ).resolves.toEqual({
       placement: null,
       total: 1,
       rank: 0,
@@ -793,7 +906,8 @@ describe('UserRepository', () => {
     });
     const repo = new UserRepository(db, {
       distribution: new RankDistribution(
-        (game, period, maxSteps) => repo._loadDistribution(game, period, maxSteps),
+        (game, period, maxSteps) =>
+          repo._loadDistribution(game, period, maxSteps),
         { ttlMs: 30000, maxSteps: 2 },
       ),
     });
@@ -852,7 +966,9 @@ describe('ratingsJob', () => {
     const { pool } = createPoolStub(text => {
       expect(text).toMatch(/INSERT INTO ratings/);
       expect(text).toMatch(/SUM\(e\.delta\)/);
-      expect(text).toMatch(/e\.created_at > COALESCE\(r\.updated_at, '-infinity'::timestamptz\)/);
+      expect(text).toMatch(
+        /e\.created_at > COALESCE\(r\.updated_at, '-infinity'::timestamptz\)/,
+      );
       expect(text).toMatch(/e\.voided = false/);
 
       return { rowCount: 3, rows: [] };
@@ -863,7 +979,9 @@ describe('ratingsJob', () => {
 
   it('refreshRatings клампит результат в config.rank.min/max прямо в запросе', async () => {
     const { pool } = createPoolStub((text, values) => {
-      expect(text).toMatch(/LEAST\(\$2, GREATEST\(\$1, COALESCE\(r\.rank, 0\) \+ SUM\(e\.delta\)\)\)/);
+      expect(text).toMatch(
+        /LEAST\(\$2, GREATEST\(\$1, COALESCE\(r\.rank, 0\) \+ SUM\(e\.delta\)\)\)/,
+      );
       expect(values).toEqual([config.rank.min, config.rank.max]);
 
       return { rowCount: 0, rows: [] };
@@ -925,7 +1043,9 @@ describe('ratingsJob', () => {
     const afterRun = Date.UTC(2026, 0, 10, 12, 0, 0);
 
     expect(msUntilNextRun(beforeRun)).toBe(5 * 60 * 1000);
-    expect(afterRun + msUntilNextRun(afterRun)).toBe(Date.UTC(2026, 0, 11, 0, 5, 0));
+    expect(afterRun + msUntilNextRun(afterRun)).toBe(
+      Date.UTC(2026, 0, 11, 0, 5, 0),
+    );
   });
 });
 
@@ -978,14 +1098,19 @@ describe('UserRepository: роли', () => {
   // VIMP_ADMIN_IDENTITIES: ник до первой регистрации может занять кто угодно
   it('getIdentity отдаёт провайдера и uid, null — для несуществующего id', async () => {
     const db = createDbStub((text, values) => {
-      expect(text).toMatch(/SELECT provider, provider_uid FROM users WHERE id = \$1/);
+      expect(text).toMatch(
+        /SELECT provider, provider_uid FROM users WHERE id = \$1/,
+      );
       return values[0] === 3
         ? { rows: [{ provider: 'github', 'provider_uid': '123' }] }
         : { rows: [] };
     });
     const repo = new UserRepository(db);
 
-    expect(await repo.getIdentity(3)).toEqual({ provider: 'github', 'provider_uid': '123' });
+    expect(await repo.getIdentity(3)).toEqual({
+      provider: 'github',
+      'provider_uid': '123',
+    });
     expect(await repo.getIdentity(4)).toBeNull();
   });
 });
@@ -1048,7 +1173,9 @@ describe('UserRepository: реестр игр', () => {
       return { rows: [{ ...gameRow, 'moderator_nick': 'Admin' }] };
     });
 
-    expect((await new UserRepository(db).listAllGames())[0].moderatorNick).toBe('Admin');
+    expect((await new UserRepository(db).listAllGames())[0].moderatorNick).toBe(
+      'Admin',
+    );
   });
 
   it('listGamesByAuthor фильтрует по автору', async () => {
@@ -1077,12 +1204,29 @@ describe('UserRepository: реестр игр', () => {
       expect(text).toMatch(/INSERT INTO games/);
       expect(text).toMatch(/'pending'/);
       // потолок заявок считается ВНУТРИ вставки — отдельного COUNT(*) нет
-      expect(text).toMatch(/WHERE \(SELECT COUNT\(\*\) FROM games WHERE author_user_id = \$5\) < \$7/);
+      expect(text).toMatch(
+        /WHERE \(SELECT COUNT\(\*\) FROM games WHERE author_user_id = \$5\) < \$7/,
+      );
       expect(values).toEqual([
-        'pong', '@dev/pong', 'Pong', null, 42, '1.0.0', config.games.maxPerUser,
+        'pong',
+        '@dev/pong',
+        'Pong',
+        null,
+        42,
+        '1.0.0',
+        config.games.maxPerUser,
       ]);
 
-      return { rows: [{ ...gameRow, id: 'pong', status: 'pending', 'pending_version': '1.0.0' }] };
+      return {
+        rows: [
+          {
+            ...gameRow,
+            id: 'pong',
+            status: 'pending',
+            'pending_version': '1.0.0',
+          },
+        ],
+      };
     });
 
     const game = await new UserRepository(db).createGame({
@@ -1139,13 +1283,26 @@ describe('UserRepository: реестр игр', () => {
       expect(text).toMatch(/moderator_note = NULL/);
       expect(values).toEqual(['pong', '1.1.0', false, 42]);
 
-      return { rows: [{ ...gameRow, id: 'pong', status: 'pending', 'pending_version': '1.1.0' }] };
+      return {
+        rows: [
+          {
+            ...gameRow,
+            id: 'pong',
+            status: 'pending',
+            'pending_version': '1.1.0',
+          },
+        ],
+      };
     });
 
-    const game = await new UserRepository(db).requestGameVersion('pong', '1.1.0', {
-      userId: 42,
-      isAdmin: false,
-    });
+    const game = await new UserRepository(db).requestGameVersion(
+      'pong',
+      '1.1.0',
+      {
+        userId: 42,
+        isAdmin: false,
+      },
+    );
 
     expect(game.pendingVersion).toBe('1.1.0');
   });
@@ -1171,17 +1328,23 @@ describe('UserRepository: реестр игр', () => {
     const missing = createDbStub(() => ({ rows: [] }));
 
     await expect(
-      new UserRepository(foreign).requestGameVersion('tanks', '1.0.0', { userId: 42 }),
+      new UserRepository(foreign).requestGameVersion('tanks', '1.0.0', {
+        userId: 42,
+      }),
     ).rejects.toThrow(GameForbiddenError);
 
     await expect(
-      new UserRepository(missing).requestGameVersion('nope', '1.0.0', { userId: 42 }),
+      new UserRepository(missing).requestGameVersion('nope', '1.0.0', {
+        userId: 42,
+      }),
     ).rejects.toThrow(GameNotFoundError);
   });
 
   it('moderateGame собирает SET только из переданных ключей и только через плейсхолдеры', async () => {
     const db = createDbStub((text, values) => {
-      expect(text).toMatch(/SET moderator_user_id = \$2, updated_at = now\(\), status = \$3, version = \$4/);
+      expect(text).toMatch(
+        /SET moderator_user_id = \$2, updated_at = now\(\), status = \$3, version = \$4/,
+      );
       expect(text).not.toMatch(/pending_version/);
       expect(text).not.toMatch(/moderator_note/);
       expect(text).not.toMatch(/approved/); // значения не попадают в текст SQL
@@ -1220,7 +1383,11 @@ describe('UserRepository: реестр игр', () => {
       };
     });
 
-    const game = await new UserRepository(db).moderateGame('pong', { status: 'approved' }, 1);
+    const game = await new UserRepository(db).moderateGame(
+      'pong',
+      { status: 'approved' },
+      1,
+    );
 
     expect(game.authorNick).toBe('Player1');
     expect(game.authorUserId).toBe(2);
@@ -1232,7 +1399,9 @@ describe('UserRepository: реестр игр', () => {
       expect(text).toMatch(/WITH created AS/);
       expect(text).toMatch(/FROM created g/);
 
-      return { rows: [{ ...gameRow, 'author_user_id': 2, 'author_nick': 'Player1' }] };
+      return {
+        rows: [{ ...gameRow, 'author_user_id': 2, 'author_nick': 'Player1' }],
+      };
     });
 
     const game = await new UserRepository(db).createGame({
@@ -1250,12 +1419,18 @@ describe('UserRepository: реестр игр', () => {
       expect(text).toMatch(/WITH updated AS/);
       expect(text).toMatch(/FROM updated g/);
 
-      return { rows: [{ ...gameRow, 'author_user_id': 2, 'author_nick': 'Player1' }] };
+      return {
+        rows: [{ ...gameRow, 'author_user_id': 2, 'author_nick': 'Player1' }],
+      };
     });
 
-    const game = await new UserRepository(db).requestGameVersion('tanks', '0.17.0', {
-      userId: 2,
-    });
+    const game = await new UserRepository(db).requestGameVersion(
+      'tanks',
+      '0.17.0',
+      {
+        userId: 2,
+      },
+    );
 
     expect(game.authorNick).toBe('Player1');
   });
@@ -1285,7 +1460,11 @@ describe('UserRepository: реестр игр', () => {
     const missing = createDbStub(() => ({ rows: [] }));
 
     await expect(
-      new UserRepository(missing).moderateGame('nope', { status: 'disabled' }, 1),
+      new UserRepository(missing).moderateGame(
+        'nope',
+        { status: 'disabled' },
+        1,
+      ),
     ).rejects.toThrow(GameNotFoundError);
   });
 });

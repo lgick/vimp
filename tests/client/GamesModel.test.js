@@ -55,19 +55,25 @@ describe('GamesModel: заявки вызывающего', () => {
 
     expect(seen).toEqual([games]);
     expect(fetchMock.mock.calls[0][0]).toBe('/games/mine');
-    expect(fetchMock.mock.calls[0][1].headers.authorization).toBe('Bearer token123');
+    expect(fetchMock.mock.calls[0][1].headers.authorization).toBe(
+      'Bearer token123',
+    );
   });
 
   it('список проблем пакета едет наружу событием error', async () => {
     const errors = [];
 
-    fetchMock.mockResolvedValue(answer({ errors: ['нет manifest.json'] }, false));
+    fetchMock.mockResolvedValue(
+      answer({ errors: ['нет manifest.json'] }, false),
+    );
     model.publisher.on('error', e => errors.push(e));
 
     await model.submit({ id: 'tanks', packageName: '@vimp-games/tanks' });
 
     expect(errors[0].scope).toBe('mine');
-    expect(errors[0].errors).toEqual([{ name: 'package', error: 'нет manifest.json' }]);
+    expect(errors[0].errors).toEqual([
+      { name: 'package', error: 'нет manifest.json' },
+    ]);
   });
 
   it('код отказа сервиса тоже превращается в одну ошибку', async () => {
@@ -78,7 +84,9 @@ describe('GamesModel: заявки вызывающего', () => {
 
     await model.submit({ id: 'tanks', packageName: '@vimp-games/tanks' });
 
-    expect(errors[0].errors).toEqual([{ name: 'request', error: 'gameExists' }]);
+    expect(errors[0].errors).toEqual([
+      { name: 'request', error: 'gameExists' },
+    ]);
   });
 
   it('успешная заявка перезапрашивает свой список и объявляет об успехе', async () => {
@@ -122,7 +130,9 @@ describe('GamesModel: заявки вызывающего', () => {
     await model2.loadMine();
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(errors[0].errors).toEqual([{ name: 'request', error: 'unauthorized' }]);
+    expect(errors[0].errors).toEqual([
+      { name: 'request', error: 'unauthorized' },
+    ]);
   });
 });
 
@@ -177,7 +187,9 @@ describe('GamesModel: модерация', () => {
     const staged = [];
 
     fetchMock
-      .mockResolvedValueOnce(answer({ version: '1.1.0', manifest: { id: 'tanks' } }))
+      .mockResolvedValueOnce(
+        answer({ version: '1.1.0', manifest: { id: 'tanks' } }),
+      )
       .mockResolvedValueOnce(answer({ games }));
     model.publisher.on('staged', e => staged.push(e));
 
@@ -192,7 +204,11 @@ describe('GamesModel: модерация', () => {
     const staged = [];
 
     fetchMock.mockResolvedValue(
-      answer({ manifests: [{ id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } }] }),
+      answer({
+        manifests: [
+          { id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } },
+        ],
+      }),
     );
     model.publisher.on('staged', e => staged.push(e));
 
@@ -226,15 +242,21 @@ describe('GamesModel: модерация', () => {
     await model.setAuthor('tanks', 'Player1');
     await model.setAuthor('tanks', '');
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ authorNick: 'Player1' });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ authorNick: null });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      authorNick: 'Player1',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
+      authorNick: null,
+    });
   });
 
   it('catalogEmpty из ответа доезжает предупреждением — после перечитывания', async () => {
     const seen = [];
 
     fetchMock
-      .mockResolvedValueOnce(answer({ game: { id: 'tanks' }, warning: 'catalogEmpty' }))
+      .mockResolvedValueOnce(
+        answer({ game: { id: 'tanks' }, warning: 'catalogEmpty' }),
+      )
       .mockResolvedValueOnce(answer({ games: [] }));
     model.publisher.on('admin-changed', () => seen.push('admin'));
     model.publisher.on('warning', data => seen.push(data));
@@ -310,7 +332,9 @@ describe('GamesModel: удаление игры', () => {
   it('scope admin показывает предупреждение об опустевшем каталоге', async () => {
     const order = [];
 
-    fetchMock.mockResolvedValueOnce(answer({ game: {}, warning: 'catalogEmpty' }));
+    fetchMock.mockResolvedValueOnce(
+      answer({ game: {}, warning: 'catalogEmpty' }),
+    );
     fetchMock.mockResolvedValue(answer({ games: [] }));
     model.publisher.on('admin-changed', () => order.push('list'));
     model.publisher.on('warning', w => order.push(w));

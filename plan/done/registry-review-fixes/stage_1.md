@@ -36,23 +36,23 @@ fi
 `ubuntu-latest`.
 
 ```yaml
-      # settings матрицы — объект, а toJSON печатает его с переводами
-      # строк. В .env.prod значение обязано быть одной строкой: env_file
-      # docker compose читает файл построчно
-      - name: Compact dedicated room settings
-        id: room
-        env:
-          RAW: ${{ toJSON(matrix.settings) }}
-        run: |
-          set -e
-          COMPACT=$(printf '%s' "$RAW" | jq -c .)
-          # поля settings в матрице нет -> jq вернёт "null": в .env.prod
-          # такая строка не пишется вовсе (readDedicatedRoom бросил бы
-          # 'expected a JSON object')
-          if [ "$COMPACT" = "null" ]; then
-            COMPACT=""
-          fi
-          echo "json=$COMPACT" >> "$GITHUB_OUTPUT"
+# settings матрицы — объект, а toJSON печатает его с переводами
+# строк. В .env.prod значение обязано быть одной строкой: env_file
+# docker compose читает файл построчно
+- name: Compact dedicated room settings
+  id: room
+  env:
+    RAW: ${{ toJSON(matrix.settings) }}
+  run: |
+    set -e
+    COMPACT=$(printf '%s' "$RAW" | jq -c .)
+    # поля settings в матрице нет -> jq вернёт "null": в .env.prod
+    # такая строка не пишется вовсе (readDedicatedRoom бросил бы
+    # 'expected a JSON object')
+    if [ "$COMPACT" = "null" ]; then
+      COMPACT=""
+    fi
+    echo "json=$COMPACT" >> "$GITHUB_OUTPUT"
 ```
 
 Замечания исполнителю:
@@ -70,9 +70,9 @@ fi
 В блоке `env:` шага деплоя заменить строку на:
 
 ```yaml
-          # компактный JSON одной строкой (шаг «Compact dedicated room
-          # settings»): toJSON здесь напрямую нельзя — он многострочный
-          VIMP_DEDICATED_ROOM: ${{ steps.room.outputs.json }}
+# компактный JSON одной строкой (шаг «Compact dedicated room
+# settings»): toJSON здесь напрямую нельзя — он многострочный
+VIMP_DEDICATED_ROOM: ${{ steps.room.outputs.json }}
 ```
 
 Список `envs:` не менять — `VIMP_DEDICATED_ROOM` там уже перечислен.
@@ -126,7 +126,7 @@ fi
   раннере (`jq -c`), поэтому в матрице `settings` пишется обычным
   объектом YAML/JSON и переносы строк в нём допустимы. Убрать прежнее
   требование «без переводов строк в значениях», если оно там осталось,
-  и заменить на «в *значениях полей* переводов строк быть не должно».
+  и заменить на «в _значениях полей_ переводов строк быть не должно».
 
 Changelog не трогать — `.github/` не входит в публикуемые артефакты.
 

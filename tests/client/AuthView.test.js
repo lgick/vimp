@@ -44,7 +44,9 @@ const makeModel = () => ({ publisher: new Publisher() });
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  AuthView = (await import('../../packages/engine/src/client/components/view/Auth.js')).default;
+  AuthView = (
+    await import('../../packages/engine/src/client/components/view/Auth.js')
+  ).default;
 });
 
 describe('AuthView: показ/скрытие', () => {
@@ -83,7 +85,9 @@ describe('AuthView.renderData', () => {
 
     const input = document.querySelector('input[name="login"]');
     expect(input.value).toBe('Alice');
-    expect(document.getElementById('auth-error').textContent).toBe('старая ошибка');
+    expect(document.getElementById('auth-error').textContent).toBe(
+      'старая ошибка',
+    );
   });
 
   it('отмечает нужный radio-инпут', () => {
@@ -107,7 +111,12 @@ describe('AuthView: единственный вариант select/radio', () =>
       {
         name: 'model',
         value: 's0-no-longer-exists',
-        options: { control: 'select', label: 'Snake', options: ['s1'], storage: 'model' },
+        options: {
+          control: 'select',
+          label: 'Snake',
+          options: ['s1'],
+          storage: 'model',
+        },
       },
     ];
 
@@ -213,8 +222,16 @@ describe('AuthView: события DOM', () => {
 
   it('починка одного поля не уносит ошибку второго', () => {
     const requiredParams = [
-      { name: 'login', value: '', options: { control: 'text', label: 'Login', required: true } },
-      { name: 'clan', value: '', options: { control: 'text', label: 'Clan', required: true } },
+      {
+        name: 'login',
+        value: '',
+        options: { control: 'text', label: 'Login', required: true },
+      },
+      {
+        name: 'clan',
+        value: '',
+        options: { control: 'text', label: 'Clan', required: true },
+      },
     ];
     const model = makeModel();
 
@@ -225,7 +242,9 @@ describe('AuthView: события DOM', () => {
     document.getElementById('auth-enter').click();
     expect(error.children).toHaveLength(2);
 
-    const [login] = document.getElementById('auth-fields').querySelectorAll('input');
+    const [login] = document
+      .getElementById('auth-fields')
+      .querySelectorAll('input');
 
     login.value = 'Bob';
     login.dispatchEvent(new Event('input', { bubbles: true }));
@@ -241,7 +260,11 @@ describe('AuthView: события DOM', () => {
 
   it('клик по enter с невалидным полем не эмитит enter и рисует ошибку', () => {
     const requiredParams = [
-      { name: 'login', value: '', options: { control: 'text', label: 'Login', required: true } },
+      {
+        name: 'login',
+        value: '',
+        options: { control: 'text', label: 'Login', required: true },
+      },
     ];
     const view = new AuthView(makeModel(), elems, null, requiredParams);
     const enterSpy = vi.fn();
@@ -250,7 +273,9 @@ describe('AuthView: события DOM', () => {
     document.getElementById('auth-enter').click();
 
     expect(enterSpy).not.toHaveBeenCalled();
-    expect(document.getElementById('auth-error').textContent).toBe('LOGIN: required');
+    expect(document.getElementById('auth-error').textContent).toBe(
+      'LOGIN: required',
+    );
   });
 });
 

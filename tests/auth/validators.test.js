@@ -159,21 +159,38 @@ describe('validators: реестр игр', () => {
     expect(isValidGameTitle(null, config.games)).toBe(true);
     expect(isValidGameTitle('VIMP Tanks', config.games)).toBe(true);
     expect(isValidGameTitle('   ', config.games)).toBe(false);
-    expect(isValidGameTitle('x'.repeat(config.games.maxTitleLength + 1), config.games)).toBe(false);
+    expect(
+      isValidGameTitle(
+        'x'.repeat(config.games.maxTitleLength + 1),
+        config.games,
+      ),
+    ).toBe(false);
 
     expect(isValidRepoUrl(undefined, config.games)).toBe(true);
-    expect(isValidRepoUrl('https://github.com/lgick/vimp-tanks', config.games)).toBe(true);
+    expect(
+      isValidRepoUrl('https://github.com/lgick/vimp-tanks', config.games),
+    ).toBe(true);
     expect(isValidRepoUrl('javascript:alert(1)', config.games)).toBe(false);
     expect(isValidRepoUrl('not a url', config.games)).toBe(false);
-    expect(isValidRepoUrl(`https://e.com/${'x'.repeat(config.games.maxUrlLength)}`, config.games))
-      .toBe(false);
+    expect(
+      isValidRepoUrl(
+        `https://e.com/${'x'.repeat(config.games.maxUrlLength)}`,
+        config.games,
+      ),
+    ).toBe(false);
   });
 
   it('замечание модератора ограничено по длине, пустое — снятие', () => {
     expect(isValidModeratorNote(null, config.games)).toBe(true);
-    expect(isValidModeratorNote('версия падает на старте', config.games)).toBe(true);
-    expect(isValidModeratorNote('x'.repeat(config.games.maxNoteLength + 1), config.games))
-      .toBe(false);
+    expect(isValidModeratorNote('версия падает на старте', config.games)).toBe(
+      true,
+    );
+    expect(
+      isValidModeratorNote(
+        'x'.repeat(config.games.maxNoteLength + 1),
+        config.games,
+      ),
+    ).toBe(false);
   });
 
   it('зарезервированные id отклоняются: их занимают роуты реестра', () => {
@@ -185,11 +202,20 @@ describe('validators: реестр игр', () => {
   it('missingGameField называет первое отсутствующее обязательное поле', () => {
     expect(missingGameField({})).toBe('id');
     expect(missingGameField({ id: 'pong' })).toBe('packageName');
-    expect(missingGameField({ id: 'pong', packageName: '@dev/pong' })).toBe('version');
-    expect(missingGameField({ id: 'pong', packageName: '@dev/pong', version: '1.0.0' }))
-      .toBeNull();
+    expect(missingGameField({ id: 'pong', packageName: '@dev/pong' })).toBe(
+      'version',
+    );
+    expect(
+      missingGameField({
+        id: 'pong',
+        packageName: '@dev/pong',
+        version: '1.0.0',
+      }),
+    ).toBeNull();
     // отсутствие ≠ кривое значение: формат проверяет gameInputError
-    expect(missingGameField({ id: '', packageName: '', version: '' })).toBeNull();
+    expect(
+      missingGameField({ id: '', packageName: '', version: '' }),
+    ).toBeNull();
   });
 
   it('maxGameScore ограничен потолками самого auth', () => {
@@ -205,10 +231,17 @@ describe('validators: реестр игр', () => {
     // произведение на окно склейки движка не должно перерастать maxPoints:
     // иначе хост уходит в вечный повтор отклонённого flush
     expect(isValidMaxGameScore(1000000, rank)).toBe(false);
-    expect(isValidMaxGameScore(Math.floor(rank.maxPoints / 20), { ...rank, maxGameScore: 1e9 }))
-      .toBe(true);
     expect(
-      isValidMaxGameScore(Math.floor(rank.maxPoints / 20) + 1, { ...rank, maxGameScore: 1e9 }),
+      isValidMaxGameScore(Math.floor(rank.maxPoints / 20), {
+        ...rank,
+        maxGameScore: 1e9,
+      }),
+    ).toBe(true);
+    expect(
+      isValidMaxGameScore(Math.floor(rank.maxPoints / 20) + 1, {
+        ...rank,
+        maxGameScore: 1e9,
+      }),
     ).toBe(false);
   });
 });

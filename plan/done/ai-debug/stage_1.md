@@ -36,16 +36,16 @@ RTT-пинги и сам игровой цикл.
 
 Сигнатуры не меняются.
 
-| Файл | Что |
-| --- | --- |
-| `host/HostGame.js:316,401,743,769,794` | `Date.now()` → `clock.now()` |
-| `host/meta/modules/TimerManager.js:69,82,98,109,116` | `Date.now()` → `clock.now()` |
-| `host/meta/modules/TimerManager.js:123,149` | `performance.now()` → `clock.monotonic()` |
-| `host/meta/modules/RTTManager.js:99,144` | `Date.now()` → `clock.now()` |
-| `host/meta/SocketManager.js:281` | `Date.now()` (serverTime) → `clock.now()` |
-| `host/meta/player/HumanParticipant.js:27` | `Date.now()` → `clock.now()` |
-| `host/meta/modules/Vote.js:174` | `Math.random()` → `clock.random()` — розыгрыш ничьей влияет на ротацию карт, то есть виден в реплее |
-| `host/host.worker.js:139` | `Math.random()` для seed → `clock.random()`, seed принимается из `room.seed`, если задан |
+| Файл                                                 | Что                                                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `host/HostGame.js:316,401,743,769,794`               | `Date.now()` → `clock.now()`                                                                        |
+| `host/meta/modules/TimerManager.js:69,82,98,109,116` | `Date.now()` → `clock.now()`                                                                        |
+| `host/meta/modules/TimerManager.js:123,149`          | `performance.now()` → `clock.monotonic()`                                                           |
+| `host/meta/modules/RTTManager.js:99,144`             | `Date.now()` → `clock.now()`                                                                        |
+| `host/meta/SocketManager.js:281`                     | `Date.now()` (serverTime) → `clock.now()`                                                           |
+| `host/meta/player/HumanParticipant.js:27`            | `Date.now()` → `clock.now()`                                                                        |
+| `host/meta/modules/Vote.js:174`                      | `Math.random()` → `clock.random()` — розыгрыш ничьей влияет на ротацию карт, то есть виден в реплее |
+| `host/host.worker.js:139`                            | `Math.random()` для seed → `clock.random()`, seed принимается из `room.seed`, если задан            |
 
 Примечание: в исходном плане `SocketManager` указан как
 `host/meta/modules/SocketManager.js`, фактический путь — `host/meta/SocketManager.js`.

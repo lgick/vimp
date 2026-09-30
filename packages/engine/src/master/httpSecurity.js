@@ -15,7 +15,10 @@ import config from '../lib/config.js';
 export function securityHeaders({ isProduction = false } = {}) {
   return (req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', config.get('master:security:referrerPolicy'));
+    res.setHeader(
+      'Referrer-Policy',
+      config.get('master:security:referrerPolicy'),
+    );
     res.setHeader('X-Frame-Options', 'DENY');
 
     if (isProduction) {

@@ -42,7 +42,10 @@ describe('LeaderboardCache', () => {
   });
 
   it('ответ не-200 не кэшируется', async () => {
-    const proxy = makeProxy(async () => ({ status: 502, json: { error: 'authServiceUnavailable' } }));
+    const proxy = makeProxy(async () => ({
+      status: 502,
+      json: { error: 'authServiceUnavailable' },
+    }));
     const cache = new LeaderboardCache(proxy, { ttlMs: 15000, now: () => 0 });
 
     await cache.get('tanks', 10);

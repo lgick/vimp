@@ -16,7 +16,10 @@ const makeLog = () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn() });
 describe('ENGINE_VERSION', () => {
   it('читается из packages/engine/package.json', () => {
     const pkg = JSON.parse(
-      fs.readFileSync(new URL('../../packages/engine/package.json', import.meta.url), 'utf8'),
+      fs.readFileSync(
+        new URL('../../packages/engine/package.json', import.meta.url),
+        'utf8',
+      ),
     );
 
     expect(ENGINE_VERSION).toBe(pkg.version);
@@ -27,8 +30,12 @@ describe('makeDroppedEntry', () => {
   it('нули — null и без строки журнала', () => {
     const log = makeLog();
 
-    expect(makeDroppedEntry({ budget: 0, bufferFull: 0 }, { box: BOX, windowMs: 30000, log }))
-      .toBeNull();
+    expect(
+      makeDroppedEntry(
+        { budget: 0, bufferFull: 0 },
+        { box: BOX, windowMs: 30000, log },
+      ),
+    ).toBeNull();
     expect(log.warn).not.toHaveBeenCalled();
   });
 
@@ -65,7 +72,8 @@ describe('makeDroppedEntry', () => {
   it('отпечаток зависит от домена бокса, но не от числа отброшенного', () => {
     const log = makeLog();
     const fp = (box, n) =>
-      makeDroppedEntry({ budget: n, bufferFull: 0 }, { box, windowMs: 1, log }).fingerprint;
+      makeDroppedEntry({ budget: n, bufferFull: 0 }, { box, windowMs: 1, log })
+        .fingerprint;
 
     expect(fp(BOX, 1)).toBe(fp(BOX, 7));
     expect(fp({ ...BOX, domain: 'b.example' }, 1)).not.toBe(fp(BOX, 1));
@@ -110,7 +118,10 @@ describe('createClientReports', () => {
 
   it('служебная запись отброшенного уходит первой в пересылку', async () => {
     const log = makeLog();
-    const fetchImpl = vi.fn(async () => ({ status: 200, json: async () => ({}) }));
+    const fetchImpl = vi.fn(async () => ({
+      status: 200,
+      json: async () => ({}),
+    }));
     const { forwarder, buffer } = createClientReports({
       config: makeConfig('secret'),
       box: BOX,
@@ -151,7 +162,9 @@ describe('stopClientReports', () => {
     const log = makeLog();
     const done = vi.fn();
 
-    stopClientReports({ stop: () => new Promise(() => {}) }, { log }).then(done);
+    stopClientReports({ stop: () => new Promise(() => {}) }, { log }).then(
+      done,
+    );
 
     await vi.advanceTimersByTimeAsync(2999);
     expect(done).not.toHaveBeenCalled();
@@ -165,9 +178,19 @@ describe('stopClientReports', () => {
     const log = makeLog();
 
     await expect(
-      stopClientReports({ stop: vi.fn(async () => { throw new Error('auth down'); }) }, { log }),
+      stopClientReports(
+        {
+          stop: vi.fn(async () => {
+            throw new Error('auth down');
+          }),
+        },
+        { log },
+      ),
     ).resolves.toBeUndefined();
 
-    expect(log.error).toHaveBeenCalledWith('[vimp:client-report] final flush failed:', 'auth down');
+    expect(log.error).toHaveBeenCalledWith(
+      '[vimp:client-report] final flush failed:',
+      'auth down',
+    );
   });
 });

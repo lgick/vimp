@@ -112,9 +112,8 @@ export default class ScriptedManager {
   }
 
   getCountForTeam(teamName) {
-    return this._participants
-      .getScripted()
-      .filter(p => p.team === teamName).length;
+    return this._participants.getScripted().filter(p => p.team === teamName)
+      .length;
   }
 
   getCountsPerTeam() {

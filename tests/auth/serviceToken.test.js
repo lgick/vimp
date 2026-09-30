@@ -1,10 +1,17 @@
-import { isValidServiceToken, requireServiceToken } from '../../packages/auth/src/lib/serviceToken.js';
+import {
+  isValidServiceToken,
+  requireServiceToken,
+} from '../../packages/auth/src/lib/serviceToken.js';
 
 function run(middleware, authorization) {
   const res = { status: vi.fn(() => res), json: vi.fn(() => res) };
   const next = vi.fn();
 
-  middleware({ headers: authorization === undefined ? {} : { authorization } }, res, next);
+  middleware(
+    { headers: authorization === undefined ? {} : { authorization } },
+    res,
+    next,
+  );
 
   return { res, next };
 }
@@ -37,7 +44,9 @@ describe('serviceToken', () => {
   });
 
   it('токены разной длины не бросают', () => {
-    expect(() => isValidServiceToken('Bearer a', 'much-longer-secret')).not.toThrow();
+    expect(() =>
+      isValidServiceToken('Bearer a', 'much-longer-secret'),
+    ).not.toThrow();
     expect(isValidServiceToken('Bearer a', 'much-longer-secret')).toBe(false);
     expect(isValidServiceToken(42, 'secret')).toBe(false);
   });

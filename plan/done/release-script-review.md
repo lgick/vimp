@@ -75,20 +75,20 @@ game-only release:
 ```js
 // games.js
 export async function collectGameState(dir, version) {
-  const tag = await capture(
-    'git', ['rev-parse', '--verify', '--quiet', `v${version}^{commit}`],
-    { cwd: dir, allowFailure: true },
-  );
+  const tag = await capture('git', ['rev-parse', '--verify', '--quiet', `v${version}^{commit}`], {
+    cwd: dir,
+    allowFailure: true,
+  });
 
   if (tag.code !== 0) {
     // тега нет — считаем изменённой, но честно говорим об этом
     return { changed: true, base: null };
   }
 
-  const since = await capture(
-    'git', ['rev-list', '--count', `${tag.stdout.trim()}..HEAD`],
-    { cwd: dir, allowFailure: true },
-  );
+  const since = await capture('git', ['rev-list', '--count', `${tag.stdout.trim()}..HEAD`], {
+    cwd: dir,
+    allowFailure: true,
+  });
 
   return {
     changed: since.code === 0 && Number(since.stdout.trim()) > 0,
@@ -130,7 +130,7 @@ const games = (input.games ?? []).map(game => {
   return {
     ...game,
     publish: required || engine.publish || ahead || ownChanges,
-    bump: !ahead,               // версия уже поднята руками — публикуем как есть
+    bump: !ahead, // версия уже поднята руками — публикуем как есть
     required,
     reason: reasons.join('; '),
   };
@@ -252,8 +252,12 @@ merged: JSON.parse FAILED -> Unexpected token 'p', "npm warn Un"... is not valid
 let stdout = '';
 let stderr = '';
 
-child.stdout.on('data', chunk => { stdout += chunk; });
-child.stderr.on('data', chunk => { stderr += chunk; });
+child.stdout.on('data', chunk => {
+  stdout += chunk;
+});
+child.stderr.on('data', chunk => {
+  stderr += chunk;
+});
 
 // в close:
 resolve({ code, stdout, stderr, output: stdout + stderr });
@@ -275,9 +279,9 @@ stdout: { "error": { "code": "E404", "summary": "Not Found …" } }
 ```js
 // registry.js
 export async function npmVersion(name) {
-  const { code, stdout, stderr } = await capture(
-    'npm', ['view', name, 'version', '--json'], { allowFailure: true },
-  );
+  const { code, stdout, stderr } = await capture('npm', ['view', name, 'version', '--json'], {
+    allowFailure: true,
+  });
 
   let parsed = null;
 
@@ -289,12 +293,10 @@ export async function npmVersion(name) {
 
   if (code !== 0) {
     if (parsed?.error?.code === 'E404') {
-      return null;                       // пакета нет — это валидный ответ
+      return null; // пакета нет — это валидный ответ
     }
 
-    throw new Error(
-      `npm view ${name} не ответил (код ${code}): ${stderr.trim() || stdout.trim()}`,
-    );
+    throw new Error(`npm view ${name} не ответил (код ${code}): ${stderr.trim() || stdout.trim()}`);
   }
 
   const version = Array.isArray(parsed) ? parsed.at(-1) : parsed;
@@ -456,9 +458,7 @@ async function findCratePatches(dir, files) {
 **Решение.** Валидировать сразу, в том же цикле, что и ввод:
 
 ```js
-const target = ['patch', 'minor', 'major'].includes(answer)
-  ? increment(current, answer)
-  : answer;
+const target = ['patch', 'minor', 'major'].includes(answer) ? increment(current, answer) : answer;
 
 if (!isVersion(target)) {
   throw new UsageError(`не версия и не уровень инкремента: ${answer}`);
@@ -496,13 +496,7 @@ lines[headingIndex] = `## [${version}] ${EM_DASH} ${date}`;
 **Решение.**
 
 ```js
-lines.splice(
-  headingIndex,
-  1,
-  '## [Unreleased]',
-  '',
-  `## [${version}] ${EM_DASH} ${date}`,
-);
+lines.splice(headingIndex, 1, '## [Unreleased]', '', `## [${version}] ${EM_DASH} ${date}`);
 ```
 
 И тест: после `releaseUnreleased` повторный `parseUnreleased` должен дать
@@ -579,7 +573,8 @@ if (NEXT_HEADING.test(lines[index]) || LINK_REF.test(lines[index])) {
 
 ```js
 const upstream = await capture(
-  'git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+  'git',
+  ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
   { cwd: dir, allowFailure: true },
 );
 
@@ -670,11 +665,11 @@ Cargo не пройдёт валидацию. Плюс `checkTarball` жёстк
   просится в общий модуль.
 - Вызов `npm run sim -- --game … --no-write` собирается дважды почти
   идентично: `steps.js:110-119` и `:306-315`. Одна функция `simGame(shell,
-  root, game)`.
+root, game)`.
 - Регулярка правки версии повторена для `package.json` в двух местах
   (`steps.js:126`, `:269`) и для `Cargo.toml` в двух (`:64`, `:232`) —
   четыре почти одинаковых `edit(...)`. Просятся `bumpJsonVersion(file,
-  version)` и `bumpTomlVersion(file, version)`.
+version)` и `bumpTomlVersion(file, version)`.
 
 ## C5. Мелкие замечания
 

@@ -38,7 +38,7 @@
   `manifestList`, `getManifest`, `getMapCatalog`) не изменился, добавлен
   `getDistDir(id)`. До физического разъезда репозиториев (A3) `package`
   резолвится через npm workspace-симлинк `node_modules/@vimp/tanks ->
-  games/tanks` — проверено вручную (`npm run dev`, лог "Games loaded: tanks").
+games/tanks` — проверено вручную (`npm run dev`, лог "Games loaded: tanks").
 - Dev-режим (`_toDevManifest`) не менялся по механике — просто использует
   резолвленную директорию пакета вместо директории `games/<id>`.
 - Тесты: `tests/master/GameCatalog.test.js` переписаны под новую сигнатуру

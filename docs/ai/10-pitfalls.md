@@ -6,7 +6,7 @@ every item here fails **silently** or with an error far from its cause.
 Items marked ⚙ are checked by machine: run `npx vimp-contract` in your
 package and the rule id in the marker (`A1` … `E6`) is the one that will
 name the violation. Do not verify those by eye — run the tool
-(`13-debugging.md` → *Step zero*). The rest of the list is still yours.
+(`13-debugging.md` → _Step zero_). The rest of the list is still yours.
 
 ## Version and identity
 
@@ -31,7 +31,7 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] ⚙ `B1` `buildClientGameConfig` is present — it is called unconditionally.
 - [ ] ⚙ `B3` All four `REQUIRED_GAME_CONFIG_PATHS` exist: `parts.models`,
       `playerKeys`, `snapshot`, `teams`. Everything else the engine reads has
-      a default (`createGameConfigView`) — `B3` only *warns* about it. If you
+      a default (`createGameConfigView`) — `B3` only _warns_ about it. If you
       do declare `spectatorTeam`, spell it exactly as one of the `teams` keys
       (the gate checks that too); omitted, it resolves to the `spectators`
       key, or `null` with a `console.warn` if there is none.
@@ -119,7 +119,7 @@ name the violation. Do not verify those by eye — run the tool
       predictor, and a `cargo` parity test asserts they agree. Re-run it after
       **any** movement change.
 - [ ] The core is **not** rebuilt by `npm run build` — run `npm run
-      core:build` after Rust changes or you will ship a stale `.wasm`.
+    core:build` after Rust changes or you will ship a stale `.wasm`.
 
 ## Client plugin
 
@@ -150,7 +150,7 @@ name the violation. Do not verify those by eye — run the tool
       older engine hands the part `undefined`, and a `requires` entry would
       reject the game there for nothing. Call it as `diagnostics?.warn(…)`.
 - [ ] Do not reuse an engine service name in `hooks.services()`: the engine
-      merges your map *first* (`{ ...gameServices, renderer, … }`), so a
+      merges your map _first_ (`{ ...gameServices, renderer, … }`), so a
       `renderer` of yours is silently overwritten by the engine's and no rule
       can see it.
 - [ ] ⚙ `C8` Baker names in `bakedAssets` must exist in `bakers`; unknown names are
@@ -163,7 +163,7 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] The engine writes five stat names of its own: `name`, `status`, `score`,
       `deaths`, `latency`, and only into columns your schema declares — a
       write to an undeclared one is dropped. Any further column is yours to
-      declare *and* to populate from your host code; the engine never fills
+      declare _and_ to populate from your host code; the engine never fills
       it for you.
 - [ ] Stat sorting is numeric (`~~textContent`); a text column sorts as `0`.
 - [ ] ⚙ `C6` The engine's CSS lays out five stat columns

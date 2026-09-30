@@ -71,6 +71,7 @@ sock-p1: serverTime 1700000004200 … source 'state': #2 Δ6.2828 > 0.06 (predic
 ## Ход выполнения
 
 **2026-09-23 — шаги 1–7 выполнены.**
+
 1. Тесты — модуль `tests` в `core/src/client/divergence.rs`: `angle_component_is_compared_on_the_circle` (3.1412
    против −3.1416, порог 0.06, `angles: [2]` → 0 нарушений, `maxDelta[2] ≈ 0.0004`; до правки падал — 1 нарушение),
    `without_angles_the_component_stays_linear` (обратная совместимость), `angle_index_out_of_the_player_block_is_ignored`.
@@ -88,4 +89,3 @@ sock-p1: serverTime 1700000004200 … source 'state': #2 Δ6.2828 > 0.06 (predic
 6. `packages/engine/core/CHANGELOG.md` → `[Unreleased]` `### Added`. JS не менялся — журнал npm не тронут.
    `contract/surface.json` описывает только `take_divergence`, конфиг детектора там не описан — без изменений.
 7. `npx eslint .` — чисто; `npm test -- --silent` — 185 файлов, 2393/2393; `npm run core:test` — 226/226.
-

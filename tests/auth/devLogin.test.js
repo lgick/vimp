@@ -41,7 +41,12 @@ function createRes() {
 }
 
 function createHandler(userRepo) {
-  return createDevLoginHandler({ userRepo, issueIdentityToken, isAllowedReturnUrl, isValidNick });
+  return createDevLoginHandler({
+    userRepo,
+    issueIdentityToken,
+    isAllowedReturnUrl,
+    isValidNick,
+  });
 }
 
 describe('devLogin', () => {
@@ -57,7 +62,10 @@ describe('devLogin', () => {
       res,
     );
 
-    expect(userRepo.findOrCreateByProvider).toHaveBeenCalledWith('dev', 'Player1');
+    expect(userRepo.findOrCreateByProvider).toHaveBeenCalledWith(
+      'dev',
+      'Player1',
+    );
     expect(res.status).not.toHaveBeenCalled();
 
     const url = new URL(res.redirect.mock.calls[0][0]);
@@ -134,7 +142,10 @@ describe('devLogin', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(error).toHaveBeenCalledWith('[dev login] cleanup', expect.any(Error));
+    expect(error).toHaveBeenCalledWith(
+      '[dev login] cleanup',
+      expect.any(Error),
+    );
 
     error.mockRestore();
   });

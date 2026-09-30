@@ -86,6 +86,7 @@ for (const participant of this._participants.getAll()) {
 ```
 
 Дальше:
+
 - `aliveTeamIds.size === 1` → это и есть `winnerTeam` (её id — единственный элемент множества), независимо от
   `killerTeamId`. Начисление фрага/очков за конкретное убийство (`killerTeamId && killerTeamId !== victimTeamId` →
   `score + 1`) — отдельная, не связанная с победителем, ветка; при суициде (`killerTeamId === victimTeamId` или

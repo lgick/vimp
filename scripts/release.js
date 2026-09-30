@@ -149,10 +149,14 @@ async function preflightRepo(root, { changelog, writesRepo }) {
   let behind = 0;
 
   if (upstream.code === 0) {
-    const counted = await capture('git', ['rev-list', '--count', 'HEAD..@{u}'], {
-      cwd: root,
-      allowFailure: true,
-    });
+    const counted = await capture(
+      'git',
+      ['rev-list', '--count', 'HEAD..@{u}'],
+      {
+        cwd: root,
+        allowFailure: true,
+      },
+    );
 
     if (counted.code === 0) {
       behind = Number(counted.stdout.trim()) || 0;
@@ -220,7 +224,13 @@ async function describeGame(dir, { registry = true } = {}) {
   // для --relink хватает имени и пути: лезть в реестр на аварийном пути
   // значит требовать сеть ровно там, где её может не быть, а линки уже рваны
   if (!registry) {
-    return { ...info, published: undefined, git: { problems: [] }, changed: false, base: null };
+    return {
+      ...info,
+      published: undefined,
+      git: { problems: [] },
+      changed: false,
+      base: null,
+    };
   }
 
   const published = await npmVersion(info.name);
@@ -423,7 +433,9 @@ async function main(argv) {
   // вполне может быть причиной самого решения. Форма как у reportProblems —
   // шапка и пункты, а не длинный хвост в каждой строке
   if (artifacts.warnings.length > 0) {
-    ui.error('журнал артефакта, который не публикуется — возможно, поэтому и не публикуется:');
+    ui.error(
+      'журнал артефакта, который не публикуется — возможно, поэтому и не публикуется:',
+    );
     artifacts.warnings.forEach(problem => ui.raw(`  - ${problem}`));
   }
 
@@ -758,7 +770,9 @@ try {
     process.stdout.write(`\n${USAGE}`);
     process.exitCode = 1;
   } else if (error instanceof CommandError) {
-    ui.error('шаг упал, релиз остановлен (уже запушенные теги публикуются CI):');
+    ui.error(
+      'шаг упал, релиз остановлен (уже запушенные теги публикуются CI):',
+    );
     process.stderr.write(`${error.format()}\n`);
     process.exitCode = 1;
   } else {

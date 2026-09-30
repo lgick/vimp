@@ -49,7 +49,10 @@ describe('ParticipantManager: создание людей', () => {
 
   it('createHuman пробрасывает identity-токен на участника (Этап B4)', () => {
     const pm = make();
-    const gameId = pm.createHuman({ name: 'Alice', model: 'm1', token: 'jwt-1' }, 's1');
+    const gameId = pm.createHuman(
+      { name: 'Alice', model: 'm1', token: 'jwt-1' },
+      's1',
+    );
 
     expect(pm.get(gameId).token).toBe('jwt-1');
   });

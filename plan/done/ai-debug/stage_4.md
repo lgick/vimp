@@ -34,7 +34,7 @@
   `seq`/`serverTime`, свой gameId, длины hot-буфера и очереди кадров;
   `Interpolator::debug_json` — источник сетевой половины).
 - Мелкие аксессоры под дамп: `Rng::state`, `SpatialGrid::{cell_size,
-  cell_counts}`, `NavigationSystem::{node_count, edge_count, grid_step}`,
+cell_counts}`, `NavigationSystem::{node_count, edge_count, grid_step}`,
   `GameMap::{static_body_count, dynamic_body_count}`.
 - Экспорт — через `export_game_core_abi!`/`export_client_core_abi!`:
   каждый плагин получает метод даром, `ENGINE_API_VERSION` не бампается.

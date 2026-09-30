@@ -62,8 +62,10 @@ function mergeDuplicates(items) {
     }
 
     seen.count += item.count;
-    seen.firstSeen = item.firstSeen < seen.firstSeen ? item.firstSeen : seen.firstSeen;
-    seen.lastSeen = item.lastSeen > seen.lastSeen ? item.lastSeen : seen.lastSeen;
+    seen.firstSeen =
+      item.firstSeen < seen.firstSeen ? item.firstSeen : seen.firstSeen;
+    seen.lastSeen =
+      item.lastSeen > seen.lastSeen ? item.lastSeen : seen.lastSeen;
   }
 
   return [...byFingerprint.values()];
@@ -118,11 +120,16 @@ export default class ClientReportRepository {
     );
     const known = new Set(rows.map(row => row.fingerprint));
     const fresh = merged.filter(item => !known.has(item.fingerprint));
-    const allowed = fresh.length > 0 ? Math.max(0, Math.min(fresh.length, allowNew(fresh.length))) : 0;
+    const allowed =
+      fresh.length > 0
+        ? Math.max(0, Math.min(fresh.length, allowNew(fresh.length)))
+        : 0;
     const allowedFresh = new Set(fresh.slice(0, allowed));
     // порядок пачки сохраняется; гонку «между SELECT и INSERT отпечаток
     // вставил другой запрос» закрывает ON CONFLICT — запись обновит счётчик
-    const passed = merged.filter(item => known.has(item.fingerprint) || allowedFresh.has(item));
+    const passed = merged.filter(
+      item => known.has(item.fingerprint) || allowedFresh.has(item),
+    );
 
     if (passed.length > 0) {
       // details: у служебных записей бокса (source 'box') — разбивка
@@ -158,7 +165,9 @@ export default class ClientReportRepository {
 
   // точное число строк — для потолка таблицы (бюджет пересчитывает редко)
   async countRows() {
-    const { rows } = await this._db.query('SELECT count(*)::bigint AS n FROM client_reports');
+    const { rows } = await this._db.query(
+      'SELECT count(*)::bigint AS n FROM client_reports',
+    );
 
     return Number(rows[0].n);
   }
@@ -245,7 +254,10 @@ export default class ClientReportRepository {
 
   // Date → число удалённых строк
   async purge(before) {
-    const result = await this._db.query('DELETE FROM client_reports WHERE last_seen < $1', [before]);
+    const result = await this._db.query(
+      'DELETE FROM client_reports WHERE last_seen < $1',
+      [before],
+    );
 
     return result.rowCount ?? 0;
   }

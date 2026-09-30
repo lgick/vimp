@@ -112,7 +112,9 @@ if (isText && descriptor.regExp) {
 
 ```js
 const forced = resolveForcedValue(param.options);
-if (forced !== undefined) { param.value = forced; }
+if (forced !== undefined) {
+  param.value = forced;
+}
 ```
 
 Дальше `param.value` уходит в `AuthModel.add()` (через `AuthCtrl.init`) и в
@@ -144,8 +146,9 @@ if (typeof value !== 'string') {
 ```js
 const forced = resolveForcedValue({ control: 'select', options: [{ value: 1, label: 'Solo' }] });
 expect(forced).toBe(1);
-expect(validateAuth({ team: forced }, [{ name: 'team', options: { control: 'select' } }]))
-  .toEqual([{ name: 'team', error: 'Property must be a string' }]);
+expect(validateAuth({ team: forced }, [{ name: 'team', options: { control: 'select' } }])).toEqual([
+  { name: 'team', error: 'Property must be a string' },
+]);
 ```
 
 **Решение.** Вернуть приведение — но в `resolveForcedValue`, а не на вызывающей
@@ -207,11 +210,11 @@ C6 больше **не** проверяет число колонок, а C4 б�
 при этом формулируется как «`gives no width to column(s) N`». Три следствия,
 все три воспроизведены прогоном правила напрямую:
 
-| Стиль плагина | Ожидание | Факт |
-| --- | --- | --- |
-| `#stat table td:nth-child(6) { color: red; }` | warn (ширины нет) | **pass** |
-| `@media (min-width: 600px) { #stat table td:nth-child(6) { width: 10%; } }` | pass | **warn** |
-| `#stat table th:nth-child(6) { width: 10%; }` | pass | **warn** |
+| Стиль плагина                                                               | Ожидание          | Факт     |
+| --------------------------------------------------------------------------- | ----------------- | -------- |
+| `#stat table td:nth-child(6) { color: red; }`                               | warn (ширины нет) | **pass** |
+| `@media (min-width: 600px) { #stat table td:nth-child(6) { width: 10%; } }` | pass              | **warn** |
+| `#stat table th:nth-child(6) { width: 10%; }`                               | pass              | **warn** |
 
 Первый — ложный пропуск ровно того дефекта, ради которого правило и живёт
 (колонка схлопывается в ноль). Второй и третий — ложные срабатывания на
@@ -289,7 +292,7 @@ function styledColumns(styles, total) {
 const descriptors = [{ name: 'map', control: 'select', label: 'Map', source: 'maps' }];
 const fields = buildForm(descriptors, container, { sources: { maps: [] } });
 expect(collectFormErrors(descriptors, fields)).toEqual([]); // проходит
-expect(fields.get('map').getValue()).toBe('');              // проходит
+expect(fields.get('map').getValue()).toBe(''); // проходит
 ```
 
 Второе: даже когда `required` стоит, игрок видит `MAP: required` — сообщение

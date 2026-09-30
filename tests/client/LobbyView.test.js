@@ -97,8 +97,9 @@ let observerFactory;
 beforeEach(async () => {
   vi.resetModules();
   seedDom();
-  LobbyView = (await import('../../packages/engine/src/client/components/view/Lobby.js'))
-    .default;
+  LobbyView = (
+    await import('../../packages/engine/src/client/components/view/Lobby.js')
+  ).default;
   observer = null;
   observerFactory = cb => {
     observer = new FakeObserver(cb);
@@ -121,9 +122,8 @@ describe('LobbyView: показ/скрытие', () => {
 
 describe('LobbyView: футер движка', () => {
   it('пишет голую версию пакета движка в #lobby-version', async () => {
-    const { ENGINE_VERSION } = await import(
-      '../../packages/engine/src/client/lib/engineVersion.js'
-    );
+    const { ENGINE_VERSION } =
+      await import('../../packages/engine/src/client/lib/engineVersion.js');
 
     new LobbyView(makeModel(), elems, observerFactory);
 
@@ -144,7 +144,9 @@ describe('LobbyView: футер движка', () => {
   it('без элементов футера конструктор не падает', () => {
     document.getElementById('lobby-footer').remove();
 
-    expect(() => new LobbyView(makeModel(), elems, observerFactory)).not.toThrow();
+    expect(
+      () => new LobbyView(makeModel(), elems, observerFactory),
+    ).not.toThrow();
   });
 });
 
@@ -179,7 +181,11 @@ describe('LobbyView: рендер списка', () => {
 
     new LobbyView(model, elems, observerFactory);
     model.publisher.emit('list', {
-      servers: [server('a', { rating: 7 }), server('b', { rating: -3 }), server('c', { rating: 0 })],
+      servers: [
+        server('a', { rating: 7 }),
+        server('b', { rating: -3 }),
+        server('c', { rating: 0 }),
+      ],
       hasMore: false,
     });
 
@@ -342,14 +348,28 @@ describe('LobbyView: вкладки (lobby-page-plan)', () => {
     expect(tabs).toEqual(['leaderboard']);
 
     view.showTab('leaderboard');
-    expect(document.getElementById('lobby-servers-content').style.display).toBe('none');
-    expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('flex');
-    expect(document.getElementById('btn-show-leaderboard').classList.contains('active')).toBe(true);
-    expect(document.getElementById('btn-show-servers').classList.contains('active')).toBe(false);
+    expect(document.getElementById('lobby-servers-content').style.display).toBe(
+      'none',
+    );
+    expect(
+      document.getElementById('lobby-leaderboard-content').style.display,
+    ).toBe('flex');
+    expect(
+      document
+        .getElementById('btn-show-leaderboard')
+        .classList.contains('active'),
+    ).toBe(true);
+    expect(
+      document.getElementById('btn-show-servers').classList.contains('active'),
+    ).toBe(false);
 
     view.showTab('servers');
-    expect(document.getElementById('lobby-servers-content').style.display).toBe('flex');
-    expect(document.getElementById('lobby-leaderboard-content').style.display).toBe('none');
+    expect(document.getElementById('lobby-servers-content').style.display).toBe(
+      'flex',
+    );
+    expect(
+      document.getElementById('lobby-leaderboard-content').style.display,
+    ).toBe('none');
   });
 });
 
@@ -369,12 +389,16 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
       myPlacement: { placement: 20, total: 3400, rank: 240 },
     });
 
-    expect(document.getElementById('leaderboard-title').textContent).toBe('VIMP TANKS TOP-2');
-    expect(document.getElementById('leaderboard-total').textContent).toBe('Total: 3400 players');
-
-    const rows = [...document.querySelectorAll('#lobby-leaderboard-list li')].map(
-      li => li.textContent,
+    expect(document.getElementById('leaderboard-title').textContent).toBe(
+      'VIMP TANKS TOP-2',
     );
+    expect(document.getElementById('leaderboard-total').textContent).toBe(
+      'Total: 3400 players',
+    );
+
+    const rows = [
+      ...document.querySelectorAll('#lobby-leaderboard-list li'),
+    ].map(li => li.textContent);
 
     expect(rows).toEqual(['1. player31500 pts', '2. user2031420 pts']);
 
@@ -401,9 +425,9 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
       myPlacement: null,
     });
 
-    const rows = [...document.querySelectorAll('#lobby-leaderboard-list li')].map(
-      li => li.textContent,
-    );
+    const rows = [
+      ...document.querySelectorAll('#lobby-leaderboard-list li'),
+    ].map(li => li.textContent);
 
     expect(rows).toEqual(['1. a100 pts', '1. b100 pts', '3. c50 pts']);
   });
@@ -446,7 +470,9 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
       myPlacement: { placement: 2, total: 2, rank: 1420 },
     });
 
-    expect(document.getElementById('lobby-my-placement').textContent).toBe('2. You1420 pts');
+    expect(document.getElementById('lobby-my-placement').textContent).toBe(
+      '2. You1420 pts',
+    );
   });
 
   // граница LIMIT с ничьими: несколько игроков делят одно competition-place,
@@ -484,7 +510,9 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
       myPlacement: { placement: null, total: 0, rank: 0 },
     });
 
-    expect(document.getElementById('lobby-my-placement').textContent).toBe('Not ranked yet');
+    expect(document.getElementById('lobby-my-placement').textContent).toBe(
+      'Not ranked yet',
+    );
   });
 
   // code review L7: пустой топ показывает заглушку, а не голый "TOP-0"
@@ -492,12 +520,18 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
     const model = makeModel();
 
     new LobbyView(model, elems, observerFactory);
-    model.publisher.emit('leaderboard', { leaderboard: [], total: 0, myPlacement: null });
+    model.publisher.emit('leaderboard', {
+      leaderboard: [],
+      total: 0,
+      myPlacement: null,
+    });
 
-    expect(document.getElementById('leaderboard-title').textContent).toBe(' TOP-0');
-    expect(document.querySelector('#lobby-leaderboard-list li').textContent).toBe(
-      'No ranked players yet',
+    expect(document.getElementById('leaderboard-title').textContent).toBe(
+      ' TOP-0',
     );
+    expect(
+      document.querySelector('#lobby-leaderboard-list li').textContent,
+    ).toBe('No ranked players yet');
   });
 
   // code review мелочь (lobby-page-review-status): пока ответ не пришёл
@@ -514,7 +548,9 @@ describe('LobbyView: leaderboard (lobby-page-plan)', () => {
       loaded: false,
     });
 
-    expect(document.querySelector('#lobby-leaderboard-list li').textContent).toBe('Loading…');
+    expect(
+      document.querySelector('#lobby-leaderboard-list li').textContent,
+    ).toBe('Loading…');
   });
 });
 
@@ -536,8 +572,12 @@ describe('LobbyView: срезы рейтинга', () => {
 
     view.setPeriod('day', 'TODAY');
 
-    expect(document.getElementById('btn-period-day').classList.contains('active')).toBe(true);
-    expect(document.getElementById('btn-period-all').classList.contains('active')).toBe(false);
+    expect(
+      document.getElementById('btn-period-day').classList.contains('active'),
+    ).toBe(true);
+    expect(
+      document.getElementById('btn-period-all').classList.contains('active'),
+    ).toBe(false);
   });
 
   it('заголовок списка называет открытый срез', () => {

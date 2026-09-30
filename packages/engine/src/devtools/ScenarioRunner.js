@@ -51,7 +51,9 @@ export function parseScenario(raw) {
   }
 
   if (raw.version !== 1) {
-    throw new Error(`scenario: unsupported version ${raw.version} (expected 1)`);
+    throw new Error(
+      `scenario: unsupported version ${raw.version} (expected 1)`,
+    );
   }
 
   if (!Array.isArray(raw.participants) || !raw.participants.length) {
@@ -463,7 +465,9 @@ async function joinParticipant(op, ctx) {
   const participant = scenario.participants.find(p => p.id === op.who);
 
   if (!participant) {
-    throw new Error(`scenario: join references unknown participant '${op.who}'`);
+    throw new Error(
+      `scenario: join references unknown participant '${op.who}'`,
+    );
   }
 
   const socketId = participant.socketId ?? `sock-${participant.id}`;

@@ -37,7 +37,9 @@ export async function purgeDeletedGames(db, { now = Date.now() } = {}) {
   const client = await db.connect();
 
   try {
-    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [LOCK_KEY]);
+    const lock = await client.query('SELECT pg_try_advisory_lock($1) AS got', [
+      LOCK_KEY,
+    ]);
 
     if (!lock.rows?.[0]?.got) {
       console.info('[games] another purge holds the lock, skipping');

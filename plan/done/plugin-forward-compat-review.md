@@ -39,8 +39,8 @@ const isTextControl = control => control === 'text' || control === undefined;
 `options.control` сырым, реестра `formControls` не знает вовсе.
 
 Собственный комментарий модуля формулирует инвариант, который теперь
-нарушен: *«клиент, обошедший форму, не должен получать больше прав, чем
-клиент, её заполнивший»*.
+нарушен: _«клиент, обошедший форму, не должен получать больше прав, чем
+клиент, её заполнивший»_.
 
 Воспроизведено на живом модуле:
 
@@ -56,10 +56,10 @@ validateAuth({ nick: 'abcdefgh' }, schema) -> undefined        // ни regExp, �
 
 Разбор по именам:
 
-| `control` в схеме | Активный | Что теряется на хосте |
-| --- | --- | --- |
-| `segmented` | `radio` | проверка членства в `options` — принимается **любая строка** |
-| `toggle` | `checkbox` | (нативно и не проверялось — влияния нет) |
+| `control` в схеме | Активный           | Что теряется на хосте                                                         |
+| ----------------- | ------------------ | ----------------------------------------------------------------------------- |
+| `segmented`       | `radio`            | проверка членства в `options` — принимается **любая строка**                  |
+| `toggle`          | `checkbox`         | (нативно и не проверялось — влияния нет)                                      |
 | `number`, `range` | `text` + `numeric` | `regExp` и `maxlength`; вместо `maxlength` работает только `MAX_FIELD_LENGTH` |
 
 **Почему это регрессия, а не старый дефект.** До этапа 3 игра с
@@ -224,10 +224,7 @@ requireCompatible(clientPlugin);
    ```js
    requireCompatible({
      id: hostPlugin.id,
-     requires: requires ?? [
-       ...(hostPlugin.requires ?? []),
-       ...(clientPlugin.requires ?? []),
-     ],
+     requires: requires ?? [...(hostPlugin.requires ?? []), ...(clientPlugin.requires ?? [])],
    });
    ```
    Сообщение об отказе адресовано разработчику встраивания — делить его по
@@ -414,7 +411,9 @@ src/client/main.js:1208-1209      clientCoreAbi.ops.includes('debug.json')
 `packages/engine/src/lib/capabilities.js:31`
 
 ```js
-if (!CAPABILITIES.includes(name)) { /* нарушение */ }
+if (!CAPABILITIES.includes(name)) {
+  /* нарушение */
+}
 ```
 
 `CAPABILITIES = ENGINE_CAPABILITIES.values()` — это **только активные**
@@ -459,10 +458,10 @@ if (!CAPABILITIES.includes(name)) { /* нарушение */ }
 выполнено для трёх пар. Проверено `grep`-ом: строки `requires engine API vN`
 нет ни в одном модуле движка.
 
-| Файл | Что написано | Как есть |
-| --- | --- | --- |
-| `docs/en/standalone.md:213`, `docs/ru/standalone.md:212` | ошибка `game "<id>" requires engine API vN` | такого текста движок не производит |
-| `docs/en/deployment.md:197`, `docs/ru/deployment.md:140` | «лобби-мастер её пропускает (`GameCatalog: skip …`)» | игра остаётся в каталоге с `compat`; по возрасту не отвергается вовсе |
+| Файл                                                     | Что написано                                                         | Как есть                                                                                                                               |
+| -------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/en/standalone.md:213`, `docs/ru/standalone.md:212` | ошибка `game "<id>" requires engine API vN`                          | такого текста движок не производит                                                                                                     |
+| `docs/en/deployment.md:197`, `docs/ru/deployment.md:140` | «лобби-мастер её пропускает (`GameCatalog: skip …`)»                 | игра остаётся в каталоге с `compat`; по возрасту не отвергается вовсе                                                                  |
 | `docs/en/publishing.md:146`, `docs/ru/publishing.md:141` | «`assertEngineApiCompatible` refuses to load it» в настоящем времени | раздел снабжён исторической преамбулой («What follows describes how the script behaved»), но сама фраза читается как текущее поведение |
 
 Плюс `docs/en/plugin-api.md:871` (standalone бросает) и `:868` (комнату не
@@ -571,13 +570,13 @@ activeGameManifest = boot.gameId
 
 ## Влияние на релиз
 
-| Артефакт | Находки | Подзаголовок `[Unreleased]` | Уровень |
-| --- | --- | --- | --- |
-| npm `vimp-engine` | 1 | `### Security` | patch |
-| npm `vimp-engine` | 2, 4, 5, 6, 7, 9, 13 | `### Fixed` | patch |
-| npm `vimp-engine` | 3 (`requires` у половин плагина) | `### Added` | minor |
-| npm `create-vimp-game` | 3 (шаблон) | `### Added` | minor |
-| крейт `vimp-engine-core` | 10 | — (только комментарий) | нет записи |
+| Артефакт                 | Находки                          | Подзаголовок `[Unreleased]` | Уровень    |
+| ------------------------ | -------------------------------- | --------------------------- | ---------- |
+| npm `vimp-engine`        | 1                                | `### Security`              | patch      |
+| npm `vimp-engine`        | 2, 4, 5, 6, 7, 9, 13             | `### Fixed`                 | patch      |
+| npm `vimp-engine`        | 3 (`requires` у половин плагина) | `### Added`                 | minor      |
+| npm `create-vimp-game`   | 3 (шаблон)                       | `### Added`                 | minor      |
+| крейт `vimp-engine-core` | 10                               | — (только комментарий)      | нет записи |
 
 `⚠️ Breaking` не требуется нигде: ни одна правка не отвергает плагин или
 конфиг, который загружался раньше. Находка 1 ужесточает проверку **значения

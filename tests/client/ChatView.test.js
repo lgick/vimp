@@ -19,7 +19,9 @@ beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
   seedDom();
-  ChatView = (await import('../../packages/engine/src/client/components/view/Chat.js')).default;
+  ChatView = (
+    await import('../../packages/engine/src/client/components/view/Chat.js')
+  ).default;
 });
 
 afterEach(() => {

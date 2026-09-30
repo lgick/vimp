@@ -71,7 +71,10 @@ describe('VoteCoordinator.createVote', () => {
       gameId: 'u',
     });
 
-    expect(deps.chat.pushSystemByUser).toHaveBeenCalledWith('u', 'VOTE_CREATED');
+    expect(deps.chat.pushSystemByUser).toHaveBeenCalledWith(
+      'u',
+      'VOTE_CREATED',
+    );
     expect(deps.vote.createVote).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'mapChangeByUser',
@@ -100,7 +103,10 @@ describe('VoteCoordinator.createVote', () => {
     const { onStartCallback } = deps.vote.createVote.mock.calls[0][0];
     onStartCallback();
 
-    expect(deps.chat.pushSystemByUser).toHaveBeenCalledWith('u', 'VOTE_STARTED');
+    expect(deps.chat.pushSystemByUser).toHaveBeenCalledWith(
+      'u',
+      'VOTE_STARTED',
+    );
     expect(deps.vote.addInVote).toHaveBeenCalledWith('v1', 'Yes');
 
     // запускаем колбэк таймера сбора результатов

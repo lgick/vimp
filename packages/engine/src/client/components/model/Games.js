@@ -214,7 +214,11 @@ export default class GamesModel {
       return;
     }
 
-    this.publisher.emit('staged', { id, version: json.version, manifest: json.manifest });
+    this.publisher.emit('staged', {
+      id,
+      version: json.version,
+      manifest: json.manifest,
+    });
     await this.loadAdmin();
   }
 

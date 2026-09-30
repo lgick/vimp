@@ -28,7 +28,7 @@ const createController = () => {
 };
 
 describe('HostController: отладочный контур', () => {
-  it('ответ Worker\'а разрешает промис по requestId', async () => {
+  it("ответ Worker'а разрешает промис по requestId", async () => {
     const { controller, worker } = createController();
 
     const pending = controller.dump();
@@ -45,7 +45,7 @@ describe('HostController: отладочный контур', () => {
     await expect(pending).resolves.toEqual({ seed: 7 });
   });
 
-  it('ошибка Worker\'а становится исключением, а не тишиной', async () => {
+  it("ошибка Worker'а становится исключением, а не тишиной", async () => {
     const { controller, worker } = createController();
 
     const pending = controller.startRecording();

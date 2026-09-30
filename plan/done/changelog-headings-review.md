@@ -13,7 +13,7 @@
 - `npx eslint .` — чисто; `npm test` — 111 файлов / 1109 тестов зелёные;
 - негативный прогон плана (п. 3): `### Improved` в журнале движка →
   `preflight не пройден: packages/engine/CHANGELOG.md: заголовок «### Improved»
-  не из списка (…)`, ни одной изменяющей команды;
+не из списка (…)`, ни одной изменяющей команды;
 - негативный прогон плана (п. 4): `### ⚠️ Breaking` без `Migration` →
   `есть ### ⚠️ Breaking, но нет ### Migration`;
 - инварианты, вынесенные из `CLAUDE.md`, действительно есть в документации:
@@ -44,11 +44,11 @@
 
 **Воспроизведение** (проверено на текущем коде):
 
-| Что в `[Unreleased]` | Что видит скрипт |
-| --- | --- |
-| `### Fixed`, внутри блока кода строка `[0.5.0]: https://…`, затем `### ⚠️ Breaking` + `### Migration` | `sections: ["Fixed"]`, проблем нет, уровень **patch** — ломающий релиз уезжает как патч |
-| `### Fixed`, внутри блока кода пример `### Added` | `sections: ["Fixed","Added"]`, уровень **minor** вместо patch |
-| `### ⚠️ Breaking`, внутри блока кода строка `## [0.5.0] — 2026-08-01`, затем `### Migration` | секция обрывается, ложное `есть ### ⚠️ Breaking, но нет ### Migration` — релиз заблокирован без причины |
+| Что в `[Unreleased]`                                                                                  | Что видит скрипт                                                                                        |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `### Fixed`, внутри блока кода строка `[0.5.0]: https://…`, затем `### ⚠️ Breaking` + `### Migration` | `sections: ["Fixed"]`, проблем нет, уровень **patch** — ломающий релиз уезжает как патч                 |
+| `### Fixed`, внутри блока кода пример `### Added`                                                     | `sections: ["Fixed","Added"]`, уровень **minor** вместо patch                                           |
+| `### ⚠️ Breaking`, внутри блока кода строка `## [0.5.0] — 2026-08-01`, затем `### Migration`          | секция обрывается, ложное `есть ### ⚠️ Breaking, но нет ### Migration` — релиз заблокирован без причины |
 
 Первый случай — ровно то, что коммит призван исключить: занижение версии без
 единого сообщения. Сейчас в обоих журналах блоков кода нет (`grep -c '```'`
@@ -58,7 +58,7 @@
 **Решение.** Вести состояние ограды в цикле разбора и заодно собирать
 под-заголовки в том же проходе (сейчас проход по строкам делается дважды):
 
-```js
+````js
 // Строка-ограда блока кода: ``` или ~~~ (CommonMark допускает до трёх
 // пробелов отступа и любую длину от трёх символов).
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
@@ -108,7 +108,10 @@ export function parseUnreleased(text) {
     }
   }
 
-  const body = lines.slice(start + 1, end).join('\n').trim();
+  const body = lines
+    .slice(start + 1, end)
+    .join('\n')
+    .trim();
 
   return {
     present: true,
@@ -119,7 +122,7 @@ export function parseUnreleased(text) {
     openFence: fence !== null,
   };
 }
-```
+````
 
 `openFence` (незакрытая ограда — опечатка автора: секция дочитывается до
 конца файла) и `terminator` нужны для B2.
@@ -139,11 +142,11 @@ export function parseUnreleased(text) {
 **Суть.** `validateSections` проверяет только те заголовки, которые нашёл
 парсер. Три способа не дать ему найти ничего — и все три молчат:
 
-| Как написано | Что получается |
-| --- | --- |
-| `## Added` вместо `### Added` | секция обрывается на этой строке: `isEmpty: true`, `sections: []`. При `changed` → publish на **patch**; журнал не датируется (`steps.js:52`), записи остаются под `[Unreleased]` навсегда |
-| записи списком без заголовка вовсе | `body` непустой, `sections: []` → **patch**, проблем нет |
-| секции `## [Unreleased]` нет вовсе (переименовали/удалили) | `present: false` → тот же **patch** и то же молчание |
+| Как написано                                               | Что получается                                                                                                                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `## Added` вместо `### Added`                              | секция обрывается на этой строке: `isEmpty: true`, `sections: []`. При `changed` → publish на **patch**; журнал не датируется (`steps.js:52`), записи остаются под `[Unreleased]` навсегда |
+| записи списком без заголовка вовсе                         | `body` непустой, `sections: []` → **patch**, проблем нет                                                                                                                                   |
+| секции `## [Unreleased]` нет вовсе (переименовали/удалили) | `present: false` → тот же **patch** и то же молчание                                                                                                                                       |
 
 **Оговорка, чтобы не перетянуть проверку:** пустая `[Unreleased]` при
 `changed: true` — законный случай (правка только фикстур или `bin/`, а тесты
@@ -338,7 +341,7 @@ const breaking = { isEmpty: false, sections: ['⚠️ Breaking — что-то']
    (дефис вместо длинного тире) и `### added` дают одинаковое «не из списка»,
    хотя причина в разделителе и регистре. Предлагается дописать хвост:
    `«…; имя чувствительно к регистру, уточнение отделяется « — » или круглыми
-   скобками»`.
+скобками»`.
 2. **`String(heading)` в `sectionName`** (`changelog.js:76`) — защитное
    приведение типа, которое спрячет ошибку вызывающего: `sections` всегда
    строки из `parseUnreleased`. Можно убрать.
@@ -378,19 +381,19 @@ B1–B4, B6, B7 закрыты, B5 сделан иначе и лучше, B8 с�
 - **мутационная проверка** — каждая новая проверка держится тестом, ни одна
   не «на честном слове»:
 
-  | Мутация | Падает тестов |
-  | --- | --- |
-  | снят чек `terminator` (`## Added` вместо `### Added`) | 1 |
-  | снят чек `openFence` | 1 |
-  | снят чек «текст без `###`» | 1 |
-  | `LEVEL_ORDER` перевёрнут | 6 |
-  | снят префикс `changelogFile` в `plan.js` | 1 |
-  | `problems` без фильтра по `publish` | 1 |
+  | Мутация                                               | Падает тестов |
+  | ----------------------------------------------------- | ------------- |
+  | снят чек `terminator` (`## Added` вместо `### Added`) | 1             |
+  | снят чек `openFence`                                  | 1             |
+  | снят чек «текст без `###`»                            | 1             |
+  | `LEVEL_ORDER` перевёрнут                              | 6             |
+  | снят префикс `changelogFile` в `plan.js`              | 1             |
+  | `problems` без фильтра по `publish`                   | 1             |
 
 - сквозной прогон на полном наборе шагов (без `--only`): опечатка
   `## Added` останавливает релиз строкой
   `packages/engine/CHANGELOG.md: секция [Unreleased] оборвана заголовком
-  «## Added» — вероятно, ### написан как ##` **вместе с** «рабочее дерево не
+«## Added» — вероятно, ### написан как ##` **вместе с** «рабочее дерево не
   чистое», и ни одного вопроса про игры до этого — то есть заявленный
   порядок `preflightRepo` → опрос → `preflightGames` работает и единый
   список отказа не разорван;
@@ -411,7 +414,7 @@ B1–B4, B6, B7 закрыты, B5 сделан иначе и лучше, B8 с�
 **Суть.** `decide()` кладёт в `problems` только артефакты с `publish: true`
 (правильная политика: чужой журнал не должен мешать). Но два дефекта из B2 —
 `## Added` вместо `### Added` и отсутствующая `[Unreleased]` — делают секцию
-*пустой* с точки зрения парсера, а пустая секция при `changed: false` даёт
+_пустой_ с точки зрения парсера, а пустая секция при `changed: false` даёт
 `publish: false`. То есть дефект гасит ровно тот флаг, по которому его
 собирались показать.
 
@@ -448,9 +451,9 @@ plan.problems  : []            ← в preflight не попадает
 `release.js`, сразу после `preflightRepo`, до опроса про игры:
 
 ```js
-  artifacts.warnings.forEach(problem =>
-    ui.error(`внимание: ${problem} (артефакт не публикуется — проверьте, не из-за этого ли)`),
-  );
+artifacts.warnings.forEach(problem =>
+  ui.error(`внимание: ${problem} (артефакт не публикуется — проверьте, не из-за этого ли)`),
+);
 ```
 
 **Тест** (`plan.test.js`, рядом с «не тянет в общий список проблемы
@@ -519,14 +522,14 @@ export function suggestLevel(sections, version) {
 `null`/`false`. Одна строка:
 
 ```js
-    return {
-      present: false,
-      sections: [],
-      body: '',
-      isEmpty: true,
-      terminator: null,
-      openFence: false,
-    };
+return {
+  present: false,
+  sections: [],
+  body: '',
+  isEmpty: true,
+  terminator: null,
+  openFence: false,
+};
 ```
 
 ---
@@ -542,26 +545,26 @@ export function suggestLevel(sections, version) {
 списка `validateSections`:
 
 ```js
-  let unknown = 0;
+let unknown = 0;
 
-  for (const section of sections) {
-    const name = sectionName(section);
+for (const section of sections) {
+  const name = sectionName(section);
 
-    if (name === null || !SECTION_LEVELS.has(name)) {
-      problems.push(`заголовок «### ${section}» не из списка`);
-      unknown += 1;
-      continue;
-    }
-
-    names.push(name);
+  if (name === null || !SECTION_LEVELS.has(name)) {
+    problems.push(`заголовок «### ${section}» не из списка`);
+    unknown += 1;
+    continue;
   }
 
-  if (unknown > 0) {
-    problems.push(
-      `допустимые заголовки: ${[...SECTION_LEVELS.keys()].join(', ')}; ` +
-        'имя чувствительно к регистру, уточнение отделяется « — » или круглыми скобками',
-    );
-  }
+  names.push(name);
+}
+
+if (unknown > 0) {
+  problems.push(
+    `допустимые заголовки: ${[...SECTION_LEVELS.keys()].join(', ')}; ` +
+      'имя чувствительно к регистру, уточнение отделяется « — » или круглыми скобками',
+  );
+}
 ```
 
 Тесты на подсказку (`### added`, `### Added - x`) при этом переезжают на
@@ -577,11 +580,11 @@ export function suggestLevel(sections, version) {
 условия:
 
 ```js
-  const repoProblems = await preflightRepo(root, { changelog: artifacts.problems });
+const repoProblems = await preflightRepo(root, { changelog: artifacts.problems });
 
-  if (reportProblems(repoProblems)) {
-    return 1;
-  }
+if (reportProblems(repoProblems)) {
+  return 1;
+}
 ```
 
 Там же: параметр `{ changelog = [] }` в `preflightRepo` — значение по
@@ -618,7 +621,7 @@ C1–C5 закрыты, лишних правок нет, ни одна не с�
 - **живое воспроизведение C1**: временно сузил `files` движка до
   несуществующего пути (чтобы получить `changed: false`) и оборвал
   `[Unreleased]` заголовком `## Added` — прогон `node scripts/release.js
-  --dry-run --only engine` напечатал
+--dry-run --only engine` напечатал
 
   ```
   [release] внимание: packages/engine/CHANGELOG.md: секция [Unreleased] оборвана
@@ -630,22 +633,23 @@ C1–C5 закрыты, лишних правок нет, ни одна не с�
 
   то есть предупреждение доезжает до экрана, релиз не блокирует и печатается
   **до** опроса про игры. Оба файла возвращены `git checkout`, дерево чистое;
+
 - **скоуп `--only` не шумит**: тот же сломанный журнал движка при `--only
-  crate` не дал ни строки — `scoped.engine === null`, `decideArtifact`
+crate` не дал ни строки — `scoped.engine === null`, `decideArtifact`
   возвращает ветку «артефакт не рассматривался» без `problems`, и `?? []`
   срабатывает как задумано;
 - **мутационная проверка** восьми точек:
 
-  | Мутация | Падает тестов |
-  | --- | --- |
-  | `warnings` всегда пустые (C1) | 2 |
+  | Мутация                                      | Падает тестов  |
+  | -------------------------------------------- | -------------- |
+  | `warnings` всегда пустые (C1)                | 2              |
   | `warnings` **без фильтра** по `publish` (C1) | **0** ← см. D1 |
-  | `winner` не запоминается (C2) | 2 |
-  | `winner` присваивается без условия (C2) | 1 |
-  | снят спецслучай `⚠️` в `reason` (C2) | 1 |
-  | урезанная форма раннего возврата (C3) | 1 |
-  | подсказка снова на каждый заголовок (C4) | 3 |
-  | подсказки нет вовсе (C4) | 3 |
+  | `winner` не запоминается (C2)                | 2              |
+  | `winner` присваивается без условия (C2)      | 1              |
+  | снят спецслучай `⚠️` в `reason` (C2)         | 1              |
+  | урезанная форма раннего возврата (C3)        | 1              |
+  | подсказка снова на каждый заголовок (C4)     | 3              |
+  | подсказки нет вовсе (C4)                     | 3              |
 
 Одна поправка к отчёту о работе: строка «`warnings` без фильтра — 2 падения»
 верна для **инверсии** фильтра (`a.publish` вместо `!a.publish`), а не для
@@ -686,10 +690,10 @@ tests/scripts/release` даёт 80 passed (80). Инверсия фильтра 
 (`tests/scripts/release/plan.test.js`), рядом с проверкой `plan.problems`:
 
 ```js
-    expect(plan.problems).toEqual(plan.engine.problems);
-    expect(plan.crate.problems).toEqual([]);
-    // публикуемый артефакт блокирует, а не предупреждает
-    expect(plan.warnings).toEqual([]);
+expect(plan.problems).toEqual(plan.engine.problems);
+expect(plan.crate.problems).toEqual([]);
+// публикуемый артефакт блокирует, а не предупреждает
+expect(plan.warnings).toEqual([]);
 ```
 
 Проверено: с этой строкой мутация «`warnings` без фильтра» даёт 1 падение, на
@@ -720,11 +724,11 @@ reason: winner
 уточнения — тогда подпись всегда цитирует журнал:
 
 ```js
-    if (level && LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(top)) {
-      top = level;
-      // заголовок как он написан в журнале, без уточнения: искать будут его
-      winner = section.replace(HEADING_SUFFIX, '').trim();
-    }
+if (level && LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(top)) {
+  top = level;
+  // заголовок как он написан в журнале, без уточнения: искать будут его
+  winner = section.replace(HEADING_SUFFIX, '').trim();
+}
 ```
 
 ```js
@@ -735,12 +739,12 @@ reason: winner
 
 Проверено на живом коде — 80/80 зелёные, eslint чист, поведение:
 
-| Секции | `reason` сейчас | `reason` после |
-| --- | --- | --- |
-| `['⚠️ Breaking — x', 'Migration']` | `### ⚠️ Breaking` | `### ⚠️ Breaking` |
-| `['Breaking', 'Migration']` | `### ⚠️ Breaking` | `### Breaking` |
-| `['Fixed', 'Added']` | `### Added` | `### Added` |
-| `['Changed']` | `без ### Added и ### ⚠️ Breaking` | без изменений |
+| Секции                             | `reason` сейчас                   | `reason` после    |
+| ---------------------------------- | --------------------------------- | ----------------- |
+| `['⚠️ Breaking — x', 'Migration']` | `### ⚠️ Breaking`                 | `### ⚠️ Breaking` |
+| `['Breaking', 'Migration']`        | `### ⚠️ Breaking`                 | `### Breaking`    |
+| `['Fixed', 'Added']`               | `### Added`                       | `### Added`       |
+| `['Changed']`                      | `без ### Added и ### ⚠️ Breaking` | без изменений     |
 
 Меняется единственная строка — та, где скрипт сейчас дописывает значок за
 разработчика.
@@ -838,13 +842,13 @@ D1–D5 закрыты, все пять — так, как предлагало�
 - `npx eslint .` чисто, `npm test` — 111 файлов / **1129** тестов;
 - **мутационная проверка** пяти правок:
 
-  | Мутация | Падает тестов |
-  | --- | --- |
-  | `warnings` без фильтра (D1) | 1 |
-  | фильтр `warnings` инвертирован (D1) | 3 |
-  | `winner` снова имя из карты (D2) | 1 |
-  | `winner` вместе с уточнением (D2) | 1 |
-  | `releasable = [engine]` (D3) | **0** ← см. E1 |
+  | Мутация                             | Падает тестов  |
+  | ----------------------------------- | -------------- |
+  | `warnings` без фильтра (D1)         | 1              |
+  | фильтр `warnings` инвертирован (D1) | 3              |
+  | `winner` снова имя из карты (D2)    | 1              |
+  | `winner` вместе с уточнением (D2)   | 1              |
+  | `releasable = [engine]` (D3)        | **0** ← см. E1 |
 
 - **живой прогон D4** (тот же форсированный сценарий, оба файла возвращены,
   дерево чистое):
@@ -857,6 +861,7 @@ D1–D5 закрыты, все пять — так, как предлагало�
   ```
 
   форма совпала с `reportProblems`, потоки больше не расходятся;
+
 - **D2 по существу**: `['Breaking','Migration']` → `### Breaking`,
   `['⚠️ Breaking — x','Migration']` → `### ⚠️ Breaking`. Подпись цитирует
   журнал, а не каноничную форму — ровно то, ради чего пункт заводился;
@@ -890,30 +895,30 @@ D1–D5 закрыты, все пять — так, как предлагало�
 рядом с тестом про журнал движка:
 
 ```js
-  // симметрия: журнал крейта блокирует так же, как журнал движка — пары
-  // ⚠️ Breaking + Migration живут как раз в core/CHANGELOG.md
-  it('прокидывает в общий список проблемы журнала крейта', () => {
-    const plan = decide(
-      input({
-        crate: {
-          local: '0.2.1',
-          published: '0.2.1',
-          changed: true,
-          changelogFile: 'packages/engine/core/CHANGELOG.md',
-          unreleased: {
-            present: true,
-            isEmpty: false,
-            sections: ['⚠️ Breaking — что-то'],
-          },
+// симметрия: журнал крейта блокирует так же, как журнал движка — пары
+// ⚠️ Breaking + Migration живут как раз в core/CHANGELOG.md
+it('прокидывает в общий список проблемы журнала крейта', () => {
+  const plan = decide(
+    input({
+      crate: {
+        local: '0.2.1',
+        published: '0.2.1',
+        changed: true,
+        changelogFile: 'packages/engine/core/CHANGELOG.md',
+        unreleased: {
+          present: true,
+          isEmpty: false,
+          sections: ['⚠️ Breaking — что-то'],
         },
-      }),
-    );
+      },
+    }),
+  );
 
-    expect(plan.crate.publish).toBe(true);
-    expect(plan.problems).toEqual([
-      'packages/engine/core/CHANGELOG.md: есть ### ⚠️ Breaking, но нет ### Migration',
-    ]);
-  });
+  expect(plan.crate.publish).toBe(true);
+  expect(plan.problems).toEqual([
+    'packages/engine/core/CHANGELOG.md: есть ### ⚠️ Breaking, но нет ### Migration',
+  ]);
+});
 ```
 
 Проверено: на исправном коде 15/15 зелёные, под мутацией `releasable =

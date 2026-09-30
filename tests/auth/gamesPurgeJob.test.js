@@ -11,9 +11,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function createClient(got, handlers = () => ({ rows: [] })) {
   const client = {
     released: 0,
-    query: vi.fn((text, values) => (
-      text.includes('pg_try_advisory_lock') ? { rows: [{ got }] } : handlers(text, values)
-    )),
+    query: vi.fn((text, values) =>
+      text.includes('pg_try_advisory_lock')
+        ? { rows: [{ got }] }
+        : handlers(text, values),
+    ),
     release: () => {
       client.released += 1;
     },
@@ -43,17 +45,27 @@ describe('gamesPurgeJob: планирование', () => {
 describe('gamesPurgeJob: прогон', () => {
   it('граница считается от ретенции, блокировка снимается', async () => {
     const now = Date.parse('2026-09-03T00:15:00Z');
-    const client = createClient(true, text => (
-      text.startsWith('SELECT id FROM games') ? { rows: [{ id: 'tanks' }] } : { rows: [] }
-    ));
+    const client = createClient(true, text =>
+      text.startsWith('SELECT id FROM games')
+        ? { rows: [{ id: 'tanks' }] }
+        : { rows: [] },
+    );
 
-    await expect(purgeDeletedGames(createDb(client), { now })).resolves.toEqual(['tanks']);
+    await expect(purgeDeletedGames(createDb(client), { now })).resolves.toEqual(
+      ['tanks'],
+    );
 
-    const select = client.query.mock.calls.find(([text]) => text.startsWith('SELECT id FROM games'));
+    const select = client.query.mock.calls.find(([text]) =>
+      text.startsWith('SELECT id FROM games'),
+    );
 
-    expect(select[1][0].getTime()).toBe(now - config.games.deleteRetentionDays * DAY_MS);
+    expect(select[1][0].getTime()).toBe(
+      now - config.games.deleteRetentionDays * DAY_MS,
+    );
     expect(
-      client.query.mock.calls.some(([text]) => text.includes('pg_advisory_unlock')),
+      client.query.mock.calls.some(([text]) =>
+        text.includes('pg_advisory_unlock'),
+      ),
     ).toBe(true);
     expect(client.released).toBe(1);
   });
@@ -65,7 +77,9 @@ describe('gamesPurgeJob: прогон', () => {
 
     await expect(purgeDeletedGames(createDb(client))).resolves.toEqual([]);
     expect(
-      client.query.mock.calls.some(([text]) => text.startsWith('SELECT id FROM games')),
+      client.query.mock.calls.some(([text]) =>
+        text.startsWith('SELECT id FROM games'),
+      ),
     ).toBe(false);
     expect(client.released).toBe(1);
   });

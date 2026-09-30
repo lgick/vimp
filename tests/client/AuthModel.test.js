@@ -17,7 +17,9 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  AuthModel = (await import('../../packages/engine/src/client/components/model/Auth.js')).default;
+  AuthModel = (
+    await import('../../packages/engine/src/client/components/model/Auth.js')
+  ).default;
 });
 
 describe('AuthModel.add / update', () => {
@@ -50,9 +52,7 @@ describe('AuthModel.add / update', () => {
     const model = makeModel();
     const events = collect(model);
 
-    expect(() =>
-      model.update({ name: 'unknown', value: 'x' }),
-    ).not.toThrow();
+    expect(() => model.update({ name: 'unknown', value: 'x' })).not.toThrow();
     expect(events.find(e => e.type === 'form').data).toEqual({
       name: 'unknown',
       value: 'x',
@@ -78,7 +78,9 @@ describe('AuthModel.send', () => {
     const events = collect(model);
 
     model.send();
-    expect(events.find(e => e.type === 'socket').data).toEqual({ login: 'Bob' });
+    expect(events.find(e => e.type === 'socket').data).toEqual({
+      login: 'Bob',
+    });
   });
 
   it('повторный send блокируется до ответа сервера', () => {

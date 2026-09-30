@@ -35,7 +35,9 @@ const CHECKS = [
   [12, 'determinism', 'two runs produce a byte-identical frame stream'],
 ];
 
-const TITLES = new Map(CHECKS.map(([id, name, title]) => [name, { id, title }]));
+const TITLES = new Map(
+  CHECKS.map(([id, name, title]) => [name, { id, title }]),
+);
 
 /**
  * Выполняет проверки 1–11 по итогам прогона (12 — только по требованию,
@@ -223,7 +225,9 @@ function frameFormat({ clients, socketManager }) {
 
   for (const client of clients) {
     for (const error of client.decodeErrors) {
-      violations.push(`${client.socketId}: push_frame threw — ${error.message}`);
+      violations.push(
+        `${client.socketId}: push_frame threw — ${error.message}`,
+      );
     }
   }
 
@@ -277,7 +281,7 @@ function hotLayout({ clients }) {
         item.message
           ? `${client.socketId}: ${item.message} (len ${item.len})`
           : `${client.socketId}: hot buffer len ${item.len}, traversal consumed ` +
-            `${item.consumed} — record width or group order drifted`,
+              `${item.consumed} — record width or group order drifted`,
       );
     }
 
@@ -463,7 +467,9 @@ function predictionDrift({ clients, scenario }) {
       (client.divergenceStats.dropped ?? 0);
 
     if (hidden) {
-      violations.push(`${client.socketId}: +${hidden} more divergence record(s)`);
+      violations.push(
+        `${client.socketId}: +${hidden} more divergence record(s)`,
+      );
     }
   }
 

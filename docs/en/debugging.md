@@ -42,12 +42,12 @@ npx vimp-contract --game .          # from a game package
 node packages/engine/bin/vimp-contract.js --game ../vimp-tanks
 ```
 
-| Option | Meaning |
-| --- | --- |
-| `--game <path>` | game package directory (default `.`) |
-| `--json` | machine-readable report instead of text |
-| `--quiet` | only failures and the summary |
-| `--strict` | warnings count as errors |
+| Option          | Meaning                                 |
+| --------------- | --------------------------------------- |
+| `--game <path>` | game package directory (default `.`)    |
+| `--json`        | machine-readable report instead of text |
+| `--quiet`       | only failures and the summary           |
+| `--strict`      | warnings count as errors                |
 
 Exit code `0` means every rule is `pass` or `skip`, `1` means at least one
 `error`-level failure (`--strict` adds the warnings). `skip` means the input
@@ -55,7 +55,7 @@ is missing — no `package.json`, no `dist/` — and never masks a violation, so
 the check is useful from the first commit of a plugin, long before it builds.
 A rule that finds the file but not the data it needs says so in the report's
 notes rather than passing (the `vimp-engine-core` pin, for one). A run where
-*no* rule found any input exits `1`: 32 skips are a mistyped path, not a
+_no_ rule found any input exits `1`: 32 skips are a mistyped path, not a
 clean bill of health.
 
 > **The check imports the game package.** Both plugin halves are loaded as
@@ -71,13 +71,13 @@ plugin objects: both halves are imported as modules, so `gameConfig`,
 `authSchema` and the client config are the computed structures the engine
 will actually see, not a parse of the source.
 
-| Group | Catches |
-| --- | --- |
-| A1–A7 | packaging: `type`/`files`, `pixi.js` and `vimp-engine` in the wrong dependency section, the standard scripts, entry paths, the required Vite options, `crate-type`/`enhanced-determinism`/a stale `vimp-engine-core` pin, the built manifest, and a declared `repository` (warning — without it the entry form shows no project link) |
-| B1–B10 | host: plugin shape, the `engineApi` triple, the four required `gameConfig` paths (plus a warning per field left to an engine default), teams and spectators, `roomForm` fields the host silently drops and a `regExp` that does not compile, the reserved panel key `t`, chat commands shadowing engine ones, system-message codes overwriting engine texts, reserved vote names, respawn capacity vs `maxPlayers` |
-| C1–C10 | client: plugin shape and the three hooks, parts registered in `entitiesOnCanvas`, `gameSets` covering every snapshot key and map `setId`, services the engine or the plugin's `hooks.services()` provides (a warning when the hook exists — the checker cannot call it), the `t`/`time` panel field, stat columns past the engine layout being styled by the plugin (warning), spectator and player keysets, bakers, message texts, the auth schema (`fieldsId`, no nickname, the `model` field) |
-| D1–D3 | snapshot schema: unique ids, `hot`/`event` classes vs block kinds, `interp` only on hot `f32`, `role: 'state'` a `u8` right after the dynamics row head and before `optionalFrom` |
-| E1–E7 | assets and maps: the `webm` + `mp3` pair per sound, map images in `dist/`, an empty sound registry (warning), the structure of a layered (2.5D) map — level keys, grid dimensions, walls inside the floor, ramp tiles and directions, a ramp that arrives on drivable surface, a slab edge that is either railed or a fall onto walkable ground, respawn and `physicsDynamic` levels, a `levelHeight` that is finite and positive, two ramps sharing a cell, tiles named by a level's render layers — and (E5) every solid tile named by a render layer, since the radar draws walls from the layer that lists them; (E6) a well-formed `parts.sounds.spatial` block — a plain object, known keys only (a typo is silently merged in and silently ignored), a `mode`/`panningModel`/`distanceModel` from the closed lists, numbers of the right sign, and `maxDistance > refDistance` compared on the **resolved** values, so declaring one distance against the engine default of the other is a violation too (the engine resets both at runtime); (E7) a map's `game` and every `physicsDynamic[i].game` is a plain object or absent |
+| Group  | Catches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1–A7  | packaging: `type`/`files`, `pixi.js` and `vimp-engine` in the wrong dependency section, the standard scripts, entry paths, the required Vite options, `crate-type`/`enhanced-determinism`/a stale `vimp-engine-core` pin, the built manifest, and a declared `repository` (warning — without it the entry form shows no project link)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| B1–B10 | host: plugin shape, the `engineApi` triple, the four required `gameConfig` paths (plus a warning per field left to an engine default), teams and spectators, `roomForm` fields the host silently drops and a `regExp` that does not compile, the reserved panel key `t`, chat commands shadowing engine ones, system-message codes overwriting engine texts, reserved vote names, respawn capacity vs `maxPlayers`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| C1–C10 | client: plugin shape and the three hooks, parts registered in `entitiesOnCanvas`, `gameSets` covering every snapshot key and map `setId`, services the engine or the plugin's `hooks.services()` provides (a warning when the hook exists — the checker cannot call it), the `t`/`time` panel field, stat columns past the engine layout being styled by the plugin (warning), spectator and player keysets, bakers, message texts, the auth schema (`fieldsId`, no nickname, the `model` field)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| D1–D3  | snapshot schema: unique ids, `hot`/`event` classes vs block kinds, `interp` only on hot `f32`, `role: 'state'` a `u8` right after the dynamics row head and before `optionalFrom`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| E1–E7  | assets and maps: the `webm` + `mp3` pair per sound, map images in `dist/`, an empty sound registry (warning), the structure of a layered (2.5D) map — level keys, grid dimensions, walls inside the floor, ramp tiles and directions, a ramp that arrives on drivable surface, a slab edge that is either railed or a fall onto walkable ground, respawn and `physicsDynamic` levels, a `levelHeight` that is finite and positive, two ramps sharing a cell, tiles named by a level's render layers — and (E5) every solid tile named by a render layer, since the radar draws walls from the layer that lists them; (E6) a well-formed `parts.sounds.spatial` block — a plain object, known keys only (a typo is silently merged in and silently ignored), a `mode`/`panningModel`/`distanceModel` from the closed lists, numbers of the right sign, and `maxDistance > refDistance` compared on the **resolved** values, so declaring one distance against the engine default of the other is a violation too (the engine resets both at runtime); (E7) a map's `game` and every `physicsDynamic[i].game` is a plain object or absent |
 
 Run it before `npm run sim`: it is faster, needs no core build, and its
 findings are the ones the runner would report as a black canvas ten minutes
@@ -123,15 +123,15 @@ npm run sim:check                 # verdict to stdout only, no files written
 CLI options (`packages/engine/bin/vimp-sim.js`, also installed as the
 `vimp-sim` bin of the `vimp-engine` package):
 
-| Option | Meaning |
-| --- | --- |
-| `--scenario <path>` | scenario JSON; without it a built-in smoke scenario runs (see the note below) |
-| `--game <path>` | game package directory, or a `dist/manifest.json` directly |
-| `--core <path>` | Node build of the game core, overriding `entries.wasmNode`; only meaningful with `--game` (the fixture's core is plain JS, so `--core` alone is a no-op and says so) |
-| `--out <dir>` | report root (default `.debug`) |
-| `--no-write` | print the report to stdout instead of writing files |
-| `--determinism` | run the scenario twice and compare the frame streams (invariant 12) |
-| `--help` | usage |
+| Option              | Meaning                                                                                                                                                              |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--scenario <path>` | scenario JSON; without it a built-in smoke scenario runs (see the note below)                                                                                        |
+| `--game <path>`     | game package directory, or a `dist/manifest.json` directly                                                                                                           |
+| `--core <path>`     | Node build of the game core, overriding `entries.wasmNode`; only meaningful with `--game` (the fixture's core is plain JS, so `--core` alone is a no-op and says so) |
+| `--out <dir>`       | report root (default `.debug`)                                                                                                                                       |
+| `--no-write`        | print the report to stdout instead of writing files                                                                                                                  |
+| `--determinism`     | run the scenario twice and compare the frame streams (invariant 12)                                                                                                  |
+| `--help`            | usage                                                                                                                                                                |
 
 **The built-in scenario is a smoke test, not an audit.** One participant
 joins, holds a key, releases it. The identifiers it drives — model, playable
@@ -139,7 +139,7 @@ team, key name — are read from your `gameConfig` (first of `parts.models`,
 first `teams` entry that is not `spectatorTeam`, first `playerKeys` entry
 that is not a `type: 1` trigger — `up` on a trigger is a no-op, so the smoke
 would hold nothing), so it runs on any plugin; if a game declares none of them, the runner says so instead of
-guessing. What it cannot infer is what your game *means*: invariant 2 (key
+guessing. What it cannot infer is what your game _means_: invariant 2 (key
 coverage — the scenario cannot know which keys it ought to spawn) and
 invariant 9 (prediction drift — thresholds are per-game) are **skipped**,
 with a notice on stderr. Both come back the moment you pass a `--scenario`
@@ -192,8 +192,8 @@ dependencies, or install the package.
   "config": { "timers": { "networkSendRate": 1 } },
   "participants": [{ "id": "p1", "name": "P1", "model": "m1" }],
   "timeline": [
-    { "tick": 0,  "op": "join", "who": "p1", "team": "team1" },
-    { "tick": 12, "op": "key",  "who": "p1", "action": "down", "name": "forward" },
+    { "tick": 0, "op": "join", "who": "p1", "team": "team1" },
+    { "tick": 12, "op": "key", "who": "p1", "action": "down", "name": "forward" },
     { "tick": 30, "op": "chat", "who": "p1", "text": "/nr" }
   ],
   "unusedSnapshotKeys": ["e1"],
@@ -203,31 +203,31 @@ dependencies, or install the package.
 }
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `version` | must be `1` |
-| `seed` | uint32, goes into `room.seed` — the same seed reproduces the same world (default `1`) |
-| `map` | starting map name (default: the game's own default) |
-| `game` | `{ version }` of the game package, as the lobby would send it |
-| `room` | extra room overrides (`applyRoomOverrides`) |
-| `config` | patch merged into the assembled game config before the core is created; **timers only under `config.timers`** — a top-level key is a game-config key and is never routed into timers |
-| `participants` | `[{ id, name, model }]`, non-empty; `id` is the scenario-local handle used by `who` |
-| `timeline` | ops, sorted by `tick` on parse |
+| Field                | Meaning                                                                                                                                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`            | must be `1`                                                                                                                                                                                                                            |
+| `seed`               | uint32, goes into `room.seed` — the same seed reproduces the same world (default `1`)                                                                                                                                                  |
+| `map`                | starting map name (default: the game's own default)                                                                                                                                                                                    |
+| `game`               | `{ version }` of the game package, as the lobby would send it                                                                                                                                                                          |
+| `room`               | extra room overrides (`applyRoomOverrides`)                                                                                                                                                                                            |
+| `config`             | patch merged into the assembled game config before the core is created; **timers only under `config.timers`** — a top-level key is a game-config key and is never routed into timers                                                   |
+| `participants`       | `[{ id, name, model }]`, non-empty; `id` is the scenario-local handle used by `who`                                                                                                                                                    |
+| `timeline`           | ops, sorted by `tick` on parse                                                                                                                                                                                                         |
 | `unusedSnapshotKeys` | snapshot keys this scenario deliberately never spawns (see invariant 2); `"*"` means "this scenario does not audit key coverage at all" and makes invariant 2 skip — used by the built-in scenario when it runs on someone else's game |
-| `divergence` | thresholds for the prediction detector (and `angles`, the components compared on the circle); `{}` = core defaults, `null` = detector off, which makes invariant 9 skip |
-| `ticks` | how many ticks to run (default `600`) |
-| `dumpTicks` | ticks at which a scene slice is dumped (default: the last tick) |
+| `divergence`         | thresholds for the prediction detector (and `angles`, the components compared on the circle); `{}` = core defaults, `null` = detector off, which makes invariant 9 skip                                                                |
+| `ticks`              | how many ticks to run (default `600`)                                                                                                                                                                                                  |
+| `dumpTicks`          | ticks at which a scene slice is dumped (default: the last tick)                                                                                                                                                                        |
 
 Ops:
 
-| `op` | Fields | Effect |
-| --- | --- | --- |
-| `join` | `who`, `team` | participant enters, a real `ClientCore` is created for them |
-| `leave` | `who` | participant leaves |
-| `key` | `who`, `action` (`down`/`up`), `name` | `HostGame.updateKeys`, and the same input is applied to that participant's client core |
-| `aim` | `who`, `x`, `y`, `flags` (default `1`) | pointer input: `HostGame.updateKeys` with `'seq:aim:x:y:flags'`, and the same point is applied to that participant's client core |
-| `chat` | `who`, `text` | `HostGame.pushMessage` (chat commands included) |
-| `vote` | `who`, `data` | `HostGame.parseVote` |
+| `op`    | Fields                                 | Effect                                                                                                                           |
+| ------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `join`  | `who`, `team`                          | participant enters, a real `ClientCore` is created for them                                                                      |
+| `leave` | `who`                                  | participant leaves                                                                                                               |
+| `key`   | `who`, `action` (`down`/`up`), `name`  | `HostGame.updateKeys`, and the same input is applied to that participant's client core                                           |
+| `aim`   | `who`, `x`, `y`, `flags` (default `1`) | pointer input: `HostGame.updateKeys` with `'seq:aim:x:y:flags'`, and the same point is applied to that participant's client core |
+| `chat`  | `who`, `text`                          | `HostGame.pushMessage` (chat commands included)                                                                                  |
+| `vote`  | `who`, `data`                          | `HostGame.parseVote`                                                                                                             |
 
 Two properties are worth knowing before writing a scenario by hand:
 
@@ -268,20 +268,20 @@ After the run the runner evaluates 12 contracts
 violation. Every violation is a line naming the client, the key and the
 value.
 
-| # | Name | Catches |
-| --- | --- | --- |
-| 1 | `finiteValues` | `NaN`/`Infinity` in decoded fields or the hot buffer |
-| 2 | `snapshotKeysUsed` | a snapshot key that produced no rows — "the entity never spawns", or a key-id mismatch (declare deliberate cases in `unusedSnapshotKeys`) |
-| 3 | `fieldWidths` | decoded field count ≠ schema field count — the positional binding in `interpolator.rs` drifting |
-| 4 | `frameFormat` | frame version byte ≠ `SNAPSHOT_FORMAT_VERSION`, or `decode_frame` throwing |
-| 5 | `hotLayout` | hot-buffer traversal not consuming exactly `len` floats — record width or group order drifted |
-| 6 | `panelContract` | a declared `panel` field that never reaches the client config (values arriving named `undefined`) |
-| 7 | `renderCoverage` | a live snapshot key missing from `gameSets`/`entitiesOnCanvas` — the "black canvas" class |
-| 8 | `keyBindings` | host `playerKeys` ↔ client keysets ↔ the key names used by the scenario |
-| 9 | `predictionDrift` | prediction divergence above the threshold (see below) |
-| 10 | `roundLifecycle` | round ended, winner announced, respawns happened, participants not leaked |
-| 11 | `actorLeak` | `players_data()` disagreeing with the active participants |
-| 12 | `determinism` | two runs of the same scenario producing an identical frame stream — frames are compared by hash, and the hashes are only collected under `--determinism` (on a long match the stream would be megabytes of report) |
+| #   | Name               | Catches                                                                                                                                                                                                            |
+| --- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `finiteValues`     | `NaN`/`Infinity` in decoded fields or the hot buffer                                                                                                                                                               |
+| 2   | `snapshotKeysUsed` | a snapshot key that produced no rows — "the entity never spawns", or a key-id mismatch (declare deliberate cases in `unusedSnapshotKeys`)                                                                          |
+| 3   | `fieldWidths`      | decoded field count ≠ schema field count — the positional binding in `interpolator.rs` drifting                                                                                                                    |
+| 4   | `frameFormat`      | frame version byte ≠ `SNAPSHOT_FORMAT_VERSION`, or `decode_frame` throwing                                                                                                                                         |
+| 5   | `hotLayout`        | hot-buffer traversal not consuming exactly `len` floats — record width or group order drifted                                                                                                                      |
+| 6   | `panelContract`    | a declared `panel` field that never reaches the client config (values arriving named `undefined`)                                                                                                                  |
+| 7   | `renderCoverage`   | a live snapshot key missing from `gameSets`/`entitiesOnCanvas` — the "black canvas" class                                                                                                                          |
+| 8   | `keyBindings`      | host `playerKeys` ↔ client keysets ↔ the key names used by the scenario                                                                                                                                            |
+| 9   | `predictionDrift`  | prediction divergence above the threshold (see below)                                                                                                                                                              |
+| 10  | `roundLifecycle`   | round ended, winner announced, respawns happened, participants not leaked                                                                                                                                          |
+| 11  | `actorLeak`        | `players_data()` disagreeing with the active participants                                                                                                                                                          |
+| 12  | `determinism`      | two runs of the same scenario producing an identical frame stream — frames are compared by hash, and the hashes are only collected under `--determinism` (on a long match the stream would be megabytes of report) |
 
 Invariant 12 is the self-check of everything else: it holds only because
 time, timers and randomness in the host all go through the injectable
@@ -292,10 +292,10 @@ the seed is fixed by the scenario.
 
 Written to `.debug/run-<timestamp>/` (`.debug/` is git-ignored):
 
-| File | Contents |
-| --- | --- |
-| `report.md` | the human/LLM-readable verdict |
-| `report.json` | the same run, machine-readable, plus `snapshotSchema` |
+| File                | Contents                                                                      |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `report.md`         | the human/LLM-readable verdict                                                |
+| `report.json`       | the same run, machine-readable, plus `snapshotSchema`                         |
 | `scene-<tick>.json` | one file per dumped tick: per-client scene, camera, panel, plus the core dump |
 
 Scene slices live in their own files because they are by far the largest
@@ -405,7 +405,7 @@ moment:
   that interval (and at most one `timeStep` of physics) behind the frame.
   Keep that in mind when reading drift uploaded from a browser session.
 
-One source of *expected* difference remains, and a threshold below it turns
+One source of _expected_ difference remains, and a threshold below it turns
 the check into noise:
 
 - **what the replica does not simulate.** Collisions, explosion impulses and
@@ -451,13 +451,13 @@ Available in a dev build; meant to be driven from DevTools or from Chrome
 MCP (`javascript_tool`, `read_console_messages`) without a human reading the
 output.
 
-| Call | Does |
-| --- | --- |
-| `dump({ save, note })` | host meta + core dump (via the Worker) next to this client's scene; optionally uploads |
-| `startRecording()` | starts recording the live match; `false` means the room was created without dev mode |
-| `stopRecording({ save = true, note })` | stops and (by default) uploads the recorded scenario, returns `{ scenario, file }` |
-| `divergence()` | drains this client core's divergence detector |
-| `save(kind, payload, note)` | uploads an arbitrary payload (`scenario`/`dump`/`divergence`) |
+| Call                                   | Does                                                                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `dump({ save, note })`                 | host meta + core dump (via the Worker) next to this client's scene; optionally uploads |
+| `startRecording()`                     | starts recording the live match; `false` means the room was created without dev mode   |
+| `stopRecording({ save = true, note })` | stops and (by default) uploads the recorded scenario, returns `{ scenario, file }`     |
+| `divergence()`                         | drains this client core's divergence detector                                          |
+| `save(kind, payload, note)`            | uploads an arbitrary payload (`scenario`/`dump`/`divergence`)                          |
 
 The API never fails silently: a tab that is not hosting a room throws an
 error saying so, rather than returning `null`.

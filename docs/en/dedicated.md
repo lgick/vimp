@@ -27,9 +27,9 @@ Code: `packages/engine/src/dedicated/main.js`.
 
 ```js
 if (process.env.VIMP_DEDICATED_GAME) {
-  await import('../dedicated/main.js');   // dedicated server
+  await import('../dedicated/main.js'); // dedicated server
 } else {
-  await import('./lobby.js');             // lobby master
+  await import('./lobby.js'); // lobby master
 }
 ```
 
@@ -129,14 +129,14 @@ are held to the opposite standard: they are loaded in Node and must be
 self-contained, and an unresolvable import there is reported as a named
 error naming the entry and the missing package.
 
-| Variable | Meaning |
-| --- | --- |
-| `VIMP_DEDICATED_GAME` | the game: a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either with a `@<version>` pin; also the switch that selects this role |
-| `VIMP_MASTER_PORT` | HTTP + WebSocket port (default `3002`) |
-| `VIMP_DOMAIN` | production domain — used for `Origin` validation |
-| `VIMP_AUTH_SERVICE_URL` | the central auth service — only needed to resolve a game named by **id**; a game named by package name is fetched from npm without it |
-| `VIMP_GAMES_DIR` | root of the downloaded-package store (a mounted volume in production) |
-| `VIMP_DEDICATED_ROOM` | JSON room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed` |
+| Variable                | Meaning                                                                                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VIMP_DEDICATED_GAME`   | the game: a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either with a `@<version>` pin; also the switch that selects this role |
+| `VIMP_MASTER_PORT`      | HTTP + WebSocket port (default `3002`)                                                                                                             |
+| `VIMP_DOMAIN`           | production domain — used for `Origin` validation                                                                                                   |
+| `VIMP_AUTH_SERVICE_URL` | the central auth service — only needed to resolve a game named by **id**; a game named by package name is fetched from npm without it              |
+| `VIMP_GAMES_DIR`        | root of the downloaded-package store (a mounted volume in production)                                                                              |
+| `VIMP_DEDICATED_ROOM`   | JSON room overrides: `map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`                                                           |
 
 Unlike the lobby master, the dedicated server reads these **in development
 too** (`packages/engine/src/config/env.js`): the game, the port and the room
@@ -226,18 +226,18 @@ Because the process is public, long-lived and has neither a lobby gate nor
 OAuth in front of it, the adapter (not the isomorphic `PortMachine`) enforces
 four limits:
 
-| Limit | Value | Why |
-| --- | --- | --- |
-| `maxPayload` | 64 KB | a legitimate client frame is a chat line, keys or a vote — kilobytes; the `ws` default is 100 MiB, i.e. memory on request |
-| message rate | 300 frames/s per socket | a client peaks at ~60 frames/s (keys + pong); frames over the limit are dropped silently |
-| connection rate | 30 per minute per address | every connection costs a `CONFIG_DATA` payload *before* any authentication, so without a cap the socket is an amplifier. Rejected with close code 4009 |
-| handshake timeout | 120 s | a connection that never became a participant takes no room slot but holds a socket — a trivial slowloris. Closed with code 4008 |
+| Limit             | Value                     | Why                                                                                                                                                    |
+| ----------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `maxPayload`      | 64 KB                     | a legitimate client frame is a chat line, keys or a vote — kilobytes; the `ws` default is 100 MiB, i.e. memory on request                              |
+| message rate      | 300 frames/s per socket   | a client peaks at ~60 frames/s (keys + pong); frames over the limit are dropped silently                                                               |
+| connection rate   | 30 per minute per address | every connection costs a `CONFIG_DATA` payload _before_ any authentication, so without a cap the socket is an amplifier. Rejected with close code 4009 |
+| handshake timeout | 120 s                     | a connection that never became a participant takes no room slot but holds a socket — a trivial slowloris. Closed with code 4008                        |
 
 The connection rate keys on the client address from `clientIp()`
 (`src/lib/clientIp.js`, shared with the master): the socket address, or
 `X-Real-IP` in production, where the deploy's Nginx overwrites that header with
 `$remote_addr`. `X-Forwarded-For` is deliberately not used — Nginx sets it with
-`$proxy_add_x_forwarded_for`, which *appends* the real address to whatever the
+`$proxy_add_x_forwarded_for`, which _appends_ the real address to whatever the
 client sent, so its first hop is client-controlled: keying on it would let one
 header per connection lift the limit entirely, and let an attacker fill a
 chosen player's bucket to keep them out. A connection whose address cannot be
@@ -291,7 +291,7 @@ and flushes profiles), then the HTTP server, then the process exits.
 - **No Worker handoff.** A browser host swaps its Worker on a round boundary
   and keeps the match alive; deploying a dedicated server is a process
   restart, and the match is lost.
-- **No bots on startup.** Scripted participants are a *game* concept spawned
+- **No bots on startup.** Scripted participants are a _game_ concept spawned
   by a player's chat command (`/bot 4` in tanks), not something the engine
   starts on its own.
 - **An empty room keeps ticking.** `RoundManager.createMap()` starts the game

@@ -50,7 +50,8 @@ export function checkPluginCompatibility(manifest) {
     ok: false,
     reason: 'engine-too-old',
     missing,
-    text: `игра "${manifest.id}" требует возможностей, которых нет в этой ` +
+    text:
+      `игра "${manifest.id}" требует возможностей, которых нет в этой ` +
       `сборке движка: ${missing.join(', ')} — обновите движок`,
   };
 }
@@ -74,9 +75,9 @@ export function checkPluginCompatibility(manifest) {
 // Append-only (И1). Имя, однажды объявленное, поддерживается вечно:
 // опубликованная игра могла записать его в manifest.requires.
 export const ENGINE_CAPABILITIES = createRegistry('engine-capabilities', [
-  { value: 'accolades',   since: '0.20.0' },  // порт ACCOLADES_DATA + сервис
+  { value: 'accolades', since: '0.20.0' }, // порт ACCOLADES_DATA + сервис
   { value: 'stat.leaderboard', since: '0.20.0' },
-  { value: 'dispatch',    since: '0.23.0' },  // dispatch/abi_describe в ядре
+  { value: 'dispatch', since: '0.23.0' }, // dispatch/abi_describe в ядре
   // …
 ]);
 ```
@@ -88,12 +89,12 @@ export const ENGINE_CAPABILITIES = createRegistry('engine-capabilities', [
 
 ## 5.4 Четыре входа: разная реакция
 
-| Вход | Файл | Реакция при `!ok` |
-| --- | --- | --- |
-| Мастер (каталог) | `src/master/GameCatalog.js:59-67` | игра **остаётся** в каталоге с пометкой недоступности (см. 5.5) |
-| Dedicated / `vimp-sim` / InlineHostBridge | `src/lib/loadGamePackage.js:35` | `throw` с текстом вердикта — игра одна, подменить нечем |
-| Браузерный клиент | `src/lib/gamePlugin.js:126` (`loadClientPlugin`) | `throw` с текстом вердикта |
-| Standalone SDK | `src/standalone/index.js:60-61` | `throw` с текстом вердикта |
+| Вход                                      | Файл                                             | Реакция при `!ok`                                               |
+| ----------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------- |
+| Мастер (каталог)                          | `src/master/GameCatalog.js:59-67`                | игра **остаётся** в каталоге с пометкой недоступности (см. 5.5) |
+| Dedicated / `vimp-sim` / InlineHostBridge | `src/lib/loadGamePackage.js:35`                  | `throw` с текстом вердикта — игра одна, подменить нечем         |
+| Браузерный клиент                         | `src/lib/gamePlugin.js:126` (`loadClientPlugin`) | `throw` с текстом вердикта                                      |
+| Standalone SDK                            | `src/standalone/index.js:60-61`                  | `throw` с текстом вердикта                                      |
 
 Во всех случаях текст обязан называть **сторону, которую надо обновить**:
 «обновите движок», а не «несовместимая версия». Это единственный оставшийся
@@ -153,11 +154,13 @@ manifest: { ...withPackage, compat: { ok: false, missing, text } }
 ## Файлы этапа
 
 Создаются:
+
 - `packages/engine/src/lib/capabilities.js`
 - `tests/lib/capabilities.test.js`
 - `tests/master/gameCatalogCompat.test.js`
 
 Правятся:
+
 - `packages/engine/src/config/opcodes.js` — комментарий-заморозка
 - `packages/engine/src/lib/gamePlugin.js` — `checkPluginCompatibility` + обёртка
 - `packages/engine/src/lib/loadGamePackage.js`

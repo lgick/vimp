@@ -47,10 +47,10 @@ parts.friendlyFire, panel.fields, playerKeys, teams
 // Умолчание обязано быть безопасным для игры, которая о поле не знает.
 const FIELDS = {
   'parts.friendlyFire': { default: false },
-  'mapScale':           { default: 1 },
-  'statMode':           { default: 'table' },
-  'noSpectators':       { default: false },
-  'title':              { default: null },   // null → вызывающий берёт plugin.id
+  'mapScale': { default: 1 },
+  'statMode': { default: 'table' },
+  'noSpectators': { default: false },
+  'title': { default: null }, // null → вызывающий берёт plugin.id
   // ...
 };
 ```
@@ -62,9 +62,9 @@ const FIELDS = {
 // Добавление сюда отвергнет все ранее опубликованные игры — вместо этого
 // заведи поле в FIELDS с умолчанием. Страж: tests/devtools/surface.test.js.
 const REQUIRED = [
-  'snapshot',      // раскладка кадра; синтезировать нечем
-  'teams',         // ParticipantManager выбирает команду входа
-  'playerKeys',    // без них ядро не знает ввода
+  'snapshot', // раскладка кадра; синтезировать нечем
+  'teams', // ParticipantManager выбирает команду входа
+  'playerKeys', // без них ядро не знает ввода
   'parts.models',
 ];
 ```
@@ -75,6 +75,7 @@ const REQUIRED = [
 комментарием — что происходит при отсутствии поля.
 
 Разумные умолчания для выводимых:
+
 - `roomDefaults.maxPlayers` → `hostDefaults.maxPlayers` (30,
   `src/config/hostDefaults.js:8`)
 - `parts.weapons` → `{}` (игра без оружия — `vimp-snakes` уже такая)
@@ -121,7 +122,7 @@ const REQUIRED = [
 разработчику полезно знать, что он полагается на умолчание движка.
 
 Правила `b4`, `b6`, `b10`, `c11`, `d1-d3` читают `ctx.gameConfig` напрямую —
-они работают с конфигом *разрабатываемой* игры, а не загружаемой в рантайме,
+они работают с конфигом _разрабатываемой_ игры, а не загружаемой в рантайме,
 поэтому остаются как есть. Проверить, что каждое из них корректно
 `skip`-ается при отсутствии поля (сейчас — да, см.
 `b10-respawns.js:18`, `d1-snapshot-ids.js:16`).
@@ -142,10 +143,12 @@ requiredGameConfig может только сокращаться (И2)
 ## Файлы этапа
 
 Создаются:
+
 - `packages/engine/src/lib/gameConfigView.js`
 - `tests/lib/gameConfigView.test.js`
 
 Правятся:
+
 - `packages/engine/src/lib/gamePlugin.js` — `assertGameConfigShape` становится обёрткой
 - `packages/engine/src/lib/coreConfig.js`
 - `packages/engine/src/lib/applyRoomOverrides.js`

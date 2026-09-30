@@ -12,7 +12,8 @@ beforeEach(async () => {
   config.set('server:domain', 'example.com');
   config.set('server:port', 3000);
   config.set('server:protocol', 'https:');
-  security = (await import('../../packages/engine/src/lib/security.js')).default;
+  security = (await import('../../packages/engine/src/lib/security.js'))
+    .default;
 });
 
 afterEach(() => {

@@ -26,7 +26,8 @@ const teams = { team1: 1, team2: 2 };
 
 beforeEach(async () => {
   vi.resetModules();
-  Stat = (await import('../../packages/engine/src/host/meta/modules/Stat.js')).default;
+  Stat = (await import('../../packages/engine/src/host/meta/modules/Stat.js'))
+    .default;
 });
 
 describe('Stat: добавление и обновление', () => {
@@ -173,8 +174,9 @@ describe('Stat: serialize/restore', () => {
   const freshStat = async () => {
     vi.resetModules();
 
-    const FreshStat = (await import('../../packages/engine/src/host/meta/modules/Stat.js'))
-      .default;
+    const FreshStat = (
+      await import('../../packages/engine/src/host/meta/modules/Stat.js')
+    ).default;
 
     return new FreshStat(statConfig, teams);
   };

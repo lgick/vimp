@@ -92,9 +92,15 @@ describe('GamesCtrl', () => {
     const seen = [];
 
     ctrl.publisher.on('staged', e => seen.push(e));
-    model.publisher.emit('staged', { id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } });
+    model.publisher.emit('staged', {
+      id: 'tanks',
+      version: '1.1.0',
+      manifest: { id: 'tanks' },
+    });
 
-    expect(seen).toEqual([{ id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } }]);
+    expect(seen).toEqual([
+      { id: 'tanks', version: '1.1.0', manifest: { id: 'tanks' } },
+    ]);
   });
 
   it('роль решает видимость кнопки модерации и возврат черновиков', () => {

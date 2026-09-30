@@ -174,7 +174,8 @@ export default class StatModel {
 
     // в топе игрока нет — его собственное место знает только рассылка хоста
     const myId = this._localPlayer?.id ?? null;
-    const mine = myId === null ? null : this._accolades.selfOf(myId, this._period);
+    const mine =
+      myId === null ? null : this._accolades.selfOf(myId, this._period);
 
     if (!mine || !nick) {
       return marked;

@@ -4,8 +4,9 @@ import GameRegistryProxy from '../../packages/engine/src/master/GameRegistryProx
 // Клиент реестра игр auth-сервиса (master-game-registry, этап 3): мастер не
 // имеет доступа к БД и ходит REST'ом, как за rank/state/jwks.
 
-const makeFetch = (impl = async () => ({ status: 200, json: async () => ({ games: [] }) })) =>
-  vi.fn(impl);
+const makeFetch = (
+  impl = async () => ({ status: 200, json: async () => ({ games: [] }) }),
+) => vi.fn(impl);
 
 describe('GameRegistryProxy', () => {
   it('запрашивает публичный каталог без Bearer-токена', async () => {
@@ -44,16 +45,30 @@ describe('GameRegistryProxy', () => {
   });
 
   it('отправляет заявку разработчика телом JSON', async () => {
-    const fetchImpl = makeFetch(async () => ({ status: 201, json: async () => ({ game: {} }) }));
+    const fetchImpl = makeFetch(async () => ({
+      status: 201,
+      json: async () => ({ game: {} }),
+    }));
     const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl });
 
-    await proxy.submit('tok', { id: 'snakes', packageName: '@vimp-games/snakes', version: '0.9.1' });
+    await proxy.submit('tok', {
+      id: 'snakes',
+      packageName: '@vimp-games/snakes',
+      version: '0.9.1',
+    });
 
     expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/games', {
       method: 'POST',
       signal: expect.any(AbortSignal),
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ id: 'snakes', packageName: '@vimp-games/snakes', version: '0.9.1' }),
+      headers: {
+        authorization: 'Bearer tok',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: 'snakes',
+        packageName: '@vimp-games/snakes',
+        version: '0.9.1',
+      }),
     });
   });
 
@@ -62,20 +77,35 @@ describe('GameRegistryProxy', () => {
     const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl });
 
     await proxy.requestVersion('tok', 'tanks', '0.17.0');
-    expect(fetchImpl).toHaveBeenLastCalledWith('http://auth.local/games/tanks/version', {
-      method: 'POST',
-      signal: expect.any(AbortSignal),
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ version: '0.17.0' }),
-    });
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      'http://auth.local/games/tanks/version',
+      {
+        method: 'POST',
+        signal: expect.any(AbortSignal),
+        headers: {
+          authorization: 'Bearer tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ version: '0.17.0' }),
+      },
+    );
 
-    await proxy.moderate('tok', 'tanks', { status: 'approved', version: '0.17.0' });
-    expect(fetchImpl).toHaveBeenLastCalledWith('http://auth.local/admin/games/tanks', {
-      method: 'PATCH',
-      signal: expect.any(AbortSignal),
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ status: 'approved', version: '0.17.0' }),
+    await proxy.moderate('tok', 'tanks', {
+      status: 'approved',
+      version: '0.17.0',
     });
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      'http://auth.local/admin/games/tanks',
+      {
+        method: 'PATCH',
+        signal: expect.any(AbortSignal),
+        headers: {
+          authorization: 'Bearer tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'approved', version: '0.17.0' }),
+      },
+    );
   });
 
   it('удаление уходит DELETE с токеном, id экранируется', async () => {
@@ -84,12 +114,15 @@ describe('GameRegistryProxy', () => {
 
     await proxy.remove('tok', 'my game');
 
-    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/games/my%20game', {
-      method: 'DELETE',
-      signal: expect.any(AbortSignal),
-      headers: { authorization: 'Bearer tok' },
-      body: undefined,
-    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://auth.local/games/my%20game',
+      {
+        method: 'DELETE',
+        signal: expect.any(AbortSignal),
+        headers: { authorization: 'Bearer tok' },
+        body: undefined,
+      },
+    );
   });
 
   it('восстановление уходит POST с токеном, id экранируется', async () => {
@@ -98,12 +131,15 @@ describe('GameRegistryProxy', () => {
 
     await proxy.restore('tok', 'my game');
 
-    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/admin/games/my%20game/restore', {
-      method: 'POST',
-      signal: expect.any(AbortSignal),
-      headers: { authorization: 'Bearer tok' },
-      body: undefined,
-    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://auth.local/admin/games/my%20game/restore',
+      {
+        method: 'POST',
+        signal: expect.any(AbortSignal),
+        headers: { authorization: 'Bearer tok' },
+        body: undefined,
+      },
+    );
   });
 
   it('заявки вызывающего идут с его токеном', async () => {
@@ -122,7 +158,10 @@ describe('GameRegistryProxy', () => {
 
   it('зависший auth не держит проход бесконечно: запрос идёт с AbortSignal', async () => {
     const fetchImpl = makeFetch();
-    const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl, timeout: 1234 });
+    const proxy = new GameRegistryProxy('http://auth.local', {
+      fetchImpl,
+      timeout: 1234,
+    });
 
     await proxy.list();
 
@@ -134,7 +173,10 @@ describe('GameRegistryProxy', () => {
 
   it('timeout: 0 отключает дедлайн — сигнала в запросе нет', async () => {
     const fetchImpl = makeFetch();
-    const proxy = new GameRegistryProxy('http://auth.local', { fetchImpl, timeout: 0 });
+    const proxy = new GameRegistryProxy('http://auth.local', {
+      fetchImpl,
+      timeout: 0,
+    });
 
     await proxy.list();
 

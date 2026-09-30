@@ -333,9 +333,8 @@ describe('B. host', () => {
   it('B2 accepts a manifest and a half naming the two ends of an alias', async () => {
     vi.resetModules();
     vi.doMock('../../../packages/engine/src/lib/capabilities.js', async () => {
-      const { createRegistry } = await import(
-        '../../../packages/engine/src/lib/registry.js'
-      );
+      const { createRegistry } =
+        await import('../../../packages/engine/src/lib/registry.js');
       const registry = createRegistry('engine-capabilities', [
         { value: 'accolades', since: '0.21.0', alias: 'crowns' },
         { value: 'crowns', since: '0.25.0' },
@@ -348,9 +347,8 @@ describe('B. host', () => {
       };
     });
 
-    const { default: b2 } = await import(
-      '../../../packages/engine/src/devtools/contract/rules/b2-engine-api.js'
-    );
+    const { default: b2 } =
+      await import('../../../packages/engine/src/devtools/contract/rules/b2-engine-api.js');
     const result = b2.check({
       ...base,
       manifest: { ...base.manifest, requires: ['crowns'] },
@@ -1083,7 +1081,10 @@ describe('C. client', () => {
         authSchema: {
           elems: { fieldsId: 'auth-fields' },
           params: [
-            { name: 'model', options: { control: 'segmented', source: 'maps' } },
+            {
+              name: 'model',
+              options: { control: 'segmented', source: 'maps' },
+            },
           ],
         },
       }),
@@ -1217,14 +1218,22 @@ describe('D. snapshot', () => {
   const dynamics = (fields, optionalFrom) => ({
     ...base,
     gameConfig: withSnapshot(base, {
-      c9: { id: 99, kind: 'indexedNoNull8', class: 'hot', fields, optionalFrom },
+      c9: {
+        id: 99,
+        kind: 'indexedNoNull8',
+        class: 'hot',
+        fields,
+        optionalFrom,
+      },
     }),
   });
 
   it("D3 accepts role 'state' right after a flat or a layered head", () => {
     const state = { name: 'hp', ty: 'u8', role: 'state' };
 
-    expect(check('D3', dynamics([...head, state, ...tail], 4)).status).toBe(PASS);
+    expect(check('D3', dynamics([...head, state, ...tail], 4)).status).toBe(
+      PASS,
+    );
     expect(
       check('D3', dynamics([...head, ...levels, state, ...tail], 6)).status,
     ).toBe(PASS);
@@ -1237,7 +1246,12 @@ describe('D. snapshot', () => {
     );
     const misplaced = violations(
       'D3',
-      dynamics([...head, ...levels, ...tail, { name: 'hp', ty: 'u8', role: 'state' }]),
+      dynamics([
+        ...head,
+        ...levels,
+        ...tail,
+        { name: 'hp', ty: 'u8', role: 'state' },
+      ]),
     );
     const inTail = violations(
       'D3',
@@ -1367,7 +1381,9 @@ describe('E6. spatial sound block', () => {
   });
 
   it('E6 catches broken numbers, models and distances', () => {
-    expect(check('E6', withSpatial({ virtualElevation: -1 })).status).toBe(FAIL);
+    expect(check('E6', withSpatial({ virtualElevation: -1 })).status).toBe(
+      FAIL,
+    );
     expect(check('E6', withSpatial({ panningModel: 'stereo' })).status).toBe(
       FAIL,
     );

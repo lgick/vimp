@@ -50,13 +50,13 @@ API движка (см. «Поправки к предварительному �
    `rank`/`state` не персистятся (offline-заглушка через существующий
    `hostOptions.playerDataFetch`). Центральный JWT на dedicated — возможное
    продолжение, в объём не входит.
-4. **Терминология разведена**: *standalone* — браузерный SDK для репозитория
-   игры; *dedicated* — Node-сервер. Env-переменная —
+4. **Терминология разведена**: _standalone_ — браузерный SDK для репозитория
+   игры; _dedicated_ — Node-сервер. Env-переменная —
    `VIMP_DEDICATED_GAME` (а не `STANDALONE_GAME` из предварительного ТЗ).
 5. **Одна комната на процесс** dedicated-сервера: мета-модули движка
    (`TimerManager`, `Panel`, `Stat`, `Vote`, `Chat`) — модульные синглтоны
    (см. `src/devtools/resetHostSingletons.js`). Мультирум = процесс на комнату.
-6. **Ботов на dedicated-сервере в v1 нет**: `/bot` — команда *игры*
+6. **Ботов на dedicated-сервере в v1 нет**: `/bot` — команда _игры_
    (`hostPlugin.chatCommands`), а не движка, и вызывается участником. В
    standalone боты появляются как `startupCommands`, которые отправляет
    клиент-игрок после первого кадра — строго после `startupVotes`
@@ -69,19 +69,19 @@ API движка (см. «Поправки к предварительному �
 
 ## Этапы
 
-| # | Этап | Статус |
-| --- | --- | --- |
-| 1 | [Изоморфная порт-машина хоста + стратегии идентичности](stage_1.md) | ✅ выполнен |
-| 2 | [Клиентские режимы загрузки, DOM-каркас, WebSocketTransport](stage_2.md) | ✅ выполнен |
-| 3 | [Публикуемый Standalone SDK (`vimp-engine/standalone`)](stage_3.md) | ✅ выполнен |
-| 4 | [Dedicated Node.js сервер](stage_4.md) | ✅ выполнен |
-| 5 | [Деплой, CI, конфигурация, документация](stage_5.md) | ✅ выполнен |
-| R | [Правки по кодревью коммита 93ba930](review.md) | ✅ выполнен (кроме R5: `docker build` и ручные smoke) |
-| R2 | [Правки по кодревью коммита 4c3bf30](review-2.md) | ✅ выполнен |
-| R3 | [Правки по кодревью коммита affe6d7](review-3.md) | ✅ выполнен |
-| R4 | [Правки по кодревью коммита d8a7a19](review-4.md) | ✅ выполнен |
-| R5 | [Правки по кодревью коммита b7d80f4](review-5.md) | ✅ выполнен |
-| 6 | [Доработки в репозитории игры (`vimp-tanks`)](stage_6.md) | ✅ выполнен (тайлы карт вынесены в отдельный план `plan/game-assets-move.md`) |
+| #   | Этап                                                                     | Статус                                                                        |
+| --- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| 1   | [Изоморфная порт-машина хоста + стратегии идентичности](stage_1.md)      | ✅ выполнен                                                                   |
+| 2   | [Клиентские режимы загрузки, DOM-каркас, WebSocketTransport](stage_2.md) | ✅ выполнен                                                                   |
+| 3   | [Публикуемый Standalone SDK (`vimp-engine/standalone`)](stage_3.md)      | ✅ выполнен                                                                   |
+| 4   | [Dedicated Node.js сервер](stage_4.md)                                   | ✅ выполнен                                                                   |
+| 5   | [Деплой, CI, конфигурация, документация](stage_5.md)                     | ✅ выполнен                                                                   |
+| R   | [Правки по кодревью коммита 93ba930](review.md)                          | ✅ выполнен (кроме R5: `docker build` и ручные smoke)                         |
+| R2  | [Правки по кодревью коммита 4c3bf30](review-2.md)                        | ✅ выполнен                                                                   |
+| R3  | [Правки по кодревью коммита affe6d7](review-3.md)                        | ✅ выполнен                                                                   |
+| R4  | [Правки по кодревью коммита d8a7a19](review-4.md)                        | ✅ выполнен                                                                   |
+| R5  | [Правки по кодревью коммита b7d80f4](review-5.md)                        | ✅ выполнен                                                                   |
+| 6   | [Доработки в репозитории игры (`vimp-tanks`)](stage_6.md)                | ✅ выполнен (тайлы карт вынесены в отдельный план `plan/game-assets-move.md`) |
 
 Порядок обязателен: 2 зависит от 1 (гостевая идентичность), 3 — от 2
 (режимы загрузки), 4 — от 1 и 2 (порт-машина + WS-транспорт), 6 — от
@@ -97,21 +97,21 @@ API движка (см. «Поправки к предварительному �
 
 ## Поправки к предварительному ТЗ
 
-| Утверждение в ТЗ | Факт в коде |
-| --- | --- |
-| `createHostRuntime({ loadHostPlugin, room })` | `createHostRuntime(room, { loadHostPlugin, createSocketManager, hostOptions, overrideGameConfig })` (`src/lib/createHostRuntime.js:33`) |
-| возвращает `hostGame` | возвращает `{ hostPlugin, game, seed, core, clientCfg, socketManager, host }` |
-| `room.injectedHostPlugin` | `room` уезжает в Worker через `structuredClone` — функции не переносятся; инъекция только через `options.loadHostPlugin` |
-| `room.game.wasmNodeUrl` | читается только `room.game.wasmUrl`; в Node это `file:`-URL node-сборки ядра (`entries.wasmNode`, `src/devtools/pluginLoader.js:114`) |
-| `GameCatalog.loadHostPlugin(gameId)` | метода нет и не будет: мастер не исполняет код игры. Нужна отдельная node-загрузка пакета (`src/devtools/pluginLoader.js:loadFromManifest`) |
-| `ws.send(\`[${port},${data}]\`)` | прод-фрейминг — `JSON.stringify([port, data])` (`host.worker.js:88`); шаблонная строка ломается на объектах |
-| socket = `{ send, sendBinary, close }` c `send(port, data)` | `SocketManager.addUser` биндит все три: `send(port, data, reliable)`, `sendBinary(buffer, reliable)`, `close(code, data)` (`SocketManager.js:72-76`) |
-| регистрация клиента через `hostGame.createUser(...)` | поток: `socketManager.addUser` → `sendConfig` → порт-машина → `host.createUser` (`host.worker.js:254-306`) |
-| `PlayerDataSync` нужен новый флаг | флаг не нужен: `hostOptions.playerDataFetch` уже существует (`HostGame.js:88`), готовая заглушка — `emptyProfileFetch` (`ScenarioRunner.js:38-42`) |
-| `bots: 4` в SDK | у движка нет понятия «бот» — только «scripted participant»; спавн идёт игровой чат-командой. У танков синтаксис `/bot <count> [team]`, то есть одна команда `'/bot 4'` |
-| боты появятся сразу после входа | нет: `botCommand.handler` отбивает команду наблюдателю (`BOT_PLAYERS_ONLY`), а участник входит наблюдателем → SDK обязан сначала ответить на initialVote (`['teamChange','team1']`, порт 7) и только потом слать чат-команды |
-| `ensureStandaloneDom` проверяет `#vote` | `#vote` создаётся в рантайме `view/Vote.js:33-79`, в разметке его нет |
-| каркас DOM достаточно собрать в контейнере | канвасы создаются отдельно и безусловно уходят в `document.body` (`main.js:271-280`) — точку монтирования нужно брать из boot-конфига, а контейнер обязан быть полноэкранным и `position: relative` (`#panel`/`#stat`/`#vote` — `position: absolute`) |
+| Утверждение в ТЗ                                            | Факт в коде                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createHostRuntime({ loadHostPlugin, room })`               | `createHostRuntime(room, { loadHostPlugin, createSocketManager, hostOptions, overrideGameConfig })` (`src/lib/createHostRuntime.js:33`)                                                                                                               |
+| возвращает `hostGame`                                       | возвращает `{ hostPlugin, game, seed, core, clientCfg, socketManager, host }`                                                                                                                                                                         |
+| `room.injectedHostPlugin`                                   | `room` уезжает в Worker через `structuredClone` — функции не переносятся; инъекция только через `options.loadHostPlugin`                                                                                                                              |
+| `room.game.wasmNodeUrl`                                     | читается только `room.game.wasmUrl`; в Node это `file:`-URL node-сборки ядра (`entries.wasmNode`, `src/devtools/pluginLoader.js:114`)                                                                                                                 |
+| `GameCatalog.loadHostPlugin(gameId)`                        | метода нет и не будет: мастер не исполняет код игры. Нужна отдельная node-загрузка пакета (`src/devtools/pluginLoader.js:loadFromManifest`)                                                                                                           |
+| `ws.send(\`[${port},${data}]\`)`                            | прод-фрейминг — `JSON.stringify([port, data])` (`host.worker.js:88`); шаблонная строка ломается на объектах                                                                                                                                           |
+| socket = `{ send, sendBinary, close }` c `send(port, data)` | `SocketManager.addUser` биндит все три: `send(port, data, reliable)`, `sendBinary(buffer, reliable)`, `close(code, data)` (`SocketManager.js:72-76`)                                                                                                  |
+| регистрация клиента через `hostGame.createUser(...)`        | поток: `socketManager.addUser` → `sendConfig` → порт-машина → `host.createUser` (`host.worker.js:254-306`)                                                                                                                                            |
+| `PlayerDataSync` нужен новый флаг                           | флаг не нужен: `hostOptions.playerDataFetch` уже существует (`HostGame.js:88`), готовая заглушка — `emptyProfileFetch` (`ScenarioRunner.js:38-42`)                                                                                                    |
+| `bots: 4` в SDK                                             | у движка нет понятия «бот» — только «scripted participant»; спавн идёт игровой чат-командой. У танков синтаксис `/bot <count> [team]`, то есть одна команда `'/bot 4'`                                                                                |
+| боты появятся сразу после входа                             | нет: `botCommand.handler` отбивает команду наблюдателю (`BOT_PLAYERS_ONLY`), а участник входит наблюдателем → SDK обязан сначала ответить на initialVote (`['teamChange','team1']`, порт 7) и только потом слать чат-команды                          |
+| `ensureStandaloneDom` проверяет `#vote`                     | `#vote` создаётся в рантайме `view/Vote.js:33-79`, в разметке его нет                                                                                                                                                                                 |
+| каркас DOM достаточно собрать в контейнере                  | канвасы создаются отдельно и безусловно уходят в `document.body` (`main.js:271-280`) — точку монтирования нужно брать из boot-конфига, а контейнер обязан быть полноэкранным и `position: relative` (`#panel`/`#stat`/`#vote` — `position: absolute`) |
 
 ## Release impact (заранее)
 
@@ -121,7 +121,7 @@ API движка (см. «Поправки к предварительному �
   публичные модули хоста (`PortMachine`, `identity`), `WebSocketTransport`,
   dedicated-раннер, `HostGame.destroy()`.
 - **Крейт `vimp-engine-core` — не затрагивается** (Rust не меняется).
-- **`ENGINE_API_VERSION` не меняется** → репозиторий игры *не обязан* следовать
+- **`ENGINE_API_VERSION` не меняется** → репозиторий игры _не обязан_ следовать
   за движком; но чтобы получить `npm run dev`, `vimp-tanks` поднимает
   зависимость до новой minor-версии (Этап 6).
 - Публикацию и правку `version` делает разработчик (`npm run release`).

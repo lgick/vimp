@@ -105,7 +105,9 @@ export function createDebugApi({
     async startRecording() {
       const started = await requireHost().startRecording();
 
-      log(started ? 'recording started' : 'recording unavailable (no dev mode)');
+      log(
+        started ? 'recording started' : 'recording unavailable (no dev mode)',
+      );
 
       return started;
     },

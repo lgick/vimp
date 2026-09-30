@@ -37,7 +37,14 @@ const EXTENSION_PREFIXES = [
 ];
 
 // служебные значения blockedURI — не URL, берутся как есть
-const CSP_KEYWORDS = new Set(['', 'inline', 'eval', 'wasm-eval', 'data', 'blob']);
+const CSP_KEYWORDS = new Set([
+  '',
+  'inline',
+  'eval',
+  'wasm-eval',
+  'data',
+  'blob',
+]);
 
 const encoder = new TextEncoder();
 
@@ -72,7 +79,12 @@ function topFrame(stack) {
     return '';
   }
 
-  return stack.split('\n').find(line => FRAME_RE.test(line))?.trim() ?? '';
+  return (
+    stack
+      .split('\n')
+      .find(line => FRAME_RE.test(line))
+      ?.trim() ?? ''
+  );
 }
 
 // снимок деталей: простой объект ≤ 2048 байт JSON, иначе пометка усечения
@@ -127,7 +139,12 @@ function isExtensionUrl(value) {
 function defaultSend(url, json) {
   if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
     try {
-      if (navigator.sendBeacon(url, new Blob([json], { type: 'application/json' }))) {
+      if (
+        navigator.sendBeacon(
+          url,
+          new Blob([json], { type: 'application/json' }),
+        )
+      ) {
         return;
       }
     } catch {
@@ -237,7 +254,10 @@ export function createDiagnostics({
     // молча съедал бы приросты счётчиков непрерывно повторяющейся ошибки
     const sinceLast = lastSentAt === null ? Infinity : now() - lastSentAt;
 
-    timer = setTimeout(flush, Math.max(flushDelayMs, minIntervalMs - sinceLast));
+    timer = setTimeout(
+      flush,
+      Math.max(flushDelayMs, minIntervalMs - sinceLast),
+    );
   }
 
   function guarded(fn) {
@@ -301,7 +321,10 @@ export function createDiagnostics({
   // сработавшее тысячу раз, одна запись со счётчиком
   function reportCsp(event) {
     guarded(() => {
-      if (isExtensionUrl(event.blockedURI) || isExtensionUrl(event.sourceFile)) {
+      if (
+        isExtensionUrl(event.blockedURI) ||
+        isExtensionUrl(event.sourceFile)
+      ) {
         return;
       }
 

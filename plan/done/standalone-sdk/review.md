@@ -286,9 +286,7 @@ origin), `JSON.stringify` добавляет кавычки. Лимит прич
 // JSON.stringify ключ с undefined выбрасывает, и хост отвечает
 // 'Property is missing' (main.js накрывает autoAuth поверх дефолтов схемы)
 function pruneUndefined(source) {
-  return Object.fromEntries(
-    Object.entries(source).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined));
 }
 ```
 
@@ -376,37 +374,37 @@ const HANDSHAKE_TIMEOUT = 30000;
 ```
 
 ```js
-  const wss = new WebSocketServer({ server, path: WS_PATH, maxPayload: MAX_PAYLOAD });
-  const messageLimiter = new RateLimiter(MESSAGE_LIMIT);
-  const limiterSweep = setInterval(() => messageLimiter.sweep(), 60000);
+const wss = new WebSocketServer({ server, path: WS_PATH, maxPayload: MAX_PAYLOAD });
+const messageLimiter = new RateLimiter(MESSAGE_LIMIT);
+const limiterSweep = setInterval(() => messageLimiter.sweep(), 60000);
 
-  limiterSweep.unref();
+limiterSweep.unref();
 ```
 
 в обработчике соединения:
 
 ```js
-      const guard = setTimeout(() => {
-        if (!portMachine.hasParticipant(socketId)) {
-          ws.close(4008, 'handshakeTimeout');
-        }
-      }, HANDSHAKE_TIMEOUT);
+const guard = setTimeout(() => {
+  if (!portMachine.hasParticipant(socketId)) {
+    ws.close(4008, 'handshakeTimeout');
+  }
+}, HANDSHAKE_TIMEOUT);
 
-      guard.unref();
+guard.unref();
 
-      ws.on('message', data => {
-        // молча отбрасываем: кик за неактивность и потерянные ping — забота
-        // HostGame, здесь только защита от флуда
-        if (messageLimiter.consume(socketId)) {
-          portMachine.message(socketId, data.toString());
-        }
-      });
+ws.on('message', data => {
+  // молча отбрасываем: кик за неактивность и потерянные ping — забота
+  // HostGame, здесь только защита от флуда
+  if (messageLimiter.consume(socketId)) {
+    portMachine.message(socketId, data.toString());
+  }
+});
 
-      ws.on('close', () => {
-        clearTimeout(guard);
-        sockets.delete(socketId);
-        portMachine.disconnect(socketId);
-      });
+ws.on('close', () => {
+  clearTimeout(guard);
+  sockets.delete(socketId);
+  portMachine.disconnect(socketId);
+});
 ```
 
 и `clearInterval(limiterSweep)` в `close()`. `RateLimiter` уже есть
@@ -485,29 +483,29 @@ const HANDSHAKE_TIMEOUT = 30000;
 
 ## Часть 3. Мелкие находки ✅ выполнены
 
-| # | Находка | Решение |
-| --- | --- | --- |
-| P3-1 | Пустая dedicated-комната крутит симуляцию ~120 Гц вечно: `RoundManager.createMap()` → `startGameTimers()` вызывается в конструкторе `HostGame`, и матч без игроков жжёт ядро CPU круглосуточно | На этом шаге — измерить и **задокументировать** в `docs/en|ru/dedicated.md` (раздел ограничений). Пауза на пустой комнате (`stopGameTimers()` при уходе последнего сокета, `resumeGameTimers(mapTimeLeft)` + `initiateNewRound()` на первом входе) — отдельный пункт после мержа: семантика таймеров раунда/карты требует своего разбора |
-| P3-2 | `/config` отдаёт `wsPath`, а клиент его не читает: `boot.js:normalize` строит URL из константы `DEDICATED_WS_PATH` | `wsUrl: raw.wsUrl \|\| defaultDedicatedWsUrl(raw.wsPath)` и `function defaultDedicatedWsUrl(wsPath = DEDICATED_WS_PATH)`; тест в `tests/client/boot.test.js` на нестандартный `wsPath` |
-| P3-3 | Лишний последовательный round-trip на каждом старте лобби: `await resolveBootConfig()` (`GET /config`) стоит **перед** `fetchGamesManifest` | Пустить параллельно: `const injected = getBootConfig(); const manifestPromise = injected ? null : fetchGamesManifest(...); const boot = injected ?? await resolveBootConfig();` — дальше `gamesManifest = await manifestPromise` в существующем `try` |
-| P3-4 | Гостевое поле ника рендерится **после** игровых полей формы: `_authParams = [...authSchema.params, ...identity.params]` (`PortMachine.js:45`) | Поменять порядок на `[...identity.params, ...authSchema.params]`; в `portMachine.test.js:78` ожидание становится `['name', 'model']` |
-| P3-5 | Открытый вопрос Этапа 1 (заглушка `Player_xxxx` недостижима, т.к. `validateAuth` отбивает невалидный ник раньше `resolve`) | **Оставить как есть**: молчаливая подмена ника хуже явной ошибки формы, поле объявлено `required`. Заглушка остаётся страховкой для стратегий без поля формы — это уже написано в JSDoc. Зафиксировать решение в `stage_1.md` и закрыть отклонение. Отдельно: `String(socketId).slice(0, 4)` на UUID даёт 4 hex-символа (65 536 вариантов) — если путь когда-нибудь станет достижимым, поднять до 6 |
-| P3-6 | Косметика: пустая строка внутри списка `### Added` в `CHANGELOG.md` (перед пунктом про dedicated); в `CLAUDE.md` абзац Architecture стал одной длинной строкой в отличие от остального файла; `npm run dedicated` не попал в блок Commands `CLAUDE.md` | Три однострочные правки; `npm run release` парсит заголовки, а не пункты, поэтому релиз не задет |
+| #    | Находка                                                                                                                                                                                                                                                | Решение                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P3-1 | Пустая dedicated-комната крутит симуляцию ~120 Гц вечно: `RoundManager.createMap()` → `startGameTimers()` вызывается в конструкторе `HostGame`, и матч без игроков жжёт ядро CPU круглосуточно                                                         | На этом шаге — измерить и **задокументировать** в `docs/en                                                                                                                                                                                                                                                                                                                                          | ru/dedicated.md` (раздел ограничений). Пауза на пустой комнате (`stopGameTimers()`при уходе последнего сокета,`resumeGameTimers(mapTimeLeft)`+`initiateNewRound()` на первом входе) — отдельный пункт после мержа: семантика таймеров раунда/карты требует своего разбора |
+| P3-2 | `/config` отдаёт `wsPath`, а клиент его не читает: `boot.js:normalize` строит URL из константы `DEDICATED_WS_PATH`                                                                                                                                     | `wsUrl: raw.wsUrl \|\| defaultDedicatedWsUrl(raw.wsPath)` и `function defaultDedicatedWsUrl(wsPath = DEDICATED_WS_PATH)`; тест в `tests/client/boot.test.js` на нестандартный `wsPath`                                                                                                                                                                                                              |
+| P3-3 | Лишний последовательный round-trip на каждом старте лобби: `await resolveBootConfig()` (`GET /config`) стоит **перед** `fetchGamesManifest`                                                                                                            | Пустить параллельно: `const injected = getBootConfig(); const manifestPromise = injected ? null : fetchGamesManifest(...); const boot = injected ?? await resolveBootConfig();` — дальше `gamesManifest = await manifestPromise` в существующем `try`                                                                                                                                               |
+| P3-4 | Гостевое поле ника рендерится **после** игровых полей формы: `_authParams = [...authSchema.params, ...identity.params]` (`PortMachine.js:45`)                                                                                                          | Поменять порядок на `[...identity.params, ...authSchema.params]`; в `portMachine.test.js:78` ожидание становится `['name', 'model']`                                                                                                                                                                                                                                                                |
+| P3-5 | Открытый вопрос Этапа 1 (заглушка `Player_xxxx` недостижима, т.к. `validateAuth` отбивает невалидный ник раньше `resolve`)                                                                                                                             | **Оставить как есть**: молчаливая подмена ника хуже явной ошибки формы, поле объявлено `required`. Заглушка остаётся страховкой для стратегий без поля формы — это уже написано в JSDoc. Зафиксировать решение в `stage_1.md` и закрыть отклонение. Отдельно: `String(socketId).slice(0, 4)` на UUID даёт 4 hex-символа (65 536 вариантов) — если путь когда-нибудь станет достижимым, поднять до 6 |
+| P3-6 | Косметика: пустая строка внутри списка `### Added` в `CHANGELOG.md` (перед пунктом про dedicated); в `CLAUDE.md` абзац Architecture стал одной длинной строкой в отличие от остального файла; `npm run dedicated` не попал в блок Commands `CLAUDE.md` | Три однострочные правки; `npm run release` парсит заголовки, а не пункты, поэтому релиз не задет                                                                                                                                                                                                                                                                                                    |
 
 ---
 
 ## Часть 4. Отклонения от плана
 
-| Отклонение | Статус | Что делаем |
-| --- | --- | --- |
-| **Этап 1**: тест «невалидный ник → `Player_xxxx`» недостижим | заявлено, решение не принято | P3-5: оставляем валидатор, фиксируем решение в `stage_1.md` |
-| **Этап 2**: `tests/client/network/LoopbackTransport.test.js` не создан (транспорт уже покрыт в `tests/host/`) | заявлено, обосновано, отмечено в `stage_2.md` | ничего |
-| **Этап 2, задача 2.2**: перенос `body > *` в `style.css` выполнен буквально, следствие для каркаса внутри контейнера не отработано | **не заявлено** | P1-1; дописать разбор в `stage_2.md` |
-| **Этап 2, задача 2.5 п.5**: точку монтирования получили канвасы, но не `#vote` (второй рантайм-элемент, упомянутый в 2.2) | **не заявлено** | P1-2; дописать в `stage_2.md` |
-| **Этап 3**: настоящий `main.js` в happy-dom не поднимается, клиент подменён заглушкой | заявлено, обосновано | заглушка разошлась с `main.js` и спрятала P2-1 → привести её к `main.js` (см. P2-1) |
-| **Этап 3**: `_style.css` не удалён, исключён через `"!src/client/_*"` | заявлено, решение владельца | ничего; поведение подтверждено тестом `packageSurface` и `npm pack --dry-run` |
-| **Этап 5**: `docker build` не прогнан (docker недоступен) | заявлено | **обязательный пункт приёмки**: коммит в `origin` не отправлен, а push в `main` запускает деплой (`.github/workflows/deploy.yml`, `docker/build-push-action`). Прогнать `docker build -t vimp-test .` до мержа: runner-стадия теперь копирует `src/host` и `src/dedicated`, `npm ci --omit=dev` тянет `howler` |
-| **README, критерии 3 и 4**: браузерный smoke dedicated (вход без лобби и OAuth) и регресс-smoke лобби с WebRTC | не проводились (был только node-смоук и автотесты) | после P1-правок — ручной прогон обоих контуров, см. «Верификация» |
+| Отклонение                                                                                                                         | Статус                                             | Что делаем                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Этап 1**: тест «невалидный ник → `Player_xxxx`» недостижим                                                                       | заявлено, решение не принято                       | P3-5: оставляем валидатор, фиксируем решение в `stage_1.md`                                                                                                                                                                                                                                                    |
+| **Этап 2**: `tests/client/network/LoopbackTransport.test.js` не создан (транспорт уже покрыт в `tests/host/`)                      | заявлено, обосновано, отмечено в `stage_2.md`      | ничего                                                                                                                                                                                                                                                                                                         |
+| **Этап 2, задача 2.2**: перенос `body > *` в `style.css` выполнен буквально, следствие для каркаса внутри контейнера не отработано | **не заявлено**                                    | P1-1; дописать разбор в `stage_2.md`                                                                                                                                                                                                                                                                           |
+| **Этап 2, задача 2.5 п.5**: точку монтирования получили канвасы, но не `#vote` (второй рантайм-элемент, упомянутый в 2.2)          | **не заявлено**                                    | P1-2; дописать в `stage_2.md`                                                                                                                                                                                                                                                                                  |
+| **Этап 3**: настоящий `main.js` в happy-dom не поднимается, клиент подменён заглушкой                                              | заявлено, обосновано                               | заглушка разошлась с `main.js` и спрятала P2-1 → привести её к `main.js` (см. P2-1)                                                                                                                                                                                                                            |
+| **Этап 3**: `_style.css` не удалён, исключён через `"!src/client/_*"`                                                              | заявлено, решение владельца                        | ничего; поведение подтверждено тестом `packageSurface` и `npm pack --dry-run`                                                                                                                                                                                                                                  |
+| **Этап 5**: `docker build` не прогнан (docker недоступен)                                                                          | заявлено                                           | **обязательный пункт приёмки**: коммит в `origin` не отправлен, а push в `main` запускает деплой (`.github/workflows/deploy.yml`, `docker/build-push-action`). Прогнать `docker build -t vimp-test .` до мержа: runner-стадия теперь копирует `src/host` и `src/dedicated`, `npm ci --omit=dev` тянет `howler` |
+| **README, критерии 3 и 4**: браузерный smoke dedicated (вход без лобби и OAuth) и регресс-smoke лобби с WebRTC                     | не проводились (был только node-смоук и автотесты) | после P1-правок — ручной прогон обоих контуров, см. «Верификация»                                                                                                                                                                                                                                              |
 
 ---
 

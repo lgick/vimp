@@ -59,10 +59,14 @@ describe('SocketManager: маршрутизация портов', () => {
 
   it('sendName формирует команду замены имени', () => {
     sm.sendName('s1', 'Bob');
-    expect(socket.send).toHaveBeenCalledWith(9, {
-      key: 'localstorageNameReplace',
-      value: 'Bob',
-    }, true);
+    expect(socket.send).toHaveBeenCalledWith(
+      9,
+      {
+        key: 'localstorageNameReplace',
+        value: 'Bob',
+      },
+      true,
+    );
   });
 
   it('sendClear со списком и без', () => {

@@ -11,9 +11,7 @@
   "roomDefaults": {
     "maxPlayers": 4
   },
-  "maps": [
-    "arena"
-  ],
+  "maps": ["arena"],
   "roomForm": [
     {
       "name": "maxPlayers",

@@ -13,7 +13,10 @@ const makeModel = (existing = {}) => ({
 describe('GameCtrl.parse', () => {
   it('массив инстансов трактуется как эффекты (createEffect)', () => {
     const model = makeModel();
-    new GameCtrl(model, {}).parse('explosion', [[1, 2], [3, 4]]);
+    new GameCtrl(model, {}).parse('explosion', [
+      [1, 2],
+      [3, 4],
+    ]);
 
     expect(model.createEffect).toHaveBeenCalledTimes(2);
     expect(model.createEffect).toHaveBeenNthCalledWith(1, 'explosion', [1, 2]);

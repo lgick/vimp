@@ -29,19 +29,19 @@ Rules:
 
 1. Как называется игра? Нужен короткий `id` (латиница, без пробелов) — он
    станет `manifest.id`, сегментом URL `/games/<id>/` и должен совпасть с
-   идентификатором игры в каталоге мастера (`master:games`). *В tanks —
-   `tanks`.*
+   идентификатором игры в каталоге мастера (`master:games`). _В tanks —
+   `tanks`._
 2. Имя npm-пакета? Конвенция — `@vimp-games/<id>`; собственный scope тоже
-   допустим. *В tanks — `@vimp-games/tanks`.*
+   допустим. _В tanks — `@vimp-games/tanks`._
 3. Отображаемое название (`manifest.title`) — то, что видит игрок в лобби.
-   *В tanks — `VIMP Tanks`.*
+   _В tanks — `VIMP Tanks`._
 4. Одним абзацем: что это за игра, какой жанр, чем игрок занимается в матче?
    (Нужно для выбора формы сущностей и снапшота.)
 
 ## Блок 2. Комната и лобби
 
 5. Какой целевой размер комнаты (`roomDefaults.maxPlayers`)? Учтите: мастер
-   в любом случае клампит до 8. *В tanks — 8.*
+   в любом случае клампит до 8. _В tanks — 8._
 6. Какие поля должны быть в форме создания сервера? **Важно:** хост
    принимает только `maxPlayers`, `map`, `roundTime`, `mapTime`,
    `friendlyFire` (плюс каталог карт). Любое собственное поле формы будет
@@ -52,21 +52,21 @@ Rules:
    (в v3 движка нет `range`/`number`/`toggle`). Числовые границы задаются
    не `min`/`max`, а автогенерируемым `regExp`. Годится?
 8. Огонь по своим (`friendlyFire`) по умолчанию включён или выключен?
-   *В tanks — выключен (`false`), игрок может переключить при создании
-   комнаты.*
-9. Длительность раунда и карты по умолчанию? *В tanks — 120 с и 600 с;
-   пользовательские значения клампятся в 10 с … 3600 с.*
+   _В tanks — выключен (`false`), игрок может переключить при создании
+   комнаты._
+9. Длительность раунда и карты по умолчанию? _В tanks — 120 с и 600 с;
+   пользовательские значения клампятся в 10 с … 3600 с._
 
 ## Блок 3. Экран входа (auth)
 
 10. Что игрок выбирает перед входом в матч? (Модель/класс/цвет/фракция —
     любой набор полей.) **Ника среди них нет**: имя берётся из JWT лобби.
-    *В tanks — только модель танка.*
+    _В tanks — только модель танка._
 11. Тексты экрана: заголовок и блок подсказок (обычно раскладка управления —
     пары «клавиши → действие»). Дайте формулировки.
 12. Какие из полей должны запоминаться между сессиями (`storage`) и какие
-    нужно проверять на стороне хоста (`validator`)? *В tanks — модель
-    запоминается и валидируется по списку моделей.*
+    нужно проверять на стороне хоста (`validator`)? _В tanks — модель
+    запоминается и валидируется по списку моделей._
 
 ## Блок 4. Правила матча, чат, голосования
 
@@ -87,12 +87,12 @@ Rules:
 17. Какие чат-команды нужны игре? Движок своих не разбирает — весь набор
     объявляет игра (`HostPlugin.chatCommands`). Обычный минимум: `/name`,
     `/rank`, `/nr` (dev), плюс `/timeleft` и `/mapname`, если раунд и карта
-    конечны. *В tanks есть все пять и своя `/bot`, в snakes — только
-    `/name`, `/nr`, `/rank` и `/bot`.*
+    конечны. _В tanks есть все пять и своя `/bot`, в snakes — только
+    `/name`, `/nr`, `/rank` и `/bot`._
 18. Какие системные сообщения чата добавляет игра? Буквы групп `s`, `v`,
     `m`, `c`, `n` заняты движком — выберите свою (в tanks это `b`).
     Нужны тексты с плейсхолдерами `{0}`, `{1}`.
-19. Максимальная длина сообщения чата? *По умолчанию 60 символов.*
+19. Максимальная длина сообщения чата? _По умолчанию 60 символов._
 20. Нужно ли менять политику киков? Дефолты: неактивность 120 с для игрока
     (для наблюдателя выключено), кик по средней задержке > 1000 мс, кик
     после 5 пропущенных пингов, пинг каждые 3 с, проверка неактивности
@@ -104,12 +104,12 @@ Rules:
     удержание (движение) или разовое срабатывание (выстрел, смена оружия)?
     Разовые действия потребляются один раз за тик, `up` игнорируется.
 22. Что делают клавиши наблюдателя? Обязательный минимум — `nextPlayer` и
-    `prevPlayer`. *В tanks — `n`/`p`.*
+    `prevPlayer`. _В tanks — `n`/`p`._
 23. Нужна ли клиентская предикция движения (мгновенный отклик своего
     актора)? Без неё управление ощущается с задержкой ~100 мс + пинг.
     **Ограничение:** предсказываемое состояние — ровно 8 × `f32`.
-    Перечислите, какие величины туда войдут. *В tanks — x, y, угол корпуса,
-    угол орудия, vx, vy, нагрузка двигателя, состояние.*
+    Перечислите, какие величины туда войдут. _В tanks — x, y, угол корпуса,
+    угол орудия, vx, vy, нагрузка двигателя, состояние._
 24. Нужна ли предикция выстрела (мгновенный визуальный эффект до прихода
     авторитетного события)? Если да — потребуется подавление дублей по id
     автора в событийном блоке.
@@ -143,8 +143,8 @@ Rules:
     - `indexed32` — много короткоживущих объектов с id (снаряды в полёте);
     - `list16` — анонимные разовые события (трассеры, взрывы);
     - `indexedNoNull8` — фиксированные слоты (динамика карты).
-    **Ограничение:** в hot-буфер (плавный рендер каждый кадр) попадают
-    только `indexed8` и `indexedNoNull8`. Всё остальное приходит событиями.
+      **Ограничение:** в hot-буфер (плавный рендер каждый кадр) попадают
+      только `indexed8` и `indexedNoNull8`. Всё остальное приходит событиями.
 33. В каждом событийном блоке оружия последнее поле — id автора выстрела
     (нужно для подавления дублей предсказанного эффекта). Подтвердите.
 
@@ -165,10 +165,10 @@ Rules:
 37. Маппинг движковых событий на ваши звуки: `roundStart`, `victory`,
     `defeat`, `frag`, `death`. Какие из них нужны?
 38. Тексты трёх информ-сообщений (индексы фиксированы): победа команды
-    (`{0}` — команда), старт раунда, конец игры. *В tanks — `{0} WINS!`,
-    `ROUND START!`, `GAME OVER!`.*
+    (`{0}` — команда), старт раунда, конец игры. _В tanks — `{0} WINS!`,
+    `ROUND START!`, `GAME OVER!`._
 39. Нужно ли голосование сразу после входа в матч (`initialVote`)?
-    *В tanks — выбор команды.* Если игра одно-командная и наблюдателей в ней
+    _В tanks — выбор команды._ Если игра одно-командная и наблюдателей в ней
     нет как явления — ответ «нет»: вместо `initialVote`/`spectatorTeam`
     объявляется `gameConfig.noSpectators: true` (ровно одна команда, вход
     прямо в неё), а `modules.vote` можно не объявлять вовсе. Если раунд в
@@ -181,7 +181,7 @@ Rules:
     поведение, а не числовые константы: частота решений ИИ и прочие
     параметры — это код Rust-ядра, а не настройка конфига.
 41. Как боты создаются: чат-командой, голосованием, автоматически при
-    нехватке игроков? *В tanks — команда `/bot` с голосованием.*
+    нехватке игроков? _В tanks — команда `/bot` с голосованием._
 42. Префикс имени и модель бота по умолчанию?
 
 ## Блок 10. Карты и окружение
@@ -200,13 +200,13 @@ Rules:
     команды на карте.** Сколько точек на команду? (Должно покрывать
     `maxPlayers`.)
 48. Масштаб карт (`mapScale`, и при необходимости `scale` у отдельной
-    карты)? *В tanks — 0.3, у отдельных карт свой.*
+    карты)? _В tanks — 0.3, у отдельных карт свой._
 49. Сколько карт предлагать в голосовании за ротацию (`mapsInVote`)?
-    *В tanks — 4.*
+    _В tanks — 4._
 
 ## Блок 11. Канвасы, камера и клиентский UI
 
-50. Сколько полотен нужно? *В tanks — основное (`vimp`) и радар (`radar`).*
+50. Сколько полотен нужно? _В tanks — основное (`vimp`) и радар (`radar`)._
     Для каждого: стартовый размер, соотношение сторон (`aspectRatio`) или
     фиксированный размер (`fixSize`), базовый масштаб (`baseScale`).
 51. Нужна ли динамическая камера (смещение вперёд по скорости + отдаление)
@@ -271,19 +271,19 @@ Rules:
 
 ## Answer → artifact map
 
-| Block | Produces |
-| --- | --- |
-| 1 | `package.json`, `scripts/build-game-manifest.js`, `id`/`title` in both plugins |
-| 2 | `gameConfig.roomDefaults`, `gameConfig.roomForm`, `parts.friendlyFire`, `timers.roundTime`/`mapTime` |
-| 3 | `src/config/auth.js` (`elems`, `texts`, `params`, `validators`) |
-| 4 | `gameConfig.teams`/`spectatorTeam` (или `noSpectators`, и тогда без `initialVote`, `spectatorTeam` и `modules.vote`), `endlessRound`, `chatMaxLength`, `idleKickTimeout`/`rtt`, `src/host/systemMessages.js`, chat commands, client `modules.chat.params.messages`, `modules.vote.params` |
-| 5 | `gameConfig.playerKeys`, client `modules.controls.keySetList`, `spectatorKeys`, core `apply_input`, `predictor.rs`, `PLAYER_STATE_LEN` layout |
-| 6 | `src/data/weapons.js`, `src/data/models.js`, core weapon modules, `onCoreEvent` for custom events |
-| 7 | `src/config/snapshot.js`, Rust `build_snapshot_blocks` rows, client `parts.gameSets` |
-| 8 | `gameConfig.panel` + client `modules.panel`, `gameConfig.stat` + client `modules.stat`, `src/config/sounds.js`, `gameConfig.soundCues`, `gameInform.list` |
-| 9 | `gameConfig.scripted`, `src/host/<Bot>Manager.js`, `createModules`, bot chat command, `core/src/bots/` |
-| 10 | `src/data/maps/*.js`, `gameConfig.maps`/`currentMap`/`mapScale`/`mapSetId`/`mapsInVote`, map parts |
-| 11 | client `modules.canvasManager.canvases`, `initIdList`, `styles`, `parts.bakedAssets`, `parts.componentDependencies` |
-| 12 | snapshot `kind`/`class` decisions, `timers.networkSendRate`, extra snapshot keys for pickups/objectives |
-| 13 | `gameConfig.playerState.defaultState`, `onCoreEvent` state writes |
-| 14 | `vitest.config.js` projects, `core/src/client/predictor.rs` parity tests, `tests/`, local `npm link` setup, `entries.wasmNode` in the manifest, debug scenarios for `npm run sim`, optional `predicted_state` |
+| Block | Produces                                                                                                                                                                                                                                                                                  |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `package.json`, `scripts/build-game-manifest.js`, `id`/`title` in both plugins                                                                                                                                                                                                            |
+| 2     | `gameConfig.roomDefaults`, `gameConfig.roomForm`, `parts.friendlyFire`, `timers.roundTime`/`mapTime`                                                                                                                                                                                      |
+| 3     | `src/config/auth.js` (`elems`, `texts`, `params`, `validators`)                                                                                                                                                                                                                           |
+| 4     | `gameConfig.teams`/`spectatorTeam` (или `noSpectators`, и тогда без `initialVote`, `spectatorTeam` и `modules.vote`), `endlessRound`, `chatMaxLength`, `idleKickTimeout`/`rtt`, `src/host/systemMessages.js`, chat commands, client `modules.chat.params.messages`, `modules.vote.params` |
+| 5     | `gameConfig.playerKeys`, client `modules.controls.keySetList`, `spectatorKeys`, core `apply_input`, `predictor.rs`, `PLAYER_STATE_LEN` layout                                                                                                                                             |
+| 6     | `src/data/weapons.js`, `src/data/models.js`, core weapon modules, `onCoreEvent` for custom events                                                                                                                                                                                         |
+| 7     | `src/config/snapshot.js`, Rust `build_snapshot_blocks` rows, client `parts.gameSets`                                                                                                                                                                                                      |
+| 8     | `gameConfig.panel` + client `modules.panel`, `gameConfig.stat` + client `modules.stat`, `src/config/sounds.js`, `gameConfig.soundCues`, `gameInform.list`                                                                                                                                 |
+| 9     | `gameConfig.scripted`, `src/host/<Bot>Manager.js`, `createModules`, bot chat command, `core/src/bots/`                                                                                                                                                                                    |
+| 10    | `src/data/maps/*.js`, `gameConfig.maps`/`currentMap`/`mapScale`/`mapSetId`/`mapsInVote`, map parts                                                                                                                                                                                        |
+| 11    | client `modules.canvasManager.canvases`, `initIdList`, `styles`, `parts.bakedAssets`, `parts.componentDependencies`                                                                                                                                                                       |
+| 12    | snapshot `kind`/`class` decisions, `timers.networkSendRate`, extra snapshot keys for pickups/objectives                                                                                                                                                                                   |
+| 13    | `gameConfig.playerState.defaultState`, `onCoreEvent` state writes                                                                                                                                                                                                                         |
+| 14    | `vitest.config.js` projects, `core/src/client/predictor.rs` parity tests, `tests/`, local `npm link` setup, `entries.wasmNode` in the manifest, debug scenarios for `npm run sim`, optional `predicted_state`                                                                             |

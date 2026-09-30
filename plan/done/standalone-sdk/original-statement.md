@@ -164,8 +164,7 @@ _Цель: запуск симуляции 120Hz в процессе Node.js н�
        - Создать Wire-сокет адаптер:
          ```javascript
          const socket = {
-           send: (port, data) =>
-             ws.send(typeof data === 'string' ? `[${port},${data}]` : data),
+           send: (port, data) => ws.send(typeof data === 'string' ? `[${port},${data}]` : data),
            sendBinary: buffer => ws.send(buffer),
            close: () => ws.close(),
          };
@@ -181,9 +180,7 @@ _Цель: запуск симуляции 120Hz в процессе Node.js н�
   const standaloneGame = process.env.STANDALONE_GAME;
 
   if (standaloneGame) {
-    console.log(
-      `[Master] Starting in Dedicated Server mode for game: ${standaloneGame}`,
-    );
+    console.log(`[Master] Starting in Dedicated Server mode for game: ${standaloneGame}`);
     await startDedicatedServer({
       gameId: standaloneGame,
       port: process.env.VIMP_MASTER_PORT || 3002,

@@ -175,7 +175,9 @@ describe('resolveLocalRef', () => {
   };
 
   it('разрешает и id игры, и имя пакета из master:games', () => {
-    expect(resolveLocalRef('tanks', { games, nodeModulesDir })).toEqual(games[0]);
+    expect(resolveLocalRef('tanks', { games, nodeModulesDir })).toEqual(
+      games[0],
+    );
     expect(
       resolveLocalRef('@vimp-games/snakes', { games, nodeModulesDir }),
     ).toEqual(games[1]);
@@ -188,9 +190,9 @@ describe('resolveLocalRef', () => {
       { id: 'tanks', package: '@vimp-games/tanks' },
     ];
 
-    expect(resolveLocalRef('tanks', { games: shadowed, nodeModulesDir })).toEqual(
-      shadowed[1],
-    );
+    expect(
+      resolveLocalRef('tanks', { games: shadowed, nodeModulesDir }),
+    ).toEqual(shadowed[1]);
   });
 
   it('пакета нет в master:games — id читается из его манифеста', () => {
@@ -198,9 +200,9 @@ describe('resolveLocalRef', () => {
     // node_modules лежит. Работает и со сторонним скоупом
     installGame('@acme/arena-game', { id: 'arena' });
 
-    expect(resolveLocalRef('@acme/arena-game', { games: [], nodeModulesDir })).toEqual(
-      { id: 'arena', package: '@acme/arena-game' },
-    );
+    expect(
+      resolveLocalRef('@acme/arena-game', { games: [], nodeModulesDir }),
+    ).toEqual({ id: 'arena', package: '@acme/arena-game' });
   });
 
   it('безскоупное имя пакета тоже читается с диска', () => {
@@ -208,14 +210,18 @@ describe('resolveLocalRef', () => {
     // значило бы объявить установленный и собранный пакет ненайденным
     installGame('vimp-tanks', { id: 'tanks' });
 
-    expect(resolveLocalRef('vimp-tanks', { games: [], nodeModulesDir })).toEqual({
+    expect(
+      resolveLocalRef('vimp-tanks', { games: [], nodeModulesDir }),
+    ).toEqual({
       id: 'tanks',
       package: 'vimp-tanks',
     });
   });
 
   it('неизвестная ссылка и несобранный пакет — null', () => {
-    expect(resolveLocalRef('@acme/missing', { games, nodeModulesDir })).toBeNull();
+    expect(
+      resolveLocalRef('@acme/missing', { games, nodeModulesDir }),
+    ).toBeNull();
     expect(resolveLocalRef('pong', { games, nodeModulesDir })).toBeNull();
     expect(resolveLocalRef('', { games, nodeModulesDir })).toBeNull();
     expect(resolveLocalRef(null, { games, nodeModulesDir })).toBeNull();
@@ -727,7 +733,10 @@ describe('fetchGameFromNpm', () => {
   afterEach(() => {
     globalThis.fetch = savedFetch;
     engineConfig.set('master:gameStore:dir', null);
-    engineConfig.set('master:gameStore:registryUrl', 'https://registry.npmjs.org');
+    engineConfig.set(
+      'master:gameStore:registryUrl',
+      'https://registry.npmjs.org',
+    );
 
     while (dirs.length) {
       fs.rmSync(dirs.pop(), { recursive: true, force: true });

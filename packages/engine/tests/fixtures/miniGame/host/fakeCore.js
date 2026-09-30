@@ -52,7 +52,12 @@ export default class FakeGameCore {
       lastInputSeq: 0,
     });
 
-    this._events.push({ type: 'panelSet', id: gameId, field: 'energy', value: 100 });
+    this._events.push({
+      type: 'panelSet',
+      id: gameId,
+      field: 'energy',
+      value: 100,
+    });
   }
 
   remove_actor(gameId) {
@@ -63,7 +68,15 @@ export default class FakeGameCore {
     const actor = this._actors.get(gameId);
 
     if (actor) {
-      Object.assign(actor, { x, y, angle, team: teamId, alive: true, vx: 0, vy: 0 });
+      Object.assign(actor, {
+        x,
+        y,
+        angle,
+        team: teamId,
+        alive: true,
+        vx: 0,
+        vy: 0,
+      });
     }
   }
 
@@ -206,11 +219,22 @@ export default class FakeGameCore {
     return false;
   }
 
-  pack_frame(serverTime, seq, hasCamera, camX, camY, forceReset, shake, playerId) {
+  pack_frame(
+    serverTime,
+    seq,
+    hasCamera,
+    camX,
+    camY,
+    forceReset,
+    shake,
+    playerId,
+  ) {
     this._lastFrame = {
       serverTime,
       seq,
-      camera: hasCamera ? [camX, camY, Boolean(forceReset), shake ?? null] : null,
+      camera: hasCamera
+        ? [camX, camY, Boolean(forceReset), shake ?? null]
+        : null,
       playerId,
       body: this._lastBody,
     };
@@ -252,7 +276,9 @@ export default class FakeGameCore {
   // ***** handoff (задел, PLAN.md §6 «открытые вопросы») ***** //
 
   serialize_state() {
-    return new TextEncoder().encode(JSON.stringify([...this._actors.entries()]));
+    return new TextEncoder().encode(
+      JSON.stringify([...this._actors.entries()]),
+    );
   }
 
   deserialize_state(bytes) {

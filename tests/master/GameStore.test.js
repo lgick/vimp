@@ -5,7 +5,11 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import GameStore from '../../packages/engine/src/master/GameStore.js';
-import { makeTarball, tarballOf, validManifest } from '../fixtures/gamePackages.js';
+import {
+  makeTarball,
+  tarballOf,
+  validManifest,
+} from '../fixtures/gamePackages.js';
 
 const registryUrl = 'https://registry.example';
 const limits = { maxTarballBytes: 64 * 1024 * 1024, maxFiles: 5000 };
@@ -121,13 +125,13 @@ describe('GameStore', () => {
     expect(result.ok).toBe(true);
     expect(result.version).toBe('1.2.3');
     expect(result.manifest.id).toBe('tanks');
-    expect(fs.existsSync(path.join(dir, 'tanks', '1.2.3', 'manifest.json'))).toBe(
-      true,
-    );
+    expect(
+      fs.existsSync(path.join(dir, 'tanks', '1.2.3', 'manifest.json')),
+    ).toBe(true);
     // в раздачу попадает только dist/ пакета
-    expect(fs.existsSync(path.join(dir, 'tanks', '1.2.3', 'package.json'))).toBe(
-      false,
-    );
+    expect(
+      fs.existsSync(path.join(dir, 'tanks', '1.2.3', 'package.json')),
+    ).toBe(false);
     expect(store.has('tanks', '1.2.3')).toBe(true);
 
     const calls = fetchImpl.mock.calls.length;
@@ -218,37 +222,38 @@ describe('GameStore', () => {
     expect(fs.existsSync(path.join(dir, 'snakes'))).toBe(false);
   });
 
-  it.each([
-    '../../../../tmp/pwn',
-    'a/../../b',
-    'a/b',
-    '..',
-    '',
-  ])('ensure/inspect с id "%s" не создают ничего вне корня', async id => {
-    const dir = tempDir();
-    const outside = path.join(dir, '..', 'pwn');
-    const fetchImpl = vi.fn();
-    const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
+  it.each(['../../../../tmp/pwn', 'a/../../b', 'a/b', '..', ''])(
+    'ensure/inspect с id "%s" не создают ничего вне корня',
+    async id => {
+      const dir = tempDir();
+      const outside = path.join(dir, '..', 'pwn');
+      const fetchImpl = vi.fn();
+      const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
 
-    const ensured = await store.ensure(id, '@vimp-games/tanks', '1.2.3');
-    const inspected = await store.inspect(id, '@vimp-games/tanks', '1.2.3');
+      const ensured = await store.ensure(id, '@vimp-games/tanks', '1.2.3');
+      const inspected = await store.inspect(id, '@vimp-games/tanks', '1.2.3');
 
-    // отказ вердиктом, а не броском: контракт ensure/inspect не меняется
-    expect(ensured.ok).toBe(false);
-    expect(inspected.ok).toBe(false);
-    expect(ensured.errors[0]).toMatch(/invalid game id/);
-    // до сети и диска дело не дошло вовсе
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(fs.readdirSync(dir)).toEqual([]);
-    expect(fs.existsSync(outside)).toBe(false);
-  });
+      // отказ вердиктом, а не броском: контракт ensure/inspect не меняется
+      expect(ensured.ok).toBe(false);
+      expect(inspected.ok).toBe(false);
+      expect(ensured.errors[0]).toMatch(/invalid game id/);
+      // до сети и диска дело не дошло вовсе
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(fs.readdirSync(dir)).toEqual([]);
+      expect(fs.existsSync(outside)).toBe(false);
+    },
+  );
 
   it('версия с разделителем отвергается вердиктом', async () => {
     const dir = tempDir();
     const fetchImpl = vi.fn();
     const store = new GameStore({ dir, registryUrl, limits, fetchImpl });
 
-    const result = await store.ensure('tanks', '@vimp-games/tanks', '../../etc');
+    const result = await store.ensure(
+      'tanks',
+      '@vimp-games/tanks',
+      '../../etc',
+    );
 
     expect(result.ok).toBe(false);
     expect(result.errors[0]).toMatch(/invalid version/);
@@ -267,7 +272,9 @@ describe('GameStore', () => {
           status: 200,
           json: async () => ({
             'dist-tags': { latest: '1.0.0/../../pwn' },
-            versions: { '1.0.0/../../pwn': { dist: { tarball: 'https://cdn/x.tgz' } } },
+            versions: {
+              '1.0.0/../../pwn': { dist: { tarball: 'https://cdn/x.tgz' } },
+            },
           }),
         };
       }

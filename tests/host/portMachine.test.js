@@ -266,10 +266,7 @@ describe('PortMachine', () => {
 
     machine.connect('s1');
     machine.message('s1', JSON.stringify([PC.CONFIG_READY, null]));
-    machine.message(
-      's1',
-      JSON.stringify([PC.AUTH_RESPONSE, { model: 'm1' }]),
-    );
+    machine.message('s1', JSON.stringify([PC.AUTH_RESPONSE, { model: 'm1' }]));
 
     machine.disconnect('s1');
     release();
@@ -279,5 +276,4 @@ describe('PortMachine', () => {
     expect(inspectHost(host).humans).toHaveLength(0);
     expect(frame('sendAuthResult', 's1')).toBeUndefined();
   });
-
 });

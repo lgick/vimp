@@ -35,7 +35,9 @@ async function writePinSnapshot(shell, root) {
 }
 
 async function pinsEntry(root) {
-  const pins = JSON.parse(await readFile(path.join(root, PIN_SNAPSHOT), 'utf8'));
+  const pins = JSON.parse(
+    await readFile(path.join(root, PIN_SNAPSHOT), 'utf8'),
+  );
 
   return (
     `Generated games pin \`${ENGINE_NAME}\` ${pins.engine} and ` +
@@ -198,8 +200,9 @@ function formatElapsed(ms) {
 export function actionsUrl(remote) {
   // host:owner/repo (scp-вид) или host[:порт]/owner/repo (URL); порт
   // отбрасывается, иначе он читался бы как владелец репозитория
-  const match =
-    /github\.com(?::\d+)?[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(remote.trim());
+  const match = /github\.com(?::\d+)?[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(
+    remote.trim(),
+  );
 
   return match ? `https://github.com/${match[1]}/${match[2]}/actions` : null;
 }
@@ -218,7 +221,10 @@ async function ciUrl(shell, cwd) {
 // сколько уже ждём и где смотреть. Без версии в реестре следующий шаг
 // (cargo update --precise, npm i -D, sim) поставит старую копию и упадёт
 // непонятно — это развилка, а не примечание.
-export async function awaitPublished(pending, { progressMs = PROGRESS_MS } = {}) {
+export async function awaitPublished(
+  pending,
+  { progressMs = PROGRESS_MS } = {},
+) {
   if (!pending || pending.done) {
     return;
   }
@@ -248,7 +254,9 @@ export async function awaitPublished(pending, { progressMs = PROGRESS_MS } = {})
   pending.published = published;
 
   if (published) {
-    ui.log(`  · ${pending.label} в реестре (${formatElapsed(Date.now() - started)})`);
+    ui.log(
+      `  · ${pending.label} в реестре (${formatElapsed(Date.now() - started)})`,
+    );
     return;
   }
 
@@ -922,7 +930,9 @@ export function rebuildEntry({
   engineReleased = false,
 }) {
   const against = [
-    corePinFile && crateVersion && corePin !== crateVersion &&
+    corePinFile &&
+      crateVersion &&
+      corePin !== crateVersion &&
       `\`${CRATE_NAME}\` ${crateVersion}`,
     engineReleased && engineVersion && `\`${ENGINE_NAME}\` ${engineVersion}`,
   ].filter(Boolean);

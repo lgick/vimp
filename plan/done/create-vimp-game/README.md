@@ -11,8 +11,8 @@
   самодостаточная спецификация для нейросети (`01-architecture` …
   `13-debugging`). Это де-факто спецификация шаблона.
 - Есть две реальные игры: `@vimp-games/tanks` (эталон, ~5.6 тыс. строк Rust
-  + ~4.9 тыс. строк JS) и `vimp-street-fighters` — вторая игра, собранная
-  нейросетью строго по `docs/ai/11-authoring-workflow.md`.
+  - ~4.9 тыс. строк JS) и `vimp-street-fighters` — вторая игра, собранная
+    нейросетью строго по `docs/ai/11-authoring-workflow.md`.
 - Внутри движка живёт минимальный плагин-фикстура
   `packages/engine/tests/fixtures/miniGame/` (~1190 строк, JS-фейк вместо
   Rust-ядра) и контракт-тест `packages/engine/tests/fixtures/miniGame.contract.test.js`.
@@ -77,19 +77,19 @@
    по себе не собираются, поэтому любая проверка идёт через генерацию во
    временную папку. Цикл на всех этапах 3–5 один и тот же:
    `node packages/create-vimp-game/bin/create-vimp-game.js <tmp> --yes
-   --engine-path … --core-path …` → сборка → `vimp-contract` → `sim`.
+--engine-path … --core-path …` → сборка → `vimp-contract` → `sim`.
 
 ## Этапы
 
-| Этап | Содержание | Статус |
-| --- | --- | --- |
-| [stage_1.md](stage_1.md) | `vimp-contract` — валидатор контракта в движке (bin + правила + тесты на miniGame и живых играх) | ✅ выполнен |
-| [stage_2.md](stage_2.md) | Пакет `packages/create-vimp-game`: CLI, генератор, токены, регистрация в воркспейсе/eslint/vitest | ✅ выполнен |
-| [stage_3.md](stage_3.md) | Шаблон: инфраструктура — `package.json`, vite/vitest/eslint, Cargo, 5 скриптов сборки, dev-харнес, `CLAUDE.md` игры | ✅ выполнен |
-| [stage_4.md](stage_4.md) | Шаблон: Rust-ядро — `GameDef`/`GameSim`/`GameClientDef`, ABI-макросы, общий `motion.rs`, parity-тест | ✅ выполнен |
-| [stage_5.md](stage_5.md) | Шаблон: JS-слой — `config/`, `data/`, `host/`, `client/` (парты, bakers, стили) | ✅ выполнен |
-| [stage_6.md](stage_6.md) | Тесты генератора + тяжёлый E2E job в CI | ✅ выполнен |
-| [stage_7.md](stage_7.md) | Документация (`docs/en|ru/scaffolding.md`, `docs/ai`), CHANGELOG, релизная гигиена | ✅ выполнен |
+| Этап                     | Содержание                                                                                                          | Статус                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [stage_1.md](stage_1.md) | `vimp-contract` — валидатор контракта в движке (bin + правила + тесты на miniGame и живых играх)                    | ✅ выполнен                                                 |
+| [stage_2.md](stage_2.md) | Пакет `packages/create-vimp-game`: CLI, генератор, токены, регистрация в воркспейсе/eslint/vitest                   | ✅ выполнен                                                 |
+| [stage_3.md](stage_3.md) | Шаблон: инфраструктура — `package.json`, vite/vitest/eslint, Cargo, 5 скриптов сборки, dev-харнес, `CLAUDE.md` игры | ✅ выполнен                                                 |
+| [stage_4.md](stage_4.md) | Шаблон: Rust-ядро — `GameDef`/`GameSim`/`GameClientDef`, ABI-макросы, общий `motion.rs`, parity-тест                | ✅ выполнен                                                 |
+| [stage_5.md](stage_5.md) | Шаблон: JS-слой — `config/`, `data/`, `host/`, `client/` (парты, bakers, стили)                                     | ✅ выполнен                                                 |
+| [stage_6.md](stage_6.md) | Тесты генератора + тяжёлый E2E job в CI                                                                             | ✅ выполнен                                                 |
+| [stage_7.md](stage_7.md) | Документация (`docs/en                                                                                              | ru/scaffolding.md`, `docs/ai`), CHANGELOG, релизная гигиена | ✅ выполнен |
 
 Этапы 1 и 2 независимы. Этапы 3→4→5 идут строго по порядку (порядок
 `docs/ai/11-authoring-workflow.md`: конфиги → ядро → клиент). Этап 6

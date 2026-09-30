@@ -154,8 +154,7 @@ function mapPublicGame(row) {
 // дата полного удаления мягко удалённой игры. Ретенция приходит из конфига
 // и приводится к числу: в текст SQL попадает только оно, входных данных
 // здесь нет. NULL у живой игры — INTERVAL от NULL тоже NULL
-const PURGE_AT =
-  `g.deleted_at + INTERVAL '${Number(config.games.deleteRetentionDays)} days' AS purge_at`;
+const PURGE_AT = `g.deleted_at + INTERVAL '${Number(config.games.deleteRetentionDays)} days' AS purge_at`;
 
 // колонки игры + ники автора и модератора одним списком: все запросы реестра,
 // отдающие полную строку (mapGame), — и выборки, и пишущие — обязаны отдавать
@@ -181,7 +180,13 @@ const gameProject = cte => `SELECT ${GAME_FIELDS} FROM ${cte} g ${GAME_JOINS}`;
 // за собой (миграции 001, 003, 008). FK на games у них нет, поэтому чистка
 // явная; у host_ratings/host_votes колонки game_id нет — их не трогаем.
 // Порядок: производные данные раньше строки games (см. purgeGames)
-const GAME_DATA_TABLES = ['rank_periods', 'rank_events', 'state_snapshots', 'states', 'ratings'];
+const GAME_DATA_TABLES = [
+  'rank_periods',
+  'rank_events',
+  'state_snapshots',
+  'states',
+  'ratings',
+];
 
 // поля, которые вправе менять модератор: белый список ключей patch →
 // колонок. Ключ, которого здесь нет, в SET не попадает вовсе — так значение
@@ -207,8 +212,12 @@ export default class UserRepository {
     this._distribution =
       distribution ??
       new RankDistribution(
-        (gameId, period, maxSteps) => this._loadDistribution(gameId, period, maxSteps),
-        { ttlMs: config.rank.distributionTtl, maxSteps: config.rank.distributionSteps },
+        (gameId, period, maxSteps) =>
+          this._loadDistribution(gameId, period, maxSteps),
+        {
+          ttlMs: config.rank.distributionTtl,
+          maxSteps: config.rank.distributionSteps,
+        },
       );
   }
 
@@ -410,7 +419,10 @@ export default class UserRepository {
       [userId, gameId],
     );
 
-    const rank = Math.min(config.rank.max, Math.max(config.rank.min, Number(sum.rows[0].total)));
+    const rank = Math.min(
+      config.rank.max,
+      Math.max(config.rank.min, Number(sum.rows[0].total)),
+    );
 
     await this._db.query(
       `INSERT INTO ratings (user_id, game_id, rank, updated_at)
@@ -634,7 +646,12 @@ export default class UserRepository {
     );
   }
 
-  async upsertState(userId, gameId, state, { hosterUserId = null, sessionId = null } = {}) {
+  async upsertState(
+    userId,
+    gameId,
+    state,
+    { hosterUserId = null, sessionId = null } = {},
+  ) {
     if (sessionId) {
       await this.snapshotState(userId, gameId, sessionId, hosterUserId);
     }
@@ -776,7 +793,10 @@ export default class UserRepository {
       [hosterUserId, voterUserId, value, reason],
     );
 
-    return { ...(await this._recomputeHostRating(hosterUserId)), counted: true };
+    return {
+      ...(await this._recomputeHostRating(hosterUserId)),
+      counted: true,
+    };
   }
 
   // ***** РОЛИ (master-game-registry, этап 1) *****
@@ -802,7 +822,10 @@ export default class UserRepository {
   // роль читается из БД на каждом админском запросе (не из клейма токена):
   // identity-токен живёт 4 часа, а разжалование обязано действовать сразу
   async getRole(userId) {
-    const result = await this._db.query('SELECT role FROM users WHERE id = $1', [userId]);
+    const result = await this._db.query(
+      'SELECT role FROM users WHERE id = $1',
+      [userId],
+    );
 
     return result.rows[0]?.role ?? 'user';
   }
@@ -874,7 +897,14 @@ export default class UserRepository {
   //
   // Потолок заявок считается до вставки: 23505 отличить от него нельзя, а
   // сообщение разработчику у них разное
-  async createGame({ id, packageName, title = null, repoUrl = null, version, authorUserId }) {
+  async createGame({
+    id,
+    packageName,
+    title = null,
+    repoUrl = null,
+    version,
+    authorUserId,
+  }) {
     try {
       // Потолок считается ВНУТРИ вставки: отдельный COUNT(*) до INSERT —
       // гонка, параллельные заявки одного автора пролезали бы мимо лимита.
@@ -889,7 +919,15 @@ export default class UserRepository {
            RETURNING *
          )
          ${gameProject('created')}`,
-        [id, packageName, title, repoUrl, authorUserId, version, config.games.maxPerUser],
+        [
+          id,
+          packageName,
+          title,
+          repoUrl,
+          authorUserId,
+          version,
+          config.games.maxPerUser,
+        ],
       );
 
       if (result.rows.length === 0) {
@@ -912,7 +950,11 @@ export default class UserRepository {
   // трогается — игроки продолжают играть в неё, пока админ смотрит новую.
   // Отклонённая ранее игра возвращается в очередь (rejected → pending), а
   // замечание модератора снимается: оно относилось к прошлой версии
-  async requestGameVersion(id, version, { userId = null, isAdmin = false } = {}) {
+  async requestGameVersion(
+    id,
+    version,
+    { userId = null, isAdmin = false } = {},
+  ) {
     const result = await this._db.query(
       `WITH updated AS (
          UPDATE games

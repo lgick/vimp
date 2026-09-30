@@ -157,10 +157,15 @@ export default class GameCatalog {
       // версионный URL раздачи: на диске рядом лежат несколько версий игры,
       // и один assetsBase на всех адресовал бы их вперемешку. У
       // node_modules-пути версии в ключе нет — там раздача неверсионная
-      manifest: version ? rebaseManifest(withPackage, `/games/${id}/${version}/`) : withPackage,
+      manifest: version
+        ? rebaseManifest(withPackage, `/games/${id}/${version}/`)
+        : withPackage,
       mapCatalog: new MapCatalog(this._readMaps(path.join(distDir, 'maps'))),
       distDir,
-      maxGameScore: Number.isInteger(maxGameScore) && maxGameScore > 0 ? maxGameScore : null,
+      maxGameScore:
+        Number.isInteger(maxGameScore) && maxGameScore > 0
+          ? maxGameScore
+          : null,
     });
 
     if (active) {
@@ -249,7 +254,10 @@ export default class GameCatalog {
         continue;
       }
 
-      if (entry.version !== activeVersion && entry.manifest.version === manifestVersion) {
+      if (
+        entry.version !== activeVersion &&
+        entry.manifest.version === manifestVersion
+      ) {
         return true;
       }
     }
@@ -266,7 +274,11 @@ export default class GameCatalog {
 
     for (const entry of this._entries.values()) {
       if (entry.version !== this._active.get(entry.id)) {
-        staged.push({ id: entry.id, version: entry.version, manifest: entry.manifest });
+        staged.push({
+          id: entry.id,
+          version: entry.version,
+          manifest: entry.manifest,
+        });
       }
     }
 
@@ -291,7 +303,10 @@ export default class GameCatalog {
    * @returns {boolean} Стоит ли эта версия в каталоге раздаваемой.
    */
   hasActive(id, version) {
-    return this._active.get(id) === version && this._entries.has(this._key(id, version));
+    return (
+      this._active.get(id) === version &&
+      this._entries.has(this._key(id, version))
+    );
   }
 
   // package.json пакета игры: версия и адрес проекта (уже нормализованный —

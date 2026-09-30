@@ -191,7 +191,9 @@ function invariantSection(report) {
     const mark = { pass: '✅', fail: '❌', skip: '⏭️' }[check.status];
     const note = check.note ? ` — ${check.note}` : '';
 
-    lines.push(`- ${mark} ${check.id}. \`${check.name}\`: ${check.title}${note}`);
+    lines.push(
+      `- ${mark} ${check.id}. \`${check.name}\`: ${check.title}${note}`,
+    );
 
     for (const violation of check.violations) {
       lines.push(`  - ${violation}`);

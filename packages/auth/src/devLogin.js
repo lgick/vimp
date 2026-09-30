@@ -49,7 +49,10 @@ export default function createDevLoginHandler({
       // тот же выпуск токена, что и у OAuth-колбэка: роль (master-game-registry)
       // синхронизируется с VIMP_ADMIN_NICKS и здесь, иначе локальный вход
       // никогда не дал бы админа
-      redirectUrl.searchParams.set('token', await issueIdentityToken({ id: user.id, nick }));
+      redirectUrl.searchParams.set(
+        'token',
+        await issueIdentityToken({ id: user.id, nick }),
+      );
 
       res.redirect(redirectUrl.toString());
     } catch (err) {
@@ -63,7 +66,9 @@ export default function createDevLoginHandler({
         // вход тем же ником снова даст 500 — ровно то, что здесь и чинится
         await userRepo
           .deleteIfAnonymous(user?.id)
-          .catch(cleanupErr => console.error('[dev login] cleanup', cleanupErr));
+          .catch(cleanupErr =>
+            console.error('[dev login] cleanup', cleanupErr),
+          );
         res.status(409).json({ error: 'nickTaken' });
         return;
       }

@@ -44,7 +44,7 @@
 
 - `init(room, handoff?)` — динамически импортирует `HostPlugin` по
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
-  wasmUrl }`, собирается `connectAsHost` из активного `GameManifest`),
+wasmUrl }`, собирается `connectAsHost` из активного `GameManifest`),
   собирает конфиг игры (merge движковых дефолтов
   `packages/engine/src/config/hostDefaults.js` и представления `gameConfig` —
   `packages/engine/src/lib/gameConfigView.js`, единственная точка чтения
@@ -58,7 +58,7 @@
   `roomTimeMin…roomTimeMax`)/friendly fire; карты —
   из `room.maps`, если главный поток скачал каталог мастера), инициализирует
   ядро через `HostPlugin.createCore(coreConfigJson, { wasmUrl:
-  room.game.wasmUrl })`, создаёт `HostGame`, отвечает
+room.game.wasmUrl })`, создаёт `HostGame`, отвечает
   `ready { mapName, seed }`. Всё, кроме postMessage-обвязки, — это
   `packages/engine/src/lib/createHostRuntime.js`, та же функция, которой
   поднимает матч headless-runner, так что разъехаться они не могут (её точки
@@ -121,7 +121,7 @@ Per-user **wire-сокет** (`makeWorkerSocket`) реализует контр�
 `createHostRuntime`.
 
 ```js
-new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identity })
+new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identity });
 ```
 
 `makeSocket(socketId)` отдаёт wire-сокет (`send`/`sendBinary`/`close`,
@@ -139,10 +139,10 @@ new PortMachine({ host, socketManager, clientCfg, authSchema, makeSocket, identi
 Кто именно входит в комнату — единственное, чего хендшейк не решает сам, —
 подключаемая стратегия, `packages/engine/src/host/identity.js`:
 
-| Стратегия | Контур | `params` | `errorField` | `resolve` |
-| --- | --- | --- | --- | --- |
-| `createTokenIdentity({ jwksUrl, issuer })` | лобби (прод) | `[]` | `token` | claim `nick` проверенного identity-токена |
-| `createGuestIdentity({ fallbackPrefix })` | standalone / dedicated | одно поле `name` | `name` | ник из формы, заглушка `Player_xxxx` |
+| Стратегия                                  | Контур                 | `params`         | `errorField` | `resolve`                                 |
+| ------------------------------------------ | ---------------------- | ---------------- | ------------ | ----------------------------------------- |
+| `createTokenIdentity({ jwksUrl, issuer })` | лобби (прод)           | `[]`             | `token`      | claim `nick` проверенного identity-токена |
+| `createGuestIdentity({ fallbackPrefix })`  | standalone / dedicated | одно поле `name` | `name`       | ник из формы, заглушка `Player_xxxx`      |
 
 Контракт — `{ params, errorField, resolve(data, socketId) }`. `params`
 встают перед `authSchema.params` игры в обе стороны (ник — первое, что
@@ -214,7 +214,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   `playerDataSync.addRank(killerId, +1 или -1)` с той же веткой
   победа/тимкилл, что и у обновления score.
 - **Синхронизация обратно**: `flush(participantId)` шлёт `PUT` текущего
-  state и *дельты rank* участника на мастер (`Promise.allSettled`,
+  state и _дельты rank_ участника на мастер (`Promise.allSettled`,
   best-effort — сбой не прорастает в раунд, следующий flush повторит попытку
   с уже накопленными данными; при этом он логируется, а не проглатывается,
   см. «Диагностика синхронизации rank/state» ниже). С server-rating этапа 1 `/rank` на auth —
@@ -238,7 +238,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   позволено ломать раунд, каждый путь сбоя терпится — поэтому каждый из них
   пишет предупреждение `[playerData]` в консоль Worker'а, а не проходит
   незамеченным: неуспешный `GET` на входе (он оставляет
-  `rankLoaded`/`stateLoaded` в `false` и тем самым отключает *все*
+  `rankLoaded`/`stateLoaded` в `false` и тем самым отключает _все_
   последующие `PUT`), неуспешный `PUT` на флаше и любой отклонённый запрос.
   Тишина за весь матч означает, что запросов не было вовсе, — и это указывает
   на `createUser`, а не на синхронизацию. Смежный инвариант: модуль принимает
@@ -252,7 +252,7 @@ name: nick }, socketId, cb)` — клиент больше не может вв�
   вовсе. Он передаёт `hostOptions.playerDataFetch: offlinePlayerData()`
   (`packages/engine/src/lib/offlinePlayerData.js`), у которого любой ответ —
   `{ rank: 0, state: null }`. Это не заглушка ради тишины: пустой профиль и
-  *есть* корректное состояние такого матча, а вместе с ним уходят сетевые
+  _есть_ корректное состояние такого матча, а вместе с ним уходят сетевые
   вызовы, предупреждения `[playerData]` и ретраи.
 - **Атрибуция** (фикс кодревью, находка №1 в `plan/done/server-rating/review.md`):
   каждое тело `PUT` теперь несёт `hostId` **и его per-room `hostSecret`**,
@@ -383,12 +383,12 @@ stopRecording/dump()`; события самого рекордера допол
 - **проекция событий**: после `step` дренирует `take_events()` и роутит
   стандартный движковый словарь (Wasm Host ABI, `packages/engine/core/src/events.rs`) сам, без
   игрового посредника: `panelSet`/`panelActive` → `panel.updateUser(...,
-  'set')`/`panel.setActiveWeapon` (`field` — ключ схемы панели игры, не
+'set')`/`panel.setActiveWeapon` (`field` — ключ схемы панели игры, не
   завязан на конкретное оружие), `death` → `HostGame.reportKill`, `shake` →
   `HostGame.triggerCameraShake` (здоровье/боезапас живут в ядре, панель — их
   проекция). `custom` — единственный тип с игровым смыслом вне словаря:
   дренируется как есть в опциональный `HostPlugin.onCoreEvent(data, { panel,
-  vimp })` (у танков не используется — `onCoreEvent` не задан). Ядро
+vimp })` (у танков не используется — `onCoreEvent` не задан). Ядро
   оперирует числовыми id (u32), мета ключует строками — id событий адаптер
   приводит к строкам на этой границе;
 - **упаковка**: `packBody` → `pack_body`, `packFrame` → `pack_frame` +
@@ -565,7 +565,7 @@ Worker-safe (только изоморфные API — `Date`/`Math`/`performanc
 
 - **`HostController`** — спавнит Worker (по `workerUrl` из манифеста мастера;
   без него — бандловый `new Worker(new URL('host.worker.js'),
-  { type: 'module' })`; фабрика инъектируется для тестов), шлёт `init(room)`,
+{ type: 'module' })`; фабрика инъектируется для тестов), шлёт `init(room)`,
   роутит `to_client`/`close_client` зарегистрированным клиентам и пересылает
   входящие сообщения в Worker. Общий для loopback и удалённых клиентов;
   `onReady` (Worker поднят) — момент регистрации комнаты у мастера (при
@@ -683,7 +683,7 @@ version } }` (Этап 6.5). Деплой рестартует мастер → 
 5. `handoff_complete` в новом Worker'е: `HostGame.completeHandoff` кикает
    восстановленных участников, чей `connect` не пришёл (отвалились в паузу),
    возобновляет таймеры (карта — с остатком времени, `TimerManager.
-   startMapTimer(duration)`) и стартует первый раунд — клиенты получают
+startMapTimer(duration)`) и стартует первый раунд — клиенты получают
    штатные `sendClear`/респаун/старт раунда (`sendSoundCue`+`sendGameInform`).
 
 **Handoff-мета** (`HostGame._collectHandoff`, формат версионирован —
@@ -716,7 +716,7 @@ version } }` (Этап 6.5). Деплой рестартует мастер → 
 - **создать сервер** — кнопка/имя в лобби (`#lobby-host`/`#lobby-name`,
   `packages/engine/src/config/lobby.js`) → `connectAsHost(room)` → `HostController` + Worker +
   `LoopbackTransport` (хост-игрок) + `HostConnectionManager` (удалённые клиенты)
-  + регистрация у мастера.
+  - регистрация у мастера.
 
 Дальше клиентский код одинаков (транспорт абстрагирован). Выход хоста = смерть
 комнаты (host-migration нет) — как и у обычного клиента: `handleDisconnect`
@@ -731,7 +731,7 @@ version } }` (Этап 6.5). Деплой рестартует мастер → 
 - `HostGame.fixture.test.js` — интеграция поверх встроенной **фикстуры
   miniGame** (`packages/engine/tests/fixtures/`), ядро которой — обычный
   JS-объект, реализующий Wasm Host ABI: набору не нужны ни сборка Rust, ни
-  игра-плагин, и он доказывает, что хост работает с *любым* корректным
+  игра-плагин, и он доказывает, что хост работает с _любым_ корректным
   `HostPlugin`. Аналогичный набор на настоящем WASM-ядре живёт в репозитории
   игры-плагина. Покрыто: онбординг, активный игрок с player-блоком,
   движение, стрельба (трассер + боезапас), боты, `players_data`, `removeUser`

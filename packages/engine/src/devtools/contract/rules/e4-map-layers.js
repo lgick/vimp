@@ -133,7 +133,13 @@ function checkMap(name, map, violations) {
     }
 
     // 8. тайл рендер-слоя обязан существовать в тайл-листе по индексу
-    checkLayerFrames(at, `level ${key}`, level?.layers, map.spriteSheet, violations);
+    checkLayerFrames(
+      at,
+      `level ${key}`,
+      level?.layers,
+      map.spriteSheet,
+      violations,
+    );
 
     // 11. высоты объёмов уровня
     checkVolumes(at, key, level?.layers, level?.volumes, violations);
@@ -325,7 +331,12 @@ function rampRunExits(grid, tile, dir) {
   return out;
 }
 
-const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const NEIGHBOURS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 function checkLevelEdges(at, map, violations) {
   for (const [key, level] of Object.entries(map.levels ?? {})) {

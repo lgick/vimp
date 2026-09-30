@@ -44,10 +44,14 @@ export function parseNpmView(name, { code, stdout, stderr }) {
 export async function npmVersion(name, options = {}) {
   // без --prefer-online npm до 5 минут отдаёт манифест из кеша, и
   // ожидание свежей версии истекало, хотя она давно в реестре
-  const result = await capture('npm', ['view', name, 'version', '--json', '--prefer-online'], {
-    allowFailure: true,
-    cwd: options.cwd,
-  });
+  const result = await capture(
+    'npm',
+    ['view', name, 'version', '--json', '--prefer-online'],
+    {
+      allowFailure: true,
+      cwd: options.cwd,
+    },
+  );
 
   return parseNpmView(name, result);
 }

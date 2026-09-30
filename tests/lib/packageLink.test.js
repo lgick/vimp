@@ -41,7 +41,10 @@ describe('resolveProjectUrl: выбор поля', () => {
       homepage,
     );
     expect(
-      resolveProjectUrl({ repository: { url: 'file:///srv/git/x.git' }, homepage }),
+      resolveProjectUrl({
+        repository: { url: 'file:///srv/git/x.git' },
+        homepage,
+      }),
     ).toBe(homepage);
   });
 });
@@ -50,28 +53,41 @@ describe('resolveProjectUrl: нормализация адреса', () => {
   it('git+ssh с хвостом .git — реальный вид repository у пакетов vimp', () => {
     expect(
       resolveProjectUrl({
-        repository: { type: 'git', url: 'git+ssh://git@github.com/lgick/vimp.git' },
+        repository: {
+          type: 'git',
+          url: 'git+ssh://git@github.com/lgick/vimp.git',
+        },
       }),
     ).toBe('https://github.com/lgick/vimp');
   });
 
   it('срезает якорь #readme, который npm дописывает в homepage', () => {
     expect(
-      resolveProjectUrl({ homepage: 'https://github.com/lgick/vimp-tanks#readme' }),
+      resolveProjectUrl({
+        homepage: 'https://github.com/lgick/vimp-tanks#readme',
+      }),
     ).toBe('https://github.com/lgick/vimp-tanks');
   });
 
   it('git+https, git:// и scp-форма git@host:a/b', () => {
     const url = 'https://github.com/a/b';
 
-    expect(resolveProjectUrl({ repository: 'git+https://github.com/a/b.git' })).toBe(url);
+    expect(
+      resolveProjectUrl({ repository: 'git+https://github.com/a/b.git' }),
+    ).toBe(url);
     expect(resolveProjectUrl({ repository: 'git://github.com/a/b' })).toBe(url);
-    expect(resolveProjectUrl({ repository: { url: 'git@github.com:a/b.git' } })).toBe(url);
+    expect(
+      resolveProjectUrl({ repository: { url: 'git@github.com:a/b.git' } }),
+    ).toBe(url);
   });
 
   it('шорткаты github:/gitlab:/bitbucket:', () => {
-    expect(resolveProjectUrl({ repository: 'github:a/b' })).toBe('https://github.com/a/b');
-    expect(resolveProjectUrl({ repository: 'gitlab:a/b' })).toBe('https://gitlab.com/a/b');
+    expect(resolveProjectUrl({ repository: 'github:a/b' })).toBe(
+      'https://github.com/a/b',
+    );
+    expect(resolveProjectUrl({ repository: 'gitlab:a/b' })).toBe(
+      'https://gitlab.com/a/b',
+    );
     expect(resolveProjectUrl({ repository: 'bitbucket:a/b' })).toBe(
       'https://bitbucket.org/a/b',
     );
@@ -92,7 +108,9 @@ describe('resolveProjectUrl: нормализация адреса', () => {
 
   it('срезает логин из ssh-формы: в href ему не место', () => {
     expect(
-      resolveProjectUrl({ repository: 'ssh://someone@git.company.com/team/repo.git' }),
+      resolveProjectUrl({
+        repository: 'ssh://someone@git.company.com/team/repo.git',
+      }),
     ).toBe('https://git.company.com/team/repo');
   });
 

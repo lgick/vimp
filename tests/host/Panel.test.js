@@ -23,7 +23,8 @@ const makeTimerManager = (time = 120) => ({
 
 beforeEach(async () => {
   vi.resetModules();
-  Panel = (await import('../../packages/engine/src/host/meta/modules/Panel.js')).default;
+  Panel = (await import('../../packages/engine/src/host/meta/modules/Panel.js'))
+    .default;
 });
 
 describe('Panel.updateUser', () => {
@@ -111,8 +112,9 @@ describe('Panel.processUpdates', () => {
 
   it('activeKey берётся из схемы, а не хардкода', async () => {
     vi.resetModules();
-    const FreshPanel = (await import('../../packages/engine/src/host/meta/modules/Panel.js'))
-      .default;
+    const FreshPanel = (
+      await import('../../packages/engine/src/host/meta/modules/Panel.js')
+    ).default;
     const panel = new FreshPanel({
       fields: { health: { key: 'h', value: 100 } },
       activeKey: 'aw',

@@ -46,7 +46,10 @@ export function createClientReportsRoutes({ proxy }) {
       const { status, note } = req.body || {};
 
       try {
-        const answer = await proxy.setStatus(req.authToken, req.params.id, { status, note });
+        const answer = await proxy.setStatus(req.authToken, req.params.id, {
+          status,
+          note,
+        });
 
         res.status(answer.status).json(answer.json);
       } catch (err) {

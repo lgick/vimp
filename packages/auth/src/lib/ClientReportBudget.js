@@ -46,7 +46,10 @@ export default class ClientReportBudget {
       global: this._global - this._globalUsed,
       maxRows: this._maxRows - this._rows,
     };
-    const allowed = Math.max(0, Math.min(wanted, limits.ip, limits.global, limits.maxRows));
+    const allowed = Math.max(
+      0,
+      Math.min(wanted, limits.ip, limits.global, limits.maxRows),
+    );
 
     if (allowed > 0) {
       this._byIp.set(ip, (this._byIp.get(ip) ?? 0) + allowed);
@@ -56,7 +59,9 @@ export default class ClientReportBudget {
 
     if (allowed < wanted) {
       // причина — тот бюджет, что ограничил сильнее
-      const reason = Object.keys(limits).reduce((a, b) => (limits[b] < limits[a] ? b : a));
+      const reason = Object.keys(limits).reduce((a, b) =>
+        limits[b] < limits[a] ? b : a,
+      );
 
       this._throttled[reason] += wanted - allowed;
     }
@@ -69,9 +74,10 @@ export default class ClientReportBudget {
   drainThrottled() {
     const counts = this._throttled;
     const skipped = counts.ip + counts.global + counts.maxRows;
-    const reason = skipped > 0
-      ? Object.keys(counts).reduce((a, b) => (counts[b] > counts[a] ? b : a))
-      : null;
+    const reason =
+      skipped > 0
+        ? Object.keys(counts).reduce((a, b) => (counts[b] > counts[a] ? b : a))
+        : null;
 
     this._throttled = { ip: 0, global: 0, maxRows: 0 };
 

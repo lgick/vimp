@@ -70,14 +70,14 @@ ON CONFLICT (id) DO NOTHING;
 
 ### Семантика полей
 
-| Поле | Смысл |
-| --- | --- |
-| `id` | сегмент URL `/games/<id>/`, обязан совпадать с `manifest.id` пакета |
-| `status` | `pending` \| `approved` \| `rejected` \| `disabled` |
-| `version` | одобренная версия, которую раздают мастера; `NULL` до первого одобрения |
-| `pending_version` | версия на модерации; её мастер стейджит и показывает только админам |
-| `max_game_score` | потолок результата ОДНОГО матча (клампит `PUT /auth/rank`); `NULL` → дефолт движка |
-| `moderator_note` | текст отказа/замечания, который видит разработчик |
+| Поле              | Смысл                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `id`              | сегмент URL `/games/<id>/`, обязан совпадать с `manifest.id` пакета                |
+| `status`          | `pending` \| `approved` \| `rejected` \| `disabled`                                |
+| `version`         | одобренная версия, которую раздают мастера; `NULL` до первого одобрения            |
+| `pending_version` | версия на модерации; её мастер стейджит и показывает только админам                |
+| `max_game_score`  | потолок результата ОДНОГО матча (клампит `PUT /auth/rank`); `NULL` → дефолт движка |
+| `moderator_note`  | текст отказа/замечания, который видит разработчик                                  |
 
 Отдельного статуса `testing` нет намеренно: «игра на тесте» — это наличие
 `pending_version`. Так игра может быть одновременно опубликована (v1 играют
@@ -151,15 +151,15 @@ async getRole(userId) { /* SELECT role FROM users WHERE id = $1 */ }
 
 ### Игры
 
-| Метод | SQL/поведение |
-| --- | --- |
-| `listApprovedGames()` | `status='approved' AND version IS NOT NULL`, `LEFT JOIN users` за ником автора; сортировка по `id` (порядок каталога обязан быть детерминированным — первая игра становится активной в лобби) |
-| `listAllGames()` | всё, с ником автора и модератора, сортировка по `updated_at DESC` |
-| `listGamesByAuthor(userId)` | `author_user_id = $1` |
-| `getGame(id)` | одна строка + ник автора |
-| `createGame({id, packageName, title, repoUrl, version, authorUserId})` | `INSERT … status='pending', pending_version = $version`; `err.code === '23505'` → `GameExistsError` (сработает и по PK `id`, и по `games_package_lower_idx`); перед вставкой проверить `COUNT(*) WHERE author_user_id=$1` против `config.games.maxPerUser` → `GameLimitError` |
-| `requestGameVersion(id, version, {userId, isAdmin})` | `UPDATE games SET pending_version=$2, moderator_note=NULL, status = CASE WHEN status='rejected' THEN 'pending' ELSE status END, updated_at=now() WHERE id=$1 AND ($3 OR author_user_id=$4) RETURNING *`; 0 строк → различить `GameNotFoundError` / `GameForbiddenError` дополнительным `getGame` |
-| `moderateGame(id, patch, moderatorUserId)` | частичное обновление `status`/`version`/`pending_version`/`moderator_note`/`max_game_score` + `moderator_user_id`, `updated_at=now()`; собирать `SET` динамически только из переданных ключей, значения — всегда через `$n` |
+| Метод                                                                  | SQL/поведение                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `listApprovedGames()`                                                  | `status='approved' AND version IS NOT NULL`, `LEFT JOIN users` за ником автора; сортировка по `id` (порядок каталога обязан быть детерминированным — первая игра становится активной в лобби)                                                                                                    |
+| `listAllGames()`                                                       | всё, с ником автора и модератора, сортировка по `updated_at DESC`                                                                                                                                                                                                                                |
+| `listGamesByAuthor(userId)`                                            | `author_user_id = $1`                                                                                                                                                                                                                                                                            |
+| `getGame(id)`                                                          | одна строка + ник автора                                                                                                                                                                                                                                                                         |
+| `createGame({id, packageName, title, repoUrl, version, authorUserId})` | `INSERT … status='pending', pending_version = $version`; `err.code === '23505'` → `GameExistsError` (сработает и по PK `id`, и по `games_package_lower_idx`); перед вставкой проверить `COUNT(*) WHERE author_user_id=$1` против `config.games.maxPerUser` → `GameLimitError`                    |
+| `requestGameVersion(id, version, {userId, isAdmin})`                   | `UPDATE games SET pending_version=$2, moderator_note=NULL, status = CASE WHEN status='rejected' THEN 'pending' ELSE status END, updated_at=now() WHERE id=$1 AND ($3 OR author_user_id=$4) RETURNING *`; 0 строк → различить `GameNotFoundError` / `GameForbiddenError` дополнительным `getGame` |
+| `moderateGame(id, patch, moderatorUserId)`                             | частичное обновление `status`/`version`/`pending_version`/`moderator_note`/`max_game_score` + `moderator_user_id`, `updated_at=now()`; собирать `SET` динамически только из переданных ключей, значения — всегда через `$n`                                                                      |
 
 **Важно:** нигде не интерполировать значения в текст SQL. Единственное место в
 этом файле, где литералы попадают в текст (`periodSlice`, строки 36-40),
@@ -172,7 +172,7 @@ async getRole(userId) { /* SELECT role FROM users WHERE id = $1 */ }
 
 ```js
 export function signIdentityToken({ sub, nick, role }) {
-  return jwt.sign({ nick, role: role ?? 'user' }, /* … как сейчас … */);
+  return jwt.sign({ nick, role: role ?? 'user' } /* … как сейчас … */);
 }
 ```
 
@@ -229,14 +229,14 @@ function requireAdmin(req, res, next) {
 
 ### Новые роуты
 
-| Метод | Путь | Доступ | Тело / ответ |
-| --- | --- | --- | --- |
-| `GET` | `/games` | публично | `{ games: [{id, packageName, title, repoUrl, version, maxGameScore, authorNick}] }` — только одобренные |
-| `GET` | `/games/mine` | `requireAuth` | все игры вызывающего, со `status`, `pendingVersion`, `moderatorNote` |
-| `POST` | `/games` | `requireAuth`, 5/60с на IP | `{id, packageName, repoUrl, title, version}` → 201 + строка |
-| `POST` | `/games/:id/version` | `requireAuth` (автор или админ) | `{version}` → строка |
-| `GET` | `/admin/games` | `requireAdmin` | все игры со статусами |
-| `PATCH` | `/admin/games/:id` | `requireAdmin` | `{status?, version?, pendingVersion?, note?, maxGameScore?}` |
+| Метод   | Путь                 | Доступ                          | Тело / ответ                                                                                            |
+| ------- | -------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GET`   | `/games`             | публично                        | `{ games: [{id, packageName, title, repoUrl, version, maxGameScore, authorNick}] }` — только одобренные |
+| `GET`   | `/games/mine`        | `requireAuth`                   | все игры вызывающего, со `status`, `pendingVersion`, `moderatorNote`                                    |
+| `POST`  | `/games`             | `requireAuth`, 5/60с на IP      | `{id, packageName, repoUrl, title, version}` → 201 + строка                                             |
+| `POST`  | `/games/:id/version` | `requireAuth` (автор или админ) | `{version}` → строка                                                                                    |
+| `GET`   | `/admin/games`       | `requireAdmin`                  | все игры со статусами                                                                                   |
+| `PATCH` | `/admin/games/:id`   | `requireAdmin`                  | `{status?, version?, pendingVersion?, note?, maxGameScore?}`                                            |
 
 - Лимитер завести рядом с существующими (`:95-96`):
   `const gamesLimiter = new RateLimiter({ limit: 5, windowMs: 60000 })`,

@@ -188,46 +188,46 @@ optional `levels` field and the transitions between them in the optional
 }
 ```
 
-* `map` — the level's tile grid; its dimensions must match `map`, and `0`
+- `map` — the level's tile grid; its dimensions must match `map`, and `0`
   means "no level here, the one below shows through".
-* `floor` — the tiles you can drive on (the bridge slab). `walls` — the
+- `floor` — the tiles you can drive on (the bridge slab). `walls` — the
   railings: they block movement and the ray on this level, and every railing
   tile has to be part of `floor` too, otherwise it hangs in the air and does
   not shield the ray from below.
-* `dir` is the direction of the *climb* (`north` = `-y`, `south` = `+y`,
+- `dir` is the direction of the _climb_ (`north` = `-y`, `south` = `+y`,
   `west` = `-x`, `east` = `+x`); `from`/`to` default to `0`/`1` and may span
   more than one level.
-* `levelHeight` — optional, at the root of the map: the height of ONE level
+- `levelHeight` — optional, at the root of the map: the height of ONE level
   in world units (the tile size by default). It makes `RampSample::slope` a
   dimensionless gradient (`rise * levelHeight / span`) instead of «levels per
   pixel», which is what every climb constant is tuned against.
-* `volumes` — optional, next to `layers` at any level: the visual height of a
+- `volumes` — optional, next to `layers` at any level: the visual height of a
   render layer in levels (`{ "<layers key>": 0.6 }`). The core never uses it;
   it travels to the client and lives in the renderer, but is validated here,
   because a typo in a layer key would otherwise give a flat map in silence.
-* `physicsDynamic[].level` places a dynamic body on a level; a respawn point
+- `physicsDynamic[].level` places a dynamic body on a level; a respawn point
   may name its level as a 4th number (`[x, y, angleDeg, level]`) — without it
   the level is derived from the geometry (`GameMap::level_at`).
 
-`MapConfig::validate` runs inside `load_map` *before* any body is created and
+`MapConfig::validate` runs inside `load_map` _before_ any body is created and
 turns every one of these mistakes into an error from `load_map`; at runtime
 they are all silent. Two of the checks are about the geometry a level is for:
 
-* a **ramp must arrive somewhere** — the cell past the top end of a run has
+- a **ramp must arrive somewhere** — the cell past the top end of a run has
   to be drivable surface of the level it climbs to, or the tank reaches the
   top and falls in the same step;
-* a **slab edge must be railed or land somewhere** — a `floor` cell whose
+- a **slab edge must be railed or land somewhere** — a `floor` cell whose
   neighbour is neither floor nor railing is a ledge, and the fall from it has
   to land on the walkable surface of `MapLevels::landing_level` (the nearest
   level below with a floor there, the ground if there is none); over the grid
   border or over a wall it is an error (walls of a lower level are no
   obstacle to a tank on the slab);
-* a **ramp must not climb through a slab** — a run of a `from -> to` ramp may
+- a **ramp must not climb through a slab** — a run of a `from -> to` ramp may
   not pass under the floor of a level in between;
-* **two ramps must not share a cell** — the run that claims a shared cell is
+- **two ramps must not share a cell** — the run that claims a shared cell is
   picked arbitrarily (the first declared one), so the climb would stop
   following from the map;
-* **`levelHeight`, when present, must be finite and greater than 0** — it
+- **`levelHeight`, when present, must be finite and greater than 0** — it
   scales the whole ramp slope.
 
 The shape checks live in `map::validate_levels`, a free function taking the
@@ -335,13 +335,13 @@ the minimum `fit`/`clear` over the cells of its line.
 
 `find_route(start, end, &PathQuery) -> Option<Route>` searches with rules:
 
-| `PathQuery` field | Unit | Meaning | Default |
-| --- | --- | --- | --- |
-| `min_width` | world units | body width: an edge whose `fit` is too small is forbidden, the direct segment needs a `has_clear_corridor_on` corridor | `0` (no limit) |
-| `comfort_clearance` | world units | desired distance from walls | `0` (no preference) |
-| `narrow_cost` | share of edge length | added at zero clearance, linearly down to 0 at `comfort_clearance` | `0` |
-| `ledge_cost_scale` | multiplier | scales the ledge penalty `LEDGE_PENALTY · height`: `0` — a jump costs its length, `f32::INFINITY` — ledges forbidden | `1` |
-| `penalties` | `&[PenaltyZone]` | circles `{ level, center, radius, cost_per_unit }`: an edge whose midpoint is inside costs `cost_per_unit · (1 − d/radius)` more per unit of length; a direct segment crossing a zone of its level is not taken as a shortcut — A* over the edges decides | `&[]` |
+| `PathQuery` field   | Unit                 | Meaning                                                                                                                                                                                                                                                   | Default             |
+| ------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `min_width`         | world units          | body width: an edge whose `fit` is too small is forbidden, the direct segment needs a `has_clear_corridor_on` corridor                                                                                                                                    | `0` (no limit)      |
+| `comfort_clearance` | world units          | desired distance from walls                                                                                                                                                                                                                               | `0` (no preference) |
+| `narrow_cost`       | share of edge length | added at zero clearance, linearly down to 0 at `comfort_clearance`                                                                                                                                                                                        | `0`                 |
+| `ledge_cost_scale`  | multiplier           | scales the ledge penalty `LEDGE_PENALTY · height`: `0` — a jump costs its length, `f32::INFINITY` — ledges forbidden                                                                                                                                      | `1`                 |
+| `penalties`         | `&[PenaltyZone]`     | circles `{ level, center, radius, cost_per_unit }`: an edge whose midpoint is inside costs `cost_per_unit · (1 − d/radius)` more per unit of length; a direct segment crossing a zone of its level is not taken as a shortcut — A* over the edges decides | `&[]`               |
 
 `PathQuery::default()` reproduces `find_path_on`, which (like `find_path`)
 is now a thin wrapper over `find_route`. A `Route` is `legs: Vec<RouteLeg>`
@@ -485,7 +485,7 @@ must not drift from them.
     the host drives straight past (a hull passing an opening in a wall).
   - **Accumulated impulses.** `apply_contact_impulse` takes
     `&mut ContactImpulses` — one per contact, living from the solver's first
-    iteration to its last — and clamps the *accumulated* impulse, not the
+    iteration to its last — and clamps the _accumulated_ impulse, not the
     iteration's increment. Applying increments lets the first point of a
     manifold take the whole normal impulse, spin the hull on its lever and
     leave the second point separating, with no way back; accumulation gives
@@ -497,7 +497,7 @@ must not drift from them.
     does not undo the whole penetration in one step: it moves the pair by
     `penetration_correction(depth, dt)` —
     `min(contact_erp(dt) * (depth - ALLOWED_LINEAR_ERROR),
-    MAX_CORRECTIVE_VELOCITY * dt)`, the law of Rapier's contact spring
+MAX_CORRECTIVE_VELOCITY * dt)`, the law of Rapier's contact spring
     (`contact_natural_frequency` 30 Hz, `contact_damping_ratio` 5,
     `normalized_allowed_linear_error` and
     `normalized_max_corrective_velocity` on `length_unit = 1`, the host's
@@ -520,7 +520,7 @@ must not drift from them.
   substep's impulses, run a biased pass (a soft spring removes penetration,
   a gap allows approach at `gap / h`), integrate the poses (rotation
   linearized as in Rapier) and run a bias-free pass whose target is the
-  bounce of a *new* contact. The two points of one manifold are solved
+  bounce of a _new_ contact. The two points of one manifold are solved
   together by a 2×2 block solver, normals before friction. Unlike Rapier,
   whose only test is `det > 0`, a block whose condition number exceeds
   1000 (Box2D's threshold, `MAX_BLOCK_CONDITION`) is treated as degenerate
@@ -535,7 +535,7 @@ must not drift from them.
   four, and a single per-step rule jerks by up to ~130 units/s there.
 
   - **Rows.** Build them only with `ContactRow::from_manifold(a, b,
-    &manifold, surface, key_base)`: it takes `Manifold::solver_points()` —
+&manifold, surface, key_base)`: it takes `Manifold::solver_points()` —
     the point midway between the two surfaces, as parry reports it (in the
     middle of the gap for a speculative contact) — and lays the pair out as
     consecutive rows. `Manifold::as_slice()` returns points on the incident
@@ -573,7 +573,7 @@ the ABI macros, so every game gets them for free and
 [debugging.md](debugging.md).
 
 - **`debug.rs` — `EngineSim::debug_json()`** (exported as
-  `GameCore.debug_json()`): a *curated* world dump, next to the raw
+  `GameCore.debug_json()`): a _curated_ world dump, next to the raw
   `serialize_state()` serde output, which is unreadable. Bodies (`tag`,
   `userData`, `translation`, `rotation`, `linvel`, `angvel`, `mass`,
   `bodyType`, `ccd`), colliders (`shape` + `halfExtents`/`radius`,
@@ -620,10 +620,10 @@ one deploy — the version only protects framing within a room).
 
 ## Tests
 
-| Layer | Where | Covers |
-| --- | --- | --- |
-| Rust unit | `packages/engine/core/src/*` (`#[cfg(test)]`) | PRNG, the nav grid, A*, clearance grids, `find_route`, the spatial grid; the client module: round-trip unpack, the interpolator (seq/dedup/late/lerp), raycast, SAT contacts and the contact solver, the hot buffer; the `GameClientDef` trait's shape validated against a fixture `TestClient` |
-| Rust integration | this repo has none — a game's simulation scenarios (driving, weapons, bots, handoff, etc.) are that game repo's concern | — |
+| Layer            | Where                                                                                                                   | Covers                                                                                                                                                                                                                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust unit        | `packages/engine/core/src/*` (`#[cfg(test)]`)                                                                           | PRNG, the nav grid, A*, clearance grids, `find_route`, the spatial grid; the client module: round-trip unpack, the interpolator (seq/dedup/late/lerp), raycast, SAT contacts and the contact solver, the hot buffer; the `GameClientDef` trait's shape validated against a fixture `TestClient` |
+| Rust integration | this repo has none — a game's simulation scenarios (driving, weapons, bots, handoff, etc.) are that game repo's concern | —                                                                                                                                                                                                                                                                                               |
 
 `npm run core:test` runs `cargo test --workspace`, which in this repo is
 just `packages/engine/core` — this is where the engine crate's own unit

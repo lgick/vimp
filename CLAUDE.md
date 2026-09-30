@@ -14,22 +14,22 @@ this repo never imports game code by path.
 `README.md`). **Rule**: any functional change updates both matching pages in
 the same change. Area → page (paths under `packages/engine/`):
 
-| Change | Page |
-| --- | --- |
-| ports, frame format, opcodes | `network.md` |
-| `src/config/*`, env vars | `configuration.md` |
-| `src/master/` | `master.md` |
-| `packages/auth/` | `auth.md` |
-| `src/host/` (Worker, adapter, meta) | `host.md` |
-| crate `core/` | `core.md` |
-| `src/client/`, ClientCore | `client.md` |
-| `src/standalone/` (browser SDK) | `standalone.md` |
-| `src/dedicated/` (Node game server) | `dedicated.md` |
-| plugin contract, Wasm ABI | `plugin-api.md` |
-| `src/devtools/`, `bin/vimp-*.js` | `debugging.md` |
-| `packages/create-vimp-game/` (scaffolder, template) | `scaffolding.md` |
-| deploy scripts, workflows, npm scripts | `deployment.md`, `getting-started.md` |
-| release flow, `files`, versions, plugin pin | `publishing.md` |
+| Change                                              | Page                                  |
+| --------------------------------------------------- | ------------------------------------- |
+| ports, frame format, opcodes                        | `network.md`                          |
+| `src/config/*`, env vars                            | `configuration.md`                    |
+| `src/master/`                                       | `master.md`                           |
+| `packages/auth/`                                    | `auth.md`                             |
+| `src/host/` (Worker, adapter, meta)                 | `host.md`                             |
+| crate `core/`                                       | `core.md`                             |
+| `src/client/`, ClientCore                           | `client.md`                           |
+| `src/standalone/` (browser SDK)                     | `standalone.md`                       |
+| `src/dedicated/` (Node game server)                 | `dedicated.md`                        |
+| plugin contract, Wasm ABI                           | `plugin-api.md`                       |
+| `src/devtools/`, `bin/vimp-*.js`                    | `debugging.md`                        |
+| `packages/create-vimp-game/` (scaffolder, template) | `scaffolding.md`                      |
+| deploy scripts, workflows, npm scripts              | `deployment.md`, `getting-started.md` |
+| release flow, `files`, versions, plugin pin         | `publishing.md`                       |
 
 `docs/ai/` is an English-only plugin spec for LLMs — outside the bilingual
 rule, but plugin-contract changes land there too. Gameplay docs live in the
@@ -58,7 +58,7 @@ public export is `Added`, not `Changed`. Details: `docs/en/publishing.md` →
 **`ENGINE_API_VERSION` is frozen at 4, never bumped.** A new engine
 capability goes into `src/lib/capabilities.js`; a game that cannot run
 without it names it in `GameManifest.requires`. `⚠️ Breaking` in the plugin
-contract is legitimate only when the engine *must* reject input it accepted
+contract is legitimate only when the engine _must_ reject input it accepted
 before (a security fix), and then the same commit deletes the line from
 `contract/surface.json`.
 
@@ -115,7 +115,7 @@ reaches the app bundle, plugins load only via `GameManifest`/`GameCatalog`
   capitals in camelCase (ESLint; exceptions `VX`, `VY`, `RTT`)
 - `===`, `let`/`const`, braces on every block; imports: Node built-ins → npm
   → internal → relative
-- Comments explain *why*, briefly; a new module follows the closest existing
+- Comments explain _why_, briefly; a new module follows the closest existing
   pattern
 - `_`-prefixed files are scratch, never committed — don't read or touch them
   unless told

@@ -1,4 +1,12 @@
-import { CODE, DETAILS_BYTES, MESSAGE, PAGE, SESSION_ID, STACK, USER_AGENT } from './limits.js';
+import {
+  CODE,
+  DETAILS_BYTES,
+  MESSAGE,
+  PAGE,
+  SESSION_ID,
+  STACK,
+  USER_AGENT,
+} from './limits.js';
 
 // Разбор тела POST /client-reports от браузера (контракт — plan/client-reports/
 // stage_2.md). Всё, чего нет в схеме, не проходит — в том числе клиентское
@@ -24,11 +32,13 @@ const FUTURE_WINDOW_MS = 5 * 60 * 1000;
 const isPlainObject = value =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-const cut = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
+const cut = (value, max) =>
+  typeof value === 'string' ? value.slice(0, max) : null;
 
 const pick = (value, allowed) => (allowed.includes(value) ? value : null);
 
-const match = (value, re) => (typeof value === 'string' && re.test(value) ? value : null);
+const match = (value, re) =>
+  typeof value === 'string' && re.test(value) ? value : null;
 
 function badRequest(message) {
   const err = new Error(message);
@@ -51,7 +61,9 @@ function sanitizeDetails(details) {
     return { truncated: true };
   }
 
-  return Buffer.byteLength(json) <= DETAILS_BYTES ? details : { truncated: true };
+  return Buffer.byteLength(json) <= DETAILS_BYTES
+    ? details
+    : { truncated: true };
 }
 
 function sanitizeCount(value) {
@@ -98,7 +110,9 @@ function sanitizeItem(raw, now) {
   }
 
   const code =
-    typeof raw.code === 'string' && raw.code.length <= CODE && CODE_RE.test(raw.code)
+    typeof raw.code === 'string' &&
+    raw.code.length <= CODE &&
+    CODE_RE.test(raw.code)
       ? raw.code
       : null;
 
@@ -123,14 +137,21 @@ function sanitizeItem(raw, now) {
  * @returns {{ sessionId: ?string, context: Object, items: Object[] }}
  * @throws {Error} status = 400 на неверной форме тела.
  */
-export function sanitizeClientReport(body, { maxItemsPerRequest, now = Date.now() }) {
+export function sanitizeClientReport(
+  body,
+  { maxItemsPerRequest, now = Date.now() },
+) {
   if (!isPlainObject(body) || body.v !== 1) {
     throw badRequest('unsupported report');
   }
 
   const rawItems = body.items;
 
-  if (!Array.isArray(rawItems) || rawItems.length < 1 || rawItems.length > maxItemsPerRequest) {
+  if (
+    !Array.isArray(rawItems) ||
+    rawItems.length < 1 ||
+    rawItems.length > maxItemsPerRequest
+  ) {
     throw badRequest('invalid items');
   }
 

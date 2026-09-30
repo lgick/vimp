@@ -26,7 +26,12 @@ const item = (over = {}) => ({
 const report = (items = [item()]) => ({
   v: 1,
   sessionId: '0f8c2b1e-1111-4222-8333-444455556666',
-  context: { mode: 'lobby', role: 'client', gameId: 'tanks', gameVersion: '0.22.7' },
+  context: {
+    mode: 'lobby',
+    role: 'client',
+    gameId: 'tanks',
+    gameVersion: '0.22.7',
+  },
   items,
 });
 
@@ -44,7 +49,13 @@ afterEach(async () => {
 // любом коде
 const waitForExpressLog = () => new Promise(resolve => setImmediate(resolve));
 
-async function start({ limit = 100, trustProxy = false, buffer, symbolicate = null, env } = {}) {
+async function start({
+  limit = 100,
+  trustProxy = false,
+  buffer,
+  symbolicate = null,
+  env,
+} = {}) {
   const log = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
   const buf = buffer ?? new ClientReportBuffer();
   const app = express();
@@ -61,7 +72,8 @@ async function start({ limit = 100, trustProxy = false, buffer, symbolicate = nu
     ...createClientReportRoute({
       buffer: buf,
       limiter: new RateLimiter({ limit, windowMs: 60000 }),
-      checkOrigin: (origin, cb) => process.nextTick(() => cb(origin === ALLOWED ? null : 'no')),
+      checkOrigin: (origin, cb) =>
+        process.nextTick(() => cb(origin === ALLOWED ? null : 'no')),
       trustProxy,
       box: { domain: 'vimp.example', mode: 'lobby', engineVersion: '0.34.8' },
       symbolicate,
@@ -78,7 +90,11 @@ async function start({ limit = 100, trustProxy = false, buffer, symbolicate = nu
   const post = (body, headers = {}) =>
     fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ALLOWED, ...headers },
+      headers: {
+        'content-type': 'application/json',
+        origin: ALLOWED,
+        ...headers,
+      },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     });
 
@@ -115,7 +131,10 @@ describe('POST /client-reports: приём', () => {
     body.context = { ...body.context, role: 'host', page: '/room/abc' };
 
     expect((await post(body)).status).toBe(204);
-    expect(buffer.drain(10)[0]).toMatchObject({ role: 'host', page: '/room/abc' });
+    expect(buffer.drain(10)[0]).toMatchObject({
+      role: 'host',
+      page: '/room/abc',
+    });
   });
 
   it('строка журнала только на новый отпечаток', async () => {
@@ -133,7 +152,11 @@ describe('POST /client-reports: приём', () => {
   it('перевод строки в message не подделывает строку журнала процесса', async () => {
     const { log, post } = await start();
 
-    await post(report([item({ message: 'boom\n[vimp:client-report] new deadbeef fake' })]));
+    await post(
+      report([
+        item({ message: 'boom\n[vimp:client-report] new deadbeef fake' }),
+      ]),
+    );
 
     expect(log.warn).toHaveBeenCalledTimes(1);
     expect(log.warn.mock.calls[0][0]).not.toContain('\n');
@@ -167,11 +190,15 @@ describe('POST /client-reports: отказы', () => {
   it('413 на тело больше 16 КБ', async () => {
     const { post } = await start();
 
-    expect((await post(report([item({ message: 'x'.repeat(17 * 1024) })]))).status).toBe(413);
+    expect(
+      (await post(report([item({ message: 'x'.repeat(17 * 1024) })]))).status,
+    ).toBe(413);
   });
 
   it('битый JSON: короткий JSON 400, без стека в журнале процесса', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
 
     try {
       const { post } = await start({ env: 'production' });
@@ -188,7 +215,9 @@ describe('POST /client-reports: отказы', () => {
   });
 
   it('тело больше лимита: короткий JSON 413, без стека в журнале процесса', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
 
     try {
       const { post } = await start({ env: 'production' });
@@ -219,9 +248,15 @@ describe('POST /client-reports: отказы', () => {
   it('адреса одной /64 делят один бакет, соседняя /64 — свой', async () => {
     const { post } = await start({ limit: 1, trustProxy: true });
 
-    expect((await post(report(), { 'x-real-ip': '2001:db8:0:1::a' })).status).toBe(204);
-    expect((await post(report(), { 'x-real-ip': '2001:db8:0:1:ffff::1' })).status).toBe(429);
-    expect((await post(report(), { 'x-real-ip': '2001:db8:0:2::1' })).status).toBe(204);
+    expect(
+      (await post(report(), { 'x-real-ip': '2001:db8:0:1::a' })).status,
+    ).toBe(204);
+    expect(
+      (await post(report(), { 'x-real-ip': '2001:db8:0:1:ffff::1' })).status,
+    ).toBe(429);
+    expect(
+      (await post(report(), { 'x-real-ip': '2001:db8:0:2::1' })).status,
+    ).toBe(204);
   });
 });
 
@@ -268,7 +303,9 @@ describe('POST /client-reports: расшифровка и бюджет', () => {
     const { post } = await start({ buffer, symbolicate });
 
     expect((await post(report([item({ message: 'first' })]))).status).toBe(204);
-    expect((await post(report([item({ message: 'second' })]))).status).toBe(204);
+    expect((await post(report([item({ message: 'second' })]))).status).toBe(
+      204,
+    );
     // повтор известного принимается
     expect((await post(report([item({ message: 'first' })]))).status).toBe(204);
 

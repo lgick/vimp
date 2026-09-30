@@ -89,7 +89,9 @@ describe('formatContract', () => {
     expect(text).toContain('# Contract report — mini-game');
     expect(text).toContain('- engine API: v3');
     expect(text).toContain('> host plugin has no default export');
-    expect(text).toContain('1 passed, 2 failed (1 error, 1 warning), 1 skipped');
+    expect(text).toContain(
+      '1 passed, 2 failed (1 error, 1 warning), 1 skipped',
+    );
   });
 
   it('печатает значок, уровень и нарушения каждого правила', () => {
@@ -136,9 +138,9 @@ describe('checkContract', () => {
     // фикстура — исходники без сборки: dist/ у неё нет
     expect(report.game.built).toBe(false);
     expect(report.results.length).toBe(rules.length);
-    expect(report.summary.passed + report.summary.failed + report.summary.skipped).toBe(
-      rules.length,
-    );
+    expect(
+      report.summary.passed + report.summary.failed + report.summary.skipped,
+    ).toBe(rules.length);
   });
 });
 

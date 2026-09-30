@@ -37,19 +37,19 @@ client connected to that tab over WebRTC.
 
 ## Who owns what
 
-| Concern | Engine | Plugin |
-| --- | --- | --- |
-| Lobby, room registry, signaling | ✅ | — |
-| WebRTC transport, ports, frame envelope | ✅ | — |
-| Rounds, respawn cycle, scoring, team balance | ✅ (rules configurable) | supplies config |
-| Chat, votes, statistics table, panel, timers, RTT/idle kicks | ✅ | supplies schema + texts |
-| Auth screen skeleton, identity (JWT nickname) | ✅ | supplies fields + texts |
-| Canvas creation, camera, sound engine, input plumbing | ✅ | supplies layout + assets |
-| Physics primitives, snapshot codec, interpolation | ✅ (`vimp-engine-core`) | — |
-| Entities, movement, weapons, damage, AI | — | ✅ (Rust) |
-| Rendering (sprites, effects, particles) | — | ✅ (PixiJS parts) |
-| Maps, models, weapons, sounds, textures | — | ✅ |
-| Bots ("scripted participants") | ✅ lifecycle hooks | ✅ implementation |
+| Concern                                                      | Engine                  | Plugin                   |
+| ------------------------------------------------------------ | ----------------------- | ------------------------ |
+| Lobby, room registry, signaling                              | ✅                      | —                        |
+| WebRTC transport, ports, frame envelope                      | ✅                      | —                        |
+| Rounds, respawn cycle, scoring, team balance                 | ✅ (rules configurable) | supplies config          |
+| Chat, votes, statistics table, panel, timers, RTT/idle kicks | ✅                      | supplies schema + texts  |
+| Auth screen skeleton, identity (JWT nickname)                | ✅                      | supplies fields + texts  |
+| Canvas creation, camera, sound engine, input plumbing        | ✅                      | supplies layout + assets |
+| Physics primitives, snapshot codec, interpolation            | ✅ (`vimp-engine-core`) | —                        |
+| Entities, movement, weapons, damage, AI                      | —                       | ✅ (Rust)                |
+| Rendering (sprites, effects, particles)                      | —                       | ✅ (PixiJS parts)        |
+| Maps, models, weapons, sounds, textures                      | —                       | ✅                       |
+| Bots ("scripted participants")                               | ✅ lifecycle hooks      | ✅ implementation        |
 
 The boundary is **URL-driven**: the engine never imports a plugin statically.
 It loads `manifest.entries.client` in the client, `manifest.entries.host` in
@@ -57,17 +57,17 @@ the Worker, and the master only reads `dist/manifest.json`.
 
 ## Version numbers — three independent values
 
-| Constant | Value | Meaning | Checked where |
-| --- | --- | --- | --- |
-| `ENGINE_API_VERSION` | `4`, frozen | Generation label of the plugin contract (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema). **Not a gate**: no plugin is rejected for its age | nowhere at runtime; contract rule `B2` checks it is consistent inside the package |
-| `SNAPSHOT_FORMAT_VERSION` | `5` | Byte layout of the state frame | inside the WASM core, both ends |
-| `HANDOFF_VERSION` | `3` | Shape of the state blob passed when host duty migrates | `HostGame` (rejects a mismatched blob) |
+| Constant                  | Value       | Meaning                                                                                                                                                          | Checked where                                                                     |
+| ------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `ENGINE_API_VERSION`      | `4`, frozen | Generation label of the plugin contract (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema). **Not a gate**: no plugin is rejected for its age | nowhere at runtime; contract rule `B2` checks it is consistent inside the package |
+| `SNAPSHOT_FORMAT_VERSION` | `5`         | Byte layout of the state frame                                                                                                                                   | inside the WASM core, both ends                                                   |
+| `HANDOFF_VERSION`         | `3`         | Shape of the state blob passed when host duty migrates                                                                                                           | `HostGame` (rejects a mismatched blob)                                            |
 
 A plugin publishes `engineApi` in **three** places and all three must agree
 **with each other** (a mismatch means a stale `dist/`): `manifest.engineApi`,
 `hostPlugin.engineApi`, `clientPlugin.engineApi`. Import `ENGINE_API_VERSION`
 from `vimp-engine/config/opcodes.js` rather than hardcoding `4`. Agreeing with
-the *installed* engine is not required — a game built a year ago runs on
+the _installed_ engine is not required — a game built a year ago runs on
 today's build.
 
 Compatibility is negotiated by capability, not by number. If your game cannot
@@ -113,10 +113,10 @@ skipped with a warning and the game silently disappears from the lobby.
 
 ## Transport: two data channels
 
-| Channel | Config | Carries |
-| --- | --- | --- |
-| `meta` | `{ ordered: true }` — reliable, ordered | every JSON message `[portId, payload]` **and** any state frame that must not be lost |
-| `state` | `{ ordered: false, maxRetransmits: 0 }` — unreliable, unordered | ordinary positional state frames |
+| Channel | Config                                                          | Carries                                                                              |
+| ------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `meta`  | `{ ordered: true }` — reliable, ordered                         | every JSON message `[portId, payload]` **and** any state frame that must not be lost |
+| `state` | `{ ordered: false, maxRetransmits: 0 }` — unreliable, unordered | ordinary positional state frames                                                     |
 
 A state frame is sent **reliably** (over `meta`) when it carries information
 that cannot be reconstructed from a later frame:

@@ -3,7 +3,11 @@ import path from 'node:path';
 
 import { capture } from './shell.js';
 import { compareVersions, increment } from './semver.js';
-import { parseUnreleased, suggestLevel, validateUnreleased } from './changelog.js';
+import {
+  parseUnreleased,
+  suggestLevel,
+  validateUnreleased,
+} from './changelog.js';
 import { npmVersion, crateVersion } from './registry.js';
 
 // «Что публиковать» выводится из трёх независимых сигналов: изменённые пути
@@ -23,7 +27,9 @@ export function decide(input) {
   // движок всплыл бы «изменённым» только в следующем
   const engine = decideArtifact(input.engine, ENGINE_NAME, {
     required: crate.publish,
-    reasons: crate.publish ? ['крейт публикуется → core/Cargo.toml в тарболе устареет'] : [],
+    reasons: crate.publish
+      ? ['крейт публикуется → core/Cargo.toml в тарболе устареет']
+      : [],
   });
 
   // Скаффолдер вшивает в тарбол снимок версий движка и крейта (хук prepack,
@@ -48,7 +54,8 @@ export function decide(input) {
   }
 
   const scaffold = decideArtifact(input.scaffold, SCAFFOLD_NAME, {
-    required: crate.publish || engine.publish || input.scaffold?.pinsStale === true,
+    required:
+      crate.publish || engine.publish || input.scaffold?.pinsStale === true,
     reasons: scaffoldReasons,
   });
 
@@ -90,7 +97,9 @@ export function decide(input) {
       follows.push('крейт публикуется → можно пересобрать');
     } else if (coreStale) {
       // крейт вышел раньше, а игра за ним не поехала
-      follows.push(`ядро игры на ${game.corePin}, в реестре ${registryCrate} → можно пересобрать`);
+      follows.push(
+        `ядро игры на ${game.corePin}, в реестре ${registryCrate} → можно пересобрать`,
+      );
     }
     // крейт всегда тянет за собой движок — вторая причина была бы повтором
     if (engine.publish && !crate.publish) {
@@ -309,7 +318,12 @@ async function git(root, args) {
 // версия стала текущей (за всё время процедуры теги ни разу не ставились,
 // см. docs/en/publishing.md).
 export async function findBase(root, { tag, versionFile, versionNeedle }) {
-  const tagged = await git(root, ['rev-parse', '--verify', '--quiet', `${tag}^{commit}`]);
+  const tagged = await git(root, [
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    `${tag}^{commit}`,
+  ]);
 
   if (tagged) {
     return { ref: tagged, source: `тег ${tag}` };
@@ -326,7 +340,10 @@ export async function findBase(root, { tag, versionFile, versionNeedle }) {
   const commit = log ? log.split('\n').filter(Boolean).at(0) : null;
 
   return commit
-    ? { ref: commit, source: `коммит с версией в ${path.basename(versionFile)}` }
+    ? {
+        ref: commit,
+        source: `коммит с версией в ${path.basename(versionFile)}`,
+      }
     : { ref: null, source: 'история недоступна — считаем изменённым' };
 }
 
@@ -335,7 +352,13 @@ export async function changedSince(root, ref, paths) {
     return true;
   }
 
-  const output = await git(root, ['diff', '--name-only', `${ref}..HEAD`, '--', ...paths]);
+  const output = await git(root, [
+    'diff',
+    '--name-only',
+    `${ref}..HEAD`,
+    '--',
+    ...paths,
+  ]);
 
   return output === null ? true : output !== '';
 }
@@ -352,7 +375,9 @@ async function readCrateVersion(root) {
   const match = /^version\s*=\s*"([^"]+)"/m.exec(cargo);
 
   if (!match) {
-    throw new Error('в packages/engine/core/Cargo.toml не найдено поле version');
+    throw new Error(
+      'в packages/engine/core/Cargo.toml не найдено поле version',
+    );
   }
 
   return match[1];
@@ -376,11 +401,12 @@ export async function collect(root) {
   const scaffoldPkg = await readJson(path.join(scaffoldDir, 'package.json'));
   const crateLocal = await readCrateVersion(root);
 
-  const [enginePublished, cratePublished, scaffoldPublished] = await Promise.all([
-    npmVersion(ENGINE_NAME),
-    crateVersion(CRATE_NAME),
-    npmVersion(SCAFFOLD_NAME),
-  ]);
+  const [enginePublished, cratePublished, scaffoldPublished] =
+    await Promise.all([
+      npmVersion(ENGINE_NAME),
+      crateVersion(CRATE_NAME),
+      npmVersion(SCAFFOLD_NAME),
+    ]);
 
   const [crateBase, engineBase, scaffoldBase] = await Promise.all([
     findBase(root, {

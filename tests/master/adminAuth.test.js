@@ -7,12 +7,21 @@ import { createAdminAuth } from '../../packages/engine/src/master/adminAuth.js';
 // подписаны настоящим RS256-ключом и проверяются по JWKS — тем же путём,
 // каким их проверяет сигнальный сервер (SignalingServer.test.js)
 
-const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
 const KID = 'test-key-1';
 const ISSUER = 'vimp-auth-test';
 
 const jwks = {
-  keys: [{ ...publicKey.export({ format: 'jwk' }), kid: KID, use: 'sig', alg: 'RS256' }],
+  keys: [
+    {
+      ...publicKey.export({ format: 'jwk' }),
+      kid: KID,
+      use: 'sig',
+      alg: 'RS256',
+    },
+  ],
 };
 
 const signToken = ({ sub = 7, role, expiresIn = '15m' } = {}) =>
@@ -25,7 +34,8 @@ const signToken = ({ sub = 7, role, expiresIn = '15m' } = {}) =>
   });
 
 const reqWith = token => ({
-  get: name => (name === 'authorization' && token ? `Bearer ${token}` : undefined),
+  get: name =>
+    name === 'authorization' && token ? `Bearer ${token}` : undefined,
 });
 
 const fakeRes = () => {
@@ -82,7 +92,11 @@ describe('adminAuth.required', () => {
   it('протухший токен — 401', async () => {
     const res = fakeRes();
 
-    await adminAuth.required(reqWith(signToken({ role: 'admin', expiresIn: -10 })), res, vi.fn());
+    await adminAuth.required(
+      reqWith(signToken({ role: 'admin', expiresIn: -10 })),
+      res,
+      vi.fn(),
+    );
 
     expect(res.code).toBe(401);
     expect(res.body).toEqual({ error: 'unauthorized' });

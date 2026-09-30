@@ -7,7 +7,12 @@
 // считаются и уходят в журнал служебной записью reports.dropped — атака
 // видна, а не тиха
 export default class ClientReportBuffer {
-  constructor({ maxPending = 500, logSeenMax = 5000, newPerMinute = 60, now = Date.now } = {}) {
+  constructor({
+    maxPending = 500,
+    logSeenMax = 5000,
+    newPerMinute = 60,
+    now = Date.now,
+  } = {}) {
     this._maxPending = maxPending;
     this._logSeenMax = logSeenMax;
     this._newPerMinute = newPerMinute;

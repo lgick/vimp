@@ -119,9 +119,12 @@ describe('GameCoreAdapter', () => {
   });
 
   it('createPlayer передаёт явный уровень точки респауна', () => {
-    const withLevel = { ...makeFakeCore(), set_actor_level(...a) {
-      this.calls.push(['set_actor_level', ...a]);
-    } };
+    const withLevel = {
+      ...makeFakeCore(),
+      set_actor_level(...a) {
+        this.calls.push(['set_actor_level', ...a]);
+      },
+    };
     const adapter = new GameCoreAdapter(withLevel, {
       participants: makeParticipants(),
     });
@@ -143,9 +146,12 @@ describe('GameCoreAdapter', () => {
   });
 
   it('changePlayerData передаёт явный уровень точки респауна', () => {
-    const withLevel = { ...makeFakeCore(), set_actor_level(...a) {
-      this.calls.push(['set_actor_level', ...a]);
-    } };
+    const withLevel = {
+      ...makeFakeCore(),
+      set_actor_level(...a) {
+        this.calls.push(['set_actor_level', ...a]);
+      },
+    };
     const adapter = new GameCoreAdapter(withLevel, {
       participants: makeParticipants(),
     });
@@ -184,7 +190,13 @@ describe('GameCoreAdapter', () => {
 
     adapter.applyInput(1, 42, 'down', 'forward');
 
-    expect(core.calls).toContainEqual(['apply_input', 1, 42, 'down', 'forward']);
+    expect(core.calls).toContainEqual([
+      'apply_input',
+      1,
+      42,
+      'down',
+      'forward',
+    ]);
   });
 
   it('applyAim → apply_aim с seq, мировой точкой и битами указателя', () => {
@@ -269,7 +281,9 @@ describe('GameCoreAdapter', () => {
   });
 
   it('updateData не падает без onCoreEvent при отсутствии custom-событий', () => {
-    core = makeFakeCore([{ type: 'panelSet', id: 1, field: 'health', value: 80 }]);
+    core = makeFakeCore([
+      { type: 'panelSet', id: 1, field: 'health', value: 80 },
+    ]);
 
     const adapter = new GameCoreAdapter(core, {
       participants: makeParticipants(),

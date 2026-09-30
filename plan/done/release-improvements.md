@@ -22,7 +22,7 @@
 1. Теги: чистая функция `tagAction({ local, remote, head })` → create / push /
    skip / retrigger (тег на remote на HEAD, версии в реестре нет) / move (тег
    не на HEAD — спросить, под `--yes` отказ). Заменяет `tag()` + `git push
-   origin <tag>` в шагах A1–A3 и B. Тесты на функцию и на шаги.
+origin <tag>` в шагах A1–A3 и B. Тесты на функцию и на шаги.
 2. `release.yml` движка (3 джоба) и обеих игр: шаг «Verify tag matches
    version».
 3. ~~`ui.js`: проброс SIGINT~~ — проверено на псевдотерминале: в Node 26

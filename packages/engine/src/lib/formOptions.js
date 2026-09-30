@@ -11,6 +11,8 @@
  */
 export function normalizeOptions(list) {
   return (list || []).map(opt =>
-    opt !== null && typeof opt === 'object' ? opt : { value: opt, label: String(opt) },
+    opt !== null && typeof opt === 'object'
+      ? opt
+      : { value: opt, label: String(opt) },
   );
 }

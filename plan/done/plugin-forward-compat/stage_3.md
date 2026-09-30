@@ -44,16 +44,16 @@ API реестра: `has(name)`, `resolve(name)` (проходит цепочк�
 
 `packages/engine/src/lib/formControls.js` — реестр:
 
-| Имя | Статус | Разрешается в |
-| --- | --- | --- |
-| `select` | активен | — |
-| `text` | активен | — |
-| `checkbox` | активен | — |
-| `radio` | активен | — |
-| `range` | выведен в v3 | `text` + `numeric: true` |
-| `number` | выведен в v3 | `text` + `numeric: true` |
-| `toggle` | выведен в v3 | `checkbox` |
-| `segmented` | выведен в v3 | `radio` |
+| Имя         | Статус       | Разрешается в            |
+| ----------- | ------------ | ------------------------ |
+| `select`    | активен      | —                        |
+| `text`      | активен      | —                        |
+| `checkbox`  | активен      | —                        |
+| `radio`     | активен      | —                        |
+| `range`     | выведен в v3 | `text` + `numeric: true` |
+| `number`    | выведен в v3 | `text` + `numeric: true` |
+| `toggle`    | выведен в v3 | `checkbox`               |
+| `segmented` | выведен в v3 | `radio`                  |
 
 `src/client/lib/formBuilder.js` разрешает `descriptor.control` через реестр
 до выбора билдера. `OPTION_CONTROLS` (`formBuilder.js:15`) считается после
@@ -134,6 +134,7 @@ API реестра: `has(name)`, `resolve(name)` (проходит цепочк�
 ## Файлы этапа
 
 Создаются:
+
 - `packages/engine/src/lib/registry.js`
 - `packages/engine/src/lib/formControls.js`
 - `packages/engine/src/config/clientServices.js`
@@ -141,6 +142,7 @@ API реестра: `has(name)`, `resolve(name)` (проходит цепочк�
 - `tests/client/formControls.test.js`
 
 Правятся:
+
 - `packages/engine/src/client/lib/formBuilder.js`
 - `packages/engine/src/config/wsports.js` (комментарий + `retired`-механика)
 - `packages/engine/src/client/main.js` (безопасное игнорирование неизвестного порта)

@@ -49,10 +49,10 @@ Node-процесс игрового сервера.
 (`node --input-type=module`, паттерн `(a+)+b`):
 
 | длина значения | время в `validateAuth` |
-| --- | --- |
-| 22 символа | 216 мс |
-| 26 символов | 366 мс |
-| 30 символов | 5812 мс |
+| -------------- | ---------------------- |
+| 22 символа     | 216 мс                 |
+| 26 символов    | 366 мс                 |
+| 30 символов    | 5812 мс                |
 
 Тридцать пять символов — уже минуты заблокированного event loop. Кадр
 `PC_AUTH_RESPONSE` шлёт любой подключившийся клиент, ещё до создания
@@ -126,8 +126,9 @@ maxlength/regExp проходит любой строкой») на два ке�
 Проверено:
 
 ```js
-validateAuth({ side: 'что угодно' },
-  [{ name: 'side', options: { control: 'select', options: ['red', 'blue'] } }]);
+validateAuth({ side: 'что угодно' }, [
+  { name: 'side', options: { control: 'select', options: ['red', 'blue'] } },
+]);
 // -> undefined
 ```
 
@@ -224,7 +225,7 @@ option`; значение из списка → `undefined`; список из �
 - `validators.js:88` — `if (validatorFn && !validatorFn(value))`: зовётся всё
   **истинное**;
 - `c10-auth-schema.js:60` — `typeof validators[validatorName] !== 'function'
-  && !engineValidatorNames.includes(validatorName)`: требуется **функция**,
+&& !engineValidatorNames.includes(validatorName)`: требуется **функция**,
   но движковое имя засчитывается без проверки типа.
 
 Отсюда обе стороны ошибки:
@@ -242,7 +243,7 @@ option`; значение из списка → `undefined`; список из �
    обработчика сообщения Worker'а.
 
 2. Игра, перекрывшая движковое имя не-функцией (`validators: { isValidName:
-   null }`), **проходит `C10` зелёным** — `engineValidatorNames.includes()`
+null }`), **проходит `C10` зелёным** — `engineValidatorNames.includes()`
    срабатывает раньше типа — и падает на хосте по пункту 1. То есть правило
    обещает ровно то, чего не проверяет.
 
@@ -274,18 +275,18 @@ export const resolveValidator = (name, validators = {}) => {
 В `validateAuth` (строки 80-91) — вместо `rules[options.validator]`:
 
 ```js
-    if (options?.validator) {
-      const validatorFn = resolveValidator(options.validator, validators);
+if (options?.validator) {
+  const validatorFn = resolveValidator(options.validator, validators);
 
-      // не-функция и незнакомое имя ведут себя одинаково — поле проходит.
-      // Для клиента это норма (игровые валидаторы к нему не едут), для
-      // хоста — дефект схемы, о котором говорит C10 и console.error в
-      // PortMachine (М3): звать что попало нельзя, TypeError отсюда
-      // выходит прямо в обработчик сообщения
-      if (validatorFn && !validatorFn(value)) {
-        errors.push({ name, error: 'not valid' });
-      }
-    }
+  // не-функция и незнакомое имя ведут себя одинаково — поле проходит.
+  // Для клиента это норма (игровые валидаторы к нему не едут), для
+  // хоста — дефект схемы, о котором говорит C10 и console.error в
+  // PortMachine (М3): звать что попало нельзя, TypeError отсюда
+  // выходит прямо в обработчик сообщения
+  if (validatorFn && !validatorFn(value)) {
+    errors.push({ name, error: 'not valid' });
+  }
+}
 ```
 
 Локальную `rules` из `validateAuth` удалить.
@@ -315,8 +316,7 @@ export const resolveValidator = (name, validators = {}) => {
 их к любому контролу. Проверено:
 
 ```js
-validateAuth({ side: 'RED' },
-  [{ name: 'side', options: { control: 'select', regExp: '[a-z]+' } }]);
+validateAuth({ side: 'RED' }, [{ name: 'side', options: { control: 'select', regExp: '[a-z]+' } }]);
 // -> [{ name: 'side', error: 'invalid format' }]
 ```
 
@@ -327,7 +327,7 @@ validateAuth({ side: 'RED' },
 **Решение** (одно из двух, по вкусу):
 
 - либо гейт по контролу, как на клиенте — `const isText = options?.control ===
-  'text' || options?.control === undefined;` и обе декларативные ветки под
+'text' || options?.control === undefined;` и обе декларативные ветки под
   ним (потолок длины из S1 при этом остаётся безусловным — он про DoS, а не
   про паритет);
 - либо оставить как есть и назвать асимметрию явно в комментарии и в
@@ -372,20 +372,17 @@ validateAuth({ side: 'RED' },
 `this._authParams`):
 
 ```js
-    // C10 говорит это статически, но контракт-чекер запускают не все:
-    // нерезолвнутое имя означает, что поле не проверяет никто
-    for (const { name, options } of this._authParams) {
-      if (
-        options?.validator &&
-        !resolveValidator(options.validator, authSchema.validators)
-      ) {
-        console.error(
-          `PortMachine: authSchema param "${name}" names validator ` +
-            `"${options.validator}", which authSchema.validators does not ` +
-            'provide — the field is checked by nobody',
-        );
-      }
-    }
+// C10 говорит это статически, но контракт-чекер запускают не все:
+// нерезолвнутое имя означает, что поле не проверяет никто
+for (const { name, options } of this._authParams) {
+  if (options?.validator && !resolveValidator(options.validator, authSchema.validators)) {
+    console.error(
+      `PortMachine: authSchema param "${name}" names validator ` +
+        `"${options.validator}", which authSchema.validators does not ` +
+        'provide — the field is checked by nobody',
+    );
+  }
+}
 ```
 
 **Тест:** `tests/host/PortMachine.test.js` — схема с опечаткой в имени пишет

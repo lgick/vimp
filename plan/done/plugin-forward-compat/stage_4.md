@@ -81,9 +81,10 @@ pub fn abi_describe(&self) -> String
 ```js
 // Метода нет — ядро собрано до появления самоописания. Это не ошибка:
 // поколение 0, ни одного опциального опкода (И2).
-this._abi = typeof core.abi_describe === 'function'
-  ? JSON.parse(core.abi_describe())
-  : { abi: 0, core: null, ops: [] };
+this._abi =
+  typeof core.abi_describe === 'function'
+    ? JSON.parse(core.abi_describe())
+    : { abi: 0, core: null, ops: [] };
 ```
 
 Зачем, если есть `?.`: сегодня движок узнаёт о возможностях ядра **в момент
@@ -193,11 +194,13 @@ ESLint-правило (`eslint.config.js`, `no-restricted-syntax`): обраще
 ## Файлы этапа
 
 Создаются:
+
 - `packages/engine/src/config/abiOps.js`
 - `tests/host/gameCoreAdapterOps.test.js`
 - `tests/devtools/abiSurface.test.js`
 
 Правятся:
+
 - `packages/engine/core/src/abi.rs` — шапка-заморозка, `abi_describe`, `dispatch` в обоих макросах
 - `packages/engine/core/src/sim.rs` — `dispatch_op` / `dispatch_ops` с дефолтом
 - `packages/engine/core/src/client/` — зеркальные дефолты для `GameClientDef`

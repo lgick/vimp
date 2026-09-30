@@ -64,7 +64,10 @@ export function rateLimitKey(ip) {
     return addr;
   }
 
-  return `v6:${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`;
+  return `v6:${groups
+    .slice(0, 4)
+    .map(g => parseInt(g, 16).toString(16))
+    .join(':')}::/64`;
 }
 
 // '2001:db8::1' → 8 hex-групп или null, если запись непарсима
@@ -83,7 +86,11 @@ function expandIpv6(addr) {
     return null;
   }
 
-  const groups = [...head, ...Array(halves.length === 2 ? missing : 0).fill('0'), ...tail];
+  const groups = [
+    ...head,
+    ...Array(halves.length === 2 ? missing : 0).fill('0'),
+    ...tail,
+  ];
 
   return groups.every(g => /^[0-9a-f]{1,4}$/i.test(g)) ? groups : null;
 }

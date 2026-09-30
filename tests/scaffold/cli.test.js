@@ -123,9 +123,9 @@ describe('buildDefaults', () => {
   });
 
   it('--repository попадает в дефолты как есть — нормализует его генератор', () => {
-    expect(buildDefaults({ directory: 'x', repository: 'lgick/x' }).repository).toBe(
-      'lgick/x',
-    );
+    expect(
+      buildDefaults({ directory: 'x', repository: 'lgick/x' }).repository,
+    ).toBe('lgick/x');
   });
 });
 

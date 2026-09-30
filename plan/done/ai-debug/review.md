@@ -7,16 +7,16 @@
 
 ## Что проверено фактически
 
-| Проверка | Результат |
-| --- | --- |
-| `npx eslint .` | чисто |
-| `npm test` | 100 файлов, 996 тестов — зелёные |
-| `npm run core:test` | 67 cargo-тестов — зелёные |
-| `npm run sim:check` (фикстура) | 9 pass / 0 fail / 3 skip |
-| `vimp-sim --game <чекаут vimp-tanks>` (movement) | 10 pass / 0 fail / 2 skip |
-| `… --determinism` (movement) | 11 pass / 0 fail / 1 skip — инвариант 12 зелёный на настоящем WASM |
-| `… round.json` (1800 тиков) | 10 pass / 0 fail, **0,31 с** wall-time |
-| `vimp-sim --game node_modules/@vimp-games/tanks` | **падает** (см. находку 1) |
+| Проверка                                         | Результат                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------ |
+| `npx eslint .`                                   | чисто                                                              |
+| `npm test`                                       | 100 файлов, 996 тестов — зелёные                                   |
+| `npm run core:test`                              | 67 cargo-тестов — зелёные                                          |
+| `npm run sim:check` (фикстура)                   | 9 pass / 0 fail / 3 skip                                           |
+| `vimp-sim --game <чекаут vimp-tanks>` (movement) | 10 pass / 0 fail / 2 skip                                          |
+| `… --determinism` (movement)                     | 11 pass / 0 fail / 1 skip — инвариант 12 зелёный на настоящем WASM |
+| `… round.json` (1800 тиков)                      | 10 pass / 0 fail, **0,31 с** wall-time                             |
+| `vimp-sim --game node_modules/@vimp-games/tanks` | **падает** (см. находку 1)                                         |
 
 ## Что сделано хорошо
 
@@ -80,7 +80,7 @@ CI гоняет сценарии из чекаута (`--game <root>`), где `
 
 **Решение — две независимые части.**
 
-*(a) `vimp-tanks` — сделать так, чтобы файл физически ехал.* Надёжнее всего
+_(a) `vimp-tanks` — сделать так, чтобы файл физически ехал._ Надёжнее всего
 не бороться с ignore-правилами, а положить node-глюe внутрь уже
 публикуемого `dist/`:
 
@@ -101,14 +101,14 @@ if (hasNodeCore) {
 — негативное правило `!core/pkg-node/**` в `.gitignore` либо отдельный
 `.npmignore`; обе работают, но обе — про то, чтобы «не забыть».
 
-*Обязательно к любому из вариантов* — страховка в CI/`prepack`, иначе
+_Обязательно к любому из вариантов_ — страховка в CI/`prepack`, иначе
 регрессия вернётся молча:
 
 ```json
 "prepack": "node -e \"const {execSync}=require('child_process');const f=JSON.parse(execSync('npm pack --dry-run --json'))[0].files;if(!f.some(x=>/wasm_?tanks_core\\.js$/.test(x.path)&&x.path.includes('core')))throw new Error('node core is missing from the tarball')\""
 ```
 
-*(b) Движок — превратить отказ в именованное нарушение контракта.*
+_(b) Движок — превратить отказ в именованное нарушение контракта._
 `pluginLoader.loadGameForSim` проверяет только наличие поля, но не файла:
 
 ```js
@@ -223,12 +223,10 @@ host/meta/SocketManager.js». В этапе 8 по этой причине уж�
 class RecordingSocketManager extends SocketManager {
   addUser(socketId) {
     super.addUser(socketId, {
-      send: (port, data, reliable) =>
-        this._record({ socketId, port, data, reliable }),
+      send: (port, data, reliable) => this._record({ socketId, port, data, reliable }),
       sendBinary: (buffer, reliable) =>
         this._record({ socketId, port: this._PORT_SHOT_DATA, data: buffer, reliable }),
-      close: (code, key, arr) =>
-        this._record({ socketId, port: null, data: { code, key, arr } }),
+      close: (code, key, arr) => this._record({ socketId, port: null, data: { code, key, arr } }),
     });
   }
 }
@@ -311,7 +309,10 @@ _debug(action, timeoutMs = 5000) {
 лжёт. Решение — повторить проверку для обоих импортированных плагинов:
 
 ```js
-for (const [half, plugin] of [['host', hostPlugin], ['client', clientPlugin]]) {
+for (const [half, plugin] of [
+  ['host', hostPlugin],
+  ['client', clientPlugin],
+]) {
   if (plugin.engineApi !== manifest.engineApi) {
     throw new Error(
       `game "${manifest.id}": ${half} plugin engineApi v${plugin.engineApi} ` +
@@ -349,7 +350,9 @@ for (const [half, plugin] of [['host', hostPlugin], ['client', clientPlugin]]) {
 ## 🟡 9. `mergeConfig` молча роутит переопределение в таймеры
 
 ```js
-if (key in game.timers) { game.timers[key] = value; }
+if (key in game.timers) {
+  game.timers[key] = value;
+}
 ```
 
 Сценарий, который хотел переопределить одноимённый ключ верхнего уровня
@@ -418,19 +421,19 @@ for (const [key, value] of Object.entries(rest)) { … }
 
 ## Статус устранения (2026-08-05) — ✅ все находки закрыты
 
-| # | Что сделано |
-| --- | --- |
-| 1 🔴 | Игра: `build-game-manifest.js` копирует `core/pkg-node/` в `dist/core-node/` (без `.gitignore` от wasm-pack — именно он, а не `files`, срезал каталог), `files: ["dist"]`, `prepack`/`check:pack` валит публикацию без node-ядра в тарболе. Движок: `pluginLoader` проверяет существование файла и называет контракт. Проверено на распакованном тарболе: `vimp-sim --game <распакованный пакет>` — 10 pass / 0 fail / 2 skip |
-| 2 🟠 | `VirtualClient.clear()` (снятие сущностей + `core.reset()`), маршрутизация `sendClear` в runner'е. Инвариант 9 на `round.json` после этого зелёный — детектор в сценарии игры включён (`divergence: null` убран) |
-| 3 🟠 | `RecordingSocketManager extends SocketManager`: список отправителей берётся из прототипа, тела вызывают боевой код, `_send/_sendBinary/_close` перехватывают нагрузку в кадр (`frame.sent`). Кадр остаётся именованным (это нужно инвариантам 4/10), но нагрузка теперь настоящая — первый снапшот мира доезжает до клиента (`applyFirstShot`), мёртвого `_game` больше нет. Транспорт создаётся той же фабрикой `createSocketManager(ports, gameOpts)`, что и боевой |
-| 4 🟠 | `runScenario(..., { captureFrames })`; вместо base64-потока — FNV-1a хеш на кадр, только под `--determinism`, и `writeReport` их не пишет |
-| 5 🟡 | `HostController._debug` — таймаут 5 с, ответ снимает таймер (2 теста) |
-| 6 🟡 | `pluginLoader` сверяет `engineApi` обеих половин плагина с манифестом |
-| 7 🟡 | Контракт «уровень 0 = мировые x/y» зафиксирован в `docs/ai/13-debugging.md`, `docs/en\|ru/debugging.md`, `plugin-api.md`; записи уровня 0 называют компоненты `x`/`y` |
-| 8 🟡 | `DivergenceTracker::new` — `capacity.max(1)` + cargo-тест |
-| 9 🟡 | `mergeConfig` — явный `config.timers`, без неявного роутинга; `DebugRecorder` пишет запись в новом виде; строка в доках |
-| 10 🟡 | Предел рекордера («реплей = новый матч с нуля») описан в `docs/en\|ru/debugging.md` и `docs/ai/13-debugging.md` |
-| 🟢 | `AbstractTimer` зовёт `clock.clearX` через объект; `let host` поднят выше транспорта; `leave` освобождает клиентское ядро (`VirtualClient.destroy`); публикация `tests/fixtures` описана в `debugging.md`; `pluginLoader` уложен в 80 колонок; `isNodeCore` смотрит на путь, а не на весь URL (+ тесты в игре) |
+| #     | Что сделано                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 🔴  | Игра: `build-game-manifest.js` копирует `core/pkg-node/` в `dist/core-node/` (без `.gitignore` от wasm-pack — именно он, а не `files`, срезал каталог), `files: ["dist"]`, `prepack`/`check:pack` валит публикацию без node-ядра в тарболе. Движок: `pluginLoader` проверяет существование файла и называет контракт. Проверено на распакованном тарболе: `vimp-sim --game <распакованный пакет>` — 10 pass / 0 fail / 2 skip                                         |
+| 2 🟠  | `VirtualClient.clear()` (снятие сущностей + `core.reset()`), маршрутизация `sendClear` в runner'е. Инвариант 9 на `round.json` после этого зелёный — детектор в сценарии игры включён (`divergence: null` убран)                                                                                                                                                                                                                                                      |
+| 3 🟠  | `RecordingSocketManager extends SocketManager`: список отправителей берётся из прототипа, тела вызывают боевой код, `_send/_sendBinary/_close` перехватывают нагрузку в кадр (`frame.sent`). Кадр остаётся именованным (это нужно инвариантам 4/10), но нагрузка теперь настоящая — первый снапшот мира доезжает до клиента (`applyFirstShot`), мёртвого `_game` больше нет. Транспорт создаётся той же фабрикой `createSocketManager(ports, gameOpts)`, что и боевой |
+| 4 🟠  | `runScenario(..., { captureFrames })`; вместо base64-потока — FNV-1a хеш на кадр, только под `--determinism`, и `writeReport` их не пишет                                                                                                                                                                                                                                                                                                                             |
+| 5 🟡  | `HostController._debug` — таймаут 5 с, ответ снимает таймер (2 теста)                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 6 🟡  | `pluginLoader` сверяет `engineApi` обеих половин плагина с манифестом                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 7 🟡  | Контракт «уровень 0 = мировые x/y» зафиксирован в `docs/ai/13-debugging.md`, `docs/en\|ru/debugging.md`, `plugin-api.md`; записи уровня 0 называют компоненты `x`/`y`                                                                                                                                                                                                                                                                                                 |
+| 8 🟡  | `DivergenceTracker::new` — `capacity.max(1)` + cargo-тест                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 9 🟡  | `mergeConfig` — явный `config.timers`, без неявного роутинга; `DebugRecorder` пишет запись в новом виде; строка в доках                                                                                                                                                                                                                                                                                                                                               |
+| 10 🟡 | Предел рекордера («реплей = новый матч с нуля») описан в `docs/en\|ru/debugging.md` и `docs/ai/13-debugging.md`                                                                                                                                                                                                                                                                                                                                                       |
+| 🟢    | `AbstractTimer` зовёт `clock.clearX` через объект; `let host` поднят выше транспорта; `leave` освобождает клиентское ядро (`VirtualClient.destroy`); публикация `tests/fixtures` описана в `debugging.md`; `pluginLoader` уложен в 80 колонок; `isNodeCore` смотрит на путь, а не на весь URL (+ тесты в игре)                                                                                                                                                        |
 
 Проверено после правок: `npx eslint .` чисто, `npm test` — 1010 тестов зелёные,
 `npm run core:test` — 68 cargo-тестов, `npm run sim:check` — 9/0/3,
@@ -448,12 +451,12 @@ w1 1`), а `report.json` того же прогона похудел с 83 КБ 
 
 При проверке нашлись и устранены четыре остатка:
 
-| Что | Правка |
-| --- | --- |
+| Что                                                                                                                                                                                                                                                                                                                      | Правка                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Примеры манифеста в доках всё ещё учили сломанной раскладке (`../core/pkg-node/…` в `docs/ai/02-packaging.md`, `docs/ai/13-debugging.md`, `docs/en\|ru/plugin-api.md`) — LLM, генерирующая плагин, воспроизвела бы находку 1; в `02-packaging.md` это к тому же противоречило его же строке «публикуется только `dist/`» | Все примеры переведены на `./core-node/<crate>.js`, в таблицу `entries` и в раздел `dist/`-раскладки добавлено, почему путь обязан вести внутрь `dist/` (ignore-правила + `.gitignore` от wasm-pack + его `package.json`) |
-| Составные отправители публиковались подписчику **после** вложенных (`stat → panel → keySet → firstShot` вместо порядка провода) | `RecordingSocketManager` публикует кадр в момент первой отправки нагрузки, а кадр без собственной нагрузки — после тела: порядок стал порядком провода, доставка осталась ровно однократной (2 теста) |
-| `vimp-tanks/.github/workflows/test.yml` — комментарий про `entries.wasmNode` на `core/pkg-node` | Переписан на `dist/core-node` |
-| `--game` по каталогу вне дерева `node_modules` падает на `pixi.js` (peer-зависимость плагина) — ожидаемо, но нигде не сказано | Абзац в `docs/en\|ru/debugging.md`; заодно в `vimp-tanks/docs/en\|ru/getting-started.md` описан порядок `core:build:node` → `build` и роль `check:pack` |
+| Составные отправители публиковались подписчику **после** вложенных (`stat → panel → keySet → firstShot` вместо порядка провода)                                                                                                                                                                                          | `RecordingSocketManager` публикует кадр в момент первой отправки нагрузки, а кадр без собственной нагрузки — после тела: порядок стал порядком провода, доставка осталась ровно однократной (2 теста)                     |
+| `vimp-tanks/.github/workflows/test.yml` — комментарий про `entries.wasmNode` на `core/pkg-node`                                                                                                                                                                                                                          | Переписан на `dist/core-node`                                                                                                                                                                                             |
+| `--game` по каталогу вне дерева `node_modules` падает на `pixi.js` (peer-зависимость плагина) — ожидаемо, но нигде не сказано                                                                                                                                                                                            | Абзац в `docs/en\|ru/debugging.md`; заодно в `vimp-tanks/docs/en\|ru/getting-started.md` описан порядок `core:build:node` → `build` и роль `check:pack`                                                                   |
 
 Проверки после этих правок: `eslint` чисто в обоих репозиториях, 1012
 vitest-тестов (движок) и 103 (игра), 68 cargo-тестов, `sim:check` — 9/0/3,

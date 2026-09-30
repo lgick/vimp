@@ -62,17 +62,22 @@ vimp-p2p/
 {
   "id": "tanks",
   "engineApi": 1,
-  "version": "<hash>",                     // gameVersion (контент client+host+wasm)
-  "title": "VIMP Tanks",                   // для лобби
+  "version": "<hash>", // gameVersion (контент client+host+wasm)
+  "title": "VIMP Tanks", // для лобби
   "entries": {
-    "client": "/games/tanks/client-<hash>.js",  // ESM, default export = ClientPlugin
-    "host":   "/games/tanks/host-<hash>.js",    // ESM worker-safe, default export = HostPlugin
-    "wasm":   "/games/tanks/core-<hash>.wasm"   // единый hashed .wasm обоих entry (общий HTTP-кеш)
+    "client": "/games/tanks/client-<hash>.js", // ESM, default export = ClientPlugin
+    "host": "/games/tanks/host-<hash>.js", // ESM worker-safe, default export = HostPlugin
+    "wasm": "/games/tanks/core-<hash>.wasm", // единый hashed .wasm обоих entry (общий HTTP-кеш)
   },
-  "assetsBase": "/games/tanks/",           // база звуков/ассетов
+  "assetsBase": "/games/tanks/", // база звуков/ассетов
   "maps": { "version": "<hash>", "list": ["pool mini", "canopy", "garden"] },
-  "roomDefaults": { "maxPlayers": 8, "roundTime": 120000, "mapTime": 600000,
-                    "friendlyFire": false, "map": "pool mini" }
+  "roomDefaults": {
+    "maxPlayers": 8,
+    "roundTime": 120000,
+    "mapTime": 600000,
+    "friendlyFire": false,
+    "map": "pool mini",
+  },
 }
 ```
 
@@ -140,18 +145,18 @@ export default {
 
 **Ключевое: модули Stat/Panel/Vote/Chat — движковые, но настраиваются конфигом игры.** Следствия:
 
-| Движковый модуль | Что поставляет игра (через CONFIG_DATA / gameConfig) |
-| --- | --- |
-| Panel (host + client MVC) | схема полей (`fields` + типы отображения: bar/число/время/иконка-оружия), `activeKey`; движковый PanelView **генерирует DOM по схеме** (замена хардкода `panel.pug` `#panel-health/-bullet/-bomb/-time`), внешний вид полей — CSS игры |
-| Stat (host + client MVC) | колонки (имена/методы агрегации) и **список команд произвольной длины**; движковый StatView **генерирует таблицы по числу команд** (замена хардкода `stat.pug` `#team1/#team2/#spectators` и 5 фиксированных колонок) |
-| Vote (host + client MVC) | определения игровых голосований (`voteDefs`) + все шаблоны/меню (тексты); движковые голосования механизмов (teamChange, mapChangeByUser/BySystem) остаются в движке, их тексты — тоже у игры |
-| Chat (host + client MVC) | игровые коды системных сообщений (группа `b:*` и будущие) + ВСЕ тексты сообщений; движок владеет механизмом и кодами своих механизмов (`s/v/m/c/n`) |
-| CommandProcessor | регистрация игровых команд (`/bot`); движковые `/name`, `/nr`, `/timeleft`, `/mapname` остаются |
-| RoundManager / ParticipantManager | `teams` (произвольные), `spectatorTeam`, respawns из карт, `scripted`-параметры; в движке — нейтральное понятие «scripted participant» (геттер `isScripted`; слова «bot» в движке не остаётся) |
-| SocketManager | `soundCues` (какой звук на какое движковое событие), `initialVote` |
-| SoundManager (client) | список звуков + файлы (`assetsBase`) |
-| Controls (client) | player-keyset и раскладка; спектаторский набор — движковый |
-| Auth | схема формы (`authSchema`) + валидатор модели |
+| Движковый модуль                  | Что поставляет игра (через CONFIG_DATA / gameConfig)                                                                                                                                                                                   |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Panel (host + client MVC)         | схема полей (`fields` + типы отображения: bar/число/время/иконка-оружия), `activeKey`; движковый PanelView **генерирует DOM по схеме** (замена хардкода `panel.pug` `#panel-health/-bullet/-bomb/-time`), внешний вид полей — CSS игры |
+| Stat (host + client MVC)          | колонки (имена/методы агрегации) и **список команд произвольной длины**; движковый StatView **генерирует таблицы по числу команд** (замена хардкода `stat.pug` `#team1/#team2/#spectators` и 5 фиксированных колонок)                  |
+| Vote (host + client MVC)          | определения игровых голосований (`voteDefs`) + все шаблоны/меню (тексты); движковые голосования механизмов (teamChange, mapChangeByUser/BySystem) остаются в движке, их тексты — тоже у игры                                           |
+| Chat (host + client MVC)          | игровые коды системных сообщений (группа `b:*` и будущие) + ВСЕ тексты сообщений; движок владеет механизмом и кодами своих механизмов (`s/v/m/c/n`)                                                                                    |
+| CommandProcessor                  | регистрация игровых команд (`/bot`); движковые `/name`, `/nr`, `/timeleft`, `/mapname` остаются                                                                                                                                        |
+| RoundManager / ParticipantManager | `teams` (произвольные), `spectatorTeam`, respawns из карт, `scripted`-параметры; в движке — нейтральное понятие «scripted participant» (геттер `isScripted`; слова «bot» в движке не остаётся)                                         |
+| SocketManager                     | `soundCues` (какой звук на какое движковое событие), `initialVote`                                                                                                                                                                     |
+| SoundManager (client)             | список звуков + файлы (`assetsBase`)                                                                                                                                                                                                   |
+| Controls (client)                 | player-keyset и раскладка; спектаторский набор — движковый                                                                                                                                                                             |
+| Auth                              | схема формы (`authSchema`) + валидатор модели                                                                                                                                                                                          |
 
 Опциональный обход схемы: `views: { Panel?, Stat? }` — кастомный view-класс игры, реализующий view-интерфейс MVC-тройки (подписка на движковую модель через `Publisher`; model/controller остаются движковыми). В v1 движок реализует только schema-генератор — поле лишь валидируется при загрузке плагина, подстановка добавится при первой необходимости. Радиальные/canvas-индикаторы возможны и без этого: HUD-сущность на canvas — обычный `part`.
 
@@ -194,19 +199,19 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 Разъезд модулей текущего `core/src/`:
 
-| → `vimp-engine-core` | → `vimp-tanks-core` |
-| --- | --- |
+| → `vimp-engine-core`                                                                                                                                                                                                                                             | → `vimp-tanks-core`                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `physics.rs` (мир, generic BodyTag, math), `rng.rs`, `map.rs`, `bots/pathfinder.rs`+`bots/spatial.rs` (→ `nav/`), фрейминг `snapshot.rs`, `client/{interpolator,predictor(generic),raycast,unpack(framing),hot}`, фикс-шаг/контакты из `game.rs`, handoff-каркас | `tank.rs`, `bomb.rs`, `motion.rs` (+parity-тесты), `events`-маппинг, `bots/{controller,navigation}.rs`, игровая логика `game.rs` (→ `sim.rs`), `client/shot.rs`, game-раскладки блоков (как схема+RowData), `#[wasm_bindgen]`-обёртки, `tests/sim.rs` |
 
 ### 3.7. Версии и совместимость
 
-| Константа | Владелец | Политика |
-| --- | --- | --- |
-| `ENGINE_API_VERSION` (=1) | движок | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1 |
-| `SNAPSHOT_FORMAT_VERSION` (=3, план предполагал →4 — отклонено, см. 3.4/4b) | движок (фрейминг) | байтовая раскладка не менялась → версия не поднята; защищает фрейминг внутри комнаты |
-| `HANDOFF_VERSION` (→2) | движок | +`gameId`, `gameVersion` в мете эстафеты; несовпадение → штатный `resume` |
-| `codeVersion` | мастер | составной: `{ engine: hash(host.worker-*.js), game: {id, version} }`; расхождение любой части → эстафета (новый Worker получает свежий `entries.host`) |
-| `mapsVersion` | мастер | per-game: `/games/:id/maps/manifest.json` |
+| Константа                                                                   | Владелец          | Политика                                                                                                                                               |
+| --------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ENGINE_API_VERSION` (=1)                                                   | движок            | проверяется при import плагинов (host worker и клиент); ломающие изменения Plugin API / Wasm ABI → +1                                                  |
+| `SNAPSHOT_FORMAT_VERSION` (=3, план предполагал →4 — отклонено, см. 3.4/4b) | движок (фрейминг) | байтовая раскладка не менялась → версия не поднята; защищает фрейминг внутри комнаты                                                                   |
+| `HANDOFF_VERSION` (→2)                                                      | движок            | +`gameId`, `gameVersion` в мете эстафеты; несовпадение → штатный `resume`                                                                              |
+| `codeVersion`                                                               | мастер            | составной: `{ engine: hash(host.worker-*.js), game: {id, version} }`; расхождение любой части → эстафета (новый Worker получает свежий `entries.host`) |
+| `mapsVersion`                                                               | мастер            | per-game: `/games/:id/maps/manifest.json`                                                                                                              |
 
 ## 4. Этапы
 
@@ -231,17 +236,17 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 Новые игровые модули сразу создаются в `games/tanks/src/`; движок временно импортирует их статически (композиция рвётся в этапе 6).
 
-| PR | Задача | Ключевые файлы |
-| --- | --- | --- |
-| 3.1 ✅ | `GameCoreAdapter._drainEvents`: игровой словарь → инъецируемый `eventRouter` (временный мост до стандартных событий этапа 4a) | `src/host/GameCoreAdapter.js`, новый `games/tanks/src/host/coreEventRouter.js` |
-| 3.2 ✅ | `SocketManager`: `sendRoundStart/Victory/Defeat/FragSound/GameOverSound` → generic `sendSoundCue(cue)` по `soundCues`; `sendFirstVote` → `initialVote` из конфига | `src/host/meta/SocketManager.js`, `src/host/HostGame.js`, `src/host/meta/core/RoundManager.js` |
-| 3.3 ✅ | `CommandProcessor`: движковое ядро (`/name`,`/nr`,`/timeleft`,`/mapname`) + `registerCommand()`; `/bot` со всей логикой и голосованиями → игра | `src/host/meta/core/CommandProcessor.js`, `games/tanks/src/host/botCommand.js` |
-| 3.4 ✅ | `systemMessages.js`: движковый реестр (группы s/v/m/c/n) + `registerCodes()`; группа `b:*` → игра | `src/host/meta/modules/chat/systemMessages.js`, `games/tanks/src/host/systemMessages.js` |
-| 3.5 ✅ | Разрез `config/game.js`: движковое (`maxPlayers`, `timers`, `rtt`, `idleKickTimeout`, `isDevMode`, `chatMaxLength`?) → `src/config/hostDefaults.js`; игровое (`teams`, `spectatorTeam`, `panel`, `stat`, `playerKeys`, `mapScale`, `mapSetId`, `mapsInVote`, `currentMap`, `parts.*`) → `games/tanks/src/config/game.js`; спектаторский keyset — движковый | `src/config/game.js`, `src/lib/coreConfig.js`, `src/host/host.worker.js` (включая `MAX_ROOM_PLAYERS=8` → roomDefaults) |
-| 3.6 ✅ | Разрез `config/client.js`: движковое (`interpolation`, controls.modes/cmds, elems-структуры, `techInformList`, `initIdList`-механика) → `src/config/clientDefaults.js`; игровое (`parts.*`, `keySetList`, схемы panel/stat, тексты chat/vote/gameInform, канвасы) → `games/tanks/src/config/client.js`; merge в `buildClientConfig` | `src/config/client.js`, `src/lib/buildClientConfig.js` |
-| 3.7 ✅ | Auth: `config/auth.js` → игра; `isValidModel` (хардкод `'m1'`, `src/lib/validators.js:16`) → валидатор из `authSchema` | `src/lib/validators.js`, `src/host/host.worker.js` |
-| 3.8 ✅ | Panel: ключ `'wa'` (`src/host/meta/modules/Panel.js:99`) → `activeKey` из схемы | `src/host/meta/modules/Panel.js` |
-| 3.9 ✅ | Боты: `HostBotManager` → `games/tanks/src/host/TanksBotManager.js` (контракт scripted-модуля, `createModules(ctx)`); в движке `Participant`/`ParticipantManager` — нейтральный `isScripted` (алиас `isBot` до конца этапа 5), имя `Bot${id}` → `scripted.namePrefix`, модель `'m1'` → `scripted.defaultModel` | `src/host/HostBotManager.js`, `src/host/meta/player/*`, `src/host/HostGame.js` (`_freeSlotForHuman` — generic политика «scripted уступают людям») |
+| PR      | Задача                                                                                                                                                                                                                                                                                                                                                                                | Ключевые файлы                                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.1 ✅  | `GameCoreAdapter._drainEvents`: игровой словарь → инъецируемый `eventRouter` (временный мост до стандартных событий этапа 4a)                                                                                                                                                                                                                                                         | `src/host/GameCoreAdapter.js`, новый `games/tanks/src/host/coreEventRouter.js`                                                                                    |
+| 3.2 ✅  | `SocketManager`: `sendRoundStart/Victory/Defeat/FragSound/GameOverSound` → generic `sendSoundCue(cue)` по `soundCues`; `sendFirstVote` → `initialVote` из конфига                                                                                                                                                                                                                     | `src/host/meta/SocketManager.js`, `src/host/HostGame.js`, `src/host/meta/core/RoundManager.js`                                                                    |
+| 3.3 ✅  | `CommandProcessor`: движковое ядро (`/name`,`/nr`,`/timeleft`,`/mapname`) + `registerCommand()`; `/bot` со всей логикой и голосованиями → игра                                                                                                                                                                                                                                        | `src/host/meta/core/CommandProcessor.js`, `games/tanks/src/host/botCommand.js`                                                                                    |
+| 3.4 ✅  | `systemMessages.js`: движковый реестр (группы s/v/m/c/n) + `registerCodes()`; группа `b:*` → игра                                                                                                                                                                                                                                                                                     | `src/host/meta/modules/chat/systemMessages.js`, `games/tanks/src/host/systemMessages.js`                                                                          |
+| 3.5 ✅  | Разрез `config/game.js`: движковое (`maxPlayers`, `timers`, `rtt`, `idleKickTimeout`, `isDevMode`, `chatMaxLength`?) → `src/config/hostDefaults.js`; игровое (`teams`, `spectatorTeam`, `panel`, `stat`, `playerKeys`, `mapScale`, `mapSetId`, `mapsInVote`, `currentMap`, `parts.*`) → `games/tanks/src/config/game.js`; спектаторский keyset — движковый                            | `src/config/game.js`, `src/lib/coreConfig.js`, `src/host/host.worker.js` (включая `MAX_ROOM_PLAYERS=8` → roomDefaults)                                            |
+| 3.6 ✅  | Разрез `config/client.js`: движковое (`interpolation`, controls.modes/cmds, elems-структуры, `techInformList`, `initIdList`-механика) → `src/config/clientDefaults.js`; игровое (`parts.*`, `keySetList`, схемы panel/stat, тексты chat/vote/gameInform, канвасы) → `games/tanks/src/config/client.js`; merge в `buildClientConfig`                                                   | `src/config/client.js`, `src/lib/buildClientConfig.js`                                                                                                            |
+| 3.7 ✅  | Auth: `config/auth.js` → игра; `isValidModel` (хардкод `'m1'`, `src/lib/validators.js:16`) → валидатор из `authSchema`                                                                                                                                                                                                                                                                | `src/lib/validators.js`, `src/host/host.worker.js`                                                                                                                |
+| 3.8 ✅  | Panel: ключ `'wa'` (`src/host/meta/modules/Panel.js:99`) → `activeKey` из схемы                                                                                                                                                                                                                                                                                                       | `src/host/meta/modules/Panel.js`                                                                                                                                  |
+| 3.9 ✅  | Боты: `HostBotManager` → `games/tanks/src/host/TanksBotManager.js` (контракт scripted-модуля, `createModules(ctx)`); в движке `Participant`/`ParticipantManager` — нейтральный `isScripted` (алиас `isBot` до конца этапа 5), имя `Bot${id}` → `scripted.namePrefix`, модель `'m1'` → `scripted.defaultModel`                                                                         | `src/host/HostBotManager.js`, `src/host/meta/player/*`, `src/host/HostGame.js` (`_freeSlotForHuman` — generic политика «scripted уступают людям»)                 |
 | 3.10 ✅ | Клиент: собрать HostPlugin/ClientPlugin-объекты (пока статический импорт); из `main.js` вынести хуки (set_model/sync_panel/try_fire/cycle_weapon — строки 242, 358-361, 721-731); **PanelView/StatView движка генерируют DOM по схеме игры** (замена `panel.pug`/`stat.pug`; произвольное число команд и полей); канвасы — из конфига; игровой CSS отделить от движкового `style.css` | `src/client/main.js`, `index.html`, `src/client/views/includes/{panel,stat}.pug`, `src/client/components/view/{Panel,Stat}.js`, `games/tanks/src/client/index.js` |
 
 Готово: после каждого PR тесты зелёные и поведение в dev идентично; после 3.10 — ручной smoke двух вкладок (движение/выстрелы/панель/стата/чат/голосования/боты).
@@ -249,12 +254,15 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 ### Этап 4. Rust: генерализация и распил ядра (XL, параллелен этапу 3; 4a — до этапа 5) — ✅ выполнен
 
 **4a. Генерализация в одном crate (XL, 3 PR).**
+
 1. ABI-переименования (`spawn_actor`/`spawn_scripted_actor`/`remove_actor`/`remove_scripted_actor`/`reset_actor`) ✅ выполнено; зеркально `GameCoreAdapter`. Трейты `GameDef`/`GameSim` + `EngineSim<TanksGame>` ✅ выполнено (внутри одного crate, физический распил на `packages/engine/core`/`games/tanks/core` — ещё впереди, см. 4b): `core/src/sim.rs` — `GameDef`/`GameSim<G>`/`SimCtx`; `core/src/game.rs` — `EngineSim<G>` (мир, карта, нав-граф/сетка, PRNG, аккумулятор фикс-шага, destroy-очередь, `pub type GameState = EngineSim<TanksGame>`); `core/src/tanks.rs` — `TanksSim` (участники/оружие/боты/снапшот-блоки) через `on_fixed_step`/`on_contacts`/`on_before_destroy`/`on_ai_tick`; `BotBrain` (`core/src/bots/controller.rs`) переведён на адаптер `BotView` (те же имена полей/методов, что были у монолитного `GameState`, — тело бота не менялось). `on_before_destroy` — дополнение к сигнатурам из PLAN.md §3.6 (движок зовёт перед `world.remove_body`, чтобы игра обновила свою бухгалтерию по тегу тела, напр. null-маркер бомбы); `BodyTag`-варианты и `CoreConfig` пока не разделены на движковую/игровую половины (это отдельный шаг, актуален к 4b). `cargo test` (95, включая parity и `state_dump_restores_identical_simulation`) и `npm test`/`npx eslint .` зелёные на пересобранном `pkg-node`/`pkg-web`.
 2. Schema-driven снапшот ✅ выполнено: расширенный `SnapshotConfig` (`BlockSchema{id,kind,class,fields}` + `PLAYER_STATE_LEN`), интерпретаторы в `snapshot.rs`/`unpack.rs`/интерполяторе; зеркально `src/config/opcodes.js`. Байтовая раскладка не изменилась → `SNAPSHOT_FORMAT_VERSION` не поднят; `reconstructHot` в `main.js` сознательно не переписан (raскладка hot-записи не изменилась, см. PLAN_4_details.md).
 3. Стандартные события (`panelSet/panelActive/death/shake/custom`) ✅ выполнено: `CoreEvent` (`core/src/events.rs`) переведён на генерик-словарь; `GameCoreAdapter._drainEvents` роутит его сам (снят временный eventRouter из 3.1, `games/tanks/src/host/coreEventRouter.js` удалён), `custom` → опциональный `HostPlugin.onCoreEvent`. Конфиг `{engine, game}`, generic `Predictor`/`ShotPredictor` — остаются в работе.
+
 - Готово: `cargo test` (~90) зелёный, `tests/core/*` + `tests/host/HostGame.test.js` зелёные на пересобранном `pkg-node`, бенчмарк-гейт `step+pack_body` без деградации, ручной smoke.
 
 **4b. Физический распил на два crate (L, 1–2 PR) — ✅ выполнен.**
+
 - `packages/engine/core` (`vimp-engine-core`, rlib, БЕЗ wasm-bindgen) + `games/tanks/core` (`vimp-tanks-core`, cdylib+rlib, обёртки `GameCore/ClientCore`); корневой cargo workspace (`Cargo.toml`, `resolver = "2"`, `workspace.dependencies`).
 - `CoreConfig`/`ClientConfig` разделены: `EngineConfig{timeStep,mapScale,mapSetId,snapshot,seed}` + `EngineClientConfig{timeStepMs,snapshot,interpolation}` (движок, `packages/engine/core/src/config.rs`) vs `TanksConfig{friendlyFire,models,weapons,playerKeys,panel}` + `TanksClientConfig{models,weapons,playerKeys,seed}` (игра, `games/tanks/core/src/config.rs`); `GameDef::Config` — ассоциированный тип, `GameSim::new(cfg: &G::Config, engine_cfg: &EngineConfig)` — игровой конфиг передаётся один раз в конструктор, `TanksSim` хранит свою копию (models/weapons/panel/friendly_fire/player_keys), остальные методы трейта `cfg`-параметр не принимают. Wire-формат `GameCore`/`ClientCore::new` — `{engine: {...}, game: {...}}` (JS-сборщики `coreConfig.js`/`clientCoreConfig.js` собирают плоский конфиг и раскладывают по обеим половинам).
 - `BodyTag` разделён: движок (`packages/engine/core/src/physics.rs`) владеет только зарезервированным `MAP_OBJECT_TAG`/`encode_map_object`/`is_map_object`; весь enum `BodyTag` (`Player`/`Shot`) — целиком в игровом `games/tanks/core/src/body_tag.rs`, с тестом round-trip против движковой кодировки.
@@ -266,6 +274,7 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 - Готово: `cargo test --workspace` — 95/95 (50 engine + 33 tanks-lib + 12 integration, то же число, что и до распила); `npm test` — 664/664; `npx eslint .` чисто; `npm run build` (полная сборка, включая `core:build:web`) проходит.
 
 **4c. Клиентский трейт `GameClientDef` + `export_client_core_abi!` (после 4b) — ✅ выполнен.**
+
 - `packages/engine/core/src/client/game.rs`: `trait GameClientDef` (зеркало `GameSim<G>`) + generic `ClientState<G>` — сетевой буфер (`Interpolator`), очередь событийных кадров, запись hot-буфера; орбитальный порядок вызовов (`on_server_state`/`set_server_offset`/`track_frame`/`filter_frame_game`/`update_world[_interpolated]`/`update`/`render_overlay`) идентичен прежней монолитной `ClientState`.
 - Форма трейта провалидирована фикстурой ДО миграции танков: `TestClient` (`#[cfg(test)]`, тот же файл) — тривиальная линейная интеграция, `render_overlay`/`try_fire`/т.д.; тесты `push_frame_and_sample_writes_hot_layout`/`render_overlay_appends_opaque_tail_and_sets_flag`/`reset_clears_predictor_and_frame_queue` прогоняют `ClientState<TestClient>` тем же путём, что и настоящую игру — сигнатуры трейта не потребовали правок по итогам.
 - `games/tanks/core/src/client/mod.rs`: `TanksClient` (impl `GameClientDef`) оборачивает `Predictor`+`ShotPredictor`+`my_model_key(_id)`+`my_tank_meta`; тела `Predictor`/`ShotPredictor`/`motion.rs` не менялись. `render_overlay` собирает прежний 12-f32 predicted-хвост через новый generic `RenderOverlay{camera, tail}` (движок знает только камеру и непрозрачный хвост). Старые тесты `client::tests::*` перенесены на `ClientState<TanksClient>` без изменения байтовых ассертов.
@@ -285,13 +294,13 @@ Engine-crate — чистый Rust без wasm-bindgen (ошибки `Result<_, 
 
 ### Этап 6. Динамическая загрузка игры (XL, 4–5 PR)
 
-| PR | Задача |
-| --- | --- |
-| 6.1 ✅ | **Сборка игры**: `games/tanks/vite.config.js` — два независимых build-прогона (client-entry, host-entry worker-safe) в общий `dist/games/tanks/`; wasm — hashed asset (общий у обоих entry; URL — `entries.wasm` манифеста); пост-шаги: `maps:export` → `dist/games/tanks/maps/*.json`, звуки → `dist/games/tanks/sounds/`, генерация `manifest.json` (хеш-версии). Проверка: host-бандл не содержит DOM-кода |
+| PR     | Задача                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 6.1 ✅ | **Сборка игры**: `games/tanks/vite.config.js` — два независимых build-прогона (client-entry, host-entry worker-safe) в общий `dist/games/tanks/`; wasm — hashed asset (общий у обоих entry; URL — `entries.wasm` манифеста); пост-шаги: `maps:export` → `dist/games/tanks/maps/*.json`, звуки → `dist/games/tanks/sounds/`, генерация `manifest.json` (хеш-версии). Проверка: host-бандл не содержит DOM-кода                                                                                                                                                                                                                |
 | 6.2 ✅ | **Мастер**: `GameCatalog` (`packages/engine/src/master/GameCatalog.js`, по образцу `WorkerCatalog`) — сканирует `dist/games/*/manifest.json`; REST `/games/manifest.json`, `/games/:id/manifest.json`, `/games/:id/maps/*` (per-game `MapCatalog`); `HostRegistry` + `GET /servers` + `register_host`/`host_registered` — поля `gameId`/`gameVersion`. Dev-режим: манифест с Vite-URL исходников (`/@fs/…/games/tanks/src/client/index.js` — трансформация и HMR штатные), `entries.wasm` — Vite-URL `.wasm` из `pkg-web`; ассеты (звуки, карты из `games/tanks/src/data`) — `express.static`-mount `/games/:id/` на мастере |
-| 6.3 ✅ | **Клиент**: лобби — `roomDefaults` из манифеста в форму создания комнаты (селект игры скрыт, пока игра одна); «Создать сервер» — фича-детект module worker + dynamic import с внятной ошибкой («браузер не может быть хостом»; join не блокируется); join: `GET /games/:id/manifest.json` → `import(entries.client)` → проверка `engineApi` → подключение; `sounds.path` от `assetsBase`; удалить клиентскую половину `gameRegistry.static.js` |
-| 6.4 ✅ | **Worker**: `init`-сообщение несёт `room.game = {id, version, hostEntryUrl, wasmUrl}`; `host.worker.js` → `await import(hostEntryUrl)` → `plugin.createCore(coreConfigJson, { wasmUrl })`; `applyRoomOverrides` валидирует по `roomDefaults`; удалить `gameRegistry.static.js` целиком |
-| 6.5 ✅ | **Эстафета**: составной `codeVersion` (движок+игра), `HANDOFF_VERSION=2` (+gameId/gameVersion), при свопе новый Worker получает свежий `hostEntryUrl`; сбой → существующий `resume`-путь |
+| 6.3 ✅ | **Клиент**: лобби — `roomDefaults` из манифеста в форму создания комнаты (селект игры скрыт, пока игра одна); «Создать сервер» — фича-детект module worker + dynamic import с внятной ошибкой («браузер не может быть хостом»; join не блокируется); join: `GET /games/:id/manifest.json` → `import(entries.client)` → проверка `engineApi` → подключение; `sounds.path` от `assetsBase`; удалить клиентскую половину `gameRegistry.static.js`                                                                                                                                                                               |
+| 6.4 ✅ | **Worker**: `init`-сообщение несёт `room.game = {id, version, hostEntryUrl, wasmUrl}`; `host.worker.js` → `await import(hostEntryUrl)` → `plugin.createCore(coreConfigJson, { wasmUrl })`; `applyRoomOverrides` валидирует по `roomDefaults`; удалить `gameRegistry.static.js` целиком                                                                                                                                                                                                                                                                                                                                       |
+| 6.5 ✅ | **Эстафета**: составной `codeVersion` (движок+игра), `HANDOFF_VERSION=2` (+gameId/gameVersion), при свопе новый Worker получает свежий `hostEntryUrl`; сбой → существующий `resume`-путь                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 **6.3 — заметки реализации.** Новый модуль
 `packages/engine/src/lib/gamePlugin.js` (`fetchGamesManifest`,
@@ -505,15 +514,16 @@ CI (`.github/workflows/test.yml`) — четыре независимых job в
 `vitest run --project engine-node --project engine-client`, без сборки WASM
 вообще), `tanks` (`cargo test -p vimp-tanks-core` + `core:build:web` +
 `vitest run --project tanks`), `integration` (`core:build` — оба таргета —
-+ `vitest run --project integration`). При построении матрицы обнаружен
-скрытый пробел прежнего единого пайплайна: он собирал только
-`core:build:node`, а `tests/host/harness.js` (используется
-`HostGame.test.js`) и весь проект `tanks` (`hostPlugin.test.js` и др.)
-статически импортируют `@vimp/tanks/host|client/index.js`, которые грузят
-именно `pkg-web`, а не `pkg-node` — на чистом чекауте (без локально
-собранных артефактов на диске) прежний CI упал бы на этих тестах; починено
-явной сборкой обоих таргетов там, где они нужны (проверено локально —
-временным перемещением `pkg-node`/`pkg-web`).
+
+- `vitest run --project integration`). При построении матрицы обнаружен
+  скрытый пробел прежнего единого пайплайна: он собирал только
+  `core:build:node`, а `tests/host/harness.js` (используется
+  `HostGame.test.js`) и весь проект `tanks` (`hostPlugin.test.js` и др.)
+  статически импортируют `@vimp/tanks/host|client/index.js`, которые грузят
+  именно `pkg-web`, а не `pkg-node` — на чистом чекауте (без локально
+  собранных артефактов на диске) прежний CI упал бы на этих тестах; починено
+  явной сборкой обоих таргетов там, где они нужны (проверено локально —
+  временным перемещением `pkg-node`/`pkg-web`).
 
 ### Этап 8. Сборка, деплой, документация, финал (L, 2–3 PR) — частично выполнен
 

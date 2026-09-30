@@ -168,9 +168,8 @@ describe('dispatchCoreOp: выведенное имя опкода', () => {
   const withAliasedRegistry = async () => {
     vi.resetModules();
     vi.doMock('../../packages/engine/src/config/abiOps.js', async () => {
-      const { createRegistry } = await import(
-        '../../packages/engine/src/lib/registry.js'
-      );
+      const { createRegistry } =
+        await import('../../packages/engine/src/lib/registry.js');
 
       return {
         abiOps: createRegistry('abiOps', [
@@ -224,9 +223,9 @@ describe('dispatchCoreOp: выведенное имя опкода', () => {
     const { dispatchCoreOp: dispatchOp } = await withAliasedRegistry();
     const c = core();
 
-    expect(
-      dispatchOp(c, { abi: 1, core: 'x', ops: [] }, 'debug.json'),
-    ).toEqual({ handled: false, bytes: null });
+    expect(dispatchOp(c, { abi: 1, core: 'x', ops: [] }, 'debug.json')).toEqual(
+      { handled: false, bytes: null },
+    );
     expect(c.calls).toEqual([]);
   });
 });

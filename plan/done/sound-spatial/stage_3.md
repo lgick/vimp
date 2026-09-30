@@ -25,15 +25,15 @@
 1. В конструкторе, рядом со строкой 16 (`this._data = {};`), добавить:
 
    ```javascript
-       // хотя бы одно полотно с динамической камерой
-       this._hasDynamicCamera = false;
+   // хотя бы одно полотно с динамической камерой
+   this._hasDynamicCamera = false;
    ```
 
 2. В цикле заполнения `this._data` (строки 66–83), рядом с
    `dynamicCamera: !!canvasData.dynamicCamera,` выставлять флаг:
 
    ```javascript
-           this._hasDynamicCamera ||= !!canvasData.dynamicCamera;
+   this._hasDynamicCamera ||= !!canvasData.dynamicCamera;
    ```
 
 3. Рядом с геттером `pointerCanvasId` (строки 86–88) добавить:
@@ -76,11 +76,7 @@ function applyCamera(camera) {
     // порядок важен: зум пересчитывается внутри updateCoords, а слушателю
     // нужен зум ЭТОГО кадра, а не прошлого
     modules.canvasManager.updateCoords(camera);
-    soundManager.setListenerPosition(
-      camera[0],
-      camera[1],
-      modules.canvasManager.getCameraZoom(),
-    );
+    soundManager.setListenerPosition(camera[0], camera[1], modules.canvasManager.getCameraZoom());
   }
 }
 ```

@@ -279,7 +279,7 @@ never calls them.
 ## The export table is frozen
 
 Both macros also generate `abi_describe()` and `dispatch(op, payload)`, and
-that pair is the *only* way the ABI grows from now on. Your `.wasm` fixes its
+that pair is the _only_ way the ABI grows from now on. Your `.wasm` fixes its
 export table at build time: a symbol the engine adds next year will not
 appear in a core you published this year, and no engine-side shim can
 synthesize it. So the engine never adds a method — it adds an **opcode**, a
@@ -358,13 +358,13 @@ Both cores receive one JSON string of shape `{ engine, game }`.
 
 `take_events()` returns a JSON array of tagged objects:
 
-| Event | Payload | Consumed by |
-| --- | --- | --- |
-| `panelSet` | `{ id, field, value }` | engine `Panel.updateUser` |
-| `panelActive` | `{ id, field }` | engine `Panel.setActiveWeapon` |
-| `death` | `{ victim, killer }` | engine `RoundManager.reportKill` (scoring, rank) |
-| `shake` | `{ id, intensity, duration }` | per-user camera shake in the frame |
-| `custom` | `{ data }` | routed to `HostPlugin.onCoreEvent` — the engine does not interpret it |
+| Event         | Payload                       | Consumed by                                                           |
+| ------------- | ----------------------------- | --------------------------------------------------------------------- |
+| `panelSet`    | `{ id, field, value }`        | engine `Panel.updateUser`                                             |
+| `panelActive` | `{ id, field }`               | engine `Panel.setActiveWeapon`                                        |
+| `death`       | `{ victim, killer }`          | engine `RoundManager.reportKill` (scoring, rank)                      |
+| `shake`       | `{ id, intensity, duration }` | per-user camera shake in the frame                                    |
+| `custom`      | `{ data }`                    | routed to `HostPlugin.onCoreEvent` — the engine does not interpret it |
 
 `field` is a **key of your panel schema** (`"health"`, a weapon name, …). Ids
 are stringified by the JS adapter before reaching plugin code.
@@ -428,7 +428,7 @@ those eight values, or do not predict it.
 - The physics uses `enhanced-determinism`.
 - **Round the values you pack yourself.** The packer writes raw `f32`s, but
   the decoder restores every snapshot field through `round2` (2 decimals) —
-  so anything you pack unrounded comes back to the client as a *different*
+  so anything you pack unrounded comes back to the client as a _different_
   number than the one your host still holds. Call
   `vimp_engine_core::physics::round2` on the coordinates, angles and other
   floats you put into `build_snapshot_blocks` (the engine does exactly that
@@ -448,7 +448,7 @@ those eight values, or do not predict it.
 3. `render_overlay()` returns the predicted tail appended to the hot buffer;
    returning `None` (no local actor / no model yet) makes the engine fall back
    to the interpolated camera and clears the `PREDICTED` flag.
-4. A game that also predicts *other* bodies (map dynamics, actors in contact
+4. A game that also predicts _other_ bodies (map dynamics, actors in contact
    with the local one) reads their authoritative state in
    `begin_reconcile(snapshot)`, lets the replay of step 2 carry them, folds
    the divergence in `finish_reconcile()`, and returns them from

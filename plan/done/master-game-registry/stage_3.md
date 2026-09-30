@@ -73,16 +73,15 @@ export function rebaseManifest(manifest, base)
 - Новые методы:
 
   ```js
-  upsert({ id, version, distDir, manifest, packageVersion, packageUrl,
-           maxGameScore, active })
-  setActive(id, version)
-  remove(id, version)
-  isStaged(id, manifestVersion)   // см. 3.5 — сверка по manifest.version
-  getManifest(id, version)        // version не задан → активная
-  getMapCatalog(id, version)
-  getDistDir(id, version)
-  getMaxGameScore(id)             // см. 3.6
-  stagedManifests()               // все неактивные — для админского роута Этапа 4
+  upsert({ id, version, distDir, manifest, packageVersion, packageUrl, maxGameScore, active });
+  setActive(id, version);
+  remove(id, version);
+  isStaged(id, manifestVersion); // см. 3.5 — сверка по manifest.version
+  getManifest(id, version); // version не задан → активная
+  getMapCatalog(id, version);
+  getDistDir(id, version);
+  getMaxGameScore(id); // см. 3.6
+  stagedManifests(); // все неактивные — для админского роута Этапа 4
   ```
 
 - `manifestList` пересчитывается при каждом изменении и содержит **только
@@ -103,12 +102,12 @@ export function rebaseManifest(manifest, base)
 внутри:
 
 ```js
-list()                                  // GET /games                (публично)
-listAll(token)                          // GET /admin/games
-mine(token)                             // GET /games/mine
-submit(token, body)                     // POST /games
-requestVersion(token, id, version)      // POST /games/:id/version
-moderate(token, id, patch)              // PATCH /admin/games/:id
+list(); // GET /games                (публично)
+listAll(token); // GET /admin/games
+mine(token); // GET /games/mine
+submit(token, body); // POST /games
+requestVersion(token, id, version); // POST /games/:id/version
+moderate(token, id, patch); // PATCH /admin/games/:id
 ```
 
 ## 3.4 `GameSync.js` (новый)

@@ -33,7 +33,10 @@ export default {
     const host = ctx.gameConfig.statMode ?? null;
 
     if (client === host) {
-      return verdict([], client ? `both declare '${client}'` : 'the room table');
+      return verdict(
+        [],
+        client ? `both declare '${client}'` : 'the room table',
+      );
     }
 
     if (client && !host) {

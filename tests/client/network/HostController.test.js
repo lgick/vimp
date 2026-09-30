@@ -40,8 +40,8 @@ const createController = (opts = {}) => {
   return { controller, workers, diagnostics };
 };
 
-describe('HostController: журнал ошибок Worker\'а', () => {
-  it('onerror Worker\'а — capture с source host-worker', () => {
+describe("HostController: журнал ошибок Worker'а", () => {
+  it("onerror Worker'а — capture с source host-worker", () => {
     const { workers, diagnostics } = createController();
     const error = new Error('worker crashed');
 
@@ -81,7 +81,8 @@ describe('HostController: журнал ошибок Worker\'а', () => {
 
     expect(report).toEqual({
       message: 'Uncaught TypeError: x',
-      stack: 'Uncaught TypeError: x\n    at https://h/assets/host.worker-abc.js:1:38',
+      stack:
+        'Uncaught TypeError: x\n    at https://h/assets/host.worker-abc.js:1:38',
     });
     expect(opts).toEqual({ source: 'host-worker', kind: 'worker' });
   });
@@ -117,7 +118,10 @@ describe('HostController: журнал ошибок Worker\'а', () => {
     });
 
     expect(diagnostics.capture).toHaveBeenCalledWith(
-      { message: 'async boom', stack: 'Error: async boom\n    at x (host.js:1:1)' },
+      {
+        message: 'async boom',
+        stack: 'Error: async boom\n    at x (host.js:1:1)',
+      },
       { source: 'host-worker', kind: 'rejection' },
     );
     expect(onError).not.toHaveBeenCalled();
@@ -139,9 +143,10 @@ describe('HostController: журнал ошибок Worker\'а', () => {
     expect(opts).toEqual({ source: 'host-worker', kind: 'error' });
   });
 
-  it('error из init — в журнал уходит стек Worker\'а', () => {
+  it("error из init — в журнал уходит стек Worker'а", () => {
     const { workers, diagnostics } = createController();
-    const stack = 'Error: init failed\n    at https://h/assets/host.worker-abc.js:5:7';
+    const stack =
+      'Error: init failed\n    at https://h/assets/host.worker-abc.js:5:7';
 
     workers[0].emit({ type: 'error', message: 'init failed', stack });
 
@@ -216,9 +221,10 @@ describe('HostController: журнал ошибок Worker\'а', () => {
     expect(workers[0].posted.some(msg => msg.type === 'resume')).toBe(true);
   });
 
-  it('новый Worker эстафеты: error из init — стек этого Worker\'а', async () => {
+  it("новый Worker эстафеты: error из init — стек этого Worker'а", async () => {
     const { controller, workers, diagnostics } = createController();
-    const stack = 'Error: init failed\n    at https://h/assets/host.worker-abc.js:5:7';
+    const stack =
+      'Error: init failed\n    at https://h/assets/host.worker-abc.js:5:7';
 
     workers[0].emit({ type: 'ready' });
 
@@ -234,7 +240,7 @@ describe('HostController: журнал ошибок Worker\'а', () => {
     );
   });
 
-  it('без diagnostics ошибки Worker\'а не роняют контроллер', () => {
+  it("без diagnostics ошибки Worker'а не роняют контроллер", () => {
     const workers = [];
     const onError = vi.fn();
 

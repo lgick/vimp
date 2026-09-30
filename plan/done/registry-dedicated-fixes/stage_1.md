@@ -72,7 +72,7 @@ export async function loadGamePackage(distDir, { core = null, client = 'lazy' } 
     которая при первом вызове делает
     `importDefault(baseDir, manifest.entries.client, assetsBase)`, прогоняет
     по импортированной половине `assertPluginMatchesManifest(manifest,
-    { client })` и **кеширует промис**; повторный вызов отдаёт тот же
+{ client })` и **кеширует промис**; повторный вызов отдаёт тот же
     объект.
 - `client: true` — импорт обеих половин сразу, как сейчас; `clientPlugin`
   заполнен; `loadClientPlugin()` тоже присутствует и отдаёт уже

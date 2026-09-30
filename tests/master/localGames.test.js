@@ -60,7 +60,13 @@ describe('readGameId', () => {
     installGame('unbuilt', null);
     installGame('nameless', { engineApi: 5 });
     fs.writeFileSync(
-      path.join(nodeModulesDir, '@vimp-games', 'unbuilt', 'dist', 'manifest.json'),
+      path.join(
+        nodeModulesDir,
+        '@vimp-games',
+        'unbuilt',
+        'dist',
+        'manifest.json',
+      ),
       'not json',
     );
 
@@ -82,13 +88,17 @@ describe('readPackageVersion', () => {
       JSON.stringify({ name: '@vimp-games/tanks', version: '0.16.1' }),
     );
 
-    expect(readPackageVersion(nodeModulesDir, '@vimp-games/tanks')).toBe('0.16.1');
+    expect(readPackageVersion(nodeModulesDir, '@vimp-games/tanks')).toBe(
+      '0.16.1',
+    );
   });
 
   it('пакета нет или package.json без версии — null', () => {
     installGame('nometa', { id: 'nometa' });
 
-    expect(readPackageVersion(nodeModulesDir, '@vimp-games/missing')).toBeNull();
+    expect(
+      readPackageVersion(nodeModulesDir, '@vimp-games/missing'),
+    ).toBeNull();
     expect(readPackageVersion(nodeModulesDir, '@vimp-games/nometa')).toBeNull();
   });
 });
@@ -186,7 +196,9 @@ describe('applyLocalGames', () => {
     const configured = [{ id: 'tanks', package: '@vimp-games/tanks' }];
     const prod = fakeConfig(configured);
 
-    expect(applyLocalGames(prod, nodeModulesDir, { NODE_ENV: 'production' })).toEqual([]);
+    expect(
+      applyLocalGames(prod, nodeModulesDir, { NODE_ENV: 'production' }),
+    ).toEqual([]);
     expect(prod.get('master:games')).toEqual(configured);
   });
 

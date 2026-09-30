@@ -155,7 +155,11 @@ describe('formBuilder.buildField: checkbox', () => {
   });
 
   it('field.labelFor указывает на id инпута (для <label for>)', () => {
-    const field = buildField({ name: 'friendlyFire', control: 'checkbox', default: false });
+    const field = buildField({
+      name: 'friendlyFire',
+      control: 'checkbox',
+      default: false,
+    });
 
     expect(field.labelFor).toBe(field.el.id);
   });
@@ -239,8 +243,19 @@ describe('formBuilder.buildForm', () => {
 
     const fields = buildForm(
       [
-        { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', default: 8 },
-        { name: 'friendlyFire', control: 'checkbox', label: 'Friendly fire', default: false },
+        {
+          name: 'maxPlayers',
+          control: 'text',
+          numeric: true,
+          label: 'Max players',
+          default: 8,
+        },
+        {
+          name: 'friendlyFire',
+          control: 'checkbox',
+          label: 'Friendly fire',
+          default: false,
+        },
       ],
       container,
     );
@@ -249,18 +264,30 @@ describe('formBuilder.buildForm', () => {
     expect(rows).toHaveLength(2);
     expect(fields.get('maxPlayers').getValue()).toBe(8);
     expect(fields.get('friendlyFire').getValue()).toBe(false);
-    expect(rows[0].querySelector('.form-label').textContent).toBe('Max players');
+    expect(rows[0].querySelector('.form-label').textContent).toBe(
+      'Max players',
+    );
   });
 
   it('добавляет суффикс "(s)" к подписи для unit:"s"', () => {
     const container = document.createElement('div');
 
     buildForm(
-      [{ name: 'roundTime', control: 'text', label: 'Round time', unit: 's', default: 60000 }],
+      [
+        {
+          name: 'roundTime',
+          control: 'text',
+          label: 'Round time',
+          unit: 's',
+          default: 60000,
+        },
+      ],
       container,
     );
 
-    expect(container.querySelector('.form-label').textContent).toBe('Round time (s)');
+    expect(container.querySelector('.form-label').textContent).toBe(
+      'Round time (s)',
+    );
   });
 
   it('добавляет суффикс с диапазоном к подписи для min/max', () => {
@@ -281,7 +308,9 @@ describe('formBuilder.buildForm', () => {
       container,
     );
 
-    expect(container.querySelector('.form-label').textContent).toBe('Max players (1–30)');
+    expect(container.querySelector('.form-label').textContent).toBe(
+      'Max players (1–30)',
+    );
   });
 
   it('комбинирует unit:"s" и диапазон в одном суффиксе', () => {
@@ -302,14 +331,24 @@ describe('formBuilder.buildForm', () => {
       container,
     );
 
-    expect(container.querySelector('.form-label').textContent).toBe('Round time (s, 10–3600)');
+    expect(container.querySelector('.form-label').textContent).toBe(
+      'Round time (s, 10–3600)',
+    );
   });
 
   it('select с единственным резолвнутым вариантом не рендерит .form-row, но попадает в fields', () => {
     const container = document.createElement('div');
 
     const fields = buildForm(
-      [{ name: 'map', control: 'select', label: 'Map', options: ['pool mini'], default: 'pool mini' }],
+      [
+        {
+          name: 'map',
+          control: 'select',
+          label: 'Map',
+          options: ['pool mini'],
+          default: 'pool mini',
+        },
+      ],
       container,
     );
 
@@ -321,7 +360,15 @@ describe('formBuilder.buildForm', () => {
     const container = document.createElement('div');
 
     const fields = buildForm(
-      [{ name: 'team', control: 'radio', label: 'Team', options: [{ value: '1', label: 'Red' }], default: '1' }],
+      [
+        {
+          name: 'team',
+          control: 'radio',
+          label: 'Team',
+          options: [{ value: '1', label: 'Red' }],
+          default: '1',
+        },
+      ],
       container,
     );
 
@@ -352,7 +399,13 @@ describe('formBuilder.buildForm', () => {
 
     const fields = buildForm(
       [
-        { name: 'secret', control: 'text', label: 'Secret', default: 'x', hidden: true },
+        {
+          name: 'secret',
+          control: 'text',
+          label: 'Secret',
+          default: 'x',
+          hidden: true,
+        },
         { name: 'visible', control: 'text', label: 'Visible', default: 'y' },
       ],
       container,
@@ -371,7 +424,13 @@ describe('formBuilder.buildForm', () => {
     const fields = buildForm(
       [
         { name: 'unknown', control: 'not-a-control', default: 1 },
-        { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', default: 8 },
+        {
+          name: 'maxPlayers',
+          control: 'text',
+          numeric: true,
+          label: 'Max players',
+          default: 8,
+        },
       ],
       container,
     );
@@ -391,9 +450,19 @@ describe('formBuilder.mergeRoomDefaults', () => {
   // roomDefaults остаётся единственным источником значений по умолчанию)
   const roomDefaults = { maxPlayers: 8, map: 'pool mini', friendlyFire: true };
   const roomForm = [
-    { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players' },
+    {
+      name: 'maxPlayers',
+      control: 'text',
+      numeric: true,
+      label: 'Max players',
+    },
     { name: 'map', control: 'select', label: 'Map', source: 'maps' },
-    { name: 'friendlyFire', control: 'checkbox', label: 'Friendly fire', default: false },
+    {
+      name: 'friendlyFire',
+      control: 'checkbox',
+      label: 'Friendly fire',
+      default: false,
+    },
   ];
 
   it('засевает default полей значениями roomDefaults', () => {
@@ -413,7 +482,9 @@ describe('formBuilder.mergeRoomDefaults', () => {
   it('не трогает дескрипторы с явным default', () => {
     const descriptors = mergeRoomDefaults(roomForm, roomDefaults);
 
-    expect(descriptors.find(d => d.name === 'friendlyFire').default).toBe(false);
+    expect(descriptors.find(d => d.name === 'friendlyFire').default).toBe(
+      false,
+    );
     expect(descriptors.find(d => d.name === 'maxPlayers').default).toBe(8);
   });
 });
@@ -421,29 +492,55 @@ describe('formBuilder.mergeRoomDefaults', () => {
 describe('formBuilder.collectFormErrors', () => {
   it('пустая обязательная строка — ошибка "required"', () => {
     const container = document.createElement('div');
-    const descriptors = [{ name: 'login', control: 'text', label: 'Login', required: true, default: '' }];
+    const descriptors = [
+      {
+        name: 'login',
+        control: 'text',
+        label: 'Login',
+        required: true,
+        default: '',
+      },
+    ];
     const fields = buildForm(descriptors, container);
 
     fields.get('login').el.value = '';
 
-    expect(collectFormErrors(descriptors, fields)).toEqual([{ name: 'login', label: 'Login', error: 'required' }]);
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'login', label: 'Login', error: 'required' },
+    ]);
   });
 
   it('значение не матчится под regExp — ошибка формата', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'color', control: 'text', label: 'Color', regExp: '^#[0-9a-f]{6}$', default: '#ffffff' },
+      {
+        name: 'color',
+        control: 'text',
+        label: 'Color',
+        regExp: '^#[0-9a-f]{6}$',
+        default: '#ffffff',
+      },
     ];
     const fields = buildForm(descriptors, container);
 
     fields.get('color').el.value = 'not-a-color';
 
-    expect(collectFormErrors(descriptors, fields)).toEqual([{ name: 'color', label: 'Color', error: 'invalid format' }]);
+    expect(collectFormErrors(descriptors, fields)).toEqual([
+      { name: 'color', label: 'Color', error: 'invalid format' },
+    ]);
   });
 
   it('строка длиннее maxlength — ошибка длины', () => {
     const container = document.createElement('div');
-    const descriptors = [{ name: 'login', control: 'text', label: 'Login', maxlength: 4, default: '' }];
+    const descriptors = [
+      {
+        name: 'login',
+        control: 'text',
+        label: 'Login',
+        maxlength: 4,
+        default: '',
+      },
+    ];
     const fields = buildForm(descriptors, container);
 
     fields.get('login').el.value = 'toolong';
@@ -456,7 +553,15 @@ describe('formBuilder.collectFormErrors', () => {
   it('числовое значение вне min/max — ошибка диапазона', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 30, default: 8 },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        min: 1,
+        max: 30,
+        default: 8,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -526,7 +631,15 @@ describe('formBuilder.collectFormErrors', () => {
   it('min/max сравниваются в отображаемой единице (unit:"s")', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'roundTime', control: 'text', unit: 's', label: 'Round time', min: 10, max: 3600, default: 60000 },
+      {
+        name: 'roundTime',
+        control: 'text',
+        unit: 's',
+        label: 'Round time',
+        min: 10,
+        max: 3600,
+        default: 60000,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -542,8 +655,21 @@ describe('formBuilder.collectFormErrors', () => {
     // hidden и единственный вариант select/radio: игрок такого поля не
     // видит и исправить ошибку на нём не может
     const descriptors = [
-      { name: 'secret', control: 'text', label: 'Secret', hidden: true, required: true, default: '' },
-      { name: 'map', control: 'select', label: 'Map', options: ['only'], required: true },
+      {
+        name: 'secret',
+        control: 'text',
+        label: 'Secret',
+        hidden: true,
+        required: true,
+        default: '',
+      },
+      {
+        name: 'map',
+        control: 'select',
+        label: 'Map',
+        options: ['only'],
+        required: true,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -554,7 +680,13 @@ describe('formBuilder.collectFormErrors', () => {
   it('select без вариантов остаётся видимым и валидируется', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'map', control: 'select', label: 'Map', source: 'maps', required: true },
+      {
+        name: 'map',
+        control: 'select',
+        label: 'Map',
+        source: 'maps',
+        required: true,
+      },
     ];
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fields = buildForm(descriptors, container, { sources: { maps: [] } });
@@ -577,7 +709,13 @@ describe('formBuilder.collectFormErrors', () => {
     // пустая строка не значение: ключа не должно быть в fields, иначе он
     // уедет в overrides и перекроет roomDefaults
     const descriptors = [
-      { name: 'map', control: 'select', label: 'Map', source: 'maps', hidden: true },
+      {
+        name: 'map',
+        control: 'select',
+        label: 'Map',
+        source: 'maps',
+        hidden: true,
+      },
     ];
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fields = buildForm(descriptors, container, { sources: { maps: [] } });
@@ -592,7 +730,9 @@ describe('formBuilder.collectFormErrors', () => {
     const container = document.createElement('div');
     // ни одна игра не ставит required на `map`: без собственной ошибки
     // пустого резолва комната создавалась бы с map: ''
-    const descriptors = [{ name: 'map', control: 'select', label: 'Map', source: 'maps' }];
+    const descriptors = [
+      { name: 'map', control: 'select', label: 'Map', source: 'maps' },
+    ];
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fields = buildForm(descriptors, container, { sources: { maps: [] } });
 
@@ -606,7 +746,14 @@ describe('formBuilder.collectFormErrors', () => {
   it('пустое обязательное числовое поле — "required", а не молчаливый default', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', required: true, default: 8 },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        required: true,
+        default: 8,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -623,7 +770,15 @@ describe('formBuilder.collectFormErrors', () => {
     // равно обязательно — getValue() подменил бы пустоту дефолтом и
     // комната создалась бы молча
     const descriptors = [
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 32, default: 8 },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        min: 1,
+        max: 32,
+        default: 8,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -636,7 +791,15 @@ describe('formBuilder.collectFormErrors', () => {
 
   it('пустое необязательное текстовое поле ошибкой не считается', () => {
     const container = document.createElement('div');
-    const descriptors = [{ name: 'motd', control: 'text', label: 'MOTD', maxlength: 32, default: '' }];
+    const descriptors = [
+      {
+        name: 'motd',
+        control: 'text',
+        label: 'MOTD',
+        maxlength: 32,
+        default: '',
+      },
+    ];
     const fields = buildForm(descriptors, container);
 
     expect(collectFormErrors(descriptors, fields)).toEqual([]);
@@ -645,7 +808,15 @@ describe('formBuilder.collectFormErrors', () => {
   it('нечисловой ввод в числовое поле без regExp — ошибка, а не откат к default', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 30, default: 8 },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        min: 1,
+        max: 30,
+        default: 8,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -661,7 +832,13 @@ describe('formBuilder.collectFormErrors', () => {
     // Number(' ') === 0: без trim пробел уехал бы нулём в игру, объявившую
     // numeric без min/max и без regExp
     const descriptors = [
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', default: 8 },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        default: 8,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -680,7 +857,14 @@ describe('formBuilder.collectFormErrors', () => {
     // валидация тримит — значит и getValue() обязан: иначе клиент говорит
     // «ок» на строке с пробелами, а хост (isValidName) её отбивает
     const descriptors = [
-      { name: 'login', control: 'text', label: 'Login', regExp: '[a-z]{2,10}', maxlength: 10, default: '' },
+      {
+        name: 'login',
+        control: 'text',
+        label: 'Login',
+        regExp: '[a-z]{2,10}',
+        maxlength: 10,
+        default: '',
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -694,7 +878,15 @@ describe('formBuilder.collectFormErrors', () => {
     const container = document.createElement('div');
     // el.maxLength режет ввод с клавиатуры, но не setValue: auth-поле
     // засевается из localStorage[storage], и там строка бывает с пробелами
-    const descriptors = [{ name: 'login', control: 'text', label: 'Login', maxlength: 5, default: '' }];
+    const descriptors = [
+      {
+        name: 'login',
+        control: 'text',
+        label: 'Login',
+        maxlength: 5,
+        default: '',
+      },
+    ];
     const fields = buildForm(descriptors, container);
 
     fields.get('login').setValue(' abcde ');
@@ -709,7 +901,13 @@ describe('formBuilder.collectFormErrors', () => {
     // бы из collectFormErrors в обработчик клика, и кнопка перестала бы
     // работать вовсе, не показав игроку ни строки
     const descriptors = [
-      { name: 'color', control: 'text', label: 'Color', regExp: '^#[0-9a-f{6}$', default: '' },
+      {
+        name: 'color',
+        control: 'text',
+        label: 'Color',
+        regExp: '^#[0-9a-f{6}$',
+        default: '',
+      },
     ];
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fields = buildForm(descriptors, container);
@@ -727,8 +925,21 @@ describe('formBuilder.collectFormErrors', () => {
   it('валидная форма не даёт ошибок', () => {
     const container = document.createElement('div');
     const descriptors = [
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 30, default: 8 },
-      { name: 'friendlyFire', control: 'checkbox', label: 'Friendly fire', default: false },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        min: 1,
+        max: 30,
+        default: 8,
+      },
+      {
+        name: 'friendlyFire',
+        control: 'checkbox',
+        label: 'Friendly fire',
+        default: false,
+      },
     ];
     const fields = buildForm(descriptors, container);
 
@@ -777,21 +988,33 @@ describe('formBuilder.resolveForcedValue', () => {
   // solo-путь (boot.autoAuth) отвечает хосту без формы и обязан прийти к
   // тому же значению, что и она
   it('единственный вариант select — его значение', () => {
-    expect(resolveForcedValue({ control: 'select', options: ['s1'] })).toBe('s1');
+    expect(resolveForcedValue({ control: 'select', options: ['s1'] })).toBe(
+      's1',
+    );
     expect(
-      resolveForcedValue({ control: 'radio', options: [{ value: '1', label: 'Red' }] }),
+      resolveForcedValue({
+        control: 'radio',
+        options: [{ value: '1', label: 'Red' }],
+      }),
     ).toBe('1');
   });
 
   it('несколько вариантов, пустой список и не-select — undefined', () => {
-    expect(resolveForcedValue({ control: 'select', options: ['a', 'b'] })).toBeUndefined();
-    expect(resolveForcedValue({ control: 'select', options: [] })).toBeUndefined();
+    expect(
+      resolveForcedValue({ control: 'select', options: ['a', 'b'] }),
+    ).toBeUndefined();
+    expect(
+      resolveForcedValue({ control: 'select', options: [] }),
+    ).toBeUndefined();
     expect(resolveForcedValue({ control: 'text' })).toBeUndefined();
   });
 
   it('source резолвится через ctx.sources — как в форме', () => {
     expect(
-      resolveForcedValue({ control: 'select', source: 'maps' }, { sources: { maps: ['pool'] } }),
+      resolveForcedValue(
+        { control: 'select', source: 'maps' },
+        { sources: { maps: ['pool'] } },
+      ),
     ).toBe('pool');
   });
 
@@ -799,9 +1022,12 @@ describe('formBuilder.resolveForcedValue', () => {
     // <option>.value и <input type=radio>.value — DOM-свойства, всегда
     // строки. Нестроковое значение validateAuth отбивает «Property must be
     // a string», а строки поля в DOM нет — поправить нечем
-    expect(resolveForcedValue({ control: 'select', options: [{ value: 1, label: 'Solo' }] })).toBe(
-      '1',
-    );
+    expect(
+      resolveForcedValue({
+        control: 'select',
+        options: [{ value: 1, label: 'Solo' }],
+      }),
+    ).toBe('1');
     expect(resolveForcedValue({ control: 'radio', options: [7] })).toBe('7');
   });
 });
@@ -811,12 +1037,27 @@ describe('formBuilder.bindLiveErrors', () => {
     const container = document.createElement('div');
     const errorContainer = document.createElement('div');
     const descriptors = [
-      { name: 'login', control: 'text', label: 'Login', required: true, default: '' },
-      { name: 'motd', control: 'text', label: 'MOTD', required: true, default: '' },
+      {
+        name: 'login',
+        control: 'text',
+        label: 'Login',
+        required: true,
+        default: '',
+      },
+      {
+        name: 'motd',
+        control: 'text',
+        label: 'MOTD',
+        required: true,
+        default: '',
+      },
       ...extra,
     ];
     const fields = buildForm(descriptors, container);
-    const live = bindLiveErrors(container, errorContainer, () => ({ descriptors, fields }));
+    const live = bindLiveErrors(container, errorContainer, () => ({
+      descriptors,
+      fields,
+    }));
 
     return { container, errorContainer, descriptors, fields, live };
   };
@@ -828,7 +1069,15 @@ describe('formBuilder.bindLiveErrors', () => {
 
   it('неверное значение видно сразу при вводе, до всякого сабмита', () => {
     const { errorContainer, fields } = makeForm([
-      { name: 'maxPlayers', control: 'text', numeric: true, label: 'Max players', min: 1, max: 8, default: 8 },
+      {
+        name: 'maxPlayers',
+        control: 'text',
+        numeric: true,
+        label: 'Max players',
+        min: 1,
+        max: 8,
+        default: 8,
+      },
     ]);
 
     type(fields.get('maxPlayers'), '99');
@@ -910,6 +1159,8 @@ describe('formBuilder.bindLiveErrors', () => {
   });
 
   it('пустой контейнер полей не роняет привязку', () => {
-    expect(() => bindLiveErrors(null, document.createElement('div'), () => ({}))).not.toThrow();
+    expect(() =>
+      bindLiveErrors(null, document.createElement('div'), () => ({})),
+    ).not.toThrow();
   });
 });

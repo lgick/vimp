@@ -72,7 +72,10 @@ export function readPackageVersion(nodeModulesDir, pkg) {
  * @param {{scope?: string}} [options]
  * @returns {{id: string, package: string}[]} записи формата master:games, по id
  */
-export function discoverLocalGames(nodeModulesDir, { scope = GAMES_SCOPE } = {}) {
+export function discoverLocalGames(
+  nodeModulesDir,
+  { scope = GAMES_SCOPE } = {},
+) {
   let entries;
 
   try {
@@ -139,7 +142,10 @@ export function applyLocalGames(config, nodeModulesDir, env = process.env) {
     return [];
   }
 
-  config.set('master:games', mergeGames(discovered, config.get('master:games')));
+  config.set(
+    'master:games',
+    mergeGames(discovered, config.get('master:games')),
+  );
 
   return discovered;
 }

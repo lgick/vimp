@@ -30,14 +30,20 @@ export default {
     return { core: new ClientCore(clientConfigJson), memory: wasm.memory };
   },
 
-  parts,     // { ClassName: class }
-  bakers,    // { assetName: (params, renderer) => Texture | dict }
-  styles,    // CSS as a string; the engine injects it into the DOM
+  parts, // { ClassName: class }
+  bakers, // { assetName: (params, renderer) => Texture | dict }
+  styles, // CSS as a string; the engine injects it into the DOM
 
   hooks: {
-    onAuth(core, authData) { core.set_model(authData.model); },
-    onPanel(core, panelData) { core.sync_panel(JSON.stringify(panelData)); },
-    onLocalAction(core, action, name, now) { return null; },
+    onAuth(core, authData) {
+      core.set_model(authData.model);
+    },
+    onPanel(core, panelData) {
+      core.sync_panel(JSON.stringify(panelData));
+    },
+    onLocalAction(core, action, name, now) {
+      return null;
+    },
   },
 };
 ```
@@ -88,7 +94,7 @@ instance per `layers` entry, all with `level: 0`. See
 ### Effects (self-destructing parts)
 
 When a snapshot payload for a key is an **array of records**, each record
-creates a short-lived *effect* instance instead of a persistent entity. An
+creates a short-lived _effect_ instance instead of a persistent entity. An
 effect class additionally implements `run()`; the engine wraps its `destroy()`
 so that calling `destroy()` removes it from the effect registry. Effects are
 expected to destroy themselves when their animation ends.
@@ -165,14 +171,14 @@ game adds its own through `hooks.services(core)`, below). A name never
 disappears from it, and the pool hands out only what a part asked for, so a
 service added by a later engine demands nothing of an older game:
 
-| Service | Value | Used for |
-| --- | --- | --- |
-| `renderer` | the canvas's Pixi renderer | `generateTexture`, baking a map into one sprite |
-| `soundManager` | the engine's `SoundManager` | registering positional voices |
-| `assetsBase` | the active game's asset base, a string | building URLs into **your own** package: `${assetsBase}img/<file>` |
-| `localPlayer` | `{ id, is(id) }` | telling the local player's entity from everyone else's |
-| `accolades` | `{ placeOf(id) }` | the entity's place in the game's global top — `{ daily, monthly }`, each a number or `null` |
-| `diagnostics` | `{ warn(code, details), capture(error) }` | the client error journal: your own warnings and errors you caught — optional, may be `undefined` |
+| Service        | Value                                     | Used for                                                                                         |
+| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `renderer`     | the canvas's Pixi renderer                | `generateTexture`, baking a map into one sprite                                                  |
+| `soundManager` | the engine's `SoundManager`               | registering positional voices                                                                    |
+| `assetsBase`   | the active game's asset base, a string    | building URLs into **your own** package: `${assetsBase}img/<file>`                               |
+| `localPlayer`  | `{ id, is(id) }`                          | telling the local player's entity from everyone else's                                           |
+| `accolades`    | `{ placeOf(id) }`                         | the entity's place in the game's global top — `{ daily, monthly }`, each a number or `null`      |
+| `diagnostics`  | `{ warn(code, details), capture(error) }` | the client error journal: your own warnings and errors you caught — optional, may be `undefined` |
 
 ### `localPlayer` — is this entity mine?
 
@@ -215,9 +221,9 @@ this._diagnostics?.capture(error);                             // a caught error
 ### `accolades` — is this player in the global top?
 
 ```js
-const { daily, monthly } = accolades.placeOf(id);   // numbers or null
-const rows = accolades.boardOf('day');              // [{ place, nick, score }]
-const mine = accolades.selfOf(id, 'day');           // { place, score } or null
+const { daily, monthly } = accolades.placeOf(id); // numbers or null
+const rows = accolades.boardOf('day'); // [{ place, nick, score }]
+const mine = accolades.selfOf(id, 'day'); // { place, score } or null
 ```
 
 **The room asks the master, never the player.** Everything this service knows
@@ -576,8 +582,8 @@ playerKeys: {
 > Declaring `type: 1` without that core logic gives you whatever your core
 > does by default — usually autofire. See `05-wasm-core.md`.
 
-Note the two mappings are separate: `keySetList` maps *key code → action
-name* (client), `playerKeys` maps *action name → bit* (host + core). Both must
+Note the two mappings are separate: `keySetList` maps _key code → action
+name_ (client), `playerKeys` maps _action name → bit_ (host + core). Both must
 list the same names.
 
 ## Sound
@@ -622,11 +628,11 @@ parts: {
 - The projection profile decides how the world vector maps onto the Web
   Audio axes (`sx`, `sy` are the faded world offsets, `H` the elevation):
 
-| `mode` | `X` | `Y` | `Z` | default `panningModel` |
-| --- | --- | --- | --- | --- |
-| `topDown` | `sx` | `-H` | `sy` | `HRTF` |
-| `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower` |
-| `cockpit` | `sx` | `-sy` | `-H` | `HRTF` |
+| `mode`         | `X`  | `Y`                    | `Z`  | default `panningModel` |
+| -------------- | ---- | ---------------------- | ---- | ---------------------- |
+| `topDown`      | `sx` | `-H`                   | `sy` | `HRTF`                 |
+| `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower`           |
+| `cockpit`      | `sx` | `-sy`                  | `-H` | `HRTF`                 |
 
 - The scene scale — the canvas's share of the design width 1920 times the
   dynamic camera zoom — divides `virtualElevation` and `innerRadius`, so
@@ -639,35 +645,49 @@ parts: {
 
 Three ways a sound is produced:
 
-| Path | Trigger | Bypasses voice limit? |
-| --- | --- | --- |
-| Spatial | a part calls `soundManager.registerSound(name, { position, rate?, volume? }, onEnd?)` → id, then `updateSoundData` / `unregisterSound` | no |
-| System | the engine plays a UI sound via port `SOUND_DATA` | yes |
-| Host-cued | `gameConfig.soundCues` maps `roundStart`/`victory`/`defeat`/`frag`/`death` to your sound names | yes |
+| Path      | Trigger                                                                                                                                | Bypasses voice limit? |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Spatial   | a part calls `soundManager.registerSound(name, { position, rate?, volume? }, onEnd?)` → id, then `updateSoundData` / `unregisterSound` | no                    |
+| System    | the engine plays a UI sound via port `SOUND_DATA`                                                                                      | yes                   |
+| Host-cued | `gameConfig.soundCues` maps `roundStart`/`victory`/`defeat`/`frag`/`death` to your sound names                                         | yes                   |
 
 ## Auth screen
 
 ```js
 export default {
   elems: {
-    authId: 'auth', errorId: 'auth-error', enterId: 'auth-enter',
-    fieldsId: 'auth-fields', titleId: 'auth-title', informsId: 'auth-informs',
+    authId: 'auth',
+    errorId: 'auth-error',
+    enterId: 'auth-enter',
+    fieldsId: 'auth-fields',
+    titleId: 'auth-title',
+    informsId: 'auth-informs',
   },
   texts: {
     title: 'My Game',
     sections: [
-      { heading: 'Controls', lines: [
-        { keys: 'W, S', text: 'move' },
-        { separator: true },
-        { keys: 'J', text: 'fire', last: true },
-      ] },
+      {
+        heading: 'Controls',
+        lines: [
+          { keys: 'W, S', text: 'move' },
+          { separator: true },
+          { keys: 'J', text: 'fire', last: true },
+        ],
+      },
     ],
   },
   params: [
-    { name: 'model', value: 'm1', options: {
-        control: 'select', label: 'Model',
+    {
+      name: 'model',
+      value: 'm1',
+      options: {
+        control: 'select',
+        label: 'Model',
         options: ['m1', 'm2'],
-        validator: 'isValidModel', storage: 'model' } },
+        validator: 'isValidModel',
+        storage: 'model',
+      },
+    },
   ],
   validators: { isValidModel: m => m in gameConfig.parts.models },
 };
@@ -685,10 +705,10 @@ export default {
 
 ## Other client-visible ports
 
-| Port | Effect |
-| --- | --- |
-| `MAP_DATA` (3) | resets the core, calls `set_map`, then builds map parts through `gameSets[setId]` |
-| `CLEAR` (11) | destroys parts of one `setId` (or everything) and resets core + sound |
-| `MISC` (9) | miscellaneous, e.g. localStorage name replacement |
-| `PING` (10) / `PONG` (8) | latency probe, sent unreliably |
-| `CONSOLE` (12) | host-side console output forwarded for debugging |
+| Port                     | Effect                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `MAP_DATA` (3)           | resets the core, calls `set_map`, then builds map parts through `gameSets[setId]` |
+| `CLEAR` (11)             | destroys parts of one `setId` (or everything) and resets core + sound             |
+| `MISC` (9)               | miscellaneous, e.g. localStorage name replacement                                 |
+| `PING` (10) / `PONG` (8) | latency probe, sent unreliably                                                    |
+| `CONSOLE` (12)           | host-side console output forwarded for debugging                                  |

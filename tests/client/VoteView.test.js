@@ -27,7 +27,9 @@ beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
   document.body.innerHTML = '';
-  VoteView = (await import('../../packages/engine/src/client/components/view/Vote.js')).default;
+  VoteView = (
+    await import('../../packages/engine/src/client/components/view/Vote.js')
+  ).default;
 });
 
 afterEach(() => {
@@ -42,7 +44,9 @@ describe('VoteView.createVote', () => {
 
     const vote = document.getElementById('vote');
     expect(vote).not.toBeNull();
-    expect(vote.querySelector('.vote-title').textContent).toBe('Сменить карту?');
+    expect(vote.querySelector('.vote-title').textContent).toBe(
+      'Сменить карту?',
+    );
     expect(vote.querySelectorAll('.vote-list li').length).toBe(2);
   });
 

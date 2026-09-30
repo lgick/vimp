@@ -55,7 +55,8 @@ export default class PlayerDataSync {
     // джиттер считается один раз на комнату: сотни серверов, синхронно
     // проснувшихся по круглому минутному таймеру, дают мастеру пик
     this._flushInterval = Math.round(
-      settings.minFlushInterval * (1 + (random() * 2 - 1) * settings.flushJitter),
+      settings.minFlushInterval *
+        (1 + (random() * 2 - 1) * settings.flushJitter),
     );
     // вверх, а не как получится: слот, округлённый вниз, выпускал бы чуть
     // больше запросов в секунду, чем объявленный потолок
@@ -89,7 +90,10 @@ export default class PlayerDataSync {
       lastSyncedState: null,
       // значения на момент входа + локальные правки finishGame
       ratings: Object.fromEntries(
-        PERIODS.map(period => [period, { value: 0, placement: null, total: 0 }]),
+        PERIODS.map(period => [
+          period,
+          { value: 0, placement: null, total: 0 },
+        ]),
       ),
       // ПО СРЕЗАМ, а не общим флагом: агрегирующий /auth/placements отдаёт
       // 200, если приехал хоть один срез, и кладёт провалившийся как null.
@@ -100,7 +104,9 @@ export default class PlayerDataSync {
       currentGamePoints: 0, // очки незавершённой игры
       pendingPoints: 0, // сумма завершённых игр, ещё не отправленная
       pendingBest: 0, // лучшая завершённая игра, ещё не отправленная
-      placementRefreshedAt: Object.fromEntries(PERIODS.map(period => [period, 0])),
+      placementRefreshedAt: Object.fromEntries(
+        PERIODS.map(period => [period, 0]),
+      ),
       inFlight: false,
       // промис текущей серии flush: его отдают повторные вызовы, чтобы
       // граница, которая ждёт записи (destroy, уход участника), ждала её
@@ -151,7 +157,10 @@ export default class PlayerDataSync {
   _noteFailure() {
     const { baseMs, maxMs } = lobbyConfig.playerData.backoff;
 
-    this._backoffMs = Math.min(this._backoffMs ? this._backoffMs * 2 : baseMs, maxMs);
+    this._backoffMs = Math.min(
+      this._backoffMs ? this._backoffMs * 2 : baseMs,
+      maxMs,
+    );
     this._backoffUntil = this._now() + this._backoffMs;
   }
 
@@ -205,7 +214,9 @@ export default class PlayerDataSync {
       // навсегда выключает её и выглядит снаружи как «данных просто нет»
       if (!ratingsRes.ok) {
         this._noteStatus(ratingsRes.status);
-        console.warn(`[playerData] GET placements ${ratingsRes.status} for ${participantId}`);
+        console.warn(
+          `[playerData] GET placements ${ratingsRes.status} for ${participantId}`,
+        );
       } else {
         const json = (await ratingsRes.json()) ?? {};
         const at = this._now();
@@ -244,7 +255,9 @@ export default class PlayerDataSync {
           // сумму вместо максимума, и refreshPlacement её бы не исправил
           // (при непустом pending он берёт Math.max с показанным)
           rating.value =
-            period === 'month' ? rating.value + server : Math.max(rating.value, server);
+            period === 'month'
+              ? rating.value + server
+              : Math.max(rating.value, server);
           rating.placement = slice.placement ?? null;
           rating.total = Number(slice.total) || 0;
           entry.placementRefreshedAt[period] = at;
@@ -254,14 +267,18 @@ export default class PlayerDataSync {
 
       if (!stateRes.ok) {
         this._noteStatus(stateRes.status);
-        console.warn(`[playerData] GET state ${stateRes.status} for ${participantId}`);
+        console.warn(
+          `[playerData] GET state ${stateRes.status} for ${participantId}`,
+        );
       } else if (!entry.stateLoaded) {
         this._noteSuccess();
 
         const { state } = await stateRes.json();
 
         entry.state =
-          state && Object.keys(state).length ? state : structuredClone(this._defaultState);
+          state && Object.keys(state).length
+            ? state
+            : structuredClone(this._defaultState);
         entry.stateLoaded = true;
         // то, что только что приехало, отправлять обратно незачем
         entry.lastSyncedState = JSON.stringify(entry.state);
@@ -275,7 +292,10 @@ export default class PlayerDataSync {
       // в игре) бэкофф обходит, а именно он и тянет за собой повторный
       // load(), пока рейтинги не загружены
       this._noteFailure();
-      console.warn(`[playerData] load failed for ${participantId}:`, err.message);
+      console.warn(
+        `[playerData] load failed for ${participantId}:`,
+        err.message,
+      );
     }
 
     return entry;
@@ -323,7 +343,10 @@ export default class PlayerDataSync {
 
     const now = this._now();
 
-    if (now - entry.placementRefreshedAt[period] < lobbyConfig.playerData.placementTtl) {
+    if (
+      now - entry.placementRefreshedAt[period] <
+      lobbyConfig.playerData.placementTtl
+    ) {
       return this.getRating(participantId, period);
     }
 
@@ -342,7 +365,9 @@ export default class PlayerDataSync {
 
       if (!res.ok) {
         this._noteStatus(res.status);
-        console.warn(`[playerData] GET placement ${res.status} for ${participantId}`);
+        console.warn(
+          `[playerData] GET placement ${res.status} for ${participantId}`,
+        );
       } else {
         const { placement, total, rank } = (await res.json()) ?? {};
         const rating = entry.ratings[period];
@@ -361,7 +386,10 @@ export default class PlayerDataSync {
       }
     } catch (err) {
       this._noteFailure();
-      console.warn(`[playerData] placement failed for ${participantId}:`, err.message);
+      console.warn(
+        `[playerData] placement failed for ${participantId}:`,
+        err.message,
+      );
     }
 
     return this.getRating(participantId, period);
@@ -464,7 +492,10 @@ export default class PlayerDataSync {
 
       // предел владеет движком: просьба игры синхронизироваться чаще
       // minFlushInterval — это просьба, а не команда (решение пользователя 9)
-      if (now - entry.lastFlushAt < this._flushInterval || now < this._backoffUntil) {
+      if (
+        now - entry.lastFlushAt < this._flushInterval ||
+        now < this._backoffUntil
+      ) {
         return;
       }
     }
@@ -531,7 +562,12 @@ export default class PlayerDataSync {
         this._enqueue(() =>
           this._authedFetch(lobbyConfig.playerData.rankUrl, token, {
             method: 'PUT',
-            body: { points, best, hostId: this._hostId, hostSecret: this._hostSecret },
+            body: {
+              points,
+              best,
+              hostId: this._hostId,
+              hostSecret: this._hostSecret,
+            },
           }),
         ).then(res => {
           // pendingBest только растёт: если он тот же — отправленное учтено
@@ -550,7 +586,9 @@ export default class PlayerDataSync {
             drop();
           } else {
             this._noteStatus(res.status);
-            console.warn(`[playerData] PUT rank ${res.status} for ${participantId}`);
+            console.warn(
+              `[playerData] PUT rank ${res.status} for ${participantId}`,
+            );
 
             // 4xx (кроме 429) — отказ ПО СОДЕРЖАНИЮ: повтор того же тела
             // получит тот же ответ. Оставить его в pending значит слать
@@ -572,7 +610,11 @@ export default class PlayerDataSync {
         this._enqueue(() =>
           this._authedFetch(lobbyConfig.playerData.stateUrl, token, {
             method: 'PUT',
-            body: { state: entry.state, hostId: this._hostId, hostSecret: this._hostSecret },
+            body: {
+              state: entry.state,
+              hostId: this._hostId,
+              hostSecret: this._hostSecret,
+            },
           }),
         ).then(res => {
           if (res.ok) {
@@ -580,7 +622,9 @@ export default class PlayerDataSync {
             entry.lastSyncedState = state;
           } else {
             this._noteStatus(res.status);
-            console.warn(`[playerData] PUT state ${res.status} for ${participantId}`);
+            console.warn(
+              `[playerData] PUT state ${res.status} for ${participantId}`,
+            );
           }
         }),
       );
@@ -591,7 +635,10 @@ export default class PlayerDataSync {
     for (const result of await Promise.allSettled(requests)) {
       if (result.status === 'rejected') {
         this._noteFailure();
-        console.warn(`[playerData] flush failed for ${participantId}:`, result.reason?.message);
+        console.warn(
+          `[playerData] flush failed for ${participantId}:`,
+          result.reason?.message,
+        );
       }
     }
   }

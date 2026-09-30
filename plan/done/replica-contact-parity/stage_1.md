@@ -27,6 +27,7 @@
 ### Правка `obb_manifold` (поведение, `### Fixed`)
 
 В `packages/engine/core/src/client/collision.rs`, `obb_manifold`:
+
 - обе ветки отката (`let Some(clipped) = clipped else { … }` и `if len == 0 { … }`) для разведённой пары
   (`axis.depth < 0.0`) возвращают `None`;
 - при проникновении (`axis.depth >= 0.0`) откат остаётся прежним, бит в бит;

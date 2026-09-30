@@ -24,9 +24,9 @@ describe('назначение автора игры', () => {
   it('ник резолвится в id, регистр не важен', async () => {
     // сравнение ников регистронезависимо в самой БД
     // (002_nick_case_insensitive.sql), и админ вводит ник руками
-    const findByNick = vi.fn(nick => (
-      nick.toLowerCase() === 'player1' ? { id: 42, nick: 'Player1' } : null
-    ));
+    const findByNick = vi.fn(nick =>
+      nick.toLowerCase() === 'player1' ? { id: 42, nick: 'Player1' } : null,
+    );
 
     await expect(resolveAuthor('PLAYER1', findByNick)).resolves.toEqual({
       ok: true,
@@ -93,7 +93,9 @@ describe('назначение автора игры', () => {
       expect(text).toMatch(/author_user_id = \$3/);
       expect(values).toEqual(['tanks', 1, 42]);
 
-      return { rows: [{ id: 'tanks', 'author_user_id': 42, 'author_nick': 'Player1' }] };
+      return {
+        rows: [{ id: 'tanks', 'author_user_id': 42, 'author_nick': 'Player1' }],
+      };
     });
 
     const game = await new UserRepository(assigned).moderateGame(
@@ -111,7 +113,11 @@ describe('назначение автора игры', () => {
       return { rows: [{ id: 'tanks', 'author_user_id': null }] };
     });
 
-    await new UserRepository(cleared).moderateGame('tanks', { authorUserId: null }, 1);
+    await new UserRepository(cleared).moderateGame(
+      'tanks',
+      { authorUserId: null },
+      1,
+    );
   });
 
   it('назначенный автор получает игру в «My games» и вправе запросить версию', async () => {
@@ -119,7 +125,9 @@ describe('назначение автора игры', () => {
       expect(text).toMatch(/WHERE g\.author_user_id = \$1/);
       expect(values).toEqual([42]);
 
-      return { rows: [{ id: 'tanks', 'author_user_id': 42, 'author_nick': 'Player1' }] };
+      return {
+        rows: [{ id: 'tanks', 'author_user_id': 42, 'author_nick': 'Player1' }],
+      };
     });
 
     const games = await new UserRepository(listed).listGamesByAuthor(42);
@@ -131,24 +139,34 @@ describe('назначение автора игры', () => {
     const update = createDbStub((text, values) => {
       expect(values).toEqual(['tanks', '0.17.0', false, 42]);
 
-      return { rows: [{ id: 'tanks', 'pending_version': '0.17.0', 'author_user_id': 42 }] };
+      return {
+        rows: [
+          { id: 'tanks', 'pending_version': '0.17.0', 'author_user_id': 42 },
+        ],
+      };
     });
 
-    const updated = await new UserRepository(update).requestGameVersion('tanks', '0.17.0', {
-      userId: 42,
-    });
+    const updated = await new UserRepository(update).requestGameVersion(
+      'tanks',
+      '0.17.0',
+      {
+        userId: 42,
+      },
+    );
 
     expect(updated.pendingVersion).toBe('0.17.0');
 
     // а чужой — по-прежнему нет
-    const foreign = createDbStub(text => (
+    const foreign = createDbStub(text =>
       text.includes('UPDATE games')
         ? { rows: [] }
-        : { rows: [{ id: 'tanks', 'author_user_id': 42 }] }
-    ));
+        : { rows: [{ id: 'tanks', 'author_user_id': 42 }] },
+    );
 
     await expect(
-      new UserRepository(foreign).requestGameVersion('tanks', '0.17.0', { userId: 7 }),
+      new UserRepository(foreign).requestGameVersion('tanks', '0.17.0', {
+        userId: 7,
+      }),
     ).rejects.toThrow(GameForbiddenError);
   });
 
@@ -156,14 +174,20 @@ describe('назначение автора игры', () => {
   // перечитывали. Запись в удалённую строку вернула бы потом Restore'ом не
   // ту игру, которую удаляли, — и ответ здесь именно 404, а не 403
   it('в удалённую игру версия не заявляется', async () => {
-    const db = createDbStub(text => (
+    const db = createDbStub(text =>
       text.includes('UPDATE games')
         ? { rows: [] }
-        : { rows: [{ id: 'tanks', 'author_user_id': 42, 'deleted_at': new Date() }] }
-    ));
+        : {
+            rows: [
+              { id: 'tanks', 'author_user_id': 42, 'deleted_at': new Date() },
+            ],
+          },
+    );
 
     await expect(
-      new UserRepository(db).requestGameVersion('tanks', '0.17.0', { userId: 42 }),
+      new UserRepository(db).requestGameVersion('tanks', '0.17.0', {
+        userId: 42,
+      }),
     ).rejects.toThrow(GameNotFoundError);
   });
 
@@ -186,13 +210,19 @@ describe('назначение автора игры', () => {
 // FK на games у этих таблиц нет, и осиротевшие строки «воскресли» бы при
 // повторной заявке под тем же id
 describe('удаление игры', () => {
-  const DATA_TABLES = ['rank_periods', 'rank_events', 'state_snapshots', 'states', 'ratings'];
+  const DATA_TABLES = [
+    'rank_periods',
+    'rank_events',
+    'state_snapshots',
+    'states',
+    'ratings',
+  ];
 
   // стаб, отвечающий одной строкой games на SELECT/UPDATE и пустотой на DELETE
   function createDeleteStub(row) {
-    return createDbStub(text => (
-      text.startsWith('DELETE') ? { rows: [] } : { rows: row ? [row] : [] }
-    ));
+    return createDbStub(text =>
+      text.startsWith('DELETE') ? { rows: [] } : { rows: row ? [row] : [] },
+    );
   }
 
   function deletedTables(db) {
@@ -203,12 +233,21 @@ describe('удаление игры', () => {
 
   // текст UPDATE-запроса удаления, если он был
   function softDelete(db) {
-    return db.query.mock.calls.find(([text]) => /UPDATE games SET deleted_at = now\(\)/.test(text));
+    return db.query.mock.calls.find(([text]) =>
+      /UPDATE games SET deleted_at = now\(\)/.test(text),
+    );
   }
 
   it('админ удаляет опубликованную игру: строка помечается, данные целы', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
-    const game = await new UserRepository(db).deleteGame('tanks', { userId: 1, isAdmin: true });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'approved',
+    });
+    const game = await new UserRepository(db).deleteGame('tanks', {
+      userId: 1,
+      isAdmin: true,
+    });
 
     expect(game.id).toBe('tanks');
     expect(deletedTables(db)).toEqual([]);
@@ -217,7 +256,11 @@ describe('удаление игры', () => {
   });
 
   it('автор удаляет свою неопубликованную игру', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending' });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'pending',
+    });
 
     await new UserRepository(db).deleteGame('tanks', { userId: 42 });
 
@@ -228,8 +271,12 @@ describe('удаление игры', () => {
   // «повторное удаление» — это удаление ВОССТАНОВЛЕННОЙ игры: метка снята,
   // и запрос ставит её заново, то есть срок отсчитывается с нуля
   it('удаление восстановленной игры ставит метку заново', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending',
-      'deleted_at': null });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'pending',
+      'deleted_at': null,
+    });
 
     await new UserRepository(db).deleteGame('tanks', { userId: 42 });
 
@@ -242,8 +289,12 @@ describe('удаление игры', () => {
   // карточка панели могла устареть: игру удалил кто-то другой, пока список
   // не перечитывали. Второе удаление молча продлило бы срок на 30 суток
   it('уже удалённая игра для роута не существует', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending',
-      'deleted_at': new Date('2026-01-01T00:00:00Z') });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'pending',
+      'deleted_at': new Date('2026-01-01T00:00:00Z'),
+    });
 
     await expect(
       new UserRepository(db).deleteGame('tanks', { userId: 42 }),
@@ -253,10 +304,11 @@ describe('удаление игры', () => {
   });
 
   it('строку унесли между чтением и записью — GameNotFoundError, не пустая игра', async () => {
-    const db = createDbStub(text => (
-      text.startsWith('SELECT') ? { rows: [{ id: 'tanks', 'author_user_id': 42,
-        status: 'pending' }] } : { rows: [] }
-    ));
+    const db = createDbStub(text =>
+      text.startsWith('SELECT')
+        ? { rows: [{ id: 'tanks', 'author_user_id': 42, status: 'pending' }] }
+        : { rows: [] },
+    );
 
     await expect(
       new UserRepository(db).deleteGame('tanks', { userId: 42, isAdmin: true }),
@@ -264,7 +316,11 @@ describe('удаление игры', () => {
   });
 
   it('автор не удаляет раздаваемую игру', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'approved',
+    });
 
     await expect(
       new UserRepository(db).deleteGame('tanks', { userId: 42 }),
@@ -274,7 +330,11 @@ describe('удаление игры', () => {
   });
 
   it('чужая игра не удаляется', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'pending' });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'pending',
+    });
 
     await expect(
       new UserRepository(db).deleteGame('tanks', { userId: 7 }),
@@ -294,7 +354,11 @@ describe('удаление игры', () => {
   });
 
   it('восстановление снимает метку', async () => {
-    const db = createDeleteStub({ id: 'tanks', 'author_user_id': 42, status: 'approved' });
+    const db = createDeleteStub({
+      id: 'tanks',
+      'author_user_id': 42,
+      status: 'approved',
+    });
     const game = await new UserRepository(db).restoreGame('tanks');
 
     expect(game.id).toBe('tanks');
@@ -310,14 +374,20 @@ describe('удаление игры', () => {
   it('игра не была удалена — восстановление не находит её', async () => {
     const db = createDbStub(() => ({ rows: [] }));
 
-    await expect(new UserRepository(db).restoreGame('tanks')).rejects.toThrow(GameNotFoundError);
+    await expect(new UserRepository(db).restoreGame('tanks')).rejects.toThrow(
+      GameNotFoundError,
+    );
   });
 
   it('очистка уносит данные игры, строку games — последней', async () => {
-    const db = createDbStub(text => (
-      text.startsWith('SELECT id FROM games') ? { rows: [{ id: 'tanks' }] } : { rows: [] }
-    ));
-    const ids = await new UserRepository(db).purgeGames(new Date('2026-01-01T00:00:00Z'));
+    const db = createDbStub(text =>
+      text.startsWith('SELECT id FROM games')
+        ? { rows: [{ id: 'tanks' }] }
+        : { rows: [] },
+    );
+    const ids = await new UserRepository(db).purgeGames(
+      new Date('2026-01-01T00:00:00Z'),
+    );
 
     expect(ids).toEqual(['tanks']);
     expect(deletedTables(db)).toEqual([...DATA_TABLES, 'games']);

@@ -26,18 +26,18 @@
 
 ## Итог по критериям
 
-| Критерий | Оценка | Замечания |
-| --- | --- | --- |
-| Читаемость | хорошо | модули маленькие, имена точные, комментарии объясняют «почему» |
-| Работоспособность | есть дефекты | №3, №5, №6, №7, №8 |
-| Тестируемость | хорошо, но есть пробелы | зависимости внедряются (`now`, `fetchImpl`, `log`, `send`), но тесты моделируют нереальные формы данных: Firefox-стек с подставленной строкой-заголовком, `event.error` у Worker'а. Поэтому №3 и №5 тесты не поймали |
-| Поддерживаемость | хорошо | мелкий дубль — №12 |
-| Безопасность | есть дефекты | №1, №4, №9. XSS в панели закрыт (`textContent`), секрет сравнивается через `timingSafeEqual`, IP нигде не хранится |
-| Производительность | есть дефекты | №2, №4 |
-| Масштабируемость | в целом хорошо | многослойные бюджеты сделаны правильно; №2 растёт вместе с таблицей |
-| DRY | хорошо | №12. Копии `unavailable()` и `_request` в прокси (по две) допустимы |
-| Документированность | хорошо, есть неточности | en/ru зеркальны. Неточности: «debounce 2 s», «`*.map` never served», поля `role`/`page` в контексте |
-| Стандартизация | соответствует | ESM, `===`, фигурные скобки, порядок импортов, комментарии по-русски |
+| Критерий            | Оценка                  | Замечания                                                                                                                                                                                                            |
+| ------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Читаемость          | хорошо                  | модули маленькие, имена точные, комментарии объясняют «почему»                                                                                                                                                       |
+| Работоспособность   | есть дефекты            | №3, №5, №6, №7, №8                                                                                                                                                                                                   |
+| Тестируемость       | хорошо, но есть пробелы | зависимости внедряются (`now`, `fetchImpl`, `log`, `send`), но тесты моделируют нереальные формы данных: Firefox-стек с подставленной строкой-заголовком, `event.error` у Worker'а. Поэтому №3 и №5 тесты не поймали |
+| Поддерживаемость    | хорошо                  | мелкий дубль — №12                                                                                                                                                                                                   |
+| Безопасность        | есть дефекты            | №1, №4, №9. XSS в панели закрыт (`textContent`), секрет сравнивается через `timingSafeEqual`, IP нигде не хранится                                                                                                   |
+| Производительность  | есть дефекты            | №2, №4                                                                                                                                                                                                               |
+| Масштабируемость    | в целом хорошо          | многослойные бюджеты сделаны правильно; №2 растёт вместе с таблицей                                                                                                                                                  |
+| DRY                 | хорошо                  | №12. Копии `unavailable()` и `_request` в прокси (по две) допустимы                                                                                                                                                  |
+| Документированность | хорошо, есть неточности | en/ru зеркальны. Неточности: «debounce 2 s», «`*.map` never served», поля `role`/`page` в контексте                                                                                                                  |
+| Стандартизация      | соответствует           | ESM, `===`, фигурные скобки, порядок импортов, комментарии по-русски                                                                                                                                                 |
 
 ## Актуальность фикса 4092a28 (vimp-tanks)
 
@@ -64,6 +64,7 @@
    - `roofHidesPlayer`.
 
    Непокрытых мест разыменования нет.
+
 5. **Первопричина по-прежнему неизвестна**: почему на dedicated бывает кадр
    без трансформа сцены. Фикс защитный. Причину покажет строка
    `tanks.camera.missing` во вкладке «Errors»: в `details` там лежат
@@ -78,25 +79,25 @@
 
 ## Найденные проблемы
 
-| № | Серьёзность | Где | Суть | Этап |
-| --- | --- | --- | --- | --- |
-| 1 | **Высокая** (безопасность) | бокс, `master/httpSecurity.js` | `denySourceMaps` проверяет нераскодированный `req.path`, а `express.static` (send) раскодирует путь сам. Поэтому `/assets/index-*.js.%6dap`, `/assets/x.js%2Emap`, `/games/<id>/client-*.js.%6Dap` отдают карту с кодом 200 — проверено | 1 |
-| 2 | **Высокая** (производительность) | auth, `ClientReportRepository.ingest` | Условие `fingerprint CHAR(64) = ANY($1::text[])` приводит колонку к `text`, и UNIQUE-индекс не используется. `EXPLAIN` показывает `Filter` вместо `Index Cond`. Итог — полный проход таблицы (до 200 000 строк) на каждую пачку каждого бокса | 2 |
-| 3 | Средняя | бокс, `clientReports/symbolicate.js` | Первая строка стека всегда считается заголовком. У Firefox/Safari заголовка нет, и **верхний кадр не расшифровывается**. Тест это маскирует: подставляет строку `HEAD` | 3 |
-| 4 | Средняя (DoS) | бокс, `symbolicate.js` | Нет бюджета холодных загрузок карт. В лобби корни — все версии всех игр: до 60 новых отпечатков в минуту × до 12 разных карт = до 720 разборов в минуту по ~35 мс в event loop. Параллельные загрузки одной карты не склеиваются | 3 |
-| 9 | Низкая | бокс, `createClientReportRoute.js` | `message` отчёта уходит в `log.warn` как есть: `\n` подделывает строки `docker logs` | 4 |
-| 10 | Низкая | мастер, `ClientReportsProxy.js` | У запроса нет таймаута (у `GameRegistryProxy` — 15 с) | 4 |
-| 11 | Низкая | лобби, `master/lobby.js` | Нет обработчика SIGTERM. Node в образе — PID 1 без init, поэтому сигнал игнорируется до SIGKILL. Буфер (до 30 с отчётов) теряется на каждом деплое | 4 |
-| 12 | Низкая (DRY) | `dedicated/main.js` | Два одинаковых валидатора origin (WS и журнал); второй собирается на каждом запросе | 4 |
-| 5 | Средняя | клиент, `network/HostController.js` | В `worker.onerror` у Chrome `event.error === null` — проверено. Отчёт уходит без места: нет верхнего кадра, нет расшифровки. Если `message` пустой (Worker не загрузился), бокс отбрасывает отчёт | 5 |
-| 6 | Средняя | клиент, `HostController.js` + `host/host.worker.js` | При сбое init `new Error(msg.message)` создаётся в главном потоке. В журнал уходит стек HostController'а, а не Worker'а | 5 |
-| 7 | Средняя | клиент, `lib/diagnostics.js` | Смена игры или роли применяется к ещё не отправленным записям. До 2 с отчётов уходят с чужими `gameId`/`gameVersion` — это чужой отпечаток, чужие карты и чужой фильтр в панели | 5 |
-| 8 | Средняя | клиент ↔ бокс | Повторяющаяся ошибка даёт отправку каждые 2 с — до 30 запросов в минуту. Лимит бокса — 10 запросов в минуту с адреса (за NAT он общий). Ответ 429 молча съедает приросты счётчиков: `sentCount` к этому моменту уже сдвинут | 5 |
-| 13 | Низкая | клиент, `diagnostics.js` | Исключение из `navigator.sendBeacon` не перехватывается, и запасной `fetch` не срабатывает. В Chrome 153 Blob с JSON принимается; нужна страховка для старых браузеров | 5 |
-| 14 | Низкая | auth, upsert | `details = COALESCE(старое, новое)`: служебная строка `reports.dropped` навсегда показывает разбивку первого окна | 2 |
-| 15 | Низкая | клиент → бокс → auth | `context.role` и `context.page` собираются и проверяются боксом, но в журнал не попадают, хотя документация их обещает | 6 |
-| 16 | Низкая | tanks, `src/client/levelView.js` | Устаревший комментарий о том, что предупреждение уходит только в консоль | 7 |
-| 17 | Низкая, **отложено** | SDK, `client/main.js` | `diagnostics.install()` возвращает функцию снятия, но она игнорируется: после `stop()` SDK слушатели остаются. Отложено: для `main.js` нет тестового харнесса, а отчёты уходят на собственный `reportUrl` встраивающего | — |
+| №   | Серьёзность                      | Где                                                 | Суть                                                                                                                                                                                                                                          | Этап |
+| --- | -------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| 1   | **Высокая** (безопасность)       | бокс, `master/httpSecurity.js`                      | `denySourceMaps` проверяет нераскодированный `req.path`, а `express.static` (send) раскодирует путь сам. Поэтому `/assets/index-*.js.%6dap`, `/assets/x.js%2Emap`, `/games/<id>/client-*.js.%6Dap` отдают карту с кодом 200 — проверено       | 1    |
+| 2   | **Высокая** (производительность) | auth, `ClientReportRepository.ingest`               | Условие `fingerprint CHAR(64) = ANY($1::text[])` приводит колонку к `text`, и UNIQUE-индекс не используется. `EXPLAIN` показывает `Filter` вместо `Index Cond`. Итог — полный проход таблицы (до 200 000 строк) на каждую пачку каждого бокса | 2    |
+| 3   | Средняя                          | бокс, `clientReports/symbolicate.js`                | Первая строка стека всегда считается заголовком. У Firefox/Safari заголовка нет, и **верхний кадр не расшифровывается**. Тест это маскирует: подставляет строку `HEAD`                                                                        | 3    |
+| 4   | Средняя (DoS)                    | бокс, `symbolicate.js`                              | Нет бюджета холодных загрузок карт. В лобби корни — все версии всех игр: до 60 новых отпечатков в минуту × до 12 разных карт = до 720 разборов в минуту по ~35 мс в event loop. Параллельные загрузки одной карты не склеиваются              | 3    |
+| 9   | Низкая                           | бокс, `createClientReportRoute.js`                  | `message` отчёта уходит в `log.warn` как есть: `\n` подделывает строки `docker logs`                                                                                                                                                          | 4    |
+| 10  | Низкая                           | мастер, `ClientReportsProxy.js`                     | У запроса нет таймаута (у `GameRegistryProxy` — 15 с)                                                                                                                                                                                         | 4    |
+| 11  | Низкая                           | лобби, `master/lobby.js`                            | Нет обработчика SIGTERM. Node в образе — PID 1 без init, поэтому сигнал игнорируется до SIGKILL. Буфер (до 30 с отчётов) теряется на каждом деплое                                                                                            | 4    |
+| 12  | Низкая (DRY)                     | `dedicated/main.js`                                 | Два одинаковых валидатора origin (WS и журнал); второй собирается на каждом запросе                                                                                                                                                           | 4    |
+| 5   | Средняя                          | клиент, `network/HostController.js`                 | В `worker.onerror` у Chrome `event.error === null` — проверено. Отчёт уходит без места: нет верхнего кадра, нет расшифровки. Если `message` пустой (Worker не загрузился), бокс отбрасывает отчёт                                             | 5    |
+| 6   | Средняя                          | клиент, `HostController.js` + `host/host.worker.js` | При сбое init `new Error(msg.message)` создаётся в главном потоке. В журнал уходит стек HostController'а, а не Worker'а                                                                                                                       | 5    |
+| 7   | Средняя                          | клиент, `lib/diagnostics.js`                        | Смена игры или роли применяется к ещё не отправленным записям. До 2 с отчётов уходят с чужими `gameId`/`gameVersion` — это чужой отпечаток, чужие карты и чужой фильтр в панели                                                               | 5    |
+| 8   | Средняя                          | клиент ↔ бокс                                       | Повторяющаяся ошибка даёт отправку каждые 2 с — до 30 запросов в минуту. Лимит бокса — 10 запросов в минуту с адреса (за NAT он общий). Ответ 429 молча съедает приросты счётчиков: `sentCount` к этому моменту уже сдвинут                   | 5    |
+| 13  | Низкая                           | клиент, `diagnostics.js`                            | Исключение из `navigator.sendBeacon` не перехватывается, и запасной `fetch` не срабатывает. В Chrome 153 Blob с JSON принимается; нужна страховка для старых браузеров                                                                        | 5    |
+| 14  | Низкая                           | auth, upsert                                        | `details = COALESCE(старое, новое)`: служебная строка `reports.dropped` навсегда показывает разбивку первого окна                                                                                                                             | 2    |
+| 15  | Низкая                           | клиент → бокс → auth                                | `context.role` и `context.page` собираются и проверяются боксом, но в журнал не попадают, хотя документация их обещает                                                                                                                        | 6    |
+| 16  | Низкая                           | tanks, `src/client/levelView.js`                    | Устаревший комментарий о том, что предупреждение уходит только в консоль                                                                                                                                                                      | 7    |
+| 17  | Низкая, **отложено**             | SDK, `client/main.js`                               | `diagnostics.install()` возвращает функцию снятия, но она игнорируется: после `stop()` SDK слушатели остаются. Отложено: для `main.js` нет тестового харнесса, а отчёты уходят на собственный `reportUrl` встраивающего                       | —    |
 
 ## Общие правила исполнения
 
@@ -126,7 +127,7 @@
 - Файлы с префиксом `_` не трогать.
 - Готовый этап помечать в его заголовке меткой «✅ выполнен». Когда
   выполнены все, выполнить `git mv plan/client-reports-review.md
-  plan/done/` (без коммита).
+plan/done/` (без коммита).
 - Этап 7 — в `/Users/dmitry/Sites/my/vimp-tanks`, остальные — в
   `/Users/dmitry/Sites/my/vimp`.
 
@@ -255,13 +256,13 @@ Filter: ((fingerprint)::text = ANY ('{a,b}'::text[]))   ← без Index Cond
 миграции перезапускаются на каждом деплое, и `ALTER TYPE` там лишний.
 
 ```js
-    // ::bpchar[], а не ::text[]: колонка CHAR(64), и сравнение с text
-    // приводит её к text — UNIQUE-индекс тогда не работает, и каждая пачка
-    // проходила бы таблицу целиком
-    const { rows } = await this._db.query(
-      'SELECT fingerprint FROM client_reports WHERE fingerprint = ANY($1::bpchar[])',
-      [merged.map(item => item.fingerprint)],
-    );
+// ::bpchar[], а не ::text[]: колонка CHAR(64), и сравнение с text
+// приводит её к text — UNIQUE-индекс тогда не работает, и каждая пачка
+// проходила бы таблицу целиком
+const { rows } = await this._db.query(
+  'SELECT fingerprint FROM client_reports WHERE fingerprint = ANY($1::bpchar[])',
+  [merged.map(item => item.fingerprint)],
+);
 ```
 
 ### 2.2 `details` служебной строки застывают на первом окне
@@ -339,31 +340,30 @@ const FRAME_LINE_RE = /^\s*at\s|@[a-z][a-z0-9+.-]*:\/\//i;
 Итоговая функция:
 
 ```js
-  return async stack => {
-    const out = [];
-    let decoded = 0;
+return async stack => {
+  const out = [];
+  let decoded = 0;
 
-    for (const line of String(stack).split('\n')) {
-      const frame =
-        decoded < maxFrames && FRAME_LINE_RE.test(line) ? parseFrame(line) : null;
+  for (const line of String(stack).split('\n')) {
+    const frame = decoded < maxFrames && FRAME_LINE_RE.test(line) ? parseFrame(line) : null;
 
-      if (!frame) {
-        out.push(line);
-        continue;
-      }
-
-      decoded += 1;
-
-      try {
-        out.push(await symbolicateFrame(line, frame));
-      } catch {
-        // одна битая карта не ломает весь стек
-        out.push(line);
-      }
+    if (!frame) {
+      out.push(line);
+      continue;
     }
 
-    return out.join('\n').slice(0, STACK_SYMBOLICATED);
-  };
+    decoded += 1;
+
+    try {
+      out.push(await symbolicateFrame(line, frame));
+    } catch {
+      // одна битая карта не ломает весь стек
+      out.push(line);
+    }
+  }
+
+  return out.join('\n').slice(0, STACK_SYMBOLICATED);
+};
 ```
 
 ### 3.2 Бюджет холодных загрузок и склейка параллельных
@@ -382,6 +382,7 @@ const FRAME_LINE_RE = /^\s*at\s|@[a-z][a-z0-9+.-]*:\/\//i;
    - `now = Date.now`.
 
    Дописать их в JSDoc.
+
 2. Кэш хранит **промис** `Promise<SourceMapConsumer|null>`, а не результат.
 3. Кэшировать:
    - карту, которой нет (`ENOENT`) → `null`: имя бандла хешировано, и
@@ -397,97 +398,97 @@ const FRAME_LINE_RE = /^\s*at\s|@[a-z][a-z0-9+.-]*:\/\//i;
 обращения к кэшу):
 
 ```js
-  // mapPath → Promise<SourceMapConsumer|null>: промис, а не результат, —
-  // два одновременных отчёта про одну карту читают её с диска один раз.
-  // Порядок вставки Map и есть порядок LRU
-  const cache = new Map();
-  let coldMinute = null;
-  let coldLoads = 0;
+// mapPath → Promise<SourceMapConsumer|null>: промис, а не результат, —
+// два одновременных отчёта про одну карту читают её с диска один раз.
+// Порядок вставки Map и есть порядок LRU
+const cache = new Map();
+let coldMinute = null;
+let coldLoads = 0;
 
-  // Разбор карты — синхронные десятки мс в event loop бокса (у dedicated
-  // там же идёт матч), а корни лобби держат все версии всех игр: без
-  // бюджета стеки с разными картами гоняли бы LRU по кругу
-  const takeColdLoad = () => {
-    const minute = Math.floor(now() / 60000);
+// Разбор карты — синхронные десятки мс в event loop бокса (у dedicated
+// там же идёт матч), а корни лобби держат все версии всех игр: без
+// бюджета стеки с разными картами гоняли бы LRU по кругу
+const takeColdLoad = () => {
+  const minute = Math.floor(now() / 60000);
 
-    if (minute !== coldMinute) {
-      coldMinute = minute;
-      coldLoads = 0;
-    }
+  if (minute !== coldMinute) {
+    coldMinute = minute;
+    coldLoads = 0;
+  }
 
-    if (coldLoads >= maxColdLoadsPerMinute) {
-      return false;
-    }
+  if (coldLoads >= maxColdLoadsPerMinute) {
+    return false;
+  }
 
-    coldLoads += 1;
+  coldLoads += 1;
 
-    return true;
-  };
+  return true;
+};
 
-  // null — карты нет (и не появится: имя бандла хешировано) или она не
-  // годится; прочие сбои — исключение
-  const readMap = async mapPath => {
-    let stat;
+// null — карты нет (и не появится: имя бандла хешировано) или она не
+// годится; прочие сбои — исключение
+const readMap = async mapPath => {
+  let stat;
 
-    try {
-      stat = await fs.stat(mapPath);
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        return null;
-      }
-
-      throw err;
-    }
-
-    if (!stat.isFile() || stat.size > maxMapBytes) {
+  try {
+    stat = await fs.stat(mapPath);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
       return null;
     }
 
-    return new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
-  };
+    throw err;
+  }
+
+  if (!stat.isFile() || stat.size > maxMapBytes) {
+    return null;
+  }
+
+  return new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
+};
 ```
 
 В `loadMap` после проверок корня и расширения:
 
 ```js
-    const mapPath = `${resolved}.map`;
+const mapPath = `${resolved}.map`;
 
-    if (cache.has(mapPath)) {
-      const pending = cache.get(mapPath);
+if (cache.has(mapPath)) {
+  const pending = cache.get(mapPath);
 
-      cache.delete(mapPath);
-      cache.set(mapPath, pending);
+  cache.delete(mapPath);
+  cache.set(mapPath, pending);
 
-      return pending;
-    }
+  return pending;
+}
 
-    if (!takeColdLoad()) {
-      return null;
-    }
+if (!takeColdLoad()) {
+  return null;
+}
 
-    const pending = readMap(mapPath);
+const pending = readMap(mapPath);
 
-    cache.set(mapPath, pending);
+cache.set(mapPath, pending);
 
-    if (cache.size > cacheSize) {
-      cache.delete(cache.keys().next().value);
-    }
+if (cache.size > cacheSize) {
+  cache.delete(cache.keys().next().value);
+}
 
-    // сбой чтения не кешируется: один EIO не должен выключить карту навсегда
-    pending.catch(() => {
-      if (cache.get(mapPath) === pending) {
-        cache.delete(mapPath);
-      }
-    });
+// сбой чтения не кешируется: один EIO не должен выключить карту навсегда
+pending.catch(() => {
+  if (cache.get(mapPath) === pending) {
+    cache.delete(mapPath);
+  }
+});
 
-    return pending;
+return pending;
 ```
 
 **Тесты** (`clientReportsSymbolicate.test.js`). Существующие должны пройти
 без правок; добавить:
 
 1. Настоящий Firefox-стек **без** `HEAD`: `['Tr@https://h/assets/bundle.js:1:11',
-   'f@https://h/assets/bundle.js:1:11'].join('\n')`. Расшифрованы обе
+'f@https://h/assets/bundle.js:1:11'].join('\n')`. Расшифрованы обе
    строки, первая тоже — ожидается `DECODED` в формате
    `    at modelLean (src/…:42:5) [/assets/bundle.js:1:11]`.
 2. V8-сообщение, которое оканчивается на URL с позицией:
@@ -519,9 +520,9 @@ symbolication». Дописать:
 **Журнал** `[Unreleased]`:
 
 - `### Fixed`: `Client error reports from Firefox and Safari get their top
-  stack frame symbolicated too (their stacks have no message line).`
+stack frame symbolicated too (their stacks have no message line).`
 - `### Security`: `Stack symbolication on the server loads at most 20 source
-  maps a minute, so crafted reports cannot stall the event loop.`
+maps a minute, so crafted reports cannot stall the event loop.`
 
 ---
 
@@ -564,9 +565,9 @@ item.message.slice(0, 120))}`.
 Повторить приём `GameRegistryProxy.js`:
 
 - конструктор `constructor(authServiceUrl, { fetchImpl = fetch, timeout =
-  15000 } = {})` и поле `this._timeout = timeout`;
+15000 } = {})` и поле `this._timeout = timeout`;
 - в `_request` передавать в `fetch` параметр `signal: this._timeout ?
-  AbortSignal.timeout(this._timeout) : undefined`;
+AbortSignal.timeout(this._timeout) : undefined`;
 - комментарий: «зависший auth не должен держать запрос админки — тот же
   приём, что у GameRegistryProxy».
 
@@ -668,7 +669,7 @@ authServiceUnavailable` через `clientReportsRoutes.js`.
 - для журнала (строки ~461–466) — `security.createOriginValidator({...})`
   собирается на **каждый** запрос;
 - для WS (строки ~570–574) — `const checkOrigin =
-  security.createOriginValidator({...})` с `port: actualPort`.
+security.createOriginValidator({...})` с `port: actualPort`.
 
 **Решение:**
 
@@ -676,7 +677,7 @@ authServiceUnavailable` через `clientReportsRoutes.js`.
   после `listen`);
 - WS-обработчик вызывает `originValidator(requestOrigin, err => …)`;
 - в `createClientReports` передать `checkOrigin: (origin, cb) =>
-  originValidator(origin, cb)` с комментарием: «валидатор собирается после
+originValidator(origin, cb)` с комментарием: «валидатор собирается после
   listen (порт известен только тогда), а запросы приходят позже»;
 - `actualPort` оставить: он ещё и в возвращаемом объекте.
 
@@ -790,12 +791,12 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
 - переделать тест «onerror без error — сообщение события»: ожидается
   `capture({ message: 'Script error.', stack: null }, …)`;
 - новый: `onerror({ error: null, message: 'Uncaught TypeError: x',
-  filename: 'https://h/assets/host.worker-abc.js', lineno: 1, colno: 38 })`
+filename: 'https://h/assets/host.worker-abc.js', lineno: 1, colno: 38 })`
   → `stack === 'Uncaught TypeError: x\n    at
-  https://h/assets/host.worker-abc.js:1:38'`;
+https://h/assets/host.worker-abc.js:1:38'`;
 - новый: `onerror({ message: '' })` → `message === 'Worker error'`;
 - новый: сообщение `{ type: 'error', message: 'init failed', stack:
-  'Error: init failed\n    at https://h/assets/host.worker-abc.js:5:7' }`
+'Error: init failed\n    at https://h/assets/host.worker-abc.js:5:7' }`
   от рабочего и от нового (эстафета) Worker'а → в `capture` уходит
   **этот** стек;
 - существующие тесты эстафеты (откат, `resume`, `onError` не вызван)
@@ -806,20 +807,20 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
 `diagnostics.js`, функция `setContext` (строки ~380–386) — заменить на:
 
 ```js
-  // смена контекста (игра, роль): накопленное уходит СО СВОИМ контекстом —
-  // иначе отчёт игры A, отправленный уже под игрой B, получил бы на боксе
-  // отпечаток и source maps игры B
-  function setContext(patch) {
-    try {
-      if (Object.keys(patch).some(key => ctx[key] !== patch[key])) {
-        flush();
-      }
-
-      Object.assign(ctx, patch);
-    } catch {
-      // контекст — вспомогательный, его сбой отчёты не останавливает
+// смена контекста (игра, роль): накопленное уходит СО СВОИМ контекстом —
+// иначе отчёт игры A, отправленный уже под игрой B, получил бы на боксе
+// отпечаток и source maps игры B
+function setContext(patch) {
+  try {
+    if (Object.keys(patch).some(key => ctx[key] !== patch[key])) {
+      flush();
     }
+
+    Object.assign(ctx, patch);
+  } catch {
+    // контекст — вспомогательный, его сбой отчёты не останавливает
   }
+}
 ```
 
 `main.js` не меняется: `syncDiagnosticsGame()` и `setContext({ role })` и
@@ -830,7 +831,7 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
 - `setContext({ gameId: 'a' })`, затем `capture(err)`, затем
   `setContext({ gameId: 'b' })` → `send` вызван сразу, в теле
   `context.gameId === 'a'`. Следующий `capture` + `flush()` → `gameId ===
-  'b'`;
+'b'`;
 - `setContext` с теми же значениями → `send` не вызван.
 
 ### 5.4 Каденс отправки против лимита бокса (№8)
@@ -856,7 +857,7 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
      ```
 
    - в `flush()` внутри `guarded`, после сбора `items`: `if (items.length >
-     0) { lastSentAt = now(); }`. Прямой `flush()` (`pagehide`, смена
+0) { lastSentAt = now(); }`. Прямой `flush()` (`pagehide`, смена
      контекста) идёт без ограничения — так и задумано.
    - Шапку модуля поправить: «отправка — пачками: первая через 2 с,
      следующие не чаще раза в 10 с».
@@ -881,16 +882,16 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
 `diagnostics.js`, `defaultSend`: вызов `sendBeacon` обернуть в `try`:
 
 ```js
-  if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-    try {
-      if (navigator.sendBeacon(url, new Blob([json], { type: 'application/json' }))) {
-        return;
-      }
-    } catch {
-      // старые Chromium бросали SecurityError на Blob с application/json
-      // (crbug.com/490015) — тогда запасной fetch
+if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+  try {
+    if (navigator.sendBeacon(url, new Blob([json], { type: 'application/json' }))) {
+      return;
     }
+  } catch {
+    // старые Chromium бросали SecurityError на Blob с application/json
+    // (crbug.com/490015) — тогда запасной fetch
   }
+}
 ```
 
 **Тест:** `sendBeacon` бросает → вызван `fetch` с `keepalive: true`.
@@ -956,14 +957,14 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
 
 2. Бокс, `master/clientReports/createClientReportRoute.js`: в объект
    `buffer.add({...})` после `mode` добавить `role: context.role, page:
-   context.page,`. В `master/clientReports/index.js` → `makeDroppedEntry`
+context.page,`. В `master/clientReports/index.js` → `makeDroppedEntry`
    добавить `role: null, page: null,` — форма записи должна быть одинаковой.
 3. Auth:
    - `config/auth.js` → `clientReports.limits` дополнить `page: 128`;
    - `lib/clientReportValidators.js`: экспорт `REPORT_ROLES = ['client',
-     'host']`; в `normalizeReportItem` поля `role:
-     REPORT_ROLES.includes(raw.role) ? raw.role : null` и `page:
-     cut(raw.page, limits.page)`.
+'host']`; в `normalizeReportItem` поля `role:
+REPORT_ROLES.includes(raw.role) ? raw.role : null` и `page:
+cut(raw.page, limits.page)`.
 4. `ClientReportRepository.js`:
    - `REPORT_COLUMNS` — добавить `r.role, r.page`;
    - `mapReport` — `role: row.role, page: row.page`;
@@ -974,7 +975,7 @@ this._diagnostics?.capture(workerErrorReport(event), { source:
 5. Панель, `client/components/view/ClientReports.js`, метод `_details`:
    после строки «User agent» добавить `this._line(\`Role: ${report.role ??
    '—'}; page: ${report.page ?? '—'}\`)`. Только через `_line`, то есть
-   `textContent`.
+`textContent`.
 
 **Тесты:**
 
@@ -1025,12 +1026,12 @@ tanks: `npx eslint .` и `npx vitest run --reporter=dot`.
 
 ## Влияние на релиз
 
-| Этап | Артефакт | Уровень |
-| --- | --- | --- |
-| 1, 3, 4 | образ бокса (`src/master`, `src/dedicated` в npm не входят); выкладка — push в `main` | записи `### Security`/`### Fixed` → ближайший npm-релиз `vimp-engine` будет patch |
-| 2, 6 (auth) | auth-сервис; миграция `014` — автоматически при деплое | журнала нет |
-| 5, 6 (клиент) | npm `vimp-engine` (`src/client`, `src/host`, `src/config`) | patch (`### Fixed`) |
-| 7 | vimp-tanks, только комментарий | без релиза |
+| Этап          | Артефакт                                                                              | Уровень                                                                           |
+| ------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 1, 3, 4       | образ бокса (`src/master`, `src/dedicated` в npm не входят); выкладка — push в `main` | записи `### Security`/`### Fixed` → ближайший npm-релиз `vimp-engine` будет patch |
+| 2, 6 (auth)   | auth-сервис; миграция `014` — автоматически при деплое                                | журнала нет                                                                       |
+| 5, 6 (клиент) | npm `vimp-engine` (`src/client`, `src/host`, `src/config`)                            | patch (`### Fixed`)                                                               |
+| 7             | vimp-tanks, только комментарий                                                        | без релиза                                                                        |
 
 - `contract/surface.json` не меняется. vimp-tanks следовать за движком не
   обязан.
@@ -1044,17 +1045,17 @@ tanks: `npx eslint .` и `npx vitest run --reporter=dot`.
 ## Проверка по окончании
 
 1. Из корня `/Users/dmitry/Sites/my/vimp`: `npx eslint .` и `npx vitest run
-   --reporter=dot` — зелёные.
+--reporter=dot` — зелёные.
 2. Этап 1: интеграционный тест `httpSecurity.test.js` зелёный. Все
    варианты `.%6dap`/`%2Emap`/`.MAP` дают 404.
 3. Этап 2: ручной `EXPLAIN` показывает `Index Cond`.
 4. Этап 5, ручная проверка в dev-лобби (`npm run dev`, без
    `VIMP_CLIENT_REPORTS_TOKEN` — только журнал процесса):
    - в консоли страницы выполнить `setTimeout(() => { throw new
-     Error('probe'); })`;
+Error('probe'); })`;
    - через ~2 с в выводе мастера появляется `[vimp:client-report] new …
-     error/client probe`.
+error/client probe`.
 5. Этап 6: `npm run auth:db:migrate` дважды подряд — без ошибок; `\d
-   client_reports` показывает `role` и `page`.
+client_reports` показывает `role` и `page`.
 6. Этап 7: в `/Users/dmitry/Sites/my/vimp-tanks` — `npx eslint .` и `npx
-   vitest run --reporter=dot` зелёные.
+vitest run --reporter=dot` зелёные.

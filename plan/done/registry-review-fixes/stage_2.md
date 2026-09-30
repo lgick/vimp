@@ -276,23 +276,23 @@ app.delete('/games/mine/:id', adminAuth.authenticated, limitSubmits, gameRoutes.
 3. В `renderMine` — кнопка после «Update version»:
 
 ```js
-      item.appendChild(
-        this._deleteButton(() => this.publisher.emit('delete', { id: game.id, scope: 'mine' })),
-      );
+item.appendChild(
+  this._deleteButton(() => this.publisher.emit('delete', { id: game.id, scope: 'mine' })),
+);
 ```
 
 4. В `_adminItem` — кнопка последней, после «npm versions»:
 
 ```js
-    item.appendChild(
-      this._deleteButton(() => this.publisher.emit('delete', { id: game.id, scope: 'admin' })),
-    );
+item.appendChild(
+  this._deleteButton(() => this.publisher.emit('delete', { id: game.id, scope: 'admin' })),
+);
 ```
 
 **`components/controller/Games.js`**:
 
 ```js
-    vp.on('delete', 'remove', this);
+vp.on('delete', 'remove', this);
 ```
 
 ```js

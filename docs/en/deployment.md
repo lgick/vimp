@@ -137,13 +137,13 @@ cd ~/vimp-deployment-scripts
 ./add-dedicated.sh
 ```
 
-| Question | `add-server.sh` (master) | `add-dedicated.sh` |
-| --- | --- | --- |
-| Domain, port, SSL email | required | required |
-| Is this the auth-service domain | asked (brings the auth stack up) | not asked |
-| Auth-service URL | **required** — without it the CSP blocks the lobby login | not asked — no OAuth; the registry (a game named by id) comes from `vars.AUTH_SERVICE_URL` at deploy |
-| Game, room settings | not asked | not asked — `dedicatedGame` and `settings` in `SERVERS_MATRIX` |
-| Files written | project folder, Nginx + SSL (an auth domain also gets `.env.prod`, `docker-compose.yml`, `.keys/`) | project folder, Nginx + SSL |
+| Question                        | `add-server.sh` (master)                                                                           | `add-dedicated.sh`                                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Domain, port, SSL email         | required                                                                                           | required                                                                                             |
+| Is this the auth-service domain | asked (brings the auth stack up)                                                                   | not asked                                                                                            |
+| Auth-service URL                | **required** — without it the CSP blocks the lobby login                                           | not asked — no OAuth; the registry (a game named by id) comes from `vars.AUTH_SERVICE_URL` at deploy |
+| Game, room settings             | not asked                                                                                          | not asked — `dedicatedGame` and `settings` in `SERVERS_MATRIX`                                       |
+| Files written                   | project folder, Nginx + SSL (an auth domain also gets `.env.prod`, `docker-compose.yml`, `.keys/`) | project folder, Nginx + SSL                                                                          |
 
 The script knows nothing about the game, so it works for any of them: which
 game runs and which room fields make sense for it is the matrix's business
@@ -265,7 +265,7 @@ field in `SERVERS_MATRIX`:
   frozen and no longer a gate: the lobby catalog accepts a `dist/` built
   against any older engine, and `engineApi` is only a generation stamp. The
   one fatal case is `manifest.requires` naming a capability this engine build
-  does not provide (`src/lib/capabilities.js`) — the game is *newer* than the
+  does not provide (`src/lib/capabilities.js`) — the game is _newer_ than the
   engine. Even then it is not equally fatal everywhere: the lobby master keeps
   the game in the catalog with `compat: {ok: false, …}` (the lobby shows it
   disabled with the reason and refuses to register a host for it) and keeps
@@ -299,7 +299,7 @@ field in `SERVERS_MATRIX`:
   empty.
 - No Nginx or CSP change is needed — `location /` already proxies the
   upgrade headers, so `/game` reaches the WebSocket, and `connect-src
-  'self' wss:` already covers it.
+'self' wss:` already covers it.
 
 ## Central auth service (`packages/auth`)
 
@@ -333,13 +333,13 @@ shared instance that every master domain points at.
     the master's single-container setup but with a Postgres sidecar) in
     `~/vimp_projects/<domain>/`;
   - logs in to GHCR if credentials were given, then runs `docker compose
-    pull` with whatever auth is present (so an existing valid ambient
+pull` with whatever auth is present (so an existing valid ambient
     `docker login` is used as-is and not discarded); on failure it first
     retries once anonymously (clearing any stale ghcr.io credentials, which
     covers a public image blocked by an expired login), and if it still
     fails prompts for a GHCR login/PAT and retries in the same run (no need
     to restart the whole script), up to 3 attempts, then `docker compose up
-    -d`;
+-d`;
   - runs migrations (`docker compose exec auth node src/db/migrate.js`,
     retried until Postgres is ready) and checks `GET /jwks` for a 200, first
     against `http://127.0.0.1:<port>` (up to 10 attempts, 1s apart) — this
@@ -348,9 +348,9 @@ shared instance that every master domain points at.
     process, not a real fault. Since Nginx+SSL for the domain are already in
     place by this point (Step 3 above runs first), a failed local check is
     re-verified against the real public path instead of being guessed at:
-    `https://<domain>/jwks` (up to 5 attempts, 2s apart). Only if *both* fail
+    `https://<domain>/jwks` (up to 5 attempts, 2s apart). Only if _both_ fail
     does the script report a genuine failure (`docker compose ... logs
-    auth`). Known limitation: the public re-check runs from the VPS itself
+auth`). Known limitation: the public re-check runs from the VPS itself
     back to its own public domain — on a host without hairpin NAT that
     request can fail even though outside clients reach the service fine,
     producing a false "partial" result. The failure mode is one-directional
@@ -358,13 +358,13 @@ shared instance that every master domain points at.
     log check (`docker compose ... logs auth`, `curl https://<domain>/jwks`
     from another machine), not a masked real outage.
   - **Re-running on the same auth domain** offers a choice: `1) update
-    image` (keep the DB, RS256 keys and secrets, just re-pull and restart)
+image` (keep the DB, RS256 keys and secrets, just re-pull and restart)
     or `2) recreate` (`docker compose down -v` — wipes the DB and keys,
     requires typing `yes` to confirm).
 - **Migrations** run automatically as part of the above, and on every push
   to `main`: `deploy.yml`'s `deploy_auth` job pulls the new auth image, runs
   `node src/db/migrate.js` in a **one-off container from it** (`docker compose
-  run --rm`, idempotent — `CREATE TABLE/INDEX IF NOT EXISTS`) and only then
+run --rm`, idempotent — `CREATE TABLE/INDEX IF NOT EXISTS`) and only then
   recreates the stack. That order is deliberate: new code routinely reads
   columns the old schema does not have, and every request between the
   container's start and a successful migration would answer 500 — the public
@@ -374,7 +374,7 @@ shared instance that every master domain points at.
   secrets as the master `deploy` job, but runs independently of it (masters
   are not blocked when the auth domain isn't configured). To re-run by hand
   (e.g. after a manual schema change): `docker compose exec auth node
-  src/db/migrate.js` from `~/vimp_projects/<domain>/` — `exec` is right there,
+src/db/migrate.js` from `~/vimp_projects/<domain>/` — `exec` is right there,
   since the running container already holds the code the schema belongs to.
 - **`AUTH_SERVER_IP`** (Settings → Secrets and variables → Actions →
   Variables) is the auth VPS's IP address, and it gates `deploy_auth`: with
@@ -386,7 +386,7 @@ shared instance that every master domain points at.
   what you entered when the auth stack was created/recreated — adding a
   new master domain afterwards means editing it by hand in
   `~/vimp_projects/<auth-domain>/.env.prod` and running `docker compose up -d
-  --force-recreate auth` there — `env_file` is only read when the container
+--force-recreate auth` there — `env_file` is only read when the container
   is created, so a plain `restart` would silently keep the old value.
 - **Wiring masters to it.** Set the `AUTH_SERVICE_URL` repository variable
   (Settings → Secrets and variables → Actions → Variables) to the auth
@@ -499,7 +499,7 @@ the whole server** while the ping limit becomes global. The process logs a
 happens.
 
 `X-Forwarded-For` is deliberately not used as the key: Nginx sets it with
-`$proxy_add_x_forwarded_for`, which *appends* the real address to whatever the
+`$proxy_add_x_forwarded_for`, which _appends_ the real address to whatever the
 client sent, so its first hop is client-controlled — see
 [master.md](master.md#protection).
 
@@ -617,14 +617,14 @@ there. Instead:
 
 ### Viewing logs on the VPS
 
-| Action | Docker command |
-| --- | --- |
-| Tail logs (node.js) | `docker logs -f vimp-<domain>` |
+| Action               | Docker command                                              |
+| -------------------- | ----------------------------------------------------------- |
+| Tail logs (node.js)  | `docker logs -f vimp-<domain>`                              |
 | Client error reports | `docker logs vimp-<domain> 2>&1 \| grep vimp:client-report` |
-| List processes | `docker ps -a` |
-| Restart | `docker restart vimp-<domain>` |
-| Stop | `docker stop vimp-<domain>` |
-| Resource usage | `docker stats` |
+| List processes       | `docker ps -a`                                              |
+| Restart              | `docker restart vimp-<domain>`                              |
+| Stop                 | `docker stop vimp-<domain>`                                 |
+| Resource usage       | `docker stats`                                              |
 
 `docker stop` stops the lobby at once: it handles `SIGTERM`, flushes the
 buffered client error reports (at most 3 s) and exits, instead of being

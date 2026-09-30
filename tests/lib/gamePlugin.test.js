@@ -53,9 +53,9 @@ describe('gamePlugin: fetchGameManifest', () => {
       vi.fn().mockResolvedValue({ ok: true, json: async () => manifest }),
     );
 
-    await expect(
-      fetchGameManifest('/games/tanks/manifest.json'),
-    ).resolves.toBe(manifest);
+    await expect(fetchGameManifest('/games/tanks/manifest.json')).resolves.toBe(
+      manifest,
+    );
     expect(fetch).toHaveBeenCalledWith('/games/tanks/manifest.json');
   });
 
@@ -183,7 +183,10 @@ describe('gamePlugin: assertEngineApiCompatible', () => {
 
   it('не бросает на манифесте прошлого поколения — возраст не причина', () => {
     expect(() =>
-      assertEngineApiCompatible({ id: 'tanks', engineApi: ENGINE_API_VERSION - 1 }),
+      assertEngineApiCompatible({
+        id: 'tanks',
+        engineApi: ENGINE_API_VERSION - 1,
+      }),
     ).not.toThrow();
   });
 });

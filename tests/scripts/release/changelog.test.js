@@ -93,7 +93,9 @@ describe('changelog', () => {
   });
 
   it('предлагает инкремент по под-заголовкам', () => {
-    expect(suggestLevel(parseUnreleased(CORE).sections, '0.2.1').level).toBe('minor');
+    expect(suggestLevel(parseUnreleased(CORE).sections, '0.2.1').level).toBe(
+      'minor',
+    );
     expect(suggestLevel(['Added'], '0.6.0').level).toBe('minor');
     expect(suggestLevel(['Changed', 'Fixed'], '0.6.0').level).toBe('patch');
     expect(suggestLevel(['⚠️ Breaking'], '1.2.0').level).toBe('major');
@@ -222,9 +224,12 @@ ${fence}
   });
 
   it('понимает ~~~ и инфо-строку после ограды', () => {
-    expect(parseUnreleased(fenced('### Added', '~~~')).sections).toEqual(['Fixed']);
+    expect(parseUnreleased(fenced('### Added', '~~~')).sections).toEqual([
+      'Fixed',
+    ]);
     expect(
-      parseUnreleased(fenced('### Added').replace('```\n###', '```md\n###')).sections,
+      parseUnreleased(fenced('### Added').replace('```\n###', '```md\n###'))
+        .sections,
     ).toEqual(['Fixed']);
   });
 
@@ -242,9 +247,9 @@ ${fence}
 
 describe('sectionName', () => {
   it('снимает эмодзи и уточнение после тире или в скобках', () => {
-    expect(sectionName('⚠️ Breaking — `reset()` также чистит `my_game_id`')).toBe(
-      'Breaking',
-    );
+    expect(
+      sectionName('⚠️ Breaking — `reset()` также чистит `my_game_id`'),
+    ).toBe('Breaking');
     expect(sectionName('Migration (game plugins)')).toBe('Migration');
     expect(sectionName('Added')).toBe('Added');
   });
@@ -298,7 +303,9 @@ describe('validateSections', () => {
     const problems = validateSections(['Improved', 'Perf', 'Docs']);
 
     expect(problems).toHaveLength(4);
-    expect(problems.filter(problem => problem.includes('регистру'))).toHaveLength(1);
+    expect(
+      problems.filter(problem => problem.includes('регистру')),
+    ).toHaveLength(1);
   });
 
   it('требует пару Breaking + Migration в обе стороны', () => {
@@ -319,7 +326,10 @@ describe('validateSections', () => {
     ]) {
       const text = await readFile(path.join(ROOT, file), 'utf8');
 
-      expect({ file, problems: validateUnreleased(parseUnreleased(text)) }).toEqual({
+      expect({
+        file,
+        problems: validateUnreleased(parseUnreleased(text)),
+      }).toEqual({
         file,
         problems: [],
       });
@@ -342,7 +352,9 @@ describe('validateUnreleased', () => {
   });
 
   it('ловит записи без единого под-заголовка', () => {
-    const parsed = parseUnreleased('# Changelog\n\n## [Unreleased]\n\n- запись.\n');
+    const parsed = parseUnreleased(
+      '# Changelog\n\n## [Unreleased]\n\n- запись.\n',
+    );
 
     expect(validateUnreleased(parsed)).toEqual([
       'в [Unreleased] есть записи, но нет ни одного ### под-заголовка',
@@ -395,12 +407,15 @@ describe('releaseUnreleased', () => {
   });
 
   it('заводит блок ссылок, если его ещё нет', () => {
-    const next = releaseUnreleased('# Changelog\n\n## [Unreleased]\n\n### Added\n\n- x\n', {
-      version: '0.1.0',
-      date: '2026-08-09',
-      repoUrl: 'https://github.com/lgick/vimp',
-      artifact: 'vimp-engine',
-    });
+    const next = releaseUnreleased(
+      '# Changelog\n\n## [Unreleased]\n\n### Added\n\n- x\n',
+      {
+        version: '0.1.0',
+        date: '2026-08-09',
+        repoUrl: 'https://github.com/lgick/vimp',
+        artifact: 'vimp-engine',
+      },
+    );
 
     expect(next).toContain(
       releaseLink('https://github.com/lgick/vimp', 'vimp-engine', '0.1.0'),
@@ -475,14 +490,20 @@ describe('releaseUnreleased', () => {
 // вынужденный релиз с пустой секцией иначе оставлял в журнале дыру между
 // версиями (у скаффолдера — 0.4.1…0.4.26 без единой записи)
 describe('withFallbackEntry', () => {
-  const empty = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- x\n';
+  const empty =
+    '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- x\n';
 
   it('пустая [Unreleased] получает ### Changed с записью', () => {
-    const text = withFallbackEntry(empty, 'Rebuilt against `vimp-engine-core` 0.3.0.');
+    const text = withFallbackEntry(
+      empty,
+      'Rebuilt against `vimp-engine-core` 0.3.0.',
+    );
     const unreleased = parseUnreleased(text);
 
     expect(unreleased.sections).toEqual(['Changed']);
-    expect(unreleased.body).toBe('### Changed\n\n- Rebuilt against `vimp-engine-core` 0.3.0.');
+    expect(unreleased.body).toBe(
+      '### Changed\n\n- Rebuilt against `vimp-engine-core` 0.3.0.',
+    );
     expect(validateUnreleased(unreleased)).toEqual([]);
   });
 
@@ -494,7 +515,9 @@ describe('withFallbackEntry', () => {
       artifact: 'x',
     });
 
-    expect(text).toContain('## [Unreleased]\n\n## [0.1.1] — 2026-02-02\n\n### Changed\n\n- Entry.\n\n## [0.1.0]');
+    expect(text).toContain(
+      '## [Unreleased]\n\n## [0.1.1] — 2026-02-02\n\n### Changed\n\n- Entry.\n\n## [0.1.0]',
+    );
   });
 
   it('непустую секцию не трогает: автор описал релиз сам', () => {

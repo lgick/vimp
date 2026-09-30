@@ -11,7 +11,12 @@ describe('ClientReportsProxy', () => {
     const fetchImpl = makeFetch();
     const proxy = new ClientReportsProxy('http://auth.local', { fetchImpl });
 
-    await proxy.list('tok', { status: 'fixed', gameId: 'tanks', limit: 50, offset: 100 });
+    await proxy.list('tok', {
+      status: 'fixed',
+      gameId: 'tanks',
+      limit: 50,
+      offset: 100,
+    });
 
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://auth.local/admin/client-reports?status=fixed&gameId=tanks&limit=50&offset=100',
@@ -28,11 +33,19 @@ describe('ClientReportsProxy', () => {
     const fetchImpl = makeFetch();
     const proxy = new ClientReportsProxy('http://auth.local', { fetchImpl });
 
-    await proxy.list('tok', { status: undefined, gameId: undefined, limit: 20 });
+    await proxy.list('tok', {
+      status: undefined,
+      gameId: undefined,
+      limit: 20,
+    });
     await proxy.list('tok', {});
 
-    expect(fetchImpl.mock.calls[0][0]).toBe('http://auth.local/admin/client-reports?limit=20');
-    expect(fetchImpl.mock.calls[1][0]).toBe('http://auth.local/admin/client-reports');
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      'http://auth.local/admin/client-reports?limit=20',
+    );
+    expect(fetchImpl.mock.calls[1][0]).toBe(
+      'http://auth.local/admin/client-reports',
+    );
   });
 
   it('setStatus: PATCH по encodeURIComponent(id) с телом { status, note }', async () => {
@@ -41,12 +54,18 @@ describe('ClientReportsProxy', () => {
 
     await proxy.setStatus('tok', '7/../x', { status: 'fixed', note: 'v1.2' });
 
-    expect(fetchImpl).toHaveBeenCalledWith('http://auth.local/admin/client-reports/7%2F..%2Fx', {
-      method: 'PATCH',
-      signal: expect.any(AbortSignal),
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ status: 'fixed', note: 'v1.2' }),
-    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://auth.local/admin/client-reports/7%2F..%2Fx',
+      {
+        method: 'PATCH',
+        signal: expect.any(AbortSignal),
+        headers: {
+          authorization: 'Bearer tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'fixed', note: 'v1.2' }),
+      },
+    );
   });
 
   it('запрос с таймаутом: signal — AbortSignal', async () => {
@@ -60,7 +79,10 @@ describe('ClientReportsProxy', () => {
 
   it('timeout: 0 — без signal', async () => {
     const fetchImpl = makeFetch();
-    const proxy = new ClientReportsProxy('http://auth.local', { fetchImpl, timeout: 0 });
+    const proxy = new ClientReportsProxy('http://auth.local', {
+      fetchImpl,
+      timeout: 0,
+    });
 
     await proxy.list('tok');
 
@@ -72,7 +94,10 @@ describe('ClientReportsProxy', () => {
       fetchImpl: makeFetch(403, { error: 'forbidden' }),
     });
 
-    expect(await proxy.list('tok')).toEqual({ status: 403, json: { error: 'forbidden' } });
+    expect(await proxy.list('tok')).toEqual({
+      status: 403,
+      json: { error: 'forbidden' },
+    });
   });
 
   it('тело не JSON — json: null', async () => {

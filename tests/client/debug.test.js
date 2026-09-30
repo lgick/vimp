@@ -16,7 +16,11 @@ const scenario = {
   ticks: 42,
 };
 
-const makeApi = ({ hostController = null, clientCore = null, fetchImpl } = {}) => {
+const makeApi = ({
+  hostController = null,
+  clientCore = null,
+  fetchImpl,
+} = {}) => {
   const log = vi.fn();
 
   const api = createDebugApi({

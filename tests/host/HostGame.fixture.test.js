@@ -172,7 +172,8 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     expect(handoffMeta.gameId).toBe('miniGame');
     expect(handoffMeta.humans).toHaveLength(1);
 
-    const { createFixtureHost: createNext } = await import('./fixtureHarness.js');
+    const { createFixtureHost: createNext } =
+      await import('./fixtureHarness.js');
     const { host: nextHost } = await createNext({
       opts: { handoff: handoffMeta },
     });
@@ -208,12 +209,18 @@ describe('HostGame (фикстура — без Rust-артефактов игр
       };
     }
 
-    return { ok: true, status: 200, json: async () => ({ rank: 0, state: null }) };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ rank: 0, state: null }),
+    };
   };
 
   it('места из глобального топа рассылаются портом ACCOLADES_DATA', async () => {
     const { host: board, socket: boardSocket } = await createFixtureHost({
-      opts: { playerDataFetch: boardFetch([{ nick: 'P1', rank: 90, place: 2 }]) },
+      opts: {
+        playerDataFetch: boardFetch([{ nick: 'P1', rank: 90, place: 2 }]),
+      },
     });
 
     const gameId = await connectPlayer(board, { socketId: 's1' });
@@ -235,7 +242,10 @@ describe('HostGame (фикстура — без Rust-артефактов игр
       daily: null,
       monthly: null,
     });
-    expect(frames.at(-1).args[0].places[String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+    expect(frames.at(-1).args[0].places[String(gameId)]).toEqual({
+      daily: 2,
+      monthly: 2,
+    });
     // и сам топ: клиент рисует его по Tab из этой же рассылки, а не своим
     // запросом к мастеру
     expect(frames.at(-1).args[0].boards.day).toEqual([
@@ -253,7 +263,9 @@ describe('HostGame (фикстура — без Rust-артефактов игр
   // не повторялся, потому что с тех пор ничего не менялось
   it('единственный игрок комнаты получает свои места сразу', async () => {
     const { host: board, socket: boardSocket } = await createFixtureHost({
-      opts: { playerDataFetch: boardFetch([{ nick: 'P1', rank: 90, place: 2 }]) },
+      opts: {
+        playerDataFetch: boardFetch([{ nick: 'P1', rank: 90, place: 2 }]),
+      },
     });
 
     // топ приезжает ДО того, как игрок стал готов: опрос стартует на первом
@@ -269,7 +281,10 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     const frames = boardSocket.framesOf('sendAccolades');
 
     expect(frames.length).toBeGreaterThan(0);
-    expect(frames.at(-1).args[0].places[String(gameId)]).toEqual({ daily: 2, monthly: 2 });
+    expect(frames.at(-1).args[0].places[String(gameId)]).toEqual({
+      daily: 2,
+      monthly: 2,
+    });
   });
 
   it("в режиме stat 'leaderboard' хост stat не шлёт вовсе", async () => {
@@ -311,7 +326,11 @@ describe('HostGame (фикстура — без Rust-артефактов игр
 
       pending -= 1;
 
-      return { ok: true, status: 200, json: async () => ({ rank: 0, state: null }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ rank: 0, state: null }),
+      };
     };
 
     const { host: counted } = await createFixtureHost({

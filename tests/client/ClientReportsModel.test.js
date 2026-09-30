@@ -39,19 +39,27 @@ const last = () => states[states.length - 1];
 
 describe('ClientReportsModel: страницы', () => {
   it('первая страница — графа Open, Bearer, limit=pageSize, offset=0', async () => {
-    fetchMock.mockResolvedValue(answer({ reports: [report(1), report(2)], total: 3 }));
+    fetchMock.mockResolvedValue(
+      answer({ reports: [report(1), report(2)], total: 3 }),
+    );
 
     await model.load({ reset: true });
 
-    expect(fetchMock.mock.calls[0][0]).toBe('/admin/client-reports?status=open&limit=2&offset=0');
-    expect(fetchMock.mock.calls[0][1].headers.authorization).toBe('Bearer token123');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/admin/client-reports?status=open&limit=2&offset=0',
+    );
+    expect(fetchMock.mock.calls[0][1].headers.authorization).toBe(
+      'Bearer token123',
+    );
     expect(last()).toMatchObject({ total: 3, loading: false, error: null });
     expect(last().items.map(r => r.id)).toEqual([1, 2]);
   });
 
   it('«ещё» дописывает страницу со смещением по длине списка', async () => {
     fetchMock
-      .mockResolvedValueOnce(answer({ reports: [report(1), report(2)], total: 3 }))
+      .mockResolvedValueOnce(
+        answer({ reports: [report(1), report(2)], total: 3 }),
+      )
       .mockResolvedValueOnce(answer({ reports: [report(3)], total: 3 }));
 
     await model.load({ reset: true });
@@ -64,13 +72,17 @@ describe('ClientReportsModel: страницы', () => {
   it('смена графы и игры сбрасывает список', async () => {
     fetchMock
       .mockResolvedValueOnce(answer({ reports: [report(1)], total: 1 }))
-      .mockResolvedValueOnce(answer({ reports: [report(9, 'fixed')], total: 1 }))
+      .mockResolvedValueOnce(
+        answer({ reports: [report(9, 'fixed')], total: 1 }),
+      )
       .mockResolvedValueOnce(answer({ reports: [], total: 0 }));
 
     await model.load({ reset: true });
     await model.setFilter({ status: 'fixed' });
 
-    expect(fetchMock.mock.calls[1][0]).toBe('/admin/client-reports?status=fixed&limit=2&offset=0');
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      '/admin/client-reports?status=fixed&limit=2&offset=0',
+    );
     expect(last().items.map(r => r.id)).toEqual([9]);
 
     await model.setFilter({ gameId: 'tanks' });
@@ -78,7 +90,12 @@ describe('ClientReportsModel: страницы', () => {
     expect(fetchMock.mock.calls[2][0]).toBe(
       '/admin/client-reports?status=fixed&limit=2&offset=0&gameId=tanks',
     );
-    expect(last()).toMatchObject({ items: [], total: 0, status: 'fixed', gameId: 'tanks' });
+    expect(last()).toMatchObject({
+      items: [],
+      total: 0,
+      status: 'fixed',
+      gameId: 'tanks',
+    });
   });
 
   it('ответ, обогнанный сменой графы, не дописывается', async () => {
@@ -86,7 +103,9 @@ describe('ClientReportsModel: страницы', () => {
 
     fetchMock
       .mockReturnValueOnce(new Promise(resolve => (resolveSlow = resolve)))
-      .mockResolvedValueOnce(answer({ reports: [report(5, 'fixed')], total: 1 }));
+      .mockResolvedValueOnce(
+        answer({ reports: [report(5, 'fixed')], total: 1 }),
+      );
 
     const slow = model.load({ reset: true });
 
@@ -100,7 +119,9 @@ describe('ClientReportsModel: страницы', () => {
 
 describe('ClientReportsModel: решение админа', () => {
   beforeEach(async () => {
-    fetchMock.mockResolvedValueOnce(answer({ reports: [report(1), report(2)], total: 2 }));
+    fetchMock.mockResolvedValueOnce(
+      answer({ reports: [report(1), report(2)], total: 2 }),
+    );
     await model.load({ reset: true });
   });
 
@@ -121,11 +142,15 @@ describe('ClientReportsModel: решение админа', () => {
   it('в графе All запись заменяется ответом', async () => {
     fetchMock.mockResolvedValueOnce(answer({ reports: [report(1)], total: 1 }));
     await model.setFilter({ status: 'all' });
-    fetchMock.mockResolvedValueOnce(answer({ report: { ...report(1, 'ignored'), statusNote: 'n' } }));
+    fetchMock.mockResolvedValueOnce(
+      answer({ report: { ...report(1, 'ignored'), statusNote: 'n' } }),
+    );
 
     await model.setStatus(1, 'ignored', 'n');
 
-    expect(last().items).toEqual([{ ...report(1, 'ignored'), statusNote: 'n' }]);
+    expect(last().items).toEqual([
+      { ...report(1, 'ignored'), statusNote: 'n' },
+    ]);
     expect(last().total).toBe(1);
   });
 });

@@ -26,7 +26,8 @@ const FUTURE_WINDOW_MS = 5 * 60 * 1000;
 const isPlainObject = value =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-const cut = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
+const cut = (value, max) =>
+  typeof value === 'string' ? value.slice(0, max) : null;
 
 function normalizeDetails(details, maxBytes) {
   if (!isPlainObject(details)) {
@@ -62,11 +63,17 @@ function normalizeTime(value, now) {
     ms = Date.parse(value);
   }
 
-  return Number.isFinite(ms) && ms >= now - PAST_WINDOW_MS && ms <= now + FUTURE_WINDOW_MS ? ms : now;
+  return Number.isFinite(ms) &&
+    ms >= now - PAST_WINDOW_MS &&
+    ms <= now + FUTURE_WINDOW_MS
+    ? ms
+    : now;
 }
 
 const normalizeVersion = (value, max) =>
-  typeof value === 'string' && value.length <= max && VERSION_RE.test(value) ? value : null;
+  typeof value === 'string' && value.length <= max && VERSION_RE.test(value)
+    ? value
+    : null;
 
 /**
  * Одна запись пачки бокса → чистый объект для репозитория или null.
@@ -78,7 +85,10 @@ const normalizeVersion = (value, max) =>
  * @param {number} [options.now] - Текущее время (для тестов).
  * @returns {Object|null}
  */
-export function normalizeReportItem(raw, { limits, gameIdRules, now = Date.now() }) {
+export function normalizeReportItem(
+  raw,
+  { limits, gameIdRules, now = Date.now() },
+) {
   if (!isPlainObject(raw)) {
     return null;
   }
@@ -113,7 +123,12 @@ export function normalizeReportItem(raw, { limits, gameIdRules, now = Date.now()
     source,
     kind,
     message: message.slice(0, limits.message),
-    code: typeof code === 'string' && code.length <= limits.code && CODE_RE.test(code) ? code : null,
+    code:
+      typeof code === 'string' &&
+      code.length <= limits.code &&
+      CODE_RE.test(code)
+        ? code
+        : null,
     stack: cut(raw.stack, limits.stack),
     details: normalizeDetails(raw.details, limits.details),
     count: normalizeCount(raw.count),

@@ -18,8 +18,9 @@ const makeView = () => ({ publisher: new Publisher() });
 
 beforeEach(async () => {
   vi.resetModules();
-  VoteCtrl = (await import('../../packages/engine/src/client/components/controller/Vote.js'))
-    .default;
+  VoteCtrl = (
+    await import('../../packages/engine/src/client/components/controller/Vote.js')
+  ).default;
 });
 
 describe('VoteCtrl.open', () => {

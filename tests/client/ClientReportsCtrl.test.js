@@ -40,7 +40,10 @@ describe('ClientReportsCtrl', () => {
     view.publisher.emit('more');
     view.publisher.emit('set-status', { id: 3, status: 'ignored', note: null });
 
-    expect(model.setFilter.mock.calls).toEqual([[{ status: 'fixed' }], [{ gameId: 'tanks' }]]);
+    expect(model.setFilter.mock.calls).toEqual([
+      [{ status: 'fixed' }],
+      [{ gameId: 'tanks' }],
+    ]);
     expect(model.load).toHaveBeenCalledWith();
     expect(model.setStatus).toHaveBeenCalledWith(3, 'ignored', null);
   });

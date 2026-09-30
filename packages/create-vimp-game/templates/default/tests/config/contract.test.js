@@ -66,7 +66,9 @@ describe('snapshot schema', () => {
     // block keyed by none of them is one nothing ever fills, and a MISSING one
     // makes the packer reject the frame
     for (const key of Object.keys(snapshot)) {
-      expect(key in models || key in weapons || setIds.has(key), key).toBe(true);
+      expect(key in models || key in weapons || setIds.has(key), key).toBe(
+        true,
+      );
     }
 
     for (const setId of setIds) {
@@ -103,7 +105,10 @@ describe('client config', () => {
     for (const entries of Object.values(bakedAssets)) {
       for (const entry of entries) {
         expect(clientPlugin.bakers[entry.name], entry.name).toBeDefined();
-        expect(entitiesOnCanvas[entry.component], entry.component).toBeDefined();
+        expect(
+          entitiesOnCanvas[entry.component],
+          entry.component,
+        ).toBeDefined();
       }
     }
   });

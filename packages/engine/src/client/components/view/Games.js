@@ -209,7 +209,10 @@ export default class GamesView {
     this._submitError.textContent = '';
 
     this._preview.appendChild(
-      this._line(`${title ? `${title} · ` : ''}${id ?? '—'}`, 'games-item-title'),
+      this._line(
+        `${title ? `${title} · ` : ''}${id ?? '—'}`,
+        'games-item-title',
+      ),
     );
     this._preview.appendChild(this._line(`Version: ${version ?? '—'}`));
     this._preview.appendChild(this._line(`Engine API: ${engineApi ?? '—'}`));
@@ -233,9 +236,9 @@ export default class GamesView {
     // разрешённая версия в поле меняет `${packageName}@${version}`, и
     // следующий blur прошёл бы как «другой пакет»: запрет повтора обновляется
     // фактическим ответом мастера
-    this._lastLookup = `${this._fields.get('packageName').value.trim()}@${
-      this._fields.get('version').value.trim()
-    }`;
+    this._lastLookup = `${this._fields.get('packageName').value.trim()}@${this._fields
+      .get('version')
+      .value.trim()}`;
 
     const problems = errors || [];
 
@@ -283,7 +286,10 @@ export default class GamesView {
       send.type = 'button';
       send.value = 'Update version';
       send.onclick = () =>
-        this.publisher.emit('update-version', { id: game.id, version: version.value.trim() });
+        this.publisher.emit('update-version', {
+          id: game.id,
+          version: version.value.trim(),
+        });
 
       item.appendChild(version);
       item.appendChild(send);
@@ -344,11 +350,15 @@ export default class GamesView {
     // решение по ней приняли. Из всей карточки ей нужны срок полного
     // удаления и возврат — остальные кнопки правили бы то, чего не видно
     if (game.deletedAt) {
-      item.appendChild(this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`));
+      item.appendChild(
+        this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`),
+      );
       this._appendRepo(item, game.repoUrl);
       item.appendChild(this._line(this._statusLine(game), 'games-purge-line'));
       item.appendChild(
-        this._button('Restore', () => this.publisher.emit('restore', { id: game.id })),
+        this._button('Restore', () =>
+          this.publisher.emit('restore', { id: game.id }),
+        ),
       );
 
       return item;
@@ -356,7 +366,9 @@ export default class GamesView {
 
     // у игр, засеянных миграцией, автора нет вовсе: без запасного прочерка
     // в строке печаталось бы литеральное "null"
-    item.appendChild(this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`));
+    item.appendChild(
+      this._line(`Author: ${game.authorNick ?? game.authorUserId ?? '—'}`),
+    );
 
     // переназначение автора: игры платформы засеяны без него, и «My games»
     // у их автора пуст, пока админ не проставит ник здесь. Пустое поле —
@@ -371,7 +383,10 @@ export default class GamesView {
     item.appendChild(author);
     item.appendChild(
       this._button('Set author', () =>
-        this.publisher.emit('set-author', { id: game.id, nick: author.value.trim() }),
+        this.publisher.emit('set-author', {
+          id: game.id,
+          nick: author.value.trim(),
+        }),
       ),
     );
     this._appendRepo(item, game.repoUrl);
@@ -387,7 +402,9 @@ export default class GamesView {
       item.appendChild(
         this._line(
           `On this master: ${game.local.downloaded ? 'downloaded' : 'not downloaded'}` +
-            (game.local.stagedVersion ? `; staged ${game.local.stagedVersion}` : '') +
+            (game.local.stagedVersion
+              ? `; staged ${game.local.stagedVersion}`
+              : '') +
             (game.local.lastError ? `; error: ${game.local.lastError}` : ''),
         ),
       );
@@ -409,7 +426,9 @@ export default class GamesView {
       ),
     );
     item.appendChild(
-      this._button('Approve', () => this.publisher.emit('approve', { id: game.id })),
+      this._button('Approve', () =>
+        this.publisher.emit('approve', { id: game.id }),
+      ),
     );
     item.appendChild(
       this._button('Reject', () =>
@@ -417,7 +436,9 @@ export default class GamesView {
       ),
     );
     item.appendChild(
-      this._button('Disable', () => this.publisher.emit('disable', { id: game.id })),
+      this._button('Disable', () =>
+        this.publisher.emit('disable', { id: game.id }),
+      ),
     );
     item.appendChild(
       this._button('npm versions', () =>
@@ -457,14 +478,18 @@ export default class GamesView {
 
   _statusLine(game) {
     const status = STATUS_TITLES[game.status] ?? game.status;
-    const date = game.createdAt ? new Date(game.createdAt).toLocaleDateString() : '';
+    const date = game.createdAt
+      ? new Date(game.createdAt).toLocaleDateString()
+      : '';
 
     // у удалённой игры прежний статус — след того, куда её вернёт Restore, —
     // а вести отсчёт человеку нужно от срока полного удаления: только он
     // ограничен во времени
     if (game.deletedAt) {
       const deleted = new Date(game.deletedAt).toLocaleDateString();
-      const purge = game.purgeAt ? new Date(game.purgeAt).toLocaleDateString() : '—';
+      const purge = game.purgeAt
+        ? new Date(game.purgeAt).toLocaleDateString()
+        : '—';
 
       return `Deleted ${deleted} (was ${status}); removed for good on ${purge}`;
     }

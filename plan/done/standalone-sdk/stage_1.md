@@ -68,14 +68,20 @@ export function createGuestIdentity({ fallbackPrefix = 'Player_' } = {})
   экземпляра, сброс кэша при сбое), `params: []`, `errorField: 'token'`.
 - `createGuestIdentity` — `params`:
   ```js
-  [{
-    name: 'name',
-    value: '',
-    options: {
-      control: 'text', label: 'Name', validator: 'isValidName',
-      storage: 'playerName', required: true, maxlength: 15,
+  [
+    {
+      name: 'name',
+      value: '',
+      options: {
+        control: 'text',
+        label: 'Name',
+        validator: 'isValidName',
+        storage: 'playerName',
+        required: true,
+        maxlength: 15,
+      },
     },
-  }]
+  ];
   ```
   (`options` — это дескриптор формы + валидатор, ровно как в
   `tests/fixtures/miniGame/config/auth.js`; `isValidName` уже зарегистрирован

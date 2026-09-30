@@ -6,15 +6,20 @@
 // это глобально-персистентная личность, поэтому сужено до обычного пробела
 const NAME_REGEXP = new RegExp('^[a-zA-Z]([\\w #]{0,13})[\\w]{1}$');
 
-export const isValidNick = nick => typeof nick === 'string' && NAME_REGEXP.test(nick);
+export const isValidNick = nick =>
+  typeof nick === 'string' && NAME_REGEXP.test(nick);
 
 // snakes-v3 (stage_2.md, 2.5): результат игры. best — одна игра, points —
 // сумма склеенных. `best <= points` — не формальность: best это максимум
 // среди игр, чья сумма равна points, и нарушение означает битого клиента
 export const isValidGameResult = (points, best, { maxGameScore, maxPoints }) =>
-  Number.isInteger(points) && Number.isInteger(best) &&
-  points >= 0 && best >= 0 &&
-  best <= maxGameScore && points <= maxPoints && best <= points;
+  Number.isInteger(points) &&
+  Number.isInteger(best) &&
+  points >= 0 &&
+  best >= 0 &&
+  best <= maxGameScore &&
+  points <= maxPoints &&
+  best <= points;
 
 // state — непрозрачный JSON игры, auth проверяет только общий объём
 export const isValidStateSize = (state, maxBytes) =>
@@ -60,8 +65,11 @@ export const isValidGameVersion = (version, { versionPattern }) =>
 
 // title и repoUrl необязательны: пустое значение — это отсутствие значения
 export const isValidGameTitle = (title, { maxTitleLength }) =>
-  title === undefined || title === null ||
-  (typeof title === 'string' && title.trim().length > 0 && title.length <= maxTitleLength);
+  title === undefined ||
+  title === null ||
+  (typeof title === 'string' &&
+    title.trim().length > 0 &&
+    title.length <= maxTitleLength);
 
 // только http(s): ссылка показывается в лобби, javascript:/data: там не место
 export const isValidRepoUrl = (url, { maxUrlLength }) => {
@@ -106,5 +114,6 @@ export const isValidMaxGameScore = (value, { maxGameScore, maxPoints }) =>
 
 // замечание модератора: пустое считается снятием замечания (null)
 export const isValidModeratorNote = (note, { maxNoteLength }) =>
-  note === undefined || note === null ||
+  note === undefined ||
+  note === null ||
   (typeof note === 'string' && note.length <= maxNoteLength);

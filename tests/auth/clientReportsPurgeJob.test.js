@@ -8,9 +8,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function createClient(got, handlers = () => ({ rows: [], rowCount: 0 })) {
   const client = {
     released: 0,
-    query: vi.fn((text, values) => (
-      text.includes('pg_try_advisory_lock') ? { rows: [{ got }] } : handlers(text, values)
-    )),
+    query: vi.fn((text, values) =>
+      text.includes('pg_try_advisory_lock')
+        ? { rows: [{ got }] }
+        : handlers(text, values),
+    ),
     release: () => {
       client.released += 1;
     },
@@ -26,17 +28,27 @@ function createDb(client) {
 describe('clientReportsPurgeJob: прогон', () => {
   it('граница считается от retentionDays, блокировка снимается', async () => {
     const now = Date.parse('2026-09-27T00:15:00Z');
-    const client = createClient(true, text => (
-      text.startsWith('DELETE FROM client_reports') ? { rowCount: 3 } : { rows: [] }
-    ));
+    const client = createClient(true, text =>
+      text.startsWith('DELETE FROM client_reports')
+        ? { rowCount: 3 }
+        : { rows: [] },
+    );
 
-    await expect(purgeOldClientReports(createDb(client), { now })).resolves.toBe(3);
+    await expect(
+      purgeOldClientReports(createDb(client), { now }),
+    ).resolves.toBe(3);
 
-    const del = client.query.mock.calls.find(([text]) => text.startsWith('DELETE FROM client_reports'));
+    const del = client.query.mock.calls.find(([text]) =>
+      text.startsWith('DELETE FROM client_reports'),
+    );
 
-    expect(del[1][0].getTime()).toBe(now - config.clientReports.retentionDays * DAY_MS);
+    expect(del[1][0].getTime()).toBe(
+      now - config.clientReports.retentionDays * DAY_MS,
+    );
     expect(
-      client.query.mock.calls.some(([text]) => text.includes('pg_advisory_unlock')),
+      client.query.mock.calls.some(([text]) =>
+        text.includes('pg_advisory_unlock'),
+      ),
     ).toBe(true);
     expect(client.released).toBe(1);
   });

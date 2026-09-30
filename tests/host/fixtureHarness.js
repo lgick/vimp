@@ -20,8 +20,7 @@ export { RecordingSocketManager as FakeSocketManager };
 
 // Ждёт микрозадачу (HostGame.createUser отвечает через queueMicrotask;
 // fake timers её не подделывают).
-export const flushMicro = () =>
-  new Promise(resolve => queueMicrotask(resolve));
+export const flushMicro = () => new Promise(resolve => queueMicrotask(resolve));
 
 // Полный онбординг игрока до isReady=true. Возвращает gameId.
 export const connectPlayer = async (
@@ -81,8 +80,9 @@ export const loadFixtureConfig = async () => {
 
   config.set(
     'auth',
-    (await import('../../packages/engine/tests/fixtures/miniGame/config/auth.js'))
-      .default,
+    (
+      await import('../../packages/engine/tests/fixtures/miniGame/config/auth.js')
+    ).default,
   );
   config.set(
     'wsports',
@@ -105,7 +105,11 @@ export const loadFixtureConfig = async () => {
 
 // Создаёт свежий HostGame поверх fake-core миниигры-фикстуры и реальных
 // (движковых) мета-модулей.
-export const createFixtureHost = async ({ seed = 42, game = {}, opts = {} } = {}) => {
+export const createFixtureHost = async ({
+  seed = 42,
+  game = {},
+  opts = {},
+} = {}) => {
   vi.useFakeTimers();
 
   const config = await loadFixtureConfig();

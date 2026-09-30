@@ -130,8 +130,8 @@ export async function fetchPackageMeta(
   // последнее опубликованное значение
   const entry =
     !version || version === 'latest'
-      ? versions[latest] ?? {}
-      : versions[version] ?? {};
+      ? (versions[latest] ?? {})
+      : (versions[version] ?? {});
   const pick = field => entry[field] ?? packument?.[field] ?? null;
 
   return { repoUrl: normalizeRepoUrl(pick('repository')) };
@@ -146,7 +146,7 @@ export async function fetchPackageMeta(
  */
 export function normalizeRepoUrl(repository) {
   const raw =
-    typeof repository === 'string' ? repository : repository?.url ?? null;
+    typeof repository === 'string' ? repository : (repository?.url ?? null);
 
   if (typeof raw !== 'string' || raw === '') {
     return null;
@@ -155,12 +155,14 @@ export function normalizeRepoUrl(repository) {
   let url = raw.trim();
 
   // шорткаты package.json: 'user/repo', 'github:user/repo', 'gitlab:…'
-  const shortcut = /^(?:(github|gitlab|bitbucket):)?([\w.-]+)\/([\w.-]+)$/.exec(url);
+  const shortcut = /^(?:(github|gitlab|bitbucket):)?([\w.-]+)\/([\w.-]+)$/.exec(
+    url,
+  );
 
   if (shortcut) {
-    const host = { gitlab: 'gitlab.com', bitbucket: 'bitbucket.org' }[
-      shortcut[1]
-    ] ?? 'github.com';
+    const host =
+      { gitlab: 'gitlab.com', bitbucket: 'bitbucket.org' }[shortcut[1]] ??
+      'github.com';
 
     url = `https://${host}/${shortcut[2]}/${shortcut[3]}`;
   }
@@ -270,7 +272,11 @@ export async function downloadTarball(
  *   Итог распаковки.
  * @throws {Error} Превышение maxFiles/maxBytes, отказ tar.
  */
-export async function extractDist(buffer, destDir, { maxBytes, maxFiles } = {}) {
+export async function extractDist(
+  buffer,
+  destDir,
+  { maxBytes, maxFiles } = {},
+) {
   const warnings = [];
   let files = 0;
   let bytes = 0;
@@ -413,7 +419,9 @@ function verifyDigest(buffer, { integrity, shasum }) {
     return;
   }
 
-  throw new Error('the registry gave neither integrity nor shasum — nothing to verify');
+  throw new Error(
+    'the registry gave neither integrity nor shasum — nothing to verify',
+  );
 }
 
 function splitIntegrity(integrity) {

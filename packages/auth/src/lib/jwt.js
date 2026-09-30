@@ -55,7 +55,9 @@ function verifyToken(token) {
 // JWKS для /jwks — публичный ключ в формате JWK (RFC 7517),
 // crypto.createPublicKey(...).export({ format: 'jwk' }) — нативный Node API
 function getJwks() {
-  const jwk = crypto.createPublicKey(loadKeys().publicKey).export({ format: 'jwk' });
+  const jwk = crypto
+    .createPublicKey(loadKeys().publicKey)
+    .export({ format: 'jwk' });
 
   return {
     keys: [{ ...jwk, kid: config.jwt.keyId, use: 'sig', alg: 'RS256' }],

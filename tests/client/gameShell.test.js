@@ -123,7 +123,9 @@ describe('gameShell', () => {
   // каскад CSS happy-dom не считает, поэтому единственная страховка от
   // повторения P1-1 (чёрный экран в контейнере SDK) — статика
   it('скрытие экранов: класс-форма в style.css, FOUC-форма в index.html', () => {
-    const rules = cssRules(readRepoFile('packages/engine/src/client/style.css'));
+    const rules = cssRules(
+      readRepoFile('packages/engine/src/client/style.css'),
+    );
     const shellRule = rules.find(
       ([selector]) => selector === `.${SHELL_CLASS} > *`,
     );
@@ -137,7 +139,10 @@ describe('gameShell', () => {
 
     // на своей странице оно, наоборот, нужно: до исполнения JS класса на body
     // ещё нет и pug-разметка мигнула бы
-    const html = readRepoFile('packages/engine/index.html').replace(/\s+/g, ' ');
+    const html = readRepoFile('packages/engine/index.html').replace(
+      /\s+/g,
+      ' ',
+    );
 
     expect(html).toMatch(/body > \* \{ display: none; \}/);
   });
@@ -166,7 +171,9 @@ describe('gameShell', () => {
     document.body.appendChild(container);
     ensureGameShell(container);
 
-    const rules = cssRules(readRepoFile('packages/engine/src/client/style.css'));
+    const rules = cssRules(
+      readRepoFile('packages/engine/src/client/style.css'),
+    );
 
     // именно на этом держится скрытие: собственный display у #stat или
     // #tech-informer перебил бы `.vimp-shell > *` и показал экран сразу

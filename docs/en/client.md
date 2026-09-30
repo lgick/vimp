@@ -53,11 +53,11 @@ There is exactly one engine client, and it runs in three contours. The mode
 is resolved by `packages/engine/src/client/boot.js` before `main.js` does
 anything else:
 
-| Mode | Master | Host | Transport |
-| --- | --- | --- | --- |
-| `lobby` | yes (catalog, signaling, OAuth) | Web Worker in the host's tab | WebRTC / loopback |
-| `solo` | no | inline, in the page's main thread | loopback |
-| `dedicated` | no | a Node.js process | WebSocket |
+| Mode        | Master                          | Host                              | Transport         |
+| ----------- | ------------------------------- | --------------------------------- | ----------------- |
+| `lobby`     | yes (catalog, signaling, OAuth) | Web Worker in the host's tab      | WebRTC / loopback |
+| `solo`      | no                              | inline, in the page's main thread | loopback          |
+| `dedicated` | no                              | a Node.js process                 | WebSocket         |
 
 `resolveBootConfig()` returns, in order of preference: the config injected by
 the standalone SDK (`setBootConfig(cfg)`), then `GET /config` (served by a
@@ -188,7 +188,7 @@ before commands. The host has no chat rate limit (only a length limit,
   `handleChatSend` — it intercepts `/like <reason>`/`/unlike <reason>` and,
   instead of sending it to the host (port `CHAT_DATA`), sends the vote
   straight to the master (`signaling.likeHost`/`unlikeHost(currentHostId,
-  reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
+reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
   bypassing the cheating host. A reason is required, available only to
   signed-in guests (`currentHostId` is set); for the host player or a signed-
   out player the command shows a local hint; a dropped signaling WS shows a
@@ -205,7 +205,7 @@ before commands. The host has no chat rate limit (only a length limit,
 - On `CONFIG_DATA` (port 0) it initializes every module: the PixiJS
   `Application`s, the MVC components, `BakingProvider` (texture baking),
   `SoundManager`, and the **client core** (`ClientPlugin.createClientCore(configJson,
-  { wasmUrl })`, where `wasmUrl` is the active game manifest's
+{ wasmUrl })`, where `wasmUrl` is the active game manifest's
   `entries.wasm` — the plugin runs its own wasm-bindgen `init()` and returns
   `{ core, memory }`; the config is assembled by
   [packages/engine/src/lib/clientCoreConfig.js](../../packages/engine/src/lib/clientCoreConfig.js) from the
@@ -235,8 +235,7 @@ before commands. The host has no chat rate limit (only a length limit,
   `GameModel` — two `s0`s would overwrite each other and half the map would
   never appear), and each instance receives `level` (its level number),
   `solid` (the tiles that block movement on it — `physicsStatic` for level
-  0, `levels[n].walls` above) and `floor` (`levels[n].floor`, empty on level
-  0) next to `map`, `step`, `layer`, `tiles`, `physicsStatic`, `scale` and
+  0, `levels[n].walls` above) and `floor` (`levels[n].floor`, empty on level 0) next to `map`, `step`, `layer`, `tiles`, `physicsStatic`, `scale` and
   `spriteSheet` it already read. A map without `levels` produces exactly
   what it produced before.
 - **Tab wake-up** (`visibilitychange` → visible): besides unmuting, the
@@ -428,12 +427,12 @@ The game transport is WebRTC, not WebSocket (channel details —
   methods `sendOffer`/`sendIceCandidate`/`pingHost`/`likeHost`/`unlikeHost`.
   The transport is injected by a factory for tests.
 - **`WebRtcManager`** — the P2P connection to the host: `RTCPeerConnection`
-  + the `meta` (reliable-ordered) and `state` (unreliable-unordered)
-  channels. The client is the offerer: it creates the channels/offer,
-  exchanges SDP/ICE through `SignalingClient`. `Publisher` events: `open`
-  (both channels open), `message` (data from either channel in a single
-  stream), `close` (a drop). `RTCPeerConnection` is injected by a factory
-  for tests.
+  - the `meta` (reliable-ordered) and `state` (unreliable-unordered)
+    channels. The client is the offerer: it creates the channels/offer,
+    exchanges SDP/ICE through `SignalingClient`. `Publisher` events: `open`
+    (both channels open), `message` (data from either channel in a single
+    stream), `close` (a drop). `RTCPeerConnection` is injected by a factory
+    for tests.
 
 The client's role is picked in the lobby (`packages/engine/src/client/main.js`): **joining**
 (`connectToHost` → `WebRtcManager`, offerer) or **hosting** (`connectAsHost`
@@ -559,7 +558,7 @@ so a crate version on the lobby screen would be a claim the page cannot back.
   `setPlacement`/`clearLeaderboard` coalesce into a single `leaderboard`
   emit via `queueMicrotask` (code review M2 — `main.js`'s `Promise.all`
   normally resolves both calls back-to-back; without coalescing, the first
-  emit would render the new leaderboard list next to the *previous* game's
+  emit would render the new leaderboard list next to the _previous_ game's
   `myPlacement` for one frame). `latency` lives separately from the list and
   survives a refresh/pagination.
 - **view** — renders cards, search, "Load more", the Active
@@ -646,7 +645,7 @@ triggers a Leaderboard refresh via `gameChanged`. On submit, the form is
 validated first (an invalid form costs no plugin download), the field
 values are read **before** the `await` that activates the picked game, and
 both the `roomDefaults` being overridden and the `room.game` entries sent
-to the Worker come from the *picked* manifest (see the Bootstrap note
+to the Worker come from the _picked_ manifest (see the Bootstrap note
 above). Each built field's `getValue()` (already unit-converted,
 e.g. `unit:'s'` seconds→ms) overrides the matching `roomDefaults` key, and
 the result is sent as the room object to `connectAsHost` → `HostController`
@@ -663,7 +662,7 @@ server" and prints `create.emptyCatalogText` in the lobby's error line —
 everything that does not depend on a game (sign-in, the user badge, "My
 games", "Moderation") stays up, and those are exactly what brings the catalog
 back: staging a version with "Test" activates it in place, an approval brings
-it in on the next tab reload. A *non-empty* catalog with nothing playable in
+it in on the next tab reload. A _non-empty_ catalog with nothing playable in
 it (an engine upgrade left every published game asking for a capability it no
 longer has) is the same lobby state — `pickActiveGame`'s reason replaces
 `emptyCatalogText` in that line instead of ending the load. Only solo and
@@ -781,7 +780,7 @@ data and applies the result to rendering; ABI and layouts —
 Data flow:
 
 - **Input**: `handleMessage` hands a binary frame to `push_frame(bytes,
-  now)` — the core decodes it (a version mismatch drops the frame),
+now)` — the core decodes it (a version mismatch drops the frame),
   inserts it into the buffer by `seq` with deduplication, and, if the frame
   carries a player block, reconciles the predictor. Ports
   `MAP_DATA`/`PANEL_DATA`/`KEYSET_DATA`/`CLEAR` mirror into
@@ -866,7 +865,7 @@ Internally the core implements the following algorithms:
   parity (manual vs. Rapier) is locked in by the `client::predictor::parity` cargo
   tests; input history, replay from the frame's `serverTime`,
   `visualError` with exponential decay and a snap, freeze at `condition
-  0`, resets on a camera forceReset/map change/keySet;
+0`, resets on a camera forceReset/map change/keySet;
 - **shot spawning** (the game plugin's own `client/shot.rs` +
   the engine's `client/raycast.rs`): a replica of
   the authoritative gate and muzzle formulas, DDA raycasting over wall
@@ -954,11 +953,11 @@ rather than the engine-bundled `/sounds/` static copy.
 - **UI/system** (no position): `playSystemSound(name)` — plays instantly,
   bypassing priorities (also used for port 6 sounds).
 - **Spatial** (positioned in the world): `registerSound(name, { position
-  })` → `processAudibility()` → `updateActiveSounds()` — the manager
+})` → `processAudibility()` → `updateActiveSounds()` — the manager
   decides what's audible on its own, honoring a voice limit
   (`WORLD_VOICE_LIMIT = 30`) and priorities from the config.
 - **Non-spatial** (the player's own): `registerSound(name, { position,
-  spatial: false })` — the source belongs to the player, not to the world.
+spatial: false })` — the source belongs to the player, not to the world.
   The listener sits at the camera, which is the predicted position of the
   player's own tank, so their engine and their shot land right on top of it:
   HRTF at zero distance folds the loop into comb filtering (heard as a
@@ -1019,11 +1018,11 @@ World `x` grows right and world `y` grows **down**, while the listener's up
 vector (`Howler.orientation(0, 0, -1, 0, 1, 0)`) is +Y — hence the minus
 sign wherever world `y` lands on axis Y:
 
-| Profile | `X` | `Y` | `Z` | default `panningModel` |
-| --- | --- | --- | --- | --- |
-| `topDown` | `sx` | `-H` | `sy` | `HRTF` |
-| `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower` |
-| `cockpit` | `sx` | `-sy` | `-H` | `HRTF` |
+| Profile        | `X`  | `Y`                    | `Z`  | default `panningModel` |
+| -------------- | ---- | ---------------------- | ---- | ---------------------- |
+| `topDown`      | `sx` | `-H`                   | `sy` | `HRTF`                 |
+| `sideScroller` | `sx` | `-sy * verticalFactor` | `-H` | `equalpower`           |
+| `cockpit`      | `sx` | `-sy`                  | `-H` | `HRTF`                 |
 
 At `d2d = 0` a `topDown` source sits at exactly `(0, -H, 0)`: straight below
 the listener, equal in both ears, with no ear filtering. At `dx = 20`,
@@ -1095,7 +1094,7 @@ the game's parts), while the screen scale is a separate factor of
   world unit equals a screen pixel.
 - `virtualElevation` is calibrated off the **visible half-height of the
   screen in the design window (1920×1080)**: `H ≈ (canvas height / 2) /
-  baseScale`. Bigger `H` is softer panning near the player, smaller is a
+baseScale`. Bigger `H` is softer panning near the player, smaller is a
   more aggressive ear separation. For a game with `mapScale 0.3` and
   `baseScale 5` that gives `H ≈ 540 / 5 = 108`, and half the screen across
   is `960 / 5 = 192` units — an azimuth of `atan(192/108) ≈ 60°` at the edge

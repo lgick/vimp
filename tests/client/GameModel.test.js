@@ -43,7 +43,7 @@ describe('GameModel.create / read', () => {
     expect(events.find(e => e.type === 'create')).toBeDefined();
   });
 
-  it('передаёт part\'у id его экземпляра четвёртым аргументом', () => {
+  it("передаёт part'у id его экземпляра четвёртым аргументом", () => {
     const model = new GameModel();
 
     model.create('Tank', '01', { hp: 100 });

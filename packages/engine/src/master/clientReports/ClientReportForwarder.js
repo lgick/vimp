@@ -54,7 +54,9 @@ export default class ClientReportForwarder {
     }
 
     this._timer = setInterval(() => {
-      this.flush().catch(err => this._log.error(`${LOG_PREFIX} flush failed:`, err.message));
+      this.flush().catch(err =>
+        this._log.error(`${LOG_PREFIX} flush failed:`, err.message),
+      );
     }, this._intervalMs);
 
     this._timer.unref?.();
@@ -119,7 +121,9 @@ export default class ClientReportForwarder {
     // 400 — пачку auth не примет и в следующий раз: вернуть её значило бы
     // вечный цикл
     if (res.status === 400) {
-      this._log.warn(`${LOG_PREFIX} auth rejected a batch of ${batch.length}: 400`);
+      this._log.warn(
+        `${LOG_PREFIX} auth rejected a batch of ${batch.length}: 400`,
+      );
       return false;
     }
 
@@ -155,11 +159,16 @@ export default class ClientReportForwarder {
 
     const now = this._now();
 
-    if (this._throttleLoggedAt !== null && now - this._throttleLoggedAt < THROTTLE_LOG_MS) {
+    if (
+      this._throttleLoggedAt !== null &&
+      now - this._throttleLoggedAt < THROTTLE_LOG_MS
+    ) {
       return;
     }
 
-    this._log.warn(`${LOG_PREFIX} auth throttled ${this._throttled} new reports`);
+    this._log.warn(
+      `${LOG_PREFIX} auth throttled ${this._throttled} new reports`,
+    );
     this._throttled = 0;
     this._throttleLoggedAt = now;
   }

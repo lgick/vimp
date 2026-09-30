@@ -171,7 +171,12 @@ describe('decide', () => {
   it('релиз движка тоже только предлагает игру', () => {
     const plan = decide(
       input({
-        engine: { local: '0.6.0', published: '0.6.0', changed: true, unreleased: added },
+        engine: {
+          local: '0.6.0',
+          published: '0.6.0',
+          changed: true,
+          unreleased: added,
+        },
         games: [
           { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2' },
         ],
@@ -188,9 +193,19 @@ describe('decide', () => {
   it('игра со своими изменениями при релизе крейта не optional', () => {
     const plan = decide(
       input({
-        crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          unreleased: added,
+        },
         games: [
-          { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2', changed: true },
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            changed: true,
+          },
         ],
       }),
     );
@@ -207,7 +222,12 @@ describe('decide', () => {
   it('предлагает игру, когда её ядро отстало от крейта в реестре', () => {
     const plan = decide(
       input({
-        crate: { local: '0.3.0', published: '0.3.0', changed: false, unreleased: quiet },
+        crate: {
+          local: '0.3.0',
+          published: '0.3.0',
+          changed: false,
+          unreleased: quiet,
+        },
         games: [
           {
             name: '@vimp-games/tanks',
@@ -231,7 +251,12 @@ describe('decide', () => {
   it('не трогает игру, чьё ядро совпадает с крейтом в реестре', () => {
     const plan = decide(
       input({
-        crate: { local: '0.3.0', published: '0.3.0', changed: false, unreleased: quiet },
+        crate: {
+          local: '0.3.0',
+          published: '0.3.0',
+          changed: false,
+          unreleased: quiet,
+        },
         games: [
           {
             name: '@vimp-games/tanks',
@@ -252,9 +277,19 @@ describe('decide', () => {
   it('не дублирует причину, когда крейт публикуется в этом же прогоне', () => {
     const plan = decide(
       input({
-        crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
+        crate: {
+          local: '0.2.1',
+          published: '0.2.1',
+          changed: true,
+          unreleased: added,
+        },
         games: [
-          { name: '@vimp-games/tanks', version: '0.4.2', published: '0.4.2', corePin: '0.2.1' },
+          {
+            name: '@vimp-games/tanks',
+            version: '0.4.2',
+            published: '0.4.2',
+            corePin: '0.2.1',
+          },
         ],
       }),
     );
@@ -781,8 +816,18 @@ describe('buildVersions', () => {
 
   it('берёт ответы на вопрос о версии, а не предложения', () => {
     const scoped = input({
-      crate: { local: '0.2.1', published: '0.2.1', changed: true, unreleased: added },
-      engine: { local: '0.6.0', published: '0.6.0', changed: true, unreleased: added },
+      crate: {
+        local: '0.2.1',
+        published: '0.2.1',
+        changed: true,
+        unreleased: added,
+      },
+      engine: {
+        local: '0.6.0',
+        published: '0.6.0',
+        changed: true,
+        unreleased: added,
+      },
     });
     const plan = decide(scoped);
 

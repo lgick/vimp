@@ -166,9 +166,9 @@ describe('HostGame: запись живого матча', () => {
       'key',
     ]);
     // ввод адресован границей тика — очереди у HostGame нет
-    expect(parsed.timeline.filter(op => op.op === 'key').map(op => op.tick)).toEqual(
-      [10, 30],
-    );
+    expect(
+      parsed.timeline.filter(op => op.op === 'key').map(op => op.tick),
+    ).toEqual([10, 30]);
   });
 
   it('без dev-режима рекордера нет, и это не тишина', async () => {

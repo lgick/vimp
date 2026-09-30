@@ -21,15 +21,26 @@ const makeModel = overrides =>
 // собирает события publisher в массив
 const collect = model => {
   const events = [];
-  ['open', 'close', 'mode', 'socket', 'newLine', 'newTimer', 'oldLine', 'oldTimer'].forEach(
-    type => model.publisher.on(type, data => events.push({ type, data })),
+  [
+    'open',
+    'close',
+    'mode',
+    'socket',
+    'newLine',
+    'newTimer',
+    'oldLine',
+    'oldTimer',
+  ].forEach(type =>
+    model.publisher.on(type, data => events.push({ type, data })),
   );
   return events;
 };
 
 beforeEach(async () => {
   vi.resetModules();
-  ChatModel = (await import('../../packages/engine/src/client/components/model/Chat.js')).default;
+  ChatModel = (
+    await import('../../packages/engine/src/client/components/model/Chat.js')
+  ).default;
 });
 
 describe('ChatModel.sendMessage', () => {

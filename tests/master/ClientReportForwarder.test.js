@@ -54,7 +54,9 @@ describe('ClientReportForwarder: успех', () => {
 
     expect(buffer.size).toBe(0);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(fetchImpl.mock.calls.map(c => sentItems(c).length)).toEqual([2, 2, 1]);
+    expect(fetchImpl.mock.calls.map(c => sentItems(c).length)).toEqual([
+      2, 2, 1,
+    ]);
 
     const [url, init] = fetchImpl.mock.calls[0];
 
@@ -91,8 +93,14 @@ describe('ClientReportForwarder: успех', () => {
 
   it('throttled > 0 — без restore, строка журнала не чаще раза в час', async () => {
     const clock = { t: 0 };
-    const fetchImpl = vi.fn(async () => reply(200, { accepted: 0, throttled: 2, rejected: 0 }));
-    const { buffer, forwarder, log } = setup({ fetchImpl, count: 2, now: () => clock.t });
+    const fetchImpl = vi.fn(async () =>
+      reply(200, { accepted: 0, throttled: 2, rejected: 0 }),
+    );
+    const { buffer, forwarder, log } = setup({
+      fetchImpl,
+      count: 2,
+      now: () => clock.t,
+    });
 
     await forwarder.flush();
     expect(buffer.size).toBe(0);
@@ -164,7 +172,12 @@ describe('ClientReportForwarder: выключенная пересылка', () 
   it('без токена fetch не зовётся, но extraEntries вызывается', async () => {
     const fetchImpl = vi.fn(async () => reply(200));
     const extraEntries = vi.fn(() => [entry('dropped')]);
-    const { forwarder } = setup({ fetchImpl, count: 1, token: '', extraEntries });
+    const { forwarder } = setup({
+      fetchImpl,
+      count: 1,
+      token: '',
+      extraEntries,
+    });
 
     expect(forwarder.enabled).toBe(false);
 
@@ -177,7 +190,11 @@ describe('ClientReportForwarder: выключенная пересылка', () 
 
 describe('ClientReportForwarder: выключенная пересылка и буфер', () => {
   it('без токена буфер пустеет каждый тик', async () => {
-    const { buffer, forwarder } = setup({ fetchImpl: vi.fn(), count: 3, token: '' });
+    const { buffer, forwarder } = setup({
+      fetchImpl: vi.fn(),
+      count: 3,
+      token: '',
+    });
 
     await forwarder.flush();
 
@@ -185,7 +202,10 @@ describe('ClientReportForwarder: выключенная пересылка и б
   });
 
   it('без токена новые отпечатки не упираются в maxPending', async () => {
-    const buffer = new ClientReportBuffer({ maxPending: 500, newPerMinute: 10000 });
+    const buffer = new ClientReportBuffer({
+      maxPending: 500,
+      newPerMinute: 10000,
+    });
     const forwarder = new ClientReportForwarder({
       buffer,
       authServiceUrl: 'http://auth.test',
@@ -232,7 +252,11 @@ describe('ClientReportForwarder: flush и stop', () => {
 
     try {
       const fetchImpl = vi.fn(async () => reply(200));
-      const { buffer, forwarder } = setup({ fetchImpl, count: 1, intervalMs: 1000 });
+      const { buffer, forwarder } = setup({
+        fetchImpl,
+        count: 1,
+        intervalMs: 1000,
+      });
 
       forwarder.start();
       await forwarder.stop();

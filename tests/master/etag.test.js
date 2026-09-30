@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { etagFor, isNotModified } from '../../packages/engine/src/master/etag.js';
+import {
+  etagFor,
+  isNotModified,
+} from '../../packages/engine/src/master/etag.js';
 
 // «Не изменилось — не отправляем» на стороне чтения (snakes-v3 3.3, решение
 // пользователя 9): топ рейтинга меняется медленно, а лобби перезапрашивает

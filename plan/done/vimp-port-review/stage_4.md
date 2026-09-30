@@ -116,8 +116,8 @@ grep -rn "map_dynamics_box" src/ tests/ docs/
 **(а)** `vimp-tanks/src/config/client.js`, блок `componentDependencies`:
 
 ```js
-      // геометрия динамики карты (рендерные боксы ящиков): эффект попадания
-      // держит якорь на теле и каждый кадр спрашивает, где тело нарисовано.
+// геометрия динамики карты (рендерные боксы ящиков): эффект попадания
+// держит якорь на теле и каждый кадр спрашивает, где тело нарисовано.
 ```
 
 `ShotEffectController` (`src/client/parts/effects/shot/ShotEffectController.js`)

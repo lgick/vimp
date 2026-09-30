@@ -48,7 +48,12 @@ export default class DebugRecorder {
    * @param {Array} [params.participants] - [{ gameId, name, model, socketId,
    *   team }] — люди, уже находящиеся в комнате.
    */
-  start({ seed = null, map = null, networkSendRate = null, participants = [] }) {
+  start({
+    seed = null,
+    map = null,
+    networkSendRate = null,
+    participants = [],
+  }) {
     this._reset();
 
     this._recording = true;

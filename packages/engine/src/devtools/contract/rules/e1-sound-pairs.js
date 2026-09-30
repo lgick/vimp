@@ -30,7 +30,9 @@ export default {
         'mp3',
       ]) {
         if (!ctx.distFiles.has(`sounds/${file}.${codec}`)) {
-          violations.push(`sound "${name}": dist/sounds/${file}.${codec} is missing`);
+          violations.push(
+            `sound "${name}": dist/sounds/${file}.${codec} is missing`,
+          );
         }
       }
     }

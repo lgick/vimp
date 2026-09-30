@@ -90,7 +90,9 @@ export default class ClientReportsModel {
     this._error = null;
     this._emit();
 
-    const { ok, json } = await this._request(`${this._config.urls.list}?${query}`);
+    const { ok, json } = await this._request(
+      `${this._config.urls.list}?${query}`,
+    );
 
     if (seq !== this._seq) {
       return;
@@ -128,7 +130,9 @@ export default class ClientReportsModel {
     this._error = null;
 
     if (this._status === 'all' || report.status === this._status) {
-      this._items = this._items.map(item => (item.id === report.id ? report : item));
+      this._items = this._items.map(item =>
+        item.id === report.id ? report : item,
+      );
     } else {
       const before = this._items.length;
 

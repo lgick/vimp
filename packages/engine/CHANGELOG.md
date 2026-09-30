@@ -281,7 +281,7 @@ bumps the minor version).
 - `SoundManager` calls `sound.rate()` only when the rate actually changed
   (Howler does two `seek()`s and rebuilds the loop-end timer on every call),
   and `MIN_SPATIAL_DISTANCE` grew from 1 to 16 world pixels — it is a
-  dead-zone on the *direction* to the source, and a two-pixel gap between
+  dead-zone on the _direction_ to the source, and a two-pixel gap between
   camera and body used to give a full, jittering pan.
 
 ### Fixed
@@ -460,7 +460,7 @@ bumps the minor version).
 - The submission form in "My games" asks for the **npm package and the version
   only**. A new route `GET /games/lookup?package=&version=` downloads and checks
   the package and answers with `{id, title, version, versions, repoUrl,
-  engineApi, compat, errors}`, which the form shows as a preview and the master
+engineApi, compat, errors}`, which the form shows as a preview and the master
   writes into the registry itself: `id`, `title` and the resolved version come
   from `dist/manifest.json`, the repository URL from the npm packument (the
   package's own `package.json` never reaches disk — only `package/dist/**` is
@@ -506,7 +506,7 @@ bumps the minor version).
   which is the only place that knows its package name. Package checks are
   unchanged: the tarball goes through the same `gamePackageCheck` without
   executing game code. The dead-end error `game "<ref>" is not in the registry
-  catalog` is replaced by one that names the way out.
+catalog` is replaced by one that names the way out.
 
 ### Fixed
 
@@ -706,7 +706,7 @@ bumps the minor version).
 ### Security
 
 - The game id of a submission is validated before it reaches disk. `POST
-  /games/submit` accepted any string and passed it to `path.join`, so any
+/games/submit` accepted any string and passed it to `path.join`, so any
   logged-in user could make the master create directories and unpack a package
   outside its package store. Both the route and `GameStore` now reject
   anything that is not a single path segment, and reserved ids (`mine`,
@@ -865,7 +865,7 @@ bumps the minor version).
 - `GameManifest.requires` — an optional list of engine capabilities a game
   needs (stage 5 of `plan/plugin-forward-compat`). The engine now rejects a
   plugin only when it asks for something this build does not have, that is,
-  when the plugin is *newer* than the engine; the capability names live in the
+  when the plugin is _newer_ than the engine; the capability names live in the
   append-only registry `src/lib/capabilities.js`. A manifest without
   `requires` — every package published so far — needs nothing beyond the base
   contract and is accepted as is. The registry is part of
@@ -893,7 +893,7 @@ bumps the minor version).
   allowed way to call an optional core capability, enforced by an ESLint rule
   that restricts `this._core.<name>` to the frozen export table. A core built
   against an older engine reports generation 0 (`{ abi: 0, core: null, ops:
-  [] }`) and keeps running: `debugJson()` tries the `debug.json` opcode first
+[] }`) and keeps running: `debugJson()` tries the `debug.json` opcode first
   and falls back to the frozen `debug_json` method, and the client mirrors
   both the self-description and the fallback. Opcodes live in the append-only
   registry `src/config/abiOps.js` and are part of `contract/surface.json`.
@@ -1000,7 +1000,7 @@ bumps the minor version).
   `Chat.push` appends it as an optional fourth element of the message array
   and the client view sets it as `--chat-name-color` on the line, so the CSS
   of a game that sets no colour is untouched (`var(--chat-name-color,
-  <team colour>)`). `ENGINE_API_VERSION` is unchanged.
+<team colour>)`). `ENGINE_API_VERSION` is unchanged.
 
 ## [0.21.0] — 2026-08-28
 
@@ -1014,7 +1014,7 @@ bumps the minor version).
   rebuilt. The rejection is not equally loud everywhere: the lobby master
   skips the game and keeps serving the rest of the catalog
   (`GameCatalog: skip "<id>" — requires engine API v3, this engine build is
-  v4`), while `loadGamePackage` (dedicated server, `vimp-sim`, the inline
+v4`), while `loadGamePackage` (dedicated server, `vimp-sim`, the inline
   host), `loadClientPlugin` in the browser and the standalone SDK all throw.
 
 ### Migration
@@ -1044,9 +1044,9 @@ bumps the minor version).
   `placeOf(id)` — the global top as rows, and the caller's own place in it.
 
 - A game result is now an engine-wide concept: `vimp.addPlayerPoints(gameId,
-  delta)` collects the points of the participant's CURRENT game (a life, a
+delta)` collects the points of the participant's CURRENT game (a life, a
   round, a match — whatever the game calls a game) and `vimp.finishPlayerGame(
-  gameId)` turns them into a sum (monthly rating) and a maximum (daily
+gameId)` turns them into a sum (monthly rating) and a maximum (daily
   rating). `RoundManager` closes every participant's game at its own
   boundaries (map change, round end), so a game with rounds gets a daily best
   without touching anything. `vimp.addPlayerRank` stays as an alias of
@@ -1084,10 +1084,10 @@ bumps the minor version).
   built for — 100 games × 100 servers × 8 players — a client asking for itself
   meant thousands of requests a second for a player's own placement, which no
   shared cache can collapse because it is personal. `modules.stat.params
-  .refreshMs` is gone with the request it throttled.
+.refreshMs` is gone with the request it throttled.
 
 - The write budget is retuned for that scale: `lobbyConfig.playerData
-  .minFlushInterval` 60 s → **300 s** (80 000 players × 2 writes per interval
+.minFlushInterval` 60 s → **300 s** (80 000 players × 2 writes per interval
   is 2700 writes a second at a minute, 530 at five), `maxRequestsPerSecond`
   3 → **1**, `master:playerData:writesPerMinute` 240 → **120**, and
   `backoff` 2 s/120 s → **30 s/900 s** — a pause shorter than the flush
@@ -1138,7 +1138,7 @@ bumps the minor version).
 ### Fixed
 
 - The host stopped draining `Stat`'s update buffer in `statMode:
-  'leaderboard'`. `getLast()` is its only drain — `reset()` only appends — so
+'leaderboard'`. `getLast()` is its only drain — `reset()` only appends — so
   the buffer grew for the whole life of the room. The buffer is now always
   drained and only the SEND is gated.
 
@@ -1200,7 +1200,6 @@ bumps the minor version).
   verified token — but in the guest contour it is a form field that
   `createGuestIdentity` openly calls spoofable, and a guest could wear a
   stranger's crown by naming themselves after them.
-
 
 ## [0.20.0] — 2026-08-27
 
@@ -1445,7 +1444,7 @@ bumps the minor version).
   (`resolveForcedValue()`, a new `formBuilder.js` export), so the solo path
   (`boot.autoAuth`), which answers the host without rendering a form at all,
   reaches the same value.
-- A `select`/`radio` resolving to *zero* choices is treated as a schema or
+- A `select`/`radio` resolving to _zero_ choices is treated as a schema or
   catalog defect rather than "nothing to choose": the row is rendered, a
   `console.error` names the field, and the field always fails validation
   with `no options available` — `required` or not. No game declares
@@ -1468,14 +1467,14 @@ bumps the minor version).
 - The host now applies the declarative part of the auth descriptor itself:
   `validateAuth` (`src/lib/validators.js`) checks length (`too long`),
   membership in a `select`/`radio` field's declared `options` (`not an
-  option`) and `regExp` (`invalid format`, anchored as `^(?:…)$`, the way the
+option`) and `regExp` (`invalid format`, anchored as `^(?:…)$`, the way the
   client and the browser apply `pattern`) before running the game's
   validator, so a client that bypasses the form is bound by the same rules
   the form enforces — a `select` field with no game validator no longer
   accepts an arbitrary string. `maxlength`/`regExp` apply to text fields
   only, as in the form; a field whose `options` list is empty or absent
   accepts nothing at all (the form rejects it unconditionally with `no
-  options available`, so the host must not be the laxer of the two); a
+options available`, so the host must not be the laxer of the two); a
   `source` list is not checked (the host resolves no catalogs). An empty
   value still passes these checks (`required` is deliberately not enforced
   on the host: the solo path answers with the schema defaults, and those may
@@ -1544,7 +1543,7 @@ bumps the minor version).
 
 - A `regExp` that does not compile no longer kills the submit. It arrives
   from the game manifest as a string, and the `SyntaxError` from `new
-  RegExp()` escaped `collectFormErrors()` into the click handler: "Create
+RegExp()` escaped `collectFormErrors()` into the click handler: "Create
   server" and `#auth-enter` stopped doing anything at all, with nothing
   rendered in the error block — the native `pattern` attribute behaved the
   other way round, a browser ignores a pattern it cannot read. Such a
@@ -1695,6 +1694,7 @@ bumps the minor version).
   game's schema is still valid, and a frame is always packed and unpacked by
   the same plugin core off the same schema, so no already-published game
   becomes unloadable.
+
 ## [0.11.1] — 2026-08-20
 
 ### Fixed
@@ -1817,7 +1817,7 @@ bumps the minor version).
 ### Fixed
 
 - `roundTo2Decimals` JSDoc example referenced a nonexistent `round(value,
-  precision)` signature; corrected to match the actual single-argument
+precision)` signature; corrected to match the actual single-argument
   function (`src/lib/formatters.js`).
 
 ## [0.10.0] — 2026-08-18
@@ -1906,7 +1906,7 @@ URLs still loads — it just has nothing to draw.
   `self`, no `postMessage`, no DOM, all transport arriving through
   `makeSocket`. It can now be driven from a plain browser tab or a Node
   process, not only from the host Worker. `new PortMachine({ host,
-  socketManager, clientCfg, authSchema, makeSocket, identity })`, methods
+socketManager, clientCfg, authSchema, makeSocket, identity })`, methods
   `connect`/`restore`/`message`/`disconnect`/`has` and the `socketIds`
   getter. The lobby wire protocol is unchanged, byte for byte.
 - `vimp-engine/host/identity.js` — pluggable identity strategies
@@ -1959,9 +1959,9 @@ URLs still loads — it just has nothing to draw.
   (the game's chat commands, e.g. spawning bots), both on the first
   `renderTick` after `FIRST_SHOT_READY`.
 - `vimp-engine/standalone` — `startStandaloneGame({ hostPlugin, clientPlugin,
-  wasmUrl, container, assetsBase, playerName, playerModel, auth, startupVotes,
-  startupCommands, room, devMode })` runs a whole match inside one browser tab
-  of a *game* repository: no master, no OAuth, no lobby screen. It takes the
+wasmUrl, container, assetsBase, playerName, playerModel, auth, startupVotes,
+startupCommands, room, devMode })` runs a whole match inside one browser tab
+  of a _game_ repository: no master, no OAuth, no lobby screen. It takes the
   live plugin objects, checks both against `ENGINE_API_VERSION`, builds the UI
   shell and an in-memory manifest, and hands the boot config to the engine
   client; it resolves to `{ stop() }`, which tears the match down (render loop
@@ -2072,7 +2072,7 @@ URLs still loads — it just has nothing to draw.
   (ECONNRESET, a malformed frame), and without a listener one broken client
   was an `uncaughtException` that took the whole match down.
 - Rate limits no longer key on `X-Forwarded-For`. The deploy's Nginx sets that
-  header with `$proxy_add_x_forwarded_for`, which *appends* the real address to
+  header with `$proxy_add_x_forwarded_for`, which _appends_ the real address to
   whatever the client sent, so the first hop — the value the master's signaling
   server and the auth service used as their key — is written by the client:
   one header per request lifted the ping limit, the "one room per IP" rule and
@@ -2095,7 +2095,7 @@ URLs still loads — it just has nothing to draw.
 
 ## [0.7.0] — 2026-08-09
 
-Items marked *(app shell)* live in `src/client/**`, which is outside the
+Items marked _(app shell)_ live in `src/client/**`, which is outside the
 package `files`: they change the engine app, not the published artifact.
 
 ### Added
@@ -2105,7 +2105,7 @@ package `files`: they change the engine app, not the published artifact.
   `clientCore?.resync?.()` on `visibilitychange` → visible, so a plugin
   built against an older crate keeps working; a plugin rebuilt on the new
   crate gets the method for free. `ENGINE_API_VERSION` is unchanged (**3**).
-- WebGL context-loss handling in the client shell *(app shell)*: rendering is
+- WebGL context-loss handling in the client shell _(app shell)_: rendering is
   paused on `webglcontextlost`, and on `webglcontextrestored` assets are
   re-baked and the map is rebuilt from the cached `MAP_DATA` (no repeat
   `MAP_READY`) — every visible pixel is a GPU-only `RenderTexture` with no
@@ -2113,14 +2113,14 @@ package `files`: they change the engine app, not the published artifact.
   browser restores each context separately, and re-baking into a still-dead
   one yields empty textures with no second event to fix them, so the scene
   is rebuilt only once every context is alive again.
-- `SoundManager.releaseSound(id)` *(app shell)* — unregisters while letting
+- `SoundManager.releaseSound(id)` _(app shell)_ — unregisters while letting
   an already playing one-shot finish, for entities that disappear earlier
   than their sound (a detonated bomb and its "planted" sample). A looped
   sound is still stopped.
 
 ### Changed
 
-- `SoundManager.reset()` *(app shell)* no longer clears looped registrations,
+- `SoundManager.reset()` _(app shell)_ no longer clears looped registrations,
   only stops the playing instances and their active ids: registrations belong
   to entities, and after a partial clear a surviving loop is restarted by the
   next `processAudibility()` instead of going silent for the rest of the
@@ -2130,16 +2130,16 @@ package `files`: they change the engine app, not the published artifact.
 - `RoundManager.createMap()` sends every human the spectator `KEYSET_DATA`
   right before `CLEAR`, so client prediction is off by the time the canvas
   is cleared and can no longer recreate the local entity as a ghost.
-- `CanvasManagerModel` *(app shell)* ignores a zero-sized resize (minimized
+- `CanvasManagerModel` _(app shell)_ ignores a zero-sized resize (minimized
   tab/window), which used to drive the scale to `0` and the renderer to
   `0x0` with no recovery until the next real resize; emitted sizes are
   clamped to `1`. `fixSize` now parses both parts as numbers — the height
   used to leak out as a string.
-- `clientCore.resync()` *(app shell)* is called only after a tab pause of at
+- `clientCore.resync()` _(app shell)_ is called only after a tab pause of at
   least 3 s. A short alt-tab used to throw away a perfectly valid frame
   buffer together with its event frames (entity create/delete), freezing the
   scene for the interpolation delay and dropping removals.
-- `BakingProvider` *(app shell)* destroys each baked object once per re-bake
+- `BakingProvider` _(app shell)_ destroys each baked object once per re-bake
   even when a baker returned it under several keys, and logs a failed
   `destroy` instead of swallowing it. A baker owns what it returns: re-baking
   destroys the result together with its `TextureSource`, so returning a view

@@ -157,7 +157,11 @@ export default class LobbyModel {
   // позиция вызывающего, применяется ответом GET /auth/placement;
   // placement === null — игрок ещё не ранжирован в этой игре
   setPlacement({ placement, total, rank } = {}) {
-    this._myPlacement = { placement: placement ?? null, total: total || 0, rank: rank || 0 };
+    this._myPlacement = {
+      placement: placement ?? null,
+      total: total || 0,
+      rank: rank || 0,
+    };
 
     this._scheduleLeaderboardEmit();
   }

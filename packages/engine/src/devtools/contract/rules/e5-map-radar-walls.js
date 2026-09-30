@@ -43,7 +43,13 @@ export default {
 function checkMap(at, map, violations) {
   let checked = 0;
 
-  checked += checkGrid(at, 'level 0', map?.layers, map?.physicsStatic, violations);
+  checked += checkGrid(
+    at,
+    'level 0',
+    map?.layers,
+    map?.physicsStatic,
+    violations,
+  );
 
   for (const [key, level] of Object.entries(map?.levels ?? {})) {
     checked += checkGrid(

@@ -11,7 +11,7 @@
 `tests/scaffold/template.test.js`:
 
 1. генерация во временный каталог (`mkdtemp`) с `--yes --engine-path
-   packages/engine`;
+packages/engine`;
 2. симлинк `node_modules/vimp-engine` → `packages/engine` внутри
    сгенерированного проекта (`npm install` не запускается);
 3. прогон JS-правил `vimp-contract` (группы B, C, D) прямо по исходникам
@@ -35,10 +35,10 @@ scaffold:
     - cache cargo (ключ по Cargo.lock, как в job engine)
     - установка wasm-pack
     - npm ci
-    - npm pack -w vimp-engine            # тарболл текущего движка
+    - npm pack -w vimp-engine # тарболл текущего движка
     - генерация игры во временный каталог:
         node packages/create-vimp-game/bin/create-vimp-game.js "$RUNNER_TEMP/e2e-game" \
-          --yes --id e2e-game --engine-path <tarball> --core-path packages/engine/core
+        --yes --id e2e-game --engine-path <tarball> --core-path packages/engine/core
     - в сгенерированной игре: npm install
     - npm run core:build
     - npm run check:contract

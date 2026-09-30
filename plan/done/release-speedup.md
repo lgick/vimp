@@ -15,8 +15,9 @@ crate 47 с, engine 22 с, scaffold ~25 с, snakes 152 с, tanks 179 с. У иг
 `hashFiles('Cargo.lock')`, а бамп крейта всегда меняет `Cargo.lock`.
 
 Ожидания, от которых ничего не зависит:
+
 - крейт и движок ждутся сразу, хотя нужны только шагу игр (`cargo update
-  --precise`, `npm i -D`). E2E скаффолдера (111 с) от реестров не зависит:
+--precise`, `npm i -D`). E2E скаффолдера (111 с) от реестров не зависит:
   движок ставится через `npm pack`, крейт — через `[patch.crates-io]`;
 - скаффолдер ждётся, хотя от него не зависит ничего;
 - каждая игра ждётся до перехода к следующей, хотя нужна только на шаге прода
@@ -106,7 +107,7 @@ workflow трёх репозиториев.
 ## Проверка
 
 - `npx eslint .`, `npm test`, `npm run release -- --dry-run --yes --game
-  ../vimp-tanks --game ../vimp-snakes`.
+../vimp-tanks --game ../vimp-snakes`.
 - YAML всех workflow валиден.
 - Настоящий эффект — на следующем реальном релизе (время прогона, отсутствие
   писем «No jobs were run», `Build core` в CI по GitHub API).

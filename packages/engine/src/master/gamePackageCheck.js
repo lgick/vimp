@@ -132,7 +132,9 @@ function checkEntries(manifest, distDir, errors) {
     }
 
     if (!fs.existsSync(path.join(distDir, inside))) {
-      errors.push(`manifest.entries.${name} ("${entry}") is missing from dist/`);
+      errors.push(
+        `manifest.entries.${name} ("${entry}") is missing from dist/`,
+      );
     }
   }
 }
@@ -153,7 +155,9 @@ function checkMaps(manifest, distDir, errors) {
     }
 
     if (!fs.existsSync(path.join(distDir, 'maps', `${name}.json`))) {
-      errors.push(`map "${name}" is declared, but dist/maps/${name}.json is missing`);
+      errors.push(
+        `map "${name}" is declared, but dist/maps/${name}.json is missing`,
+      );
     }
   }
 }

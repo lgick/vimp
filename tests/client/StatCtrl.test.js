@@ -12,8 +12,9 @@ const makeModel = () => ({
 
 beforeEach(async () => {
   vi.resetModules();
-  StatCtrl = (await import('../../packages/engine/src/client/components/controller/Stat.js'))
-    .default;
+  StatCtrl = (
+    await import('../../packages/engine/src/client/components/controller/Stat.js')
+  ).default;
 });
 
 describe('StatCtrl', () => {

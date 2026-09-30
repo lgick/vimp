@@ -57,8 +57,16 @@ describe('ClientReportRepository.ingest', () => {
     const repo = new ClientReportRepository(db);
 
     const result = await repo.ingest([
-      item(fp('a'), { count: 2, firstSeen: new Date('2026-09-27T10:00:00Z'), lastSeen: new Date('2026-09-27T10:05:00Z') }),
-      item(fp('a'), { count: 3, firstSeen: new Date('2026-09-27T09:00:00Z'), lastSeen: new Date('2026-09-27T10:01:00Z') }),
+      item(fp('a'), {
+        count: 2,
+        firstSeen: new Date('2026-09-27T10:00:00Z'),
+        lastSeen: new Date('2026-09-27T10:05:00Z'),
+      }),
+      item(fp('a'), {
+        count: 3,
+        firstSeen: new Date('2026-09-27T09:00:00Z'),
+        lastSeen: new Date('2026-09-27T10:01:00Z'),
+      }),
     ]);
 
     expect(result).toEqual({ accepted: 1, throttled: 0 });
@@ -80,7 +88,10 @@ describe('ClientReportRepository.ingest', () => {
     const db = ingestDb([fp('a')]);
     const repo = new ClientReportRepository(db);
 
-    const result = await repo.ingest([item(fp('a')), item(fp('b')), item(fp('c'))], { allowNew: () => 0 });
+    const result = await repo.ingest(
+      [item(fp('a')), item(fp('b')), item(fp('c'))],
+      { allowNew: () => 0 },
+    );
 
     expect(result).toEqual({ accepted: 1, throttled: 2 });
     expect(inserted(db).map(r => r.fingerprint)).toEqual([fp('a')]);
@@ -91,20 +102,26 @@ describe('ClientReportRepository.ingest', () => {
     const repo = new ClientReportRepository(db);
     const allowNew = vi.fn(() => 1);
 
-    const result = await repo.ingest([item(fp('b')), item(fp('c')), item(fp('d'))], { allowNew });
+    const result = await repo.ingest(
+      [item(fp('b')), item(fp('c')), item(fp('d'))],
+      { allowNew },
+    );
 
     expect(allowNew).toHaveBeenCalledWith(3);
     expect(result).toEqual({ accepted: 1, throttled: 2 });
     expect(inserted(db).map(r => r.fingerprint)).toEqual([fp('b')]);
-    expect(db.query.mock.calls.filter(([text]) => text.startsWith('INSERT'))).toHaveLength(1);
+    expect(
+      db.query.mock.calls.filter(([text]) => text.startsWith('INSERT')),
+    ).toHaveLength(1);
   });
 
   it('без прошедших INSERT не выполняется', async () => {
     const db = ingestDb();
     const repo = new ClientReportRepository(db);
 
-    await expect(repo.ingest([item(fp('b'))], { allowNew: () => 0 }))
-      .resolves.toEqual({ accepted: 0, throttled: 1 });
+    await expect(
+      repo.ingest([item(fp('b'))], { allowNew: () => 0 }),
+    ).resolves.toEqual({ accepted: 0, throttled: 1 });
     expect(inserted(db)).toBeNull();
   });
 
@@ -113,7 +130,9 @@ describe('ClientReportRepository.ingest', () => {
 
     await new ClientReportRepository(db).ingest([item(fp('a'))]);
 
-    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('INSERT'));
+    const [text] = db.query.mock.calls.find(([sql]) =>
+      sql.startsWith('INSERT'),
+    );
 
     expect(text).not.toMatch(/status/);
   });
@@ -123,7 +142,9 @@ describe('ClientReportRepository.ingest', () => {
 
     await new ClientReportRepository(db).ingest([item(fp('a'))]);
 
-    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('SELECT fingerprint'));
+    const [text] = db.query.mock.calls.find(([sql]) =>
+      sql.startsWith('SELECT fingerprint'),
+    );
 
     expect(text).toContain('ANY($1::bpchar[])');
   });
@@ -133,7 +154,9 @@ describe('ClientReportRepository.ingest', () => {
 
     await new ClientReportRepository(db).ingest([item(fp('a'))]);
 
-    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('INSERT'));
+    const [text] = db.query.mock.calls.find(([sql]) =>
+      sql.startsWith('INSERT'),
+    );
 
     expect(text).toContain("WHEN EXCLUDED.source = 'box'");
   });
@@ -141,9 +164,13 @@ describe('ClientReportRepository.ingest', () => {
   it('role и page пишутся в INSERT, но не обновляются при повторе', async () => {
     const db = ingestDb();
 
-    await new ClientReportRepository(db).ingest([item(fp('a'), { role: 'host', page: '/room/abc' })]);
+    await new ClientReportRepository(db).ingest([
+      item(fp('a'), { role: 'host', page: '/room/abc' }),
+    ]);
 
-    const [text] = db.query.mock.calls.find(([sql]) => sql.startsWith('INSERT'));
+    const [text] = db.query.mock.calls.find(([sql]) =>
+      sql.startsWith('INSERT'),
+    );
 
     expect(inserted(db)[0]).toMatchObject({ role: 'host', page: '/room/abc' });
     expect(text).toMatch(/role text, page text/);
@@ -185,11 +212,14 @@ describe('ClientReportRepository: чтение и статус', () => {
   });
 
   it('list open: WHERE по статусу, total, camelCase-строки', async () => {
-    const db = createDbStub(text => (
-      text.includes('LIMIT') ? { rows: [row] } : { rows: [{ n: '1' }] }
-    ));
+    const db = createDbStub(text =>
+      text.includes('LIMIT') ? { rows: [row] } : { rows: [{ n: '1' }] },
+    );
 
-    const result = await new ClientReportRepository(db).list({ limit: 10, offset: 20 });
+    const result = await new ClientReportRepository(db).list({
+      limit: 10,
+      offset: 20,
+    });
 
     const [select, values] = db.query.mock.calls[0];
 
@@ -226,9 +256,9 @@ describe('ClientReportRepository: чтение и статус', () => {
   });
 
   it('list all без WHERE, all + gameId — только игра', async () => {
-    const db = createDbStub(text => (
-      text.includes('LIMIT') ? { rows: [] } : { rows: [{ n: '0' }] }
-    ));
+    const db = createDbStub(text =>
+      text.includes('LIMIT') ? { rows: [] } : { rows: [{ n: '0' }] },
+    );
     const repo = new ClientReportRepository(db);
 
     await repo.list({ status: 'all' });
@@ -241,19 +271,27 @@ describe('ClientReportRepository: чтение и статус', () => {
   });
 
   it('list open + gameId — оба условия', async () => {
-    const db = createDbStub(text => (
-      text.includes('LIMIT') ? { rows: [] } : { rows: [{ n: '0' }] }
-    ));
+    const db = createDbStub(text =>
+      text.includes('LIMIT') ? { rows: [] } : { rows: [{ n: '0' }] },
+    );
 
     await new ClientReportRepository(db).list({ gameId: 'tanks' });
-    expect(db.query.mock.calls[0][0]).toMatch(/r\.status = \$1 AND r\.game_id = \$2/);
+    expect(db.query.mock.calls[0][0]).toMatch(
+      /r\.status = \$1 AND r\.game_id = \$2/,
+    );
     expect(db.query.mock.calls[0][1]).toEqual(['open', 'tanks', 50, 0]);
   });
 
   it('get: строка или null', async () => {
-    const repo = new ClientReportRepository(createDbStub(() => ({ rows: [row] })));
+    const repo = new ClientReportRepository(
+      createDbStub(() => ({ rows: [row] })),
+    );
 
-    expect(await repo.get(7)).toMatchObject({ id: 7, role: 'host', page: '/room/abc' });
+    expect(await repo.get(7)).toMatchObject({
+      id: 7,
+      role: 'host',
+      page: '/room/abc',
+    });
     await expect(
       new ClientReportRepository(createDbStub(() => ({ rows: [] }))).get(8),
     ).resolves.toBeNull();
@@ -263,10 +301,17 @@ describe('ClientReportRepository: чтение и статус', () => {
     const db = createDbStub(() => ({ rows: [row], rowCount: 1 }));
 
     const report = await new ClientReportRepository(db).setStatus('7', {
-      status: 'fixed', note: 'fixed in 1.0.1', userId: 3,
+      status: 'fixed',
+      note: 'fixed in 1.0.1',
+      userId: 3,
     });
 
-    expect(db.query.mock.calls[0][1]).toEqual(['7', 'fixed', 'fixed in 1.0.1', 3]);
+    expect(db.query.mock.calls[0][1]).toEqual([
+      '7',
+      'fixed',
+      'fixed in 1.0.1',
+      3,
+    ]);
     expect(report.statusByNick).toBe('lgick');
   });
 
@@ -274,7 +319,10 @@ describe('ClientReportRepository: чтение и статус', () => {
     const db = createDbStub(() => ({ rows: [], rowCount: 0 }));
 
     await expect(
-      new ClientReportRepository(db).setStatus('99', { status: 'ignored', userId: 3 }),
+      new ClientReportRepository(db).setStatus('99', {
+        status: 'ignored',
+        userId: 3,
+      }),
     ).rejects.toBeInstanceOf(ClientReportNotFoundError);
   });
 

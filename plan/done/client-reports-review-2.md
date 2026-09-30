@@ -36,28 +36,28 @@
 
 ## Итог по критериям
 
-| Критерий | Оценка | Замечания |
-| --- | --- | --- |
-| Читаемость | хорошо | `_reportWorkerMessage` вместо двух методов, `workerErrorReport`, `stopClientReports` — понятные имена, комментарии про «почему» |
-| Работоспособность | есть дефект | №1 (регрессия), №3 |
-| Тестируемость | хорошо | каждое исправление начато с падающего теста; для №1 не хватило теста на «выдуманные» пути |
-| Поддерживаемость | хорошо | общий `stopClientReports`, один `originValidator` |
-| Безопасность | есть дефекты | №1 (дешёвый отказ в обслуживании расшифровки), №2 (шум в журнале процесса от любого клиента) |
-| Производительность | хорошо | бюджет разборов карт ограничивает CPU (≤ 20 × ~35 мс в минуту); индекс в `ingest` работает |
-| Масштабируемость | хорошо | лимит 30 запросов в минуту и каденс 10 с согласованы |
-| DRY | мелочь | №4: правило «строка — кадр» есть в расшифровке, но не в отпечатке |
-| Документированность | хорошо, мелочь | en/ru зеркальны; №5 — длинные строки в en |
-| Стандартизация | соответствует | ESM, `===`, скобки, порядок импортов |
+| Критерий            | Оценка         | Замечания                                                                                                                       |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Читаемость          | хорошо         | `_reportWorkerMessage` вместо двух методов, `workerErrorReport`, `stopClientReports` — понятные имена, комментарии про «почему» |
+| Работоспособность   | есть дефект    | №1 (регрессия), №3                                                                                                              |
+| Тестируемость       | хорошо         | каждое исправление начато с падающего теста; для №1 не хватило теста на «выдуманные» пути                                       |
+| Поддерживаемость    | хорошо         | общий `stopClientReports`, один `originValidator`                                                                               |
+| Безопасность        | есть дефекты   | №1 (дешёвый отказ в обслуживании расшифровки), №2 (шум в журнале процесса от любого клиента)                                    |
+| Производительность  | хорошо         | бюджет разборов карт ограничивает CPU (≤ 20 × ~35 мс в минуту); индекс в `ingest` работает                                      |
+| Масштабируемость    | хорошо         | лимит 30 запросов в минуту и каденс 10 с согласованы                                                                            |
+| DRY                 | мелочь         | №4: правило «строка — кадр» есть в расшифровке, но не в отпечатке                                                               |
+| Документированность | хорошо, мелочь | en/ru зеркальны; №5 — длинные строки в en                                                                                       |
+| Стандартизация      | соответствует  | ESM, `===`, скобки, порядок импортов                                                                                            |
 
 ## Найденные проблемы
 
-| № | Серьёзность | Где | Суть | Этап |
-| --- | --- | --- | --- | --- |
-| 1 | **Средняя** (регрессия, отказ в обслуживании) | бокс, `master/clientReports/symbolicate.js` | Бюджет «20 карт в минуту» списывается ещё до `fs.stat`, то есть и за путь, которого нет. Отсутствующая карта (`null`) ложится в тот же LRU на 20 мест и вытесняет настоящие карты. Подтверждено: 2 отчёта в минуту по 12 кадров на выдуманные `https://box/assets/fake-N.js:1:1` выключают расшифровку всем. Карты вытеснены, бюджет минуты выжжен, стоимость для атакующего — 2 запроса. До исправления №4 так не было: отсутствующие карты не кэшировались | 1 |
-| 2 | Низкая–средняя (гигиена журнала, найдено сейчас, есть с этапа 2) | бокс, `createClientReportRoute.js` | Сбой `express.json` уходит в обработчик Express по умолчанию: битый JSON → 400, тело больше 16 КБ → 413. Этот обработчик печатает **полный стек** в stderr на каждый такой запрос и отвечает HTML-страницей. Подтверждено: 2 запроса → 2 вызова `console.error`. Любой браузер может писать многострочный мусор в `docker logs` (до 30 раз в минуту с адреса) — мимо санитайза `oneLine` | 2 |
-| 3 | Низкая | клиент, `lib/diagnostics.js` | После исправления №8 отчёты до 10 с ждут таймера, а отправка «сразу» есть только на `pagehide`. Мобильный браузер убивает фоновую вкладку без `pagehide`, последний надёжный момент — `visibilitychange` → `hidden`. Окно потери выросло с 2 до 10 с | 3 |
-| 4 | Низкая (DRY/согласованность) | бокс, `fingerprint.js` ↔ `symbolicate.js` | Расшифровка считает кадром только строку с `at ` или `@scheme://` (`FRAME_LINE_RE`). Отпечаток (`rawTopFrame`) берёт первую строку, которая оканчивается на `url:line:col`, — в том числе V8-сообщение. Одно правило живёт в двух местах по-разному | 4 |
-| 5 | Низкая (стандарт оформления) | `docs/en/client.md`, `configuration.md`, `master.md` | Дописанные фразы вылезли за ширину ~80 символов, которой держится остальной en-текст (до 121 символа). В ru абзац — одна строка, там правка не нужна | 5 |
+| №   | Серьёзность                                                      | Где                                                  | Суть                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Этап |
+| --- | ---------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| 1   | **Средняя** (регрессия, отказ в обслуживании)                    | бокс, `master/clientReports/symbolicate.js`          | Бюджет «20 карт в минуту» списывается ещё до `fs.stat`, то есть и за путь, которого нет. Отсутствующая карта (`null`) ложится в тот же LRU на 20 мест и вытесняет настоящие карты. Подтверждено: 2 отчёта в минуту по 12 кадров на выдуманные `https://box/assets/fake-N.js:1:1` выключают расшифровку всем. Карты вытеснены, бюджет минуты выжжен, стоимость для атакующего — 2 запроса. До исправления №4 так не было: отсутствующие карты не кэшировались | 1    |
+| 2   | Низкая–средняя (гигиена журнала, найдено сейчас, есть с этапа 2) | бокс, `createClientReportRoute.js`                   | Сбой `express.json` уходит в обработчик Express по умолчанию: битый JSON → 400, тело больше 16 КБ → 413. Этот обработчик печатает **полный стек** в stderr на каждый такой запрос и отвечает HTML-страницей. Подтверждено: 2 запроса → 2 вызова `console.error`. Любой браузер может писать многострочный мусор в `docker logs` (до 30 раз в минуту с адреса) — мимо санитайза `oneLine`                                                                     | 2    |
+| 3   | Низкая                                                           | клиент, `lib/diagnostics.js`                         | После исправления №8 отчёты до 10 с ждут таймера, а отправка «сразу» есть только на `pagehide`. Мобильный браузер убивает фоновую вкладку без `pagehide`, последний надёжный момент — `visibilitychange` → `hidden`. Окно потери выросло с 2 до 10 с                                                                                                                                                                                                         | 3    |
+| 4   | Низкая (DRY/согласованность)                                     | бокс, `fingerprint.js` ↔ `symbolicate.js`            | Расшифровка считает кадром только строку с `at ` или `@scheme://` (`FRAME_LINE_RE`). Отпечаток (`rawTopFrame`) берёт первую строку, которая оканчивается на `url:line:col`, — в том числе V8-сообщение. Одно правило живёт в двух местах по-разному                                                                                                                                                                                                          | 4    |
+| 5   | Низкая (стандарт оформления)                                     | `docs/en/client.md`, `configuration.md`, `master.md` | Дописанные фразы вылезли за ширину ~80 символов, которой держится остальной en-текст (до 121 символа). В ru абзац — одна строка, там правка не нужна                                                                                                                                                                                                                                                                                                         | 5    |
 
 **Принято без исправления:**
 
@@ -134,58 +134,58 @@ pathname)`, поэтому любой `https://box/assets/<что-угодно>.
 2. Заменить объявление `cache` и добавить состояние:
 
    ```js
-     // mapPath → SourceMapConsumer: только настоящие карты. Порядок вставки
-     // Map и есть порядок LRU
-     const cache = new Map();
-     // mapPath → Promise<SourceMapConsumer|null>: одновременные загрузки одной
-     // карты читают её с диска один раз
-     const inflight = new Map();
-     // карты, которых нет или которые не годятся (не файл, больше maxMapBytes),
-     // — отдельно от LRU: поток выдуманных путей бандлов иначе вытеснял бы из
-     // него настоящие карты. При переполнении чистится целиком — как
-     // `_logged` в ClientReportBuffer
-     const missing = new Set();
+   // mapPath → SourceMapConsumer: только настоящие карты. Порядок вставки
+   // Map и есть порядок LRU
+   const cache = new Map();
+   // mapPath → Promise<SourceMapConsumer|null>: одновременные загрузки одной
+   // карты читают её с диска один раз
+   const inflight = new Map();
+   // карты, которых нет или которые не годятся (не файл, больше maxMapBytes),
+   // — отдельно от LRU: поток выдуманных путей бандлов иначе вытеснял бы из
+   // него настоящие карты. При переполнении чистится целиком — как
+   // `_logged` в ClientReportBuffer
+   const missing = new Set();
 
-     const rememberMissing = mapPath => {
-       if (missing.size >= maxMissing) {
-         missing.clear();
-       }
+   const rememberMissing = mapPath => {
+     if (missing.size >= maxMissing) {
+       missing.clear();
+     }
 
-       missing.add(mapPath);
-     };
+     missing.add(mapPath);
+   };
    ```
 
 3. `readMap`: бюджет — после проверок, перед чтением.
 
    ```js
-     // null — карты нет, она не годится или кончился бюджет минуты; прочие
-     // сбои — исключение. Бюджет тратит только настоящее чтение с разбором:
-     // stat дёшев, а выдуманные пути бандлов не должны выжигать бюджет
-     const readMap = async mapPath => {
-       let stat;
+   // null — карты нет, она не годится или кончился бюджет минуты; прочие
+   // сбои — исключение. Бюджет тратит только настоящее чтение с разбором:
+   // stat дёшев, а выдуманные пути бандлов не должны выжигать бюджет
+   const readMap = async mapPath => {
+     let stat;
 
-       try {
-         stat = await fs.stat(mapPath);
-       } catch (err) {
-         if (err.code === 'ENOENT') {
-           rememberMissing(mapPath);
-           return null;
-         }
-
-         throw err;
-       }
-
-       if (!stat.isFile() || stat.size > maxMapBytes) {
+     try {
+       stat = await fs.stat(mapPath);
+     } catch (err) {
+       if (err.code === 'ENOENT') {
          rememberMissing(mapPath);
          return null;
        }
 
-       if (!takeColdLoad()) {
-         return null;
-       }
+       throw err;
+     }
 
-       return new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
-     };
+     if (!stat.isFile() || stat.size > maxMapBytes) {
+       rememberMissing(mapPath);
+       return null;
+     }
+
+     if (!takeColdLoad()) {
+       return null;
+     }
+
+     return new SourceMapConsumer(JSON.parse(await fs.readFile(mapPath, 'utf8')));
+   };
    ```
 
 4. В `loadMap` всё после `const mapPath = …` заменить на код ниже.
@@ -193,42 +193,42 @@ pathname)`, поэтому любой `https://box/assets/<что-угодно>.
    `pending.catch(...)` удалить.
 
    ```js
-       const mapPath = `${resolved}.map`;
-       const cached = cache.get(mapPath);
+   const mapPath = `${resolved}.map`;
+   const cached = cache.get(mapPath);
 
-       if (cached) {
-         cache.delete(mapPath);
-         cache.set(mapPath, cached);
+   if (cached) {
+     cache.delete(mapPath);
+     cache.set(mapPath, cached);
 
-         return cached;
-       }
+     return cached;
+   }
 
-       if (missing.has(mapPath)) {
-         return null;
-       }
+   if (missing.has(mapPath)) {
+     return null;
+   }
 
-       let pending = inflight.get(mapPath);
+   let pending = inflight.get(mapPath);
 
-       if (!pending) {
-         pending = readMap(mapPath).finally(() => inflight.delete(mapPath));
-         inflight.set(mapPath, pending);
-       }
+   if (!pending) {
+     pending = readMap(mapPath).finally(() => inflight.delete(mapPath));
+     inflight.set(mapPath, pending);
+   }
 
-       const consumer = await pending;
+   const consumer = await pending;
 
-       // в LRU попадают только настоящие карты: пустой ответ ничего не
-       // вытесняет. Карты нет — её помнит `missing`; кончился бюджет —
-       // прочитается в следующую минуту. Сбой чтения (EIO, битый JSON)
-       // исключением уходит к вызывающему и тоже не кешируется
-       if (consumer && !cache.has(mapPath)) {
-         cache.set(mapPath, consumer);
+   // в LRU попадают только настоящие карты: пустой ответ ничего не
+   // вытесняет. Карты нет — её помнит `missing`; кончился бюджет —
+   // прочитается в следующую минуту. Сбой чтения (EIO, битый JSON)
+   // исключением уходит к вызывающему и тоже не кешируется
+   if (consumer && !cache.has(mapPath)) {
+     cache.set(mapPath, consumer);
 
-         if (cache.size > cacheSize) {
-           cache.delete(cache.keys().next().value);
-         }
-       }
+     if (cache.size > cacheSize) {
+       cache.delete(cache.keys().next().value);
+     }
+   }
 
-       return consumer;
+   return consumer;
    ```
 
 5. Комментарий над `takeColdLoad` дополнить: «списывается только перед
@@ -244,7 +244,7 @@ pathname)`, поэтому любой `https://box/assets/<что-угодно>.
    - расшифровать `[HEAD, V8_FRAME]` при t = 0;
    - `t = 60000`;
    - два вызова со стеком `[HEAD, ...12 кадров '    at f
-     (https://h/assets/fake-<n>-<i>.js:1:1)']` (пути у всех кадров разные);
+(https://h/assets/fake-<n>-<i>.js:1:1)']` (пути у всех кадров разные);
    - затем `[HEAD, V8_FRAME]` → `DECODED` (карта не вытеснена);
    - и `[HEAD, frame2]` (`bundle2.js`) → `decoded2` (бюджет цел).
 
@@ -307,22 +307,20 @@ HTML-ответ.
 маршрута — проверено.
 
 ```js
-  // Сбой разбора тела (битый JSON — 400, больше bodyLimit — 413) без этого
-  // ушёл бы в обработчик Express по умолчанию: полный стек в журнал
-  // процесса на каждый такой запрос любого браузера и HTML в ответ. Отказ
-  // короткий и молчаливый, как у прочих отказов: частоту уже режет `limit`
-  const bodyError = (err, req, res, next) => {
-    if (err.status >= 400 && err.status < 500) {
-      res
-        .status(err.status)
-        .json({ error: err.status === 413 ? 'payloadTooLarge' : 'badRequest' });
-      return;
-    }
+// Сбой разбора тела (битый JSON — 400, больше bodyLimit — 413) без этого
+// ушёл бы в обработчик Express по умолчанию: полный стек в журнал
+// процесса на каждый такой запрос любого браузера и HTML в ответ. Отказ
+// короткий и молчаливый, как у прочих отказов: частоту уже режет `limit`
+const bodyError = (err, req, res, next) => {
+  if (err.status >= 400 && err.status < 500) {
+    res.status(err.status).json({ error: err.status === 413 ? 'payloadTooLarge' : 'badRequest' });
+    return;
+  }
 
-    next(err);
-  };
+  next(err);
+};
 
-  return [limit, express.json({ limit: bodyLimit }), handle, bodyError];
+return [limit, express.json({ limit: bodyLimit }), handle, bodyError];
 ```
 
 JSDoc у `createClientReportRoute` (`@returns`) — без изменений: это всё ещё
@@ -378,14 +376,14 @@ parser` заменить на две:
 **Решение.** В `install(target)` рядом с `onPageHide` добавить:
 
 ```js
-    // фоновую вкладку мобильный браузер убивает и без pagehide: скрытие —
-    // последний надёжный момент отправить накопленное (по таймеру отчёты
-    // ждут до minIntervalMs)
-    const onVisibility = () => {
-      if (doc?.visibilityState === 'hidden') {
-        flush();
-      }
-    };
+// фоновую вкладку мобильный браузер убивает и без pagehide: скрытие —
+// последний надёжный момент отправить накопленное (по таймеру отчёты
+// ждут до minIntervalMs)
+const onVisibility = () => {
+  if (doc?.visibilityState === 'hidden') {
+    flush();
+  }
+};
 ```
 
 - Регистрация — в том же `try`, после `securitypolicyviolation`:
@@ -400,12 +398,13 @@ parser` заменить на две:
 
 1. `install(window)`, `capture(makeError('a'))`, затем:
    - `Object.defineProperty(document, 'visibilityState', { configurable:
-     true, get: () => 'hidden' })`;
+true, get: () => 'hidden' })`;
    - `document.dispatchEvent(new Event('visibilitychange'))`;
    - ожидается `send` вызван один раз.
 
    В `finally` — `delete document.visibilityState` (или переопределить на
    `'visible'`) и `uninstall()`.
+
 2. То же с `'visible'` → `send` не вызван.
 3. После `uninstall()` событие `visibilitychange` при `hidden` → `send` не
    вызван.
@@ -463,20 +462,21 @@ change send at once». Зеркально в ru.
    ```
 
    В `rawTopFrame` в начале цикла по строкам добавить `if
-   (!isFrameLine(line)) { continue; }` перед `parseFrame(line)`.
+(!isFrameLine(line)) { continue; }` перед `parseFrame(line)`.
+
 2. `symbolicate.js`:
    - удалить локальную `FRAME_LINE_RE` и её комментарий;
    - импорт `import { isFrameLine, parseFrame } from './fingerprint.js';`;
    - в цикле `decoded < maxFrames && isFrameLine(line) ? parseFrame(line) :
-     null`.
+null`.
 
 **Тесты** (`clientReportsFingerprint.test.js`):
 
 - `rawTopFrame('Error: failed https://h/a.js:1:2\n    at f
-  (https://h/b.js:3:4)') === '/b.js:3:4'` — на текущем коде падает;
+(https://h/b.js:3:4)') === '/b.js:3:4'` — на текущем коде падает;
 - `isFrameLine`: `'    at f (https://h/a.js:1:2)'`, `'Tr@https://h/a.js:1:2'`,
   `'global code@https://h/a.js:1:2'` → `true`; `'TypeError: x'`, `'Error:
-  failed https://h/a.js:1:2'` → `false`;
+failed https://h/a.js:1:2'` → `false`;
 - существующие тесты V8 и Firefox/Safari остаются зелёными. Тесты
   расшифровки не меняются.
 
@@ -521,11 +521,11 @@ git show deaa60d1 -- docs/en | grep '^+' | grep -v '^+++' | awk 'length > 82'
 
 ## Влияние на релиз
 
-| Этап | Артефакт | Уровень |
-| --- | --- | --- |
+| Этап    | Артефакт                                                              | Уровень                                                             |
+| ------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | 1, 2, 4 | образ бокса (`src/master` в npm не входит), выкладка push'ем в `main` | записи в `[Unreleased]` → ближайший npm-релиз `vimp-engine` — patch |
-| 3 | npm `vimp-engine` (`src/client`) | patch (`### Fixed`) |
-| 5 | только документация | — |
+| 3       | npm `vimp-engine` (`src/client`)                                      | patch (`### Fixed`)                                                 |
+| 5       | только документация                                                   | —                                                                   |
 
 - `contract/surface.json` не меняется. vimp-tanks следовать не обязан.
 - **Всё ещё не сделано с прошлого ревью (вручную, разработчик):** на npm
@@ -537,7 +537,7 @@ git show deaa60d1 -- docs/en | grep '^+' | grep -v '^+++' | awk 'length > 82'
 ## Проверка по окончании
 
 1. Из корня `/Users/dmitry/Sites/my/vimp`: `npx eslint .` и `npx vitest run
-   --reporter=dot` зелёные.
+--reporter=dot` зелёные.
 2. Этап 1: тест-воспроизведение (две «минуты», 24 выдуманных кадра)
    зелёный; до правки он падал.
 3. Этап 2, вручную (dev-лобби, `npm run dev`):
@@ -548,8 +548,9 @@ git show deaa60d1 -- docs/en | grep '^+' | grep -v '^+++' | awk 'length > 82'
    ```
 
    Ответ — `{"error":"badRequest"}`, в выводе мастера нет стека.
+
 4. Этап 3: в dev-лобби выполнить в консоли `setTimeout(() => { throw new
-   Error('probe'); })` и в течение 2 с переключиться на другую вкладку. В
+Error('probe'); })` и в течение 2 с переключиться на другую вкладку. В
    выводе мастера сразу появляется `[vimp:client-report] new … probe`, не
    дожидаясь таймера.
 5. Этап 5: команда из этапа по добавленным строкам ничего не выводит.

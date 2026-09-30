@@ -12,15 +12,15 @@ Postgres `vimp_auth`, обе игры прилинкованы через `npm l
 `Admin` → «Test» (скачивание из npm, стейджинг, комната на черновике) →
 «Approve» → игра снова раздаётся. Отдельно подтверждены исправления ревью:
 
-| Находка ревью | Как проверено | Итог |
-| --- | --- | --- |
-| 1 (обход каталога) | `POST /games/submit` с `id="../../../../tmp/pwn"`, `id="mine"`, `{}`, битой версией | все 400 `badRequest`, `store.inspect` не зовётся |
-| 3 (500 на пустом теле) | `POST /games` auth с `{}` и `{"id":"x"}` | 400 `{"error":"badRequest","field":...}` |
-| 4 (лимитер заявок) | 7 подряд `POST /games/submit` | 400, дальше 429 `tooManyRequests` |
-| 6 (диапазон `maxGameScore`) | `PATCH /admin/games/tanks` с `1000000`, `-5`, `0`, `50` | первые три 400 `invalidMaxGameScore`, `50` — 200 |
-| 11 (публичный `GET /games`) | `GET /games` без токена-админа | только `id/packageName/title/repoUrl/authorNick/version/maxGameScore` |
-| 13.4 (`title`/`repoUrl` не показывались) | список «My games» и очередь модерации | заголовок и ссылка на репозиторий на месте |
-| роли | вход `Player1` vs `Admin` | у `Player1` кнопки «Moderation» нет |
+| Находка ревью                            | Как проверено                                                                       | Итог                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 1 (обход каталога)                       | `POST /games/submit` с `id="../../../../tmp/pwn"`, `id="mine"`, `{}`, битой версией | все 400 `badRequest`, `store.inspect` не зовётся                      |
+| 3 (500 на пустом теле)                   | `POST /games` auth с `{}` и `{"id":"x"}`                                            | 400 `{"error":"badRequest","field":...}`                              |
+| 4 (лимитер заявок)                       | 7 подряд `POST /games/submit`                                                       | 400, дальше 429 `tooManyRequests`                                     |
+| 6 (диапазон `maxGameScore`)              | `PATCH /admin/games/tanks` с `1000000`, `-5`, `0`, `50`                             | первые три 400 `invalidMaxGameScore`, `50` — 200                      |
+| 11 (публичный `GET /games`)              | `GET /games` без токена-админа                                                      | только `id/packageName/title/repoUrl/authorNick/version/maxGameScore` |
+| 13.4 (`title`/`repoUrl` не показывались) | список «My games» и очередь модерации                                               | заголовок и ссылка на репозиторий на месте                            |
+| роли                                     | вход `Player1` vs `Admin`                                                           | у `Player1` кнопки «Moderation» нет                                   |
 
 Отдельно в этом же заходе сделано (уже в рабочем дереве, не часть плана):
 из dev-БД удалена строка-мусор `provider='dev', provider_uid='admin',
@@ -41,6 +41,7 @@ nick IS NULL`, а весь интерфейс реестра игр переве
 ---
 
 ## §1 ✅ выполнен. 🔴 `GameSync._prune` сносит с диска версию, поставленную на тест, если у
+
 ## игры есть локальная сборка
 
 **Где**: `packages/engine/src/master/GameSync.js:197-236`, функция `add`
@@ -58,7 +59,7 @@ nick IS NULL`, а весь интерфейс реестра игр переве
 4. Через ≤ 60 с (тик таймера `GameSync`) `.games/tanks/0.16.1/` **исчезает**.
 5. Создание комнаты на `Tanks (test)` падает:
    `Failed to load Tanks: Failed to fetch dynamically imported module:
-   https://localhost:3002/games/tanks/0.16.1/client-D6Iivkqz.js?import`.
+https://localhost:3002/games/tanks/0.16.1/client-D6Iivkqz.js?import`.
 
 **Причина**. `add()` отбрасывает любую версию локально прилинкованной игры:
 
@@ -122,7 +123,7 @@ const add = (id, version) => {
 > застейдженная версия локально прилинкованной игры остаётся в `keep`:
 > `localGameIds = new Set(['tanks'])`, `registry.list()` отдаёт `tanks` (его
 > `ensure` не зовётся), `catalog.stagedManifests()` → `[{id: 'tanks',
-> version: '0.16.1'}]`, ожидание: `store.prune` получил
+version: '0.16.1'}]`, ожидание: `store.prune` получил
 > `Map { 'tanks' => Set { '0.16.1' } }`, а не пустую карту.
 
 **Ручная проверка**: повторить сценарий воспроизведения и убедиться, что
@@ -203,6 +204,7 @@ app.use('/games', (req, res, next) => {
 ---
 
 ## §3 ✅ выполнен. 🟠 dev-логин с ником, отличающимся регистром, плодит «мёртвого»
+
 ## пользователя и отвечает 500
 
 **Где**: `packages/auth/src/devLogin.js:33-40`,
@@ -249,8 +251,8 @@ DELETE FROM users WHERE provider='dev' AND provider_uid='admin' AND nick IS NULL
     }
 ```
 
-   `user` объявлен в `try` — вынести его в `let user;` перед `try`, чтобы
-   `catch` видел id (менять `NickTakenError` не нужно).
+`user` объявлен в `try` — вынести его в `let user;` перед `try`, чтобы
+`catch` видел id (менять `NickTakenError` не нужно).
 
 2. `UserRepository.js`: новый метод — удаление только «пустой» личности,
    строго идемпотентно и без риска задеть живого игрока:

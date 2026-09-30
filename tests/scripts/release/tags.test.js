@@ -54,7 +54,12 @@ describe('parseLsRemote', () => {
 });
 
 // Шелл с заданным состоянием тега: head/local/remote — sha или null
-function stateShell({ head = HEAD, local = null, remote = null, dryRun = false }) {
+function stateShell({
+  head = HEAD,
+  local = null,
+  remote = null,
+  dryRun = false,
+}) {
   const calls = [];
   const ok = stdout => ({ code: 0, stdout, stderr: '', output: stdout });
   const missing = { code: 1, stdout: '', stderr: '', output: '' };
@@ -133,7 +138,11 @@ describe('releaseTag', () => {
   it('retrigger спрашивает с «нет» по умолчанию: прошлый запуск может ещё идти', async () => {
     vi.mocked(ui.confirm).mockResolvedValue(true);
 
-    await releaseTag(stateShell({ local: HEAD, remote: HEAD }), '/repo', 'v1.0.0');
+    await releaseTag(
+      stateShell({ local: HEAD, remote: HEAD }),
+      '/repo',
+      'v1.0.0',
+    );
 
     expect(vi.mocked(ui.confirm).mock.calls[0][1]).toBe(false);
   });
@@ -169,7 +178,10 @@ describe('releaseTag', () => {
 
     await releaseTag(shell, '/repo', 'v1.0.0');
 
-    expect(shell.calls).toEqual(['git tag --force v1.0.0', 'git push origin v1.0.0']);
+    expect(shell.calls).toEqual([
+      'git tag --force v1.0.0',
+      'git push origin v1.0.0',
+    ]);
   });
 
   it('move без согласия — отказ', async () => {

@@ -26,7 +26,10 @@ import {
   readGameId,
   readPackageVersion,
 } from '../master/localGames.js';
-import { createClientReports, stopClientReports } from '../master/clientReports/index.js';
+import {
+  createClientReports,
+  stopClientReports,
+} from '../master/clientReports/index.js';
 import { ENGINE_VERSION } from '../master/clientReports/engineVersion.js';
 import { createSymbolicator } from '../master/clientReports/symbolicate.js';
 import { parseGamePath } from '../master/gameStatic.js';
@@ -45,7 +48,12 @@ config.set('master', (await import('../config/master.js')).default);
 
 // пути якорятся от расположения файла, а не от cwd — процесс можно запускать
 // из любой директории
-const engineDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
+const engineDir = path.resolve(
+  fileURLToPath(import.meta.url),
+  '..',
+  '..',
+  '..',
+);
 const nodeModulesDir = path.resolve(engineDir, '..', '..', 'node_modules');
 
 // корень хранилища скачанных игровых пакетов — тот же, что у лобби-мастера:
@@ -248,7 +256,11 @@ export async function fetchGameFromNpm(ref, version, env = process.env) {
 
   // пин из VIMP_DEDICATED_GAME важнее раздаваемой версии: так админ поднимает
   // сервер на конкретной сборке, не трогая реестр
-  const result = await store.ensure(game.id, game.packageName, version ?? game.version);
+  const result = await store.ensure(
+    game.id,
+    game.packageName,
+    version ?? game.version,
+  );
 
   if (!result.ok) {
     throw new Error(
@@ -304,8 +316,12 @@ export async function startDedicatedServer({
   // установлено. Молча отдать другую сборку нельзя — оператор написал в
   // SERVERS_MATRIX точную версию, — поэтому расхождение уводит игру в
   // реестр, который пин умеет (а без реестра старт падает именованно)
-  const localVersion = local ? readPackageVersion(nodeModulesDir, local.package) : null;
-  const pinMissed = Boolean(local && ref.version && ref.version !== localVersion);
+  const localVersion = local
+    ? readPackageVersion(nodeModulesDir, local.package)
+    : null;
+  const pinMissed = Boolean(
+    local && ref.version && ref.version !== localVersion,
+  );
   const entry = pinMissed ? null : local;
 
   const catalog = new GameCatalog(entry ? [entry] : [], nodeModulesDir, {
@@ -333,12 +349,12 @@ export async function startDedicatedServer({
       throw new Error(
         pinMissed
           ? `dedicated: game "${ref.id}" is pinned to ${ref.version}, but ` +
-            `node_modules has ${localVersion ?? 'an unknown version'} and ` +
-            'there is no registry to fetch the pinned one from — install that ' +
-            'version, drop the pin, or set VIMP_AUTH_SERVICE_URL'
+              `node_modules has ${localVersion ?? 'an unknown version'} and ` +
+              'there is no registry to fetch the pinned one from — install that ' +
+              'version, drop the pin, or set VIMP_AUTH_SERVICE_URL'
           : `dedicated: game "${ref.id}" is not available — link its package ` +
-            'into node_modules, name it by package (@scope/name), or set ' +
-            'VIMP_AUTH_SERVICE_URL so the server can fetch it from the registry',
+              'into node_modules, name it by package (@scope/name), or set ' +
+              'VIMP_AUTH_SERVICE_URL so the server can fetch it from the registry',
       );
     }
 

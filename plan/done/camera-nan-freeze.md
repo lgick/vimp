@@ -43,7 +43,9 @@ Uncaught TypeError: Failed to execute 'setValueAtTime' on 'AudioParam': The prov
 
 ```js
 function renderTick() {
-  if (!clientCore) { return; }
+  if (!clientCore) {
+    return;
+  }
   // … pendingAutostart …
   const len = clientCore.sample(performance.now());
 
@@ -52,17 +54,18 @@ function renderTick() {
   const flags = hot[0];
 
   if (flags & HOT_FLAGS.FRAMES) {
-    JSON.parse(clientCore.take_frames()).forEach(frame => {   // ← аллокация в WASM
-      applyShot(frame.game, frame.camera);                    // ← парты тоже зовут ядро
+    JSON.parse(clientCore.take_frames()).forEach(frame => {
+      // ← аллокация в WASM
+      applyShot(frame.game, frame.camera); // ← парты тоже зовут ядро
     });
   }
 
   if (flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED)) {
-    applyGameData(reconstructHot(hot, snapshotKeysById));     // ← чтение view ПОСЛЕ
+    applyGameData(reconstructHot(hot, snapshotKeysById)); // ← чтение view ПОСЛЕ
   }
 
   if (flags & HOT_FLAGS.CAMERA) {
-    applyCamera(modules.canvasManager, soundManager, [hot[1], hot[2]]);  // ← и здесь
+    applyCamera(modules.canvasManager, soundManager, [hot[1], hot[2]]); // ← и здесь
   }
 
   soundManager.processAudibility();
@@ -83,16 +86,17 @@ function renderTick() {
    const view = new Float32Array(memory.buffer, 0, 4);
    view[1] = 42;
    memory.grow(1);
-   view[1];            // undefined
-   view[1] - 10;       // NaN
+   view[1]; // undefined
+   view[1] - 10; // NaN
    ```
 
    Комментарий в коде учитывал отцепление только **между** тиками, а не внутри
    тика. Headless-раннер (`packages/engine/src/devtools/VirtualClient.js`)
    читает буфер копией (`hot_values()`), поэтому сценарии `npm run sim` этого
    не ловят.
+
 2. **Сбой 1.** `applyCamera` → `CanvasManagerModel.updateCoords(undefined,
-   undefined)` (`packages/engine/src/client/components/model/CanvasManager.js`):
+undefined)` (`packages/engine/src/client/components/model/CanvasManager.js`):
    - `dx = undefined - _coordX = NaN`;
    - дальше `lerp` навсегда держит `NaN` в `_coordX`, `_avgDx/_avgDy/_avgSpeed`,
      `_camOffsetX/Y` и `_camZoomModifier`;
@@ -101,8 +105,9 @@ function renderTick() {
 
    Сбросить накопители может только `cameraReset` (респаун, смена команды) —
    ровно то, что наблюдалось.
+
 3. **Сбой 2.** В том же тике `soundManager.setListenerPosition(undefined,
-   undefined)` (`packages/engine/src/client/SoundManager.js`):
+undefined)` (`packages/engine/src/client/SoundManager.js`):
    - в `_applyVolume` проверка `Math.hypot(NaN) >= maxDistance` даёт `false`,
      и источник считается слышимым;
    - `_updateSpatialSound` → `_writePos` → `Howl.pos(NaN)`, и Web Audio бросает
@@ -112,6 +117,7 @@ function renderTick() {
 
    Если гейт записи позиций (30 Гц) в этом тике закрыт и новых звуков нет,
    тик переживает NaN — и получается сбой 1.
+
 4. В игре (vimp-tanks) дефекта нет. Предиктор уже отсекает неконечную позу
    (`vimp-tanks/core/src/client/predictor.rs`, `TankState::is_finite`).
    Интерполятор движка (`packages/engine/core/src/client/interpolator.rs`)
@@ -202,9 +208,7 @@ export default function runHotTick({
   const flags = hot[0];
   // reconstructHot копирует поля (Array.from): после разбора view не нужен
   const game =
-    flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED)
-      ? reconstructHot(hot, snapshotKeysById)
-      : null;
+    flags & (HOT_FLAGS.GAME | HOT_FLAGS.PREDICTED) ? reconstructHot(hot, snapshotKeysById) : null;
   const camera = flags & HOT_FLAGS.CAMERA ? [hot[1], hot[2]] : null;
 
   if (flags & HOT_FLAGS.FRAMES) {
@@ -242,21 +246,22 @@ export default function runHotTick({
    `soundManager.*` в конце остаются как есть.
 
    ```js
-     runHotTick({
-       core: clientCore,
-       memory: wasm.memory,
-       snapshotKeysById,
-       now: performance.now(),
-       applyShot,
-       applyGameData,
-       applyCamera: camera =>
-         applyCamera(modules.canvasManager, soundManager, camera, reportBadCamera),
-     });
+   runHotTick({
+     core: clientCore,
+     memory: wasm.memory,
+     snapshotKeysById,
+     now: performance.now(),
+     applyShot,
+     applyGameData,
+     applyCamera: camera =>
+       applyCamera(modules.canvasManager, soundManager, camera, reportBadCamera),
+   });
    ```
 
    Функцию `reportBadCamera` добавляет этап 2. Этапы 1 и 2 делаются подряд;
    если нужен зелёный прогон между ними, на этапе 1 передать `applyCamera`
    без четвёртого аргумента.
+
 3. Комментарий над `renderTick` («рендер-тик: ядро выдаёт пересечённые кадры
    … плоским Float32-буфером zero-copy из памяти WASM») дополнить: порядок
    чтения буфера — в `lib/hotTick.js`.
@@ -268,7 +273,7 @@ export default function runHotTick({
      `buildSnapshotKeysById`.
 
    Перед удалением ещё раз проверить: `grep -n "HOT_FLAGS\|reconstructHot"
-   packages/engine/src/client/main.js`.
+packages/engine/src/client/main.js`.
 
 ### 1.3 Тесты: `tests/client/lib/hotTick.test.js` (новый файл)
 
@@ -414,6 +419,7 @@ export default function applyCamera(canvasManager, soundManager, camera, onInval
    `source: 'client'` есть в списке `SOURCES`
    (`packages/engine/src/master/clientReports/sanitize.js`). Повторы
    репортёр склеивает в счётчик.
+
 2. В `applyShot` передать тот же колбэк:
    `applyCamera(modules.canvasManager, soundManager, camera, reportBadCamera);`.
    Через `applyShot` идут первый кадр (`PS_FIRST_SHOT_DATA`) и событийные
@@ -425,32 +431,33 @@ export default function applyCamera(canvasManager, soundManager, camera, onInval
    строкой тела добавить:
 
    ```js
-       // Неконечная координата в узел не пишется: Web Audio бросает на ней
-       // TypeError из setValueAtTime, исключение уходит из рендер-тика в тикер
-       // Pixi, и тот больше не запрашивает кадр — игра замирает целиком.
-       // Позиции источников задаёт и игра (registerSound/updateSoundData),
-       // поэтому одного фильтра камеры (lib/applyCamera.js) здесь мало.
-       // Запомненная позиция не трогается: следующую конечную сравним с
-       // настоящей
-       if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) {
-         return;
-       }
+   // Неконечная координата в узел не пишется: Web Audio бросает на ней
+   // TypeError из setValueAtTime, исключение уходит из рендер-тика в тикер
+   // Pixi, и тот больше не запрашивает кадр — игра замирает целиком.
+   // Позиции источников задаёт и игра (registerSound/updateSoundData),
+   // поэтому одного фильтра камеры (lib/applyCamera.js) здесь мало.
+   // Запомненная позиция не трогается: следующую конечную сравним с
+   // настоящей
+   if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) {
+     return;
+   }
    ```
 
    Дописать в JSDoc метода одну строку: неконечная позиция пропускается.
+
 2. `_applyVolume` (~строка 720). Отсечку переписать так, чтобы NaN считался
    неслышимым:
 
    ```js
-       // отсечка в мировых координатах: … (прежний комментарий)
-       // «не ближе maxDistance», а не «дальше»: NaN-дистанция (координата
-       // источника или слушателя не число) иначе считалась бы слышимой на
-       // полной громкости
-       if (!(Math.hypot(dx, dy) < this._spatial.maxDistance)) {
-         sound.volume(0, soundId);
+   // отсечка в мировых координатах: … (прежний комментарий)
+   // «не ближе maxDistance», а не «дальше»: NaN-дистанция (координата
+   // источника или слушателя не число) иначе считалась бы слышимой на
+   // полной громкости
+   if (!(Math.hypot(dx, dy) < this._spatial.maxDistance)) {
+     sound.volume(0, soundId);
 
-         return false;
-       }
+     return false;
+   }
    ```
 
 `processAudibility` не трогать. Одноразовый звук с NaN-позицией станет
@@ -501,15 +508,15 @@ const makeStrictHowl = () => ({
    - `sound.volume` вызван с `(0, 1)`.
 2. «updateActiveSounds с NaN-позицией лупа не бросает» —
    `makeManager({ _registeredSounds: new Map([['owner', { position: { x: NaN,
-   y: 0 }, volume: 1, loop: true }]]), _activeInstances: new Map([[7, { sound,
-   ownerId: 'owner', loop: true }]]) })`. `_updateSpatialSound` **не**
+y: 0 }, volume: 1, loop: true }]]), _activeInstances: new Map([[7, { sound,
+ownerId: 'owner', loop: true }]]) })`. `_updateSpatialSound` **не**
    мокать; `_lastPositionWrite` в `makeManager` уже `-Infinity`, так что гейт
    открыт:
    - `expect(() => ctx.updateActiveSounds()).not.toThrow()`;
    - `sound.pos` не вызван.
 3. «_writePos не пишет и не запоминает неконечную позицию»:
    - `ctx._writePos(sound, 1, NaN, 0, 0)`, затем `ctx._writePos(sound, 1, 0,
-     Infinity, 0)` — `pos` не вызван, `ctx._pannerPos.has(1) === false`;
+Infinity, 0)` — `pos` не вызван, `ctx._pannerPos.has(1) === false`;
    - затем `ctx._writePos(sound, 1, 5, 0, 0)` — `pos` вызван один раз с
      `(5, 0, 0, 1)`.
 4. Существующие тесты («за maxDistance источник глушится», «innerRadius: 0 не
@@ -529,7 +536,7 @@ const makeStrictHowl = () => ({
    `parse`-конвейером в порядке «кадры → горячие данные → камера»
    (`lib/hotTick.js`).
 2. Раздел `## Client Core (ClientCore)` (ru: `## Клиентское ядро
-   (ClientCore)`), пункт **Render tick** (en ~строка 793, ru ~строка 235).
+(ClientCore)`), пункт **Render tick** (en ~строка 793, ru ~строка 235).
    Скобку «(the view is recreated every tick: WASM memory growth detaches
    the buffer)» заменить смыслом:
    - view пересоздаётся каждый тик и живёт только до роста памяти WASM:
@@ -547,9 +554,9 @@ const makeStrictHowl = () => ({
      `applyCamera` не применяет такой кадр ни к полотну, ни к слушателю
      звука;
    - кадр уходит как `warn` с кодом `engine.camera.non-finite`, `source:
-     'client'`, `details: { x, y }` строками.
+'client'`, `details: { x, y }` строками.
 4. Раздел `### How often the position is written` (ru: `### Как часто
-   пишется позиция`) — в конец абзац:
+пишется позиция`) — в конец абзац:
    - **неконечная позиция в узел не пишется никогда**;
    - почему: `setValueAtTime` бросает на NaN/Infinity, а исключение в
      рендер-тике останавливает тикер Pixi, и игра замирает;
@@ -609,7 +616,7 @@ Float32-буфером zero-copy из памяти WASM») дописать ут
 ## Проверка по окончании
 
 1. Из корня `/Users/dmitry/Sites/my/vimp`: `npx eslint .` и `npx vitest run
-   --reporter=dot` — зелёные.
+--reporter=dot` — зелёные.
 2. Регрессия настоящая: временная перестановка чтения из этапа 1.3 роняет
    кейс 1 `hotTick.test.js`. Кейсы 1–2 `SoundManager` падают, если временно
    убрать новую проверку из `_writePos` и вернуть `>=` в `_applyVolume`.

@@ -144,7 +144,7 @@ the dependency is by version, not by path.
   `physics::map_object_index(user_data)` put a dynamic body's index above the
   tag byte (`encode_map_object()` still returns the same value as before);
   `GameMap::dynamic_handle(index)` and `GameMap::dynamic_index_of(world,
-  handle)`. A body the game disables (`set_enabled(false)`) is skipped by the
+handle)`. A body the game disables (`set_enabled(false)`) is skipped by the
   level rules (`step_dynamic_levels`) and keeps its snapshot row without the
   velocity tail.
 - **Map body state byte**: `FieldRole::State` (`role: 'state'`, a `u8` right
@@ -152,7 +152,7 @@ the dependency is by version, not by path.
   and before `optionalFrom`), `BlockSchema::with_state()`,
   `BlockSchema::validate_roles()` (`validate_level_roles` stays as its
   alias), `GameMap::dynamic_map_data_with_state(world, with_levels,
-  with_velocities, states)` and `SimCtx::map_body_state`, zeroed on every map
+with_velocities, states)` and `SimCtx::map_body_state`, zeroed on every map
   load and kept in the handoff dump. The engine writes the byte only when the
   schema declares the role; `dynamic_map_data` keeps its exact layout.
 
@@ -221,7 +221,7 @@ the dependency is by version, not by path.
   guards from the same function instead of re-deriving the formula — a copy
   drifts silently.
 - **`client::collision::collect_block_contacts_into(obb, blocks, prediction,
-  out)`**: the same collection, writing into a caller-owned buffer instead of
+out)`**: the same collection, writing into a caller-owned buffer instead of
   allocating a `Vec` per call. `collect_block_contacts` is a thin wrapper over
   it and is unchanged. The buffer is not cleared — the caller decides whether
   it accumulates a step's contacts or starts over.
@@ -243,7 +243,7 @@ the dependency is by version, not by path.
   `Vec<BlockContact>` (a `Manifold` plus the block centre) instead of
   `Vec<TileContact>` (a single `Contact` plus `tile_x`/`tile_y`).
 - **`client::rigid_body::apply_contact_impulse(a, b, contact, surface, dt,
-  acc)`** takes two more arguments: the step `dt` and
+acc)`** takes two more arguments: the step `dt` and
   `&mut ContactImpulses`, the impulses accumulated over the solver's
   iterations for that one contact.
 - **`client::collision::Contact::depth` is now signed.** `> 0` is
@@ -333,7 +333,7 @@ the dependency is by version, not by path.
   physics and the game rules drifted apart.
 - A client replica that resolved walls with `collect_tile_contacts` over the
   level grid switches to `collect_block_contacts(&obb,
-  levels.static_blocks(level))`. Keeping the tile-by-tile collection means
+levels.static_blocks(level))`. Keeping the tile-by-tile collection means
   keeping the drift it causes on long walls.
 
 ### Added
@@ -367,7 +367,7 @@ the dependency is by version, not by path.
   single-level map is bit-for-bit the same), and a replica reads them through
   `collect_block_contacts`.
 - **The bot nav graph knows about ramp runs.** `NavigationSystem::
-  generate_layered` marked a ramp run's cells walkable on the lower level:
+generate_layered` marked a ramp run's cells walkable on the lower level:
   the run's tiles are not solid, so nodes were placed inside the run and
   paths were routed across it — straight into the ramp guard colliders,
   which are invisible to the graph. A bot spawned on the ground would nudge
@@ -384,7 +384,7 @@ the dependency is by version, not by path.
 ### ⚠️ Breaking
 
 - `map::MapLevels::build` takes a sixth argument, `level_height:
-  Option<f32>` — the height of one level in world units, `None` for the tile
+Option<f32>` — the height of one level in world units, `None` for the tile
   size. Everything that reads a ramp has to build the geometry with the same
   number as the host, or the two sides compute different slopes in silence.
 - `map::RampSample::slope` is now a **dimensionless** gradient
@@ -394,7 +394,7 @@ the dependency is by version, not by path.
   gradient — climb thrust, hull pitch, dust — used to miss by two orders of
   magnitude.
 - `map::validate_levels` takes a seventh argument, `level_height:
-  Option<f32>`, and rejects a value that is not finite and greater than 0.
+Option<f32>`, and rejects a value that is not finite and greater than 0.
 - The layered dynamic row is switched on by field **roles**, not field
   names: `config::FieldSchema` gained `role` (`FieldRole::Z` /
   `FieldRole::Level`), and `BlockSchema::with_levels()` reads it. `load_map`
@@ -434,7 +434,7 @@ the dependency is by version, not by path.
   `GameMap::create_static` closes both sides of every ramp run and its far
   end on layered maps, so a run cannot be entered from the side or from the
   wrong end any more. The foot of the run stays open. `body_filter(mask,
-  on_ramp)`, `levels_interaction_on_ramp(mask)` and
+on_ramp)`, `levels_interaction_on_ramp(mask)` and
   `ramp_guard_interaction(low)` are the one place the guard bit is put into a
   filter.
 - `config::FieldRole` and `BlockSchema::with_levels()` /
@@ -475,7 +475,7 @@ the dependency is by version, not by path.
 
 - A game crate that calls `map::validate_levels` passes the ground level's
   `layers` and `volumes` first: `validate_levels(map, physics_static, layers,
-  volumes, levels, ramps)`. A client-side map config that has no render
+volumes, levels, ramps)`. A client-side map config that has no render
   layers passes two empty `IndexMap`s.
 - A game that calls `GameMap::dynamic_map_data` adds the `with_levels` flag
   ahead of `with_velocities`; `false` keeps the previous three-field row.
@@ -633,7 +633,7 @@ the dependency is by version, not by path.
   `abi_describe()` and `dispatch(op, payload)` (stage 4 of
   `plan/plugin-forward-compat`). `abi_describe()` returns
   `{ abi, core, ops }` — the self-description format version, the version of
-  *this* crate the core was built against (`abi::CORE_VERSION`, not the game
+  _this_ crate the core was built against (`abi::CORE_VERSION`, not the game
   crate's) and the dispatch opcodes the core understands: the engine learns a
   core's capabilities when it loads it, not in the middle of a match.
   `dispatch` returns an empty vector for "opcode not handled" and the single

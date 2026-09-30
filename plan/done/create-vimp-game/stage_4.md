@@ -6,16 +6,16 @@
 
 ## 4.1. Состав `core/src/`
 
-| Файл | Содержимое |
-| --- | --- |
-| `config.rs` | serde-структуры init-JSON: `RootConfig { engine, game }`, `RootClientConfig`, `ActorConfig`, `WeaponConfig`. Хост читает `timeStep` в **секундах**, клиент — `timeStepMs` в **миллисекундах**; расхождение единиц намеренное и комментируется прямо в коде |
-| `body_tag.rs` | тегирование тел Rapier в `u128`; младший байт `1` зарезервирован движком (`MAP_OBJECT_TAG`), игровые виды начинаются с `2` |
-| `motion.rs` | **единственный** источник математики движения: чистые функции без Rapier и без состояния мира. Используется и авторитетным `Actor::update`, и клиентским `Predictor` |
-| `actor.rs` | авторитетный актор: тело Rapier, здоровье, боезапас, перезарядка, вызов `motion.rs` |
-| `game.rs` | `GameDef` + `impl GameSim`: спавн/удаление акторов и ботов, `apply_input`, `on_fixed_step`, `on_contacts`, `on_ai_tick`, hitscan, упаковка блоков снапшота, `serialize`/`deserialize`, `clear` |
-| `client/predictor.rs` | предикция своего актора на 8 `f32` + `mod parity` (cargo-тест сравнения с авторитетной симуляцией) |
-| `client/mod.rs` | `impl GameClientDef`: `on_server_state`, `update`, `track_frame`, `filter_frame_game`, `update_world`, `update_world_interpolated`, `render_overlay`, `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`, `reset`, `cycle_item`, `try_action` + опциональные `predicted_state`/`replayed_inputs` |
-| `lib.rs` | структуры `GameCore { state: EngineSim<G>, packer: SnapshotPacker }` и `ClientCore { state: ClientState<G> }`, рукописные `new()`, вызовы `vimp_engine_core::export_game_core_abi!(GameCore)` и `export_client_core_abi!(ClientCore)` |
+| Файл                  | Содержимое                                                                                                                                                                                                                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.rs`           | serde-структуры init-JSON: `RootConfig { engine, game }`, `RootClientConfig`, `ActorConfig`, `WeaponConfig`. Хост читает `timeStep` в **секундах**, клиент — `timeStepMs` в **миллисекундах**; расхождение единиц намеренное и комментируется прямо в коде                                                      |
+| `body_tag.rs`         | тегирование тел Rapier в `u128`; младший байт `1` зарезервирован движком (`MAP_OBJECT_TAG`), игровые виды начинаются с `2`                                                                                                                                                                                      |
+| `motion.rs`           | **единственный** источник математики движения: чистые функции без Rapier и без состояния мира. Используется и авторитетным `Actor::update`, и клиентским `Predictor`                                                                                                                                            |
+| `actor.rs`            | авторитетный актор: тело Rapier, здоровье, боезапас, перезарядка, вызов `motion.rs`                                                                                                                                                                                                                             |
+| `game.rs`             | `GameDef` + `impl GameSim`: спавн/удаление акторов и ботов, `apply_input`, `on_fixed_step`, `on_contacts`, `on_ai_tick`, hitscan, упаковка блоков снапшота, `serialize`/`deserialize`, `clear`                                                                                                                  |
+| `client/predictor.rs` | предикция своего актора на 8 `f32` + `mod parity` (cargo-тест сравнения с авторитетной симуляцией)                                                                                                                                                                                                              |
+| `client/mod.rs`       | `impl GameClientDef`: `on_server_state`, `update`, `track_frame`, `filter_frame_game`, `update_world`, `update_world_interpolated`, `render_overlay`, `apply_input`, `set_model`, `set_active`, `set_map`, `sync_panel`, `reset`, `cycle_item`, `try_action` + опциональные `predicted_state`/`replayed_inputs` |
+| `lib.rs`              | структуры `GameCore { state: EngineSim<G>, packer: SnapshotPacker }` и `ClientCore { state: ClientState<G> }`, рукописные `new()`, вызовы `vimp_engine_core::export_game_core_abi!(GameCore)` и `export_client_core_abi!(ClientCore)`                                                                           |
 
 Имена полей структур под ABI-макросами (`state`, `packer`) — контрактные,
 макрос ищет их буквально.

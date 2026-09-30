@@ -18,7 +18,9 @@ describe('lobbyConfig.maps', () => {
   it('манифест без mapsBase — прежний путь по id', () => {
     const manifest = { id: 'tanks' };
 
-    expect(lobbyConfig.maps.manifestUrl(manifest)).toBe('/games/tanks/maps/manifest.json');
+    expect(lobbyConfig.maps.manifestUrl(manifest)).toBe(
+      '/games/tanks/maps/manifest.json',
+    );
     expect(lobbyConfig.maps.baseUrl(manifest)).toBe('/games/tanks/maps');
   });
 });

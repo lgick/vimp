@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { formatMessage, roundTo2Decimals } from '../../packages/engine/src/lib/formatters.js';
+import {
+  formatMessage,
+  roundTo2Decimals,
+} from '../../packages/engine/src/lib/formatters.js';
 
 describe('formatMessage', () => {
   it('подставляет значения по плейсхолдерам', () => {

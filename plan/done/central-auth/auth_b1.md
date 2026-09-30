@@ -26,6 +26,7 @@ PostgreSQL (`users`/`ratings`/`states`), JWT RS256 + `/jwks`, OAuth
   ```
 
   Ключ подписи JWT (RS256), публичная часть отдаётся на `/jwks`.
+
 - REST-эндпоинты: OAuth start/callback на три провайдера; `POST /nick`
   (первый вход, проверка глобальной уникальности — заменяет пер-комнатный
   `checkName`); `GET /rank?game=`, `GET/PUT /state?game=` (Bearer JWT).

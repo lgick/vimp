@@ -19,7 +19,10 @@ describe('JwksProxy', () => {
 
   it('кэширует результат в пределах TTL', async () => {
     const fetchImpl = makeFetch();
-    const proxy = new JwksProxy('http://auth.local', { fetchImpl, ttlMs: 10000 });
+    const proxy = new JwksProxy('http://auth.local', {
+      fetchImpl,
+      ttlMs: 10000,
+    });
 
     await proxy.get();
     await proxy.get();

@@ -19,12 +19,12 @@ what entities exist, how they move, how they fight, how they look and sound.
 
 A plugin is four artifacts built into one `dist/`:
 
-| Artifact | Runs in | Written in |
-| --- | --- | --- |
-| Host plugin (`HostPlugin`) | the room creator's Web Worker | JS (Worker-safe, no DOM) |
-| Client plugin (`ClientPlugin`) | every player's main thread | JS + PixiJS |
-| WASM core (host + client halves) | both, as one `.wasm` | Rust |
-| `manifest.json` + maps + sounds + images | served by the master | generated |
+| Artifact                                 | Runs in                       | Written in               |
+| ---------------------------------------- | ----------------------------- | ------------------------ |
+| Host plugin (`HostPlugin`)               | the room creator's Web Worker | JS (Worker-safe, no DOM) |
+| Client plugin (`ClientPlugin`)           | every player's main thread    | JS + PixiJS              |
+| WASM core (host + client halves)         | both, as one `.wasm`          | Rust                     |
+| `manifest.json` + maps + sounds + images | served by the master          | generated                |
 
 **Every asset the game needs is yours.** Tile sheets, dynamic-body sprites,
 sounds, maps and configs all ship inside your package's `dist/` and reach the
@@ -75,14 +75,14 @@ Write it as the shipped plugins do (`vimp-tanks`, `vimp-snakes`): two mirrored
 trees, `docs/en/` (canonical) and `docs/ru/` (identical structure), each with a
 `README.md` table of contents and these five pages:
 
-| Page | Contents |
-| --- | --- |
-| `getting-started.md` | Requirements, install, the Rust toolchain, the build scripts, the fastest local match, linking against a local engine checkout, tests, the static contract check, the headless scenarios |
-| `architecture.md` | Repository layout, how the plugin plugs into the engine (host/client/master), where the core's boundary runs, the client-side smoothing this game uses, the decisions the code depends on, the key invariants |
-| `gameplay.md` | The rules a player experiences: the player journey, controls, scoring, chat commands, bots, kicks — and, explicitly, the engine features this game does **not** use |
-| `core.md` | The Rust crate: layout, build, the ABI it fills in (commands, events, frames, state queries), the simulation model, determinism, tests |
-| `configuration.md` | Every file under `src/config/` and `src/data/`, parameter by parameter, with the traps each one hides |
-| `extending.md` | Recipes for adding content — one numbered procedure per artifact, each ending in the checks to run |
+| Page                 | Contents                                                                                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getting-started.md` | Requirements, install, the Rust toolchain, the build scripts, the fastest local match, linking against a local engine checkout, tests, the static contract check, the headless scenarios                      |
+| `architecture.md`    | Repository layout, how the plugin plugs into the engine (host/client/master), where the core's boundary runs, the client-side smoothing this game uses, the decisions the code depends on, the key invariants |
+| `gameplay.md`        | The rules a player experiences: the player journey, controls, scoring, chat commands, bots, kicks — and, explicitly, the engine features this game does **not** use                                           |
+| `core.md`            | The Rust crate: layout, build, the ABI it fills in (commands, events, frames, state queries), the simulation model, determinism, tests                                                                        |
+| `configuration.md`   | Every file under `src/config/` and `src/data/`, parameter by parameter, with the traps each one hides                                                                                                         |
+| `extending.md`       | Recipes for adding content — one numbered procedure per artifact, each ending in the checks to run                                                                                                            |
 
 Rules for that documentation:
 
@@ -108,21 +108,21 @@ Rules for that documentation:
 
 ## File map
 
-| File | Contents |
-| --- | --- |
-| [`01-architecture.md`](01-architecture.md) | P2P topology, who owns what, version gates, room lifecycle, transport |
-| [`02-packaging.md`](02-packaging.md) | Package layout, `manifest.json`, the two Vite builds, wasm-pack, dev mode, master routes |
-| [`03-host-plugin.md`](03-host-plugin.md) | `HostPlugin` surface, full `gameConfig` reference, modules, chat commands, votes, rank/state, handoff |
-| [`04-client-plugin.md`](04-client-plugin.md) | `ClientPlugin` surface, parts, bakers, canvases, panel, stat, chat/vote UI, input, sound, hooks, auth screen |
-| [`05-wasm-core.md`](05-wasm-core.md) | Rust crate, `GameDef`/`GameSim`/`GameClientDef`, ABI macros, init JSON, events, determinism, prediction |
-| [`06-snapshot-protocol.md`](06-snapshot-protocol.md) | Snapshot schema, the four kinds, frame v3 byte layout, hot buffer, all ports |
-| [`07-maps-and-assets.md`](07-maps-and-assets.md) | Map JSON, scaling cascade, respawns, tile images and the image pipeline, sound pipeline, baked assets |
-| [`08-gameplay-meta.md`](08-gameplay-meta.md) | Engine-owned rules you configure: rounds, scoring, teams, kicks, timers, sound cues, informs |
-| [`09-reference-implementations.md`](09-reference-implementations.md) | Two worked examples: a minimal plugin in full, and tanks excerpts |
-| [`10-pitfalls.md`](10-pitfalls.md) | Invariant and trap checklist — verify against this before finishing |
-| [`11-authoring-workflow.md`](11-authoring-workflow.md) | Generation process, testing, build, linking, smoke test, rebuild matrix |
-| [`12-questionnaire.md`](12-questionnaire.md) | The interview (Russian text, conduct in the user's language) + answer→artifact mapping |
-| [`13-debugging.md`](13-debugging.md) | The headless runner (`npm run sim`), scenario format, the 12 invariant checks, world dumps, prediction drift, browser recording |
+| File                                                                 | Contents                                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [`01-architecture.md`](01-architecture.md)                           | P2P topology, who owns what, version gates, room lifecycle, transport                                                           |
+| [`02-packaging.md`](02-packaging.md)                                 | Package layout, `manifest.json`, the two Vite builds, wasm-pack, dev mode, master routes                                        |
+| [`03-host-plugin.md`](03-host-plugin.md)                             | `HostPlugin` surface, full `gameConfig` reference, modules, chat commands, votes, rank/state, handoff                           |
+| [`04-client-plugin.md`](04-client-plugin.md)                         | `ClientPlugin` surface, parts, bakers, canvases, panel, stat, chat/vote UI, input, sound, hooks, auth screen                    |
+| [`05-wasm-core.md`](05-wasm-core.md)                                 | Rust crate, `GameDef`/`GameSim`/`GameClientDef`, ABI macros, init JSON, events, determinism, prediction                         |
+| [`06-snapshot-protocol.md`](06-snapshot-protocol.md)                 | Snapshot schema, the four kinds, frame v3 byte layout, hot buffer, all ports                                                    |
+| [`07-maps-and-assets.md`](07-maps-and-assets.md)                     | Map JSON, scaling cascade, respawns, tile images and the image pipeline, sound pipeline, baked assets                           |
+| [`08-gameplay-meta.md`](08-gameplay-meta.md)                         | Engine-owned rules you configure: rounds, scoring, teams, kicks, timers, sound cues, informs                                    |
+| [`09-reference-implementations.md`](09-reference-implementations.md) | Two worked examples: a minimal plugin in full, and tanks excerpts                                                               |
+| [`10-pitfalls.md`](10-pitfalls.md)                                   | Invariant and trap checklist — verify against this before finishing                                                             |
+| [`11-authoring-workflow.md`](11-authoring-workflow.md)               | Generation process, testing, build, linking, smoke test, rebuild matrix                                                         |
+| [`12-questionnaire.md`](12-questionnaire.md)                         | The interview (Russian text, conduct in the user's language) + answer→artifact mapping                                          |
+| [`13-debugging.md`](13-debugging.md)                                 | The headless runner (`npm run sim`), scenario format, the 12 invariant checks, world dumps, prediction drift, browser recording |
 
 ## Reading rules
 

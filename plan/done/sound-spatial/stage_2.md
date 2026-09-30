@@ -98,12 +98,12 @@ function smoothstep(min, max, value) {
 После блока `_pannedIds` (строка 51) добавить:
 
 ```javascript
-    // разрешённая геометрия пространственного звука: числа профиля + его
-    // mapCoords. Ставится в init(), между матчами (reset) не меняется
-    this._spatial = this._resolveSpatialConfig();
+// разрешённая геометрия пространственного звука: числа профиля + его
+// mapCoords. Ставится в init(), между матчами (reset) не меняется
+this._spatial = this._resolveSpatialConfig();
 
-    // множитель зума камеры: 1 — покой, < 1 — динамическое отдаление
-    this._listenerScale = 1;
+// множитель зума камеры: 1 — покой, < 1 — динамическое отдаление
+this._listenerScale = 1;
 ```
 
 Комментарий к `_pannedIds` (строки 46–51) переписать: множество теперь
@@ -117,14 +117,14 @@ function smoothstep(min, max, value) {
 Деструктуризация (строка 71):
 
 ```javascript
-    const { codecList, path, sounds, spatial } = soundsConfig;
+const { codecList, path, sounds, spatial } = soundsConfig;
 ```
 
 Сразу после неё — разрешение геометрии. Важно, что это происходит **до**
 загрузки звуков: `pannerAttr` вызывается в `onload`.
 
 ```javascript
-    this._spatial = this._resolveSpatialConfig(spatial);
+this._spatial = this._resolveSpatialConfig(spatial);
 ```
 
 Строку 105 (`sound: soundInstance.pannerAttr(PANNER_SETTINGS),`) заменить на
@@ -332,8 +332,7 @@ function smoothstep(min, max, value) {
 ## 2.7. `processAudibility` (строки 264–265)
 
 ```javascript
-    const maxDistSquared =
-      this._spatial.maxDistance * this._spatial.maxDistance;
+const maxDistSquared = this._spatial.maxDistance * this._spatial.maxDistance;
 ```
 
 ## 2.8. `reset()` (строка 560)

@@ -1,5 +1,9 @@
 import Publisher from '../../../lib/Publisher.js';
-import { bindLiveErrors, buildForm, renderFormErrors } from '../../lib/formBuilder.js';
+import {
+  bindLiveErrors,
+  buildForm,
+  renderFormErrors,
+} from '../../lib/formBuilder.js';
 
 // Singleton AuthView
 
@@ -33,10 +37,14 @@ export default class AuthView {
 
     // ошибки видны по ходу правки (см. bindLiveErrors), а не по клику:
     // до сабмита — по тронутым полям, после — по всей форме
-    this._liveErrors = bindLiveErrors(this._fieldsContainer, this._error, () => ({
-      descriptors: this._descriptors,
-      fields: this._fields,
-    }));
+    this._liveErrors = bindLiveErrors(
+      this._fieldsContainer,
+      this._error,
+      () => ({
+        descriptors: this._descriptors,
+        fields: this._fields,
+      }),
+    );
 
     // форма заполнена; клиентская проверка (required/regExp/min/max) —
     // сервер всё равно валидирует своими validators (renderError), это лишь
@@ -69,11 +77,13 @@ export default class AuthView {
 
     // param.options — дескриптор-хвост (control/label/min/max/... —
     // "options" здесь ключ протокола PS_AUTH_DATA, не список выбора select
-    const descriptors = params.map(({ name, value, options: descriptorRest }) => ({
-      name,
-      default: value,
-      ...descriptorRest,
-    }));
+    const descriptors = params.map(
+      ({ name, value, options: descriptorRest }) => ({
+        name,
+        default: value,
+        ...descriptorRest,
+      }),
+    );
 
     this._descriptors = descriptors;
     // params сюда приходят чужие (PS_AUTH_DATA, тот же массив main.js

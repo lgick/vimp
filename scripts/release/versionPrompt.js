@@ -27,14 +27,21 @@ export function resolveVersionAnswer(answer, { current, published }) {
   return target;
 }
 
-export async function askVersion(label, { current, level, reason, published }, { yes }) {
+export async function askVersion(
+  label,
+  { current, level, reason, published },
+  { yes },
+) {
   const suggested = increment(current, level);
 
   ui.log(`${label}: ${current} → ${suggested} (${reason})`);
 
   const answer = yes
     ? suggested
-    : await ui.ask('Enter — принять, либо patch/minor/major/своя версия', suggested);
+    : await ui.ask(
+        'Enter — принять, либо patch/minor/major/своя версия',
+        suggested,
+      );
 
   return resolveVersionAnswer(answer, { current, published });
 }
@@ -46,7 +53,11 @@ export async function askVersion(label, { current, level, reason, published }, {
 // GitHub не увидит новое событие, и release.yml не перезапустится. Нужен
 // путь явно попросить версию выше, не полагаясь на level/increment, как
 // askVersion — default здесь именно "как есть", а не бамп.
-export async function askGameVersionAsIs(label, { current, published }, { yes }) {
+export async function askGameVersionAsIs(
+  label,
+  { current, published },
+  { yes },
+) {
   ui.log(`${label}: публикуется как есть, ${current}`);
 
   if (yes) {

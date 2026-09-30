@@ -183,11 +183,11 @@ Matches run through the **browser host** ([host.md](host.md)): "Create server" i
 
 The lobby above is one of three ways to get a match on this machine:
 
-| Run | Command | What you get |
-| --- | --- | --- |
-| lobby master | `npm run dev` | rooms, catalogs, WebRTC signaling, OAuth — production behaviour |
+| Run              | Command                                       | What you get                                                                                                     |
+| ---------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| lobby master     | `npm run dev`                                 | rooms, catalogs, WebRTC signaling, OAuth — production behaviour                                                  |
 | dedicated server | `VIMP_DEDICATED_GAME=tanks npm run dedicated` | one match inside the Node process, `http://localhost:3002`, no lobby and no OAuth — [dedicated.md](dedicated.md) |
-| standalone SDK | `npm run dev` **in the game's repository** | the whole match in one tab, no server of ours at all — [standalone.md](standalone.md) |
+| standalone SDK   | `npm run dev` **in the game's repository**    | the whole match in one tab, no server of ours at all — [standalone.md](standalone.md)                            |
 
 The last two need no auth service. Both the dedicated server and the
 headless runner load the game's **node** core (`dist/core-node/`), so the
@@ -217,13 +217,13 @@ Engine-side edits need nothing: nodemon restarts the master for
 manifest, maps and sounds from the plugin's `dist/` once at startup, hence the
 restarts:
 
-| Edited in the plugin | What to run |
-| --- | --- |
-| client/host JS (`src/**`) | nothing — HMR / reload the tab |
-| its Rust core | `npm run core:build:web` (plus `:node` before running its tests), reload the tab |
-| maps | `npm run build:assets`, restart the master |
-| `roomForm`/`roomDefaults`/manifest fields | `npm run build:manifest`, restart the master |
-| sounds | `npm run audio:process` (needs ffmpeg), then `npm run build:assets` |
+| Edited in the plugin                      | What to run                                                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------------- |
+| client/host JS (`src/**`)                 | nothing — HMR / reload the tab                                                   |
+| its Rust core                             | `npm run core:build:web` (plus `:node` before running its tests), reload the tab |
+| maps                                      | `npm run build:assets`, restart the master                                       |
+| `roomForm`/`roomDefaults`/manifest fields | `npm run build:manifest`, restart the master                                     |
+| sounds                                    | `npm run audio:process` (needs ffmpeg), then `npm run build:assets`              |
 
 Definition of done, in **each** repository: green `npx eslint .` and
 `npm test`; core movement changes additionally require `npm run core:test`

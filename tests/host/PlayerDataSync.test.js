@@ -3,7 +3,11 @@ import lobbyConfig from '../../packages/engine/src/config/lobby.js';
 import PlayerDataSync from '../../packages/engine/src/host/meta/modules/PlayerDataSync.js';
 
 const okJson = json => ({ ok: true, status: 200, json: async () => json });
-const fail = (status = 500) => ({ ok: false, status, json: async () => ({ error: 'down' }) });
+const fail = (status = 500) => ({
+  ok: false,
+  status,
+  json: async () => ({ error: 'down' }),
+});
 
 const PLACEMENTS = {
   day: { rank: 40, placement: 3, total: 100 },
@@ -71,9 +75,21 @@ describe('PlayerDataSync.load', () => {
       headers: { authorization: 'Bearer tok' },
       body: undefined,
     });
-    expect(sync.getRating('p1', 'day')).toEqual({ value: 40, placement: 3, total: 100 });
-    expect(sync.getRating('p1', 'month')).toEqual({ value: 400, placement: 7, total: 100 });
-    expect(sync.getRating('p1', 'all')).toEqual({ value: 4000, placement: 9, total: 100 });
+    expect(sync.getRating('p1', 'day')).toEqual({
+      value: 40,
+      placement: 3,
+      total: 100,
+    });
+    expect(sync.getRating('p1', 'month')).toEqual({
+      value: 400,
+      placement: 7,
+      total: 100,
+    });
+    expect(sync.getRating('p1', 'all')).toEqual({
+      value: 4000,
+      placement: 9,
+      total: 100,
+    });
     expect(sync.isRatingLoaded('p1')).toBe(true);
   });
 
@@ -88,7 +104,11 @@ describe('PlayerDataSync.load', () => {
     globalThis.fetch = function (...args) {
       receivers.push(this);
 
-      return Promise.resolve({ ok: true, status: 200, json: async () => ({ state: {} }) });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ state: {} }),
+      });
     };
 
     try {
@@ -99,7 +119,9 @@ describe('PlayerDataSync.load', () => {
     }
 
     expect(receivers).toHaveLength(2);
-    receivers.forEach(receiver => expect(receiver).not.toBeInstanceOf(PlayerDataSync));
+    receivers.forEach(receiver =>
+      expect(receiver).not.toBeInstanceOf(PlayerDataSync),
+    );
   });
 
   it('оставляет дефолты при сбое auth-сервиса', async () => {
@@ -110,7 +132,11 @@ describe('PlayerDataSync.load', () => {
 
     await sync.load('p1', 'tok');
 
-    expect(sync.getRating('p1', 'all')).toEqual({ value: 0, placement: null, total: 0 });
+    expect(sync.getRating('p1', 'all')).toEqual({
+      value: 0,
+      placement: null,
+      total: 0,
+    });
     expect(sync.getState('p1')).toEqual({ skill: 0 });
     // сбой — это «рейтинга нет», а не «рейтинг 0»
     expect(sync.isRatingLoaded('p1')).toBe(false);
@@ -120,7 +146,9 @@ describe('PlayerDataSync.load', () => {
   // которая пишет рейтинг в stat колонкой '=', такой ноль затирает
   // настоящее значение, поэтому загруженность видна отдельно
   it('isRatingLoaded отличает «0» от «данных ещё нет»', async () => {
-    const fetchImpl = makeFetch({ placements: () => okJson({ all: { rank: 0 } }) });
+    const fetchImpl = makeFetch({
+      placements: () => okJson({ all: { rank: 0 } }),
+    });
     const { sync } = makeSync(fetchImpl);
 
     expect(sync.isRatingLoaded('p1')).toBe(false);
@@ -233,7 +261,9 @@ describe('PlayerDataSync.finishGame', () => {
     clock.now += lobbyConfig.playerData.minFlushInterval;
     await sync.flush('p1');
 
-    const [, opts] = putCalls(fetchImpl).find(([url]) => url.startsWith('/auth/rank'));
+    const [, opts] = putCalls(fetchImpl).find(([url]) =>
+      url.startsWith('/auth/rank'),
+    );
 
     expect(JSON.parse(opts.body)).toMatchObject({ points: 50, best: 40 });
   });
@@ -313,7 +343,9 @@ describe('PlayerDataSync.refreshPlacement', () => {
     const rating = await sync.refreshPlacement('p1', 'day');
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl.mock.calls[0][0]).toBe('/auth/placement?game=tanks&period=day');
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      '/auth/placement?game=tanks&period=day',
+    );
     expect(rating).toEqual({ value: 50, placement: 1, total: 10 });
   });
 
@@ -375,8 +407,16 @@ describe('PlayerDataSync.flush', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith('/auth/rank?game=tanks', {
       method: 'PUT',
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
-      body: JSON.stringify({ points: 2, best: 2, hostId: 'host-1', hostSecret: 'secret-1' }),
+      headers: {
+        authorization: 'Bearer tok',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        points: 2,
+        best: 2,
+        hostId: 'host-1',
+        hostSecret: 'secret-1',
+      }),
     });
   });
 
@@ -392,9 +432,14 @@ describe('PlayerDataSync.flush', () => {
     clock.now += lobbyConfig.playerData.minFlushInterval;
     await sync.flush('p1');
 
-    const [, opts] = putCalls(fetchImpl).find(([url]) => url.startsWith('/auth/rank'));
+    const [, opts] = putCalls(fetchImpl).find(([url]) =>
+      url.startsWith('/auth/rank'),
+    );
 
-    expect(JSON.parse(opts.body)).toMatchObject({ hostId: null, hostSecret: null });
+    expect(JSON.parse(opts.body)).toMatchObject({
+      hostId: null,
+      hostSecret: null,
+    });
   });
 
   it('после успеха не переотправляет уже учтённый результат', async () => {
@@ -426,7 +471,9 @@ describe('PlayerDataSync.flush', () => {
     clock.now += lobbyConfig.playerData.minFlushInterval;
     await sync.flush('p1', { urgent: true });
 
-    const [, opts] = putCalls(fetchImpl).find(([url]) => url.startsWith('/auth/rank'));
+    const [, opts] = putCalls(fetchImpl).find(([url]) =>
+      url.startsWith('/auth/rank'),
+    );
 
     expect(JSON.parse(opts.body)).toMatchObject({ points: 3, best: 3 });
   });
@@ -439,7 +486,10 @@ describe('PlayerDataSync.flush', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith('/auth/state?game=tanks', {
       method: 'PUT',
-      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
+      headers: {
+        authorization: 'Bearer tok',
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({
         state: { skill: 9 },
         hostId: 'host-1',
@@ -485,7 +535,8 @@ describe('PlayerDataSync.flush', () => {
   // как «сегодня ещё не играл» — то есть как побитый рекорд на каждую смерть
   it('частично приехавшие срезы не помечаются загруженными', async () => {
     const fetchImpl = makeFetch({
-      placements: () => okJson({ day: null, month: PLACEMENTS.month, all: null }),
+      placements: () =>
+        okJson({ day: null, month: PLACEMENTS.month, all: null }),
     });
     const { sync } = makeSync(fetchImpl);
 
@@ -501,7 +552,9 @@ describe('PlayerDataSync.flush', () => {
     const fetchImpl = makeFetch({
       placements: () =>
         okJson(
-          complete ? PLACEMENTS : { day: null, month: PLACEMENTS.month, all: null },
+          complete
+            ? PLACEMENTS
+            : { day: null, month: PLACEMENTS.month, all: null },
         ),
     });
     const { sync } = makeSync(fetchImpl);
@@ -599,7 +652,10 @@ describe('PlayerDataSync: предел синхронизации', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl.mock.calls[0][0]).toBe('/auth/rank?game=tanks');
-    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({ points: 12, best: 12 });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({
+      points: 12,
+      best: 12,
+    });
   });
 
   it('второй flushAll внутри minFlushInterval запросов не порождает, urgent — порождает', async () => {
@@ -640,7 +696,10 @@ describe('PlayerDataSync: предел синхронизации', () => {
   it('параллельные flush одного участника не наслаиваются, добавленное во время запроса уходит следующим', async () => {
     const pending = [];
     const fetchImpl = makeFetch({
-      put: () => new Promise(resolve => pending.push(() => resolve(okJson({ ok: true })))),
+      put: () =>
+        new Promise(resolve =>
+          pending.push(() => resolve(okJson({ ok: true }))),
+        ),
     });
     const { sync, clock } = makeSync(fetchImpl);
 
@@ -702,20 +761,26 @@ describe('PlayerDataSync: предел синхронизации', () => {
 
     await sync.flush('p1', { urgent: true });
 
-    expect(putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank'))).toHaveLength(1);
+    expect(
+      putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank')),
+    ).toHaveLength(1);
 
     clock.now += lobbyConfig.playerData.minFlushInterval;
     await sync.flush('p1');
 
     // отклонённое не поехало второй раз
-    expect(putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank'))).toHaveLength(1);
+    expect(
+      putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank')),
+    ).toHaveLength(1);
   });
 
   it('повторяет результат, отклонённый потолком записи (429)', async () => {
     // 429 — «сейчас нельзя», а не «так и будет»: это единственный 4xx, после
     // которого повтор имеет смысл
     let limited = true;
-    const fetchImpl = makeFetch({ put: () => (limited ? fail(429) : okJson({ ok: true })) });
+    const fetchImpl = makeFetch({
+      put: () => (limited ? fail(429) : okJson({ ok: true })),
+    });
     const { sync, clock } = makeSync(fetchImpl);
 
     await sync.load('p1', 'tok');
@@ -728,7 +793,9 @@ describe('PlayerDataSync: предел синхронизации', () => {
     clock.now += lobbyConfig.playerData.minFlushInterval;
     await sync.flush('p1', { urgent: true });
 
-    const ranks = putCalls(fetchImpl).filter(([url]) => url.startsWith('/auth/rank'));
+    const ranks = putCalls(fetchImpl).filter(([url]) =>
+      url.startsWith('/auth/rank'),
+    );
 
     expect(ranks).toHaveLength(2);
     expect(JSON.parse(ranks[1][1].body)).toMatchObject({ points: 5, best: 5 });
@@ -736,7 +803,9 @@ describe('PlayerDataSync: предел синхронизации', () => {
 
   it('500 от auth включает бэкофф комнаты, успех его сбрасывает', async () => {
     let broken = true;
-    const fetchImpl = makeFetch({ put: () => (broken ? fail(500) : okJson({ ok: true })) });
+    const fetchImpl = makeFetch({
+      put: () => (broken ? fail(500) : okJson({ ok: true })),
+    });
     const { sync, clock } = makeSync(fetchImpl);
 
     await sync.load('p1', 'tok');

@@ -74,7 +74,10 @@ export function parseUnreleased(text) {
     }
   }
 
-  const body = lines.slice(start + 1, end).join('\n').trim();
+  const body = lines
+    .slice(start + 1, end)
+    .join('\n')
+    .trim();
 
   return {
     present: true,
@@ -187,7 +190,9 @@ export function validateUnreleased(unreleased) {
   // пустая секция при изменённых файлах законна (правка только фикстур или
   // bin/), а вот текст без единого заголовка уехал бы в patch
   if (!unreleased.isEmpty && unreleased.sections.length === 0) {
-    problems.push('в [Unreleased] есть записи, но нет ни одного ### под-заголовка');
+    problems.push(
+      'в [Unreleased] есть записи, но нет ни одного ### под-заголовка',
+    );
   }
 
   return problems;
@@ -230,7 +235,8 @@ export function releaseLink(repoUrl, artifact, version) {
 
 // разделитель «версия — дата» берётся из уже датированных записей файла:
 // журналы движка пишут тире, журналы игр — дефис
-const DATED_HEADING = /^##\s+\[\d+\.\d+\.\d+[^\]]*\]\s+(\S+)\s+\d{4}-\d{2}-\d{2}/m;
+const DATED_HEADING =
+  /^##\s+\[\d+\.\d+\.\d+[^\]]*\]\s+(\S+)\s+\d{4}-\d{2}-\d{2}/m;
 
 // Датирует [Unreleased] как релиз и добавляет строку ссылки в блок внизу.
 // Без repoUrl ссылка не пишется: у журналов игр блока ссылок нет.

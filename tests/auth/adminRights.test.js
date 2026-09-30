@@ -14,28 +14,44 @@ describe('isEnvAdmin', () => {
   it('с непустым identities ник игнорируется полностью', () => {
     const admin = { nicks: ['lgick'], identities: ['github:123'] };
 
-    expect(isEnvAdmin(admin, { nick: 'lgick', provider: 'github', providerUid: '999' })).toBe(
-      false,
-    );
+    expect(
+      isEnvAdmin(admin, {
+        nick: 'lgick',
+        provider: 'github',
+        providerUid: '999',
+      }),
+    ).toBe(false);
   });
 
   it('совпадение provider:uid даёт права, чужой uid — нет', () => {
     const admin = { nicks: [], identities: ['github:123'] };
 
-    expect(isEnvAdmin(admin, { nick: 'anyone', provider: 'GitHub', providerUid: '123' })).toBe(
-      true,
-    );
-    expect(isEnvAdmin(admin, { nick: 'anyone', provider: 'github', providerUid: '124' })).toBe(
-      false,
-    );
+    expect(
+      isEnvAdmin(admin, {
+        nick: 'anyone',
+        provider: 'GitHub',
+        providerUid: '123',
+      }),
+    ).toBe(true);
+    expect(
+      isEnvAdmin(admin, {
+        nick: 'anyone',
+        provider: 'github',
+        providerUid: '124',
+      }),
+    ).toBe(false);
   });
 
   it('без provider/providerUid при непустом identities отказывает (fail-closed)', () => {
     const admin = { nicks: ['lgick'], identities: ['github:123'] };
 
     expect(isEnvAdmin(admin, { nick: 'lgick' })).toBe(false);
-    expect(isEnvAdmin(admin, { nick: 'lgick', provider: 'github', providerUid: null })).toBe(
-      false,
-    );
+    expect(
+      isEnvAdmin(admin, {
+        nick: 'lgick',
+        provider: 'github',
+        providerUid: null,
+      }),
+    ).toBe(false);
   });
 });

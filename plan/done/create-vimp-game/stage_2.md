@@ -9,7 +9,7 @@
 `packages/create-vimp-game/package.json`:
 
 - `name: "create-vimp-game"` (проверено — имя в npm свободно), `version:
-  "0.1.0"`, `type: "module"`, `license: "MIT"`, `engines.node: ">=20.11.0"`
+"0.1.0"`, `type: "module"`, `license: "MIT"`, `engines.node: ">=20.11.0"`
   (как у движка);
 - `bin: { "create-vimp-game": "./bin/create-vimp-game.js" }`;
 - `files: ["bin", "src", "templates"]` — сюда попадает и
@@ -19,7 +19,7 @@
 - `publishConfig.access: "public"`;
 - **нулевые рантайм-зависимости**: интерактив на `node:readline/promises`,
   цвета — собственный 20-строчный ANSI-хелпер. Пакет ставится через `npm
-  create`, каждая зависимость здесь — секунда ожидания пользователя.
+create`, каждая зависимость здесь — секунда ожидания пользователя.
 
 Регистрация в монорепозитории:
 
@@ -27,7 +27,7 @@
 - корневой `package.json` → `scripts.create:game` =
   `"node packages/create-vimp-game/bin/create-vimp-game.js"`;
 - `eslint.config.js`: новый блок `files: ['packages/create-vimp-game/bin/**/*.js',
-  'packages/create-vimp-game/src/**/*.js']` с `globals.node` + `globals.es2023`
+'packages/create-vimp-game/src/**/*.js']` с `globals.node` + `globals.es2023`
   (существующие блоки не покрывают вложенные пути глубже одного сегмента —
   без этого `console`/`process` падают на `no-undef`); и
   `'packages/create-vimp-game/templates/**'` в финальный `ignores` — файлы
@@ -84,16 +84,16 @@ Usage: create-vimp-game <directory> [options]
 
 ## 2.4. Токены
 
-| Токен | Пример | Где используется |
-| --- | --- | --- |
-| `{{GAME_ID}}` | `space-arena` | `manifest.id`, `HostPlugin.id`, URL `/games/<id>/` |
-| `{{GAME_TITLE}}` | `Space Arena` | `manifest.title`, README, `CLAUDE.md` |
-| `{{PACKAGE_NAME}}` | `@vimp-games/space-arena` | `package.json` |
-| `{{CRATE_NAME}}` | `space-arena-core` | `core/Cargo.toml` |
-| `{{CRATE_SNAKE}}` | `space_arena_core` | `pkg-web/<crate>_bg.wasm`, импорты ядра, `dist/core-node/<crate>.js` |
-| `{{ENGINE_VERSION}}` | `^0.10.0` | `devDependencies.vimp-engine` |
-| `{{CORE_VERSION}}` | `0.3.2` | `core/Cargo.toml` |
-| `{{AUTHOR}}`, `{{YEAR}}` | | `LICENSE`, `package.json` |
+| Токен                    | Пример                    | Где используется                                                     |
+| ------------------------ | ------------------------- | -------------------------------------------------------------------- |
+| `{{GAME_ID}}`            | `space-arena`             | `manifest.id`, `HostPlugin.id`, URL `/games/<id>/`                   |
+| `{{GAME_TITLE}}`         | `Space Arena`             | `manifest.title`, README, `CLAUDE.md`                                |
+| `{{PACKAGE_NAME}}`       | `@vimp-games/space-arena` | `package.json`                                                       |
+| `{{CRATE_NAME}}`         | `space-arena-core`        | `core/Cargo.toml`                                                    |
+| `{{CRATE_SNAKE}}`        | `space_arena_core`        | `pkg-web/<crate>_bg.wasm`, импорты ядра, `dist/core-node/<crate>.js` |
+| `{{ENGINE_VERSION}}`     | `^0.10.0`                 | `devDependencies.vimp-engine`                                        |
+| `{{CORE_VERSION}}`       | `0.3.2`                   | `core/Cargo.toml`                                                    |
+| `{{AUTHOR}}`, `{{YEAR}}` |                           | `LICENSE`, `package.json`                                            |
 
 `src/versions.js` — ключевое решение против дрейфа пинов (болезнь
 street-fighters, приехавшего на `vimp-engine-core = "0.1.0"`):

@@ -141,7 +141,8 @@ export default class LobbyAuthModel {
   // показывает «залогинен» токеном, который хост уже отклонит при входе в игру
   _setIdentity(token, tokenStorageKey, persist = true) {
     const payload = decodeJwtPayload(token);
-    const isExpired = typeof payload?.exp === 'number' && Date.now() >= payload.exp * 1000;
+    const isExpired =
+      typeof payload?.exp === 'number' && Date.now() >= payload.exp * 1000;
 
     if (!payload || !payload.nick || isExpired) {
       delete localStorage[tokenStorageKey];
@@ -150,7 +151,10 @@ export default class LobbyAuthModel {
       // битый токен — штатная ситуация возврата на сайт, не ошибка. login-error
       // — только на интерактивном пути.
       if (persist) {
-        this.publisher.emit('login-error', isExpired ? 'tokenExpired' : 'invalidToken');
+        this.publisher.emit(
+          'login-error',
+          isExpired ? 'tokenExpired' : 'invalidToken',
+        );
       }
 
       this.publisher.emit('login-required', this._config.providers);

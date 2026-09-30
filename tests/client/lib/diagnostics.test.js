@@ -155,7 +155,9 @@ describe('diagnostics: потолок сессии', () => {
     expect(items.some(item => item.message === 'e50')).toBe(false);
     expect(items.find(item => item.message === 'e0').count).toBe(2);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith('[vimp] diagnostics: session cap reached');
+    expect(warn).toHaveBeenCalledWith(
+      '[vimp] diagnostics: session cap reached',
+    );
   });
 
   it('пачки не больше 10 записей', () => {
@@ -291,7 +293,8 @@ describe('diagnostics: ужатие пачки', () => {
     for (let i = 0; i < 10; i++) {
       const error = new Error(`e${i}`);
 
-      error.stack = `Error\n    at f (https://box/x.js:${i}:1)\n` + 's'.repeat(3900);
+      error.stack =
+        `Error\n    at f (https://box/x.js:${i}:1)\n` + 's'.repeat(3900);
       diagnostics.capture(error);
     }
 
@@ -583,7 +586,10 @@ describe('diagnostics: CSP', () => {
       violation({ blockedURI: 'chrome-extension://abc/x.js' }),
     );
     document.dispatchEvent(
-      violation({ blockedURI: 'inline', sourceFile: 'moz-extension://abc/y.js' }),
+      violation({
+        blockedURI: 'inline',
+        sourceFile: 'moz-extension://abc/y.js',
+      }),
     );
     diagnostics.flush();
     uninstall();

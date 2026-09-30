@@ -16,7 +16,10 @@ describe('RTTManager', () => {
   });
 
   it('addUser создаёт запись с дефолтным RTT', () => {
-    const rtt = new RTTManager({ maxMissedPings: 5, maxLatency: 300 }, makeCallbacks());
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 300 },
+      makeCallbacks(),
+    );
     rtt.addUser('u1');
     // первый ping должен включить пользователя в итератор
     const entries = [...rtt.scheduleNextPing()];
@@ -25,7 +28,10 @@ describe('RTTManager', () => {
 
   it('handlePong вычисляет RTT по последнему пингу', () => {
     vi.setSystemTime(1_000_000); // реалистичный момент (не 0)
-    const rtt = new RTTManager({ maxMissedPings: 5, maxLatency: 1000 }, makeCallbacks());
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 1000 },
+      makeCallbacks(),
+    );
     rtt.addUser('u1');
 
     rtt.scheduleNextPing(); // pingId = 1
@@ -36,7 +42,10 @@ describe('RTTManager', () => {
   });
 
   it('игнорирует pong на устаревший pingId', () => {
-    const rtt = new RTTManager({ maxMissedPings: 5, maxLatency: 1000 }, makeCallbacks());
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 1000 },
+      makeCallbacks(),
+    );
     rtt.addUser('u1');
 
     rtt.scheduleNextPing(); // pingId = 1
@@ -47,13 +56,19 @@ describe('RTTManager', () => {
   });
 
   it('handlePong для удалённого пользователя возвращает null', () => {
-    const rtt = new RTTManager({ maxMissedPings: 5, maxLatency: 1000 }, makeCallbacks());
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 1000 },
+      makeCallbacks(),
+    );
     expect(rtt.handlePong('ghost', 1)).toBeNull();
   });
 
   it('кикает за превышение maxMissedPings', () => {
     const callbacks = makeCallbacks();
-    const rtt = new RTTManager({ maxMissedPings: 2, maxLatency: 1000 }, callbacks);
+    const rtt = new RTTManager(
+      { maxMissedPings: 2, maxLatency: 1000 },
+      callbacks,
+    );
     rtt.addUser('u1');
 
     // 1-й ping: outstanding пуст → отправляется, outstanding={1}
@@ -68,7 +83,10 @@ describe('RTTManager', () => {
 
   it('сбрасывает missedPings после успешного pong', () => {
     const callbacks = makeCallbacks();
-    const rtt = new RTTManager({ maxMissedPings: 2, maxLatency: 1000 }, callbacks);
+    const rtt = new RTTManager(
+      { maxMissedPings: 2, maxLatency: 1000 },
+      callbacks,
+    );
     rtt.addUser('u1');
 
     rtt.scheduleNextPing(); // ping 1
@@ -84,7 +102,10 @@ describe('RTTManager', () => {
     vi.setSystemTime(1_000_000);
     const callbacks = makeCallbacks();
     // низкий порог, чтобы EMA быстро превысила его
-    const rtt = new RTTManager({ maxMissedPings: 100, maxLatency: 100 }, callbacks);
+    const rtt = new RTTManager(
+      { maxMissedPings: 100, maxLatency: 100 },
+      callbacks,
+    );
     rtt.addUser('u1'); // стартовый rtt = 100
 
     // большой замер задержки поднимет EMA выше 100
@@ -96,7 +117,10 @@ describe('RTTManager', () => {
   });
 
   it('removeUser исключает пользователя из пингов', () => {
-    const rtt = new RTTManager({ maxMissedPings: 5, maxLatency: 1000 }, makeCallbacks());
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 1000 },
+      makeCallbacks(),
+    );
     rtt.addUser('u1');
     rtt.removeUser('u1');
     const entries = [...rtt.scheduleNextPing()];

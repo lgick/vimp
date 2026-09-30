@@ -27,20 +27,20 @@ Run `12-questionnaire.md`. Rules:
 Write a short design doc and get explicit confirmation before generating code.
 It must pin down:
 
-| Decision | Feeds |
-| --- | --- |
-| Package name, `id`, title | `package.json`, `manifest`, both plugins |
-| Repository URL | `package.json` `repository`/`homepage` — the engine links to it from the entry form's footer; without it that cell is empty and rule `A7` warns |
-| Teams and spectator team | `gameConfig.teams`, stat schema, maps |
-| Entity types and their fields | snapshot schema, Rust rows, parts |
-| Actions and keys | `playerKeys`, `keySetList`, core input handling |
-| Resources shown in the HUD | `panel.fields` (host) + panel schema (client) |
-| Weapons/abilities | `parts.weapons`, core weapon logic, event snapshot keys |
-| What is predicted locally | the 8 × f32 player state, predictor, parity test |
-| Canvases and camera | `canvasManager.canvases` |
-| Maps and team capacity | `data/maps/*`, `respawns` |
-| Sounds and cues | sound config, `soundCues` |
-| Progression | `playerState.defaultState`, `onCoreEvent` |
+| Decision                      | Feeds                                                                                                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Package name, `id`, title     | `package.json`, `manifest`, both plugins                                                                                                        |
+| Repository URL                | `package.json` `repository`/`homepage` — the engine links to it from the entry form's footer; without it that cell is empty and rule `A7` warns |
+| Teams and spectator team      | `gameConfig.teams`, stat schema, maps                                                                                                           |
+| Entity types and their fields | snapshot schema, Rust rows, parts                                                                                                               |
+| Actions and keys              | `playerKeys`, `keySetList`, core input handling                                                                                                 |
+| Resources shown in the HUD    | `panel.fields` (host) + panel schema (client)                                                                                                   |
+| Weapons/abilities             | `parts.weapons`, core weapon logic, event snapshot keys                                                                                         |
+| What is predicted locally     | the 8 × f32 player state, predictor, parity test                                                                                                |
+| Canvases and camera           | `canvasManager.canvases`                                                                                                                        |
+| Maps and team capacity        | `data/maps/*`, `respawns`                                                                                                                       |
+| Sounds and cues               | sound config, `soundCues`                                                                                                                       |
+| Progression                   | `playerState.defaultState`, `onCoreEvent`                                                                                                       |
 
 ## Step 3 — scaffold
 
@@ -126,11 +126,15 @@ Two suites:
 
 ```js
 projects: [
-  { test: { name: 'game', environment: 'happy-dom',
-            include: ['tests/host/**', 'tests/client/**', 'tests/config/**'] } },
-  { test: { name: 'integration', environment: 'node',
-            include: ['tests/core/**'] } },   // drives core/pkg-node
-]
+  {
+    test: {
+      name: 'game',
+      environment: 'happy-dom',
+      include: ['tests/host/**', 'tests/client/**', 'tests/config/**'],
+    },
+  },
+  { test: { name: 'integration', environment: 'node', include: ['tests/core/**'] } }, // drives core/pkg-node
+];
 ```
 
 Cover at minimum:
@@ -159,7 +163,7 @@ npm link @my-scope/my-game
 Then start the master (`npm run dev` in the engine) and open the lobby.
 
 The lobby is not the only way in: `vimp-engine/standalone` runs the whole
-match inside one tab of the *game* repository — no master, no OAuth, no lobby
+match inside one tab of the _game_ repository — no master, no OAuth, no lobby
 screen. `startStandaloneGame({ hostPlugin, clientPlugin, wasmUrl, … })` takes
 the live plugin objects, so it is the fastest loop while the plugin is still
 taking shape:
@@ -186,7 +190,7 @@ await startStandaloneGame({
 ```
 
 The engine has no notion of a bot: scripted participants are spawned by
-*your* chat command, and the command is rejected while the player is still a
+_your_ chat command, and the command is rejected while the player is still a
 spectator — hence the strict order of the last two options. Reference: engine
 `docs/en/standalone.md`.
 
@@ -245,16 +249,16 @@ Open two browser tabs against the local master:
 
 ## Rebuild matrix
 
-| Change | Required commands |
-| --- | --- |
-| `src/config/*`, `src/data/*` (JS) | dev: nothing (HMR); prod: `npm run build` |
-| `src/client/**`, `src/host/**` (JS) | dev: nothing (HMR); prod: `npm run build` |
-| Maps (`src/data/maps/*`) | `npm run build:assets && npm run build:manifest` (the master reads `dist/maps/`) |
-| Sounds (raw assets) | `npm run audio:process && npm run build:assets && npm run build:manifest` |
-| Images (`assets/img/*`) | `npm run build:assets && npm run build:manifest`; in dev `predev` already staged `build/img/` |
-| Rust core | `npm run core:build` (+ reload; prod also `npm run build`) |
-| `roomForm` / `roomDefaults` | `npm run build:manifest` |
-| Anything, before the **first** master start | full `npm run core:build && npm run build` |
+| Change                                      | Required commands                                                                             |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/config/*`, `src/data/*` (JS)           | dev: nothing (HMR); prod: `npm run build`                                                     |
+| `src/client/**`, `src/host/**` (JS)         | dev: nothing (HMR); prod: `npm run build`                                                     |
+| Maps (`src/data/maps/*`)                    | `npm run build:assets && npm run build:manifest` (the master reads `dist/maps/`)              |
+| Sounds (raw assets)                         | `npm run audio:process && npm run build:assets && npm run build:manifest`                     |
+| Images (`assets/img/*`)                     | `npm run build:assets && npm run build:manifest`; in dev `predev` already staged `build/img/` |
+| Rust core                                   | `npm run core:build` (+ reload; prod also `npm run build`)                                    |
+| `roomForm` / `roomDefaults`                 | `npm run build:manifest`                                                                      |
+| Anything, before the **first** master start | full `npm run core:build && npm run build`                                                    |
 
 Two rules behind the table: the master always reads `dist/manifest.json` and
 `dist/maps/` even in dev, and `npm run build` never rebuilds the WASM core.

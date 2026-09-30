@@ -33,7 +33,9 @@ const makeRes = () => {
 
 describe('rateLimit', () => {
   it('пропускает, пока окно не выбрано, и отбивает 429 дальше', () => {
-    const middleware = rateLimit(new RateLimiter({ limit: 2, windowMs: 60000 }));
+    const middleware = rateLimit(
+      new RateLimiter({ limit: 2, windowMs: 60000 }),
+    );
     const next = vi.fn();
     const run = () => {
       const res = makeRes();
@@ -55,7 +57,9 @@ describe('rateLimit', () => {
   });
 
   it('адреса считаются раздельно', () => {
-    const middleware = rateLimit(new RateLimiter({ limit: 1, windowMs: 60000 }));
+    const middleware = rateLimit(
+      new RateLimiter({ limit: 1, windowMs: 60000 }),
+    );
     const next = vi.fn();
     const res = makeRes();
 
@@ -70,7 +74,9 @@ describe('rateLimit', () => {
   // делили бы один бакет '' — та же дыра общего бакета, которую мастер и
   // dedicated закрывают обрывом соединения
   it('запрос без адреса не попадает в общий бакет, а отбивается', () => {
-    const middleware = rateLimit(new RateLimiter({ limit: 5, windowMs: 60000 }));
+    const middleware = rateLimit(
+      new RateLimiter({ limit: 5, windowMs: 60000 }),
+    );
     const next = vi.fn();
     const broken = makeRes();
 
@@ -91,7 +97,9 @@ describe('rateLimit', () => {
   it('X-Forwarded-For ключом не становится ни в одном режиме', () => {
     const spoofed = i => makeReq({ 'x-forwarded-for': `10.0.0.${i}` });
     const next = vi.fn();
-    const middleware = rateLimit(new RateLimiter({ limit: 1, windowMs: 60000 }));
+    const middleware = rateLimit(
+      new RateLimiter({ limit: 1, windowMs: 60000 }),
+    );
     const res = makeRes();
 
     middleware(spoofed(1), makeRes(), next);
@@ -102,9 +110,12 @@ describe('rateLimit', () => {
   });
 
   it('за прокси ключом становится X-Real-IP', () => {
-    const middleware = rateLimit(new RateLimiter({ limit: 1, windowMs: 60000 }), {
-      trustProxy: true,
-    });
+    const middleware = rateLimit(
+      new RateLimiter({ limit: 1, windowMs: 60000 }),
+      {
+        trustProxy: true,
+      },
+    );
     const next = vi.fn();
     const res = makeRes();
 

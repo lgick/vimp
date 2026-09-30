@@ -33,7 +33,9 @@ export function compareVersions(a, b) {
   const right = parseVersion(b);
 
   return (
-    left.major - right.major || left.minor - right.minor || left.patch - right.patch
+    left.major - right.major ||
+    left.minor - right.minor ||
+    left.patch - right.patch
   );
 }
 

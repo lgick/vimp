@@ -6,8 +6,9 @@ let PanelCtrl;
 
 beforeEach(async () => {
   vi.resetModules();
-  PanelCtrl = (await import('../../packages/engine/src/client/components/controller/Panel.js'))
-    .default;
+  PanelCtrl = (
+    await import('../../packages/engine/src/client/components/controller/Panel.js')
+  ).default;
 });
 
 describe('PanelCtrl', () => {

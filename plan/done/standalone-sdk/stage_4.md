@@ -66,11 +66,16 @@ startDedicatedServer({
 2. **Симуляция**:
    ```js
    const runtime = await createHostRuntime(
-     { game: { id, version: manifest.version, wasmUrl /* file: */ },
-       maps: mapCatalog, seed: Date.now(), ...room },
-     { loadHostPlugin: async () => hostPlugin,
-       hostOptions: { playerDataFetch: offlinePlayerData(),
-                      onMapChange: name => log(name) } },
+     {
+       game: { id, version: manifest.version, wasmUrl /* file: */ },
+       maps: mapCatalog,
+       seed: Date.now(),
+       ...room,
+     },
+     {
+       loadHostPlugin: async () => hostPlugin,
+       hostOptions: { playerDataFetch: offlinePlayerData(), onMapChange: name => log(name) },
+     },
    );
    const portMachine = new PortMachine({ ...runtime, identity: createGuestIdentity(), makeSocket });
    ```
@@ -84,8 +89,8 @@ startDedicatedServer({
    - `app.use('/games/:id', express.static(distDir))`;
    - `ViteExpress.bind(app, server)` — отдаёт клиент движка (dev через Vite,
      прод — статику из `packages/engine/dist`).
-   В `src/master/lobby.js` добавить симметричный `GET /config` →
-   `{ mode: 'lobby' }`, чтобы у клиентского пробинга был один контракт.
+     В `src/master/lobby.js` добавить симметричный `GET /config` →
+     `{ mode: 'lobby' }`, чтобы у клиентского пробинга был один контракт.
 4. **WebSocket**: `new WebSocketServer({ server, path: '/game' })`; на
    соединение:
    - `socketId = crypto.randomUUID()`;
@@ -155,6 +160,7 @@ startDedicatedServer({
 npx eslint . && npm test
 VIMP_DEDICATED_GAME=tanks npm run dedicated     # локальный запуск (Этап 5.3)
 ```
+
 Ручной smoke: открыть `https://localhost:3000` (dev) — лобби и OAuth не
 показываются, сразу форма ника/модели, вход, матч; отключить вкладку и
 зайти снова — сервер жив, счёт сохранился.

@@ -74,7 +74,10 @@ describe('HostConnectionManager', () => {
 
     expect(pc.setRemoteDescription).toHaveBeenCalledWith({ type: 'offer' });
     expect(pc.createAnswer).toHaveBeenCalled();
-    expect(signaling.sendAnswer).toHaveBeenCalledWith('c1', pc.localDescription);
+    expect(signaling.sendAnswer).toHaveBeenCalledWith(
+      'c1',
+      pc.localDescription,
+    );
   });
 
   it('подписан на webrtc_offer сигналинга', () => {

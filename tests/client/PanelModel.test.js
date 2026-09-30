@@ -29,8 +29,9 @@ const collect = model => {
 
 beforeEach(async () => {
   vi.resetModules();
-  PanelModel = (await import('../../packages/engine/src/client/components/model/Panel.js'))
-    .default;
+  PanelModel = (
+    await import('../../packages/engine/src/client/components/model/Panel.js')
+  ).default;
 });
 
 describe('PanelModel.update', () => {

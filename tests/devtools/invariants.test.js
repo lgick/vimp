@@ -74,7 +74,9 @@ const socketManager = (frames = [frame()]) => ({
 const context = (overrides = {}) => ({
   scenario: {
     ticks: 120,
-    timeline: [{ tick: 5, op: 'key', who: 'p1', action: 'down', name: 'forward' }],
+    timeline: [
+      { tick: 5, op: 'key', who: 'p1', action: 'down', name: 'forward' },
+    ],
     unusedSnapshotKeys: [],
   },
   game: game(),
@@ -84,13 +86,20 @@ const context = (overrides = {}) => ({
   core: { players_data: () => '[{"id":0}]' },
   hostState: { activeList: ['0'], humans: ['0'], scripted: [], total: 1 },
   participantLog: [
-    { who: 'p1', socketId: 'sock-p1', gameId: '0', joinTick: 0, leaveTick: null },
+    {
+      who: 'p1',
+      socketId: 'sock-p1',
+      gameId: '0',
+      joinTick: 0,
+      leaveTick: null,
+    },
   ],
   stepMs: 16,
   ...overrides,
 });
 
-const check = (name, ctx) => checkInvariants(ctx).find(item => item.name === name);
+const check = (name, ctx) =>
+  checkInvariants(ctx).find(item => item.name === name);
 
 describe('checkInvariants — здоровый прогон', () => {
   it('не выдумывает нарушений', () => {
@@ -185,7 +194,9 @@ describe('4. frameFormat', () => {
     const result = check('frameFormat', ctx);
 
     expect(result.status).toBe(FAIL);
-    expect(result.violations[0]).toMatch(/version byte 2 != SNAPSHOT_FORMAT_VERSION/);
+    expect(result.violations[0]).toMatch(
+      /version byte 2 != SNAPSHOT_FORMAT_VERSION/,
+    );
   });
 
   it('ловит отказ decode_frame', () => {
@@ -377,7 +388,9 @@ describe('9. predictionDrift', () => {
     const result = check('predictionDrift', ctx);
 
     expect(result.status).toBe(PASS);
-    expect(result.note).toMatch(/30 reconciliation\(s\) compared by frame time/);
+    expect(result.note).toMatch(
+      /30 reconciliation\(s\) compared by frame time/,
+    );
   });
 
   it('ловит дрейф компонента: индекс, порог и окно переигранного ввода', () => {
@@ -440,7 +453,9 @@ describe('10. roundLifecycle', () => {
   });
 
   it('ловит раунд, который закончился и не перезапустился', () => {
-    const ctx = context({ socketManager: socketManager([roundEnd(10, 'team1')]) });
+    const ctx = context({
+      socketManager: socketManager([roundEnd(10, 'team1')]),
+    });
 
     ctx.game.timers.roundRestartDelay = 160; // 10 тиков — прогон это переживёт
 
@@ -450,7 +465,9 @@ describe('10. roundLifecycle', () => {
   });
 
   it('не требует перезапуска, если прогон кончился раньше задержки', () => {
-    const ctx = context({ socketManager: socketManager([roundEnd(115, 'team1')]) });
+    const ctx = context({
+      socketManager: socketManager([roundEnd(115, 'team1')]),
+    });
 
     ctx.game.timers.roundRestartDelay = 160;
 
@@ -489,7 +506,9 @@ describe('10. roundLifecycle', () => {
 
 describe('11. actorLeak', () => {
   it('ловит актора, оставшегося в ядре после выхода участника', () => {
-    const ctx = context({ core: { players_data: () => '[{"id":0},{"id":7}]' } });
+    const ctx = context({
+      core: { players_data: () => '[{"id":0},{"id":7}]' },
+    });
 
     expect(check('actorLeak', ctx).violations[0]).toMatch(
       /actor 7 lives in the core but is not an active participant/,

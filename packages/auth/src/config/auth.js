@@ -2,7 +2,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // корень репозитория — якорь от расположения файла, не от cwd
-const rootDir = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..', '..', '..');
+const rootDir = path.resolve(
+  fileURLToPath(import.meta.url),
+  '..',
+  '..',
+  '..',
+  '..',
+  '..',
+);
 
 // Разбор VIMP_ADMIN_NICKS (направление master-game-registry, этап 1).
 // Отдельная экспортируемая функция, а не выражение внутри объекта: так её
@@ -60,7 +67,9 @@ export default {
   // подключение к PostgreSQL — по умолчанию из переменных окружения
   // (стандартные PG*), см. docs/en/auth.md
   db: {
-    connectionString: process.env.VIMP_AUTH_DATABASE_URL || 'postgres://localhost:5432/vimp_auth',
+    connectionString:
+      process.env.VIMP_AUTH_DATABASE_URL ||
+      'postgres://localhost:5432/vimp_auth',
   },
 
   // OAuth-провайдеры. B1: только github (см. решение — начать с одного

@@ -23,7 +23,7 @@
   подошла бы (это не набор идентичных per-domain реплик).
 - CI-тесты (`.github/workflows/test.yml`): джоба `engine` ранее не гоняла
   vitest-проект `auth` вовсе (`npx vitest run --project engine-node
-  --project engine-client` не покрывал `tests/auth/`) — добавлен отдельный
+--project engine-client` не покрывал `tests/auth/`) — добавлен отдельный
   шаг `--project auth` в ту же джобу (чистый Node/Express, Rust/WASM не
   нужен).
 - Доки: `docs/{en,ru}/deployment.md` — новый раздел «Central auth service»
@@ -33,7 +33,7 @@
   `master.md`/`gameplay.md` уже покрывали проксирование `/auth/*` и `/rank`
   с этапов B3–B5, изменений не потребовалось.
 - `npx eslint .` и `npx vitest run --project auth --project engine-node
-  --project engine-client` — зелёные.
+--project engine-client` — зелёные.
 
 ## Критические файлы
 

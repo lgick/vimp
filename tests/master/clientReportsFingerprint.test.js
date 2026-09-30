@@ -15,7 +15,10 @@ describe('parseFrame', () => {
 
     expect(parseFrame('    at Tr (https://h/a.js:84:46108)')).toEqual(expected);
     expect(parseFrame('Tr@https://h/a.js:84:46108')).toEqual(expected);
-    expect(parseFrame('    at https://h/a.js:84:46108')).toEqual({ ...expected, fn: null });
+    expect(parseFrame('    at https://h/a.js:84:46108')).toEqual({
+      ...expected,
+      fn: null,
+    });
     expect(parseFrame('TypeError: boom')).toBeNull();
   });
 });
@@ -27,8 +30,10 @@ describe('rawTopFrame', () => {
       '    at Tr (https://vimp.example/assets/client-BvkP3FTH.js:84:46108)',
       '    at oa._applyModel (https://vimp.example/assets/client-BvkP3FTH.js:210:14757)',
     ].join('\n');
-    const v8Anon = '    at https://vimp.example/assets/client-BvkP3FTH.js:84:46108';
-    const firefox = 'Tr@https://localhost:3002/assets/client-BvkP3FTH.js:84:46108\n';
+    const v8Anon =
+      '    at https://vimp.example/assets/client-BvkP3FTH.js:84:46108';
+    const firefox =
+      'Tr@https://localhost:3002/assets/client-BvkP3FTH.js:84:46108\n';
 
     expect(rawTopFrame(v8)).toBe('/assets/client-BvkP3FTH.js:84:46108');
     expect(rawTopFrame(v8Anon)).toBe('/assets/client-BvkP3FTH.js:84:46108');
@@ -36,7 +41,8 @@ describe('rawTopFrame', () => {
   });
 
   it('строка сообщения V8 с url:line:col — не кадр', () => {
-    const stack = 'Error: failed https://h/a.js:1:2\n    at f (https://h/b.js:3:4)';
+    const stack =
+      'Error: failed https://h/a.js:1:2\n    at f (https://h/b.js:3:4)';
 
     expect(rawTopFrame(stack)).toBe('/b.js:3:4');
   });
@@ -59,9 +65,9 @@ describe('isFrameLine', () => {
 
 describe('normalizeMessage', () => {
   it('числа → N, длинный hex → H', () => {
-    expect(normalizeMessage('  room 12 of deadbeef00112233 failed at 3  ')).toBe(
-      'room N of H failed at N',
-    );
+    expect(
+      normalizeMessage('  room 12 of deadbeef00112233 failed at 3  '),
+    ).toBe('room N of H failed at N');
   });
 
   it('длина ключа ограничена', () => {
@@ -95,15 +101,17 @@ describe('computeFingerprint', () => {
   });
 
   it('не зависит от count и времени', () => {
-    expect(computeFingerprint({ ...base, count: 5, firstAt: 1, lastAt: 2 })).toBe(
-      computeFingerprint(base),
-    );
+    expect(
+      computeFingerprint({ ...base, count: 5, firstAt: 1, lastAt: 2 }),
+    ).toBe(computeFingerprint(base));
   });
 
   it('зависит от версий движка и игры и от extra', () => {
     const fp = computeFingerprint(base);
 
-    expect(computeFingerprint({ ...base, engineVersion: '0.34.9' })).not.toBe(fp);
+    expect(computeFingerprint({ ...base, engineVersion: '0.34.9' })).not.toBe(
+      fp,
+    );
     expect(computeFingerprint({ ...base, gameVersion: '0.22.8' })).not.toBe(fp);
     expect(computeFingerprint({ ...base, extra: 'a.example' })).not.toBe(fp);
     expect(computeFingerprint({ ...base, extra: 'a.example' })).not.toBe(

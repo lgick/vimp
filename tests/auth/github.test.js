@@ -13,13 +13,18 @@ vi.mock('../../packages/auth/src/config/auth.js', () => ({
   },
 }));
 
-const { default: github } = await import('../../packages/auth/src/oauth/github.js');
+const { default: github } =
+  await import('../../packages/auth/src/oauth/github.js');
 
 describe('github oauth provider', () => {
   it('строит authorization url с client_id/state/redirect_uri', () => {
-    const url = new URL(github.getAuthorizationUrl('the-state', 'https://auth.local/cb'));
+    const url = new URL(
+      github.getAuthorizationUrl('the-state', 'https://auth.local/cb'),
+    );
 
-    expect(url.origin + url.pathname).toBe('https://github.com/login/oauth/authorize');
+    expect(url.origin + url.pathname).toBe(
+      'https://github.com/login/oauth/authorize',
+    );
     expect(url.searchParams.get('client_id')).toBe('test-client-id');
     expect(url.searchParams.get('state')).toBe('the-state');
     expect(url.searchParams.get('redirect_uri')).toBe('https://auth.local/cb');
@@ -40,7 +45,10 @@ describe('github oauth provider', () => {
 
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await github.exchangeCode('the-code', 'https://auth.local/cb');
+    const result = await github.exchangeCode(
+      'the-code',
+      'https://auth.local/cb',
+    );
 
     expect(result.providerUid).toBe('123');
     expect(result.profile.login).toBe('octocat');
@@ -49,9 +57,13 @@ describe('github oauth provider', () => {
   });
 
   it('exchangeCode бросает ошибку, если токен не получен', async () => {
-    vi.stubGlobal('fetch', async () => ({ json: async () => ({ error: 'bad_verification_code' }) }));
+    vi.stubGlobal('fetch', async () => ({
+      json: async () => ({ error: 'bad_verification_code' }),
+    }));
 
-    await expect(github.exchangeCode('bad-code', 'https://auth.local/cb')).rejects.toThrow();
+    await expect(
+      github.exchangeCode('bad-code', 'https://auth.local/cb'),
+    ).rejects.toThrow();
 
     vi.unstubAllGlobals();
   });
