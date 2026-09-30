@@ -21,4 +21,9 @@ dist/
 build/
 *.wasm
 
+
+# Автогенерируемые контракты или схемы:
 packages/engine/contract/surface.json
+
+# Защита CSP SHA-256 хэша для importmap
+packages/engine/index.htm
