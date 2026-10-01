@@ -119,7 +119,7 @@ name the violation. Do not verify those by eye — run the tool
       predictor, and a `cargo` parity test asserts they agree. Re-run it after
       **any** movement change.
 - [ ] The core is **not** rebuilt by `npm run build` — run `npm run
-    core:build` after Rust changes or you will ship a stale `.wasm`.
+  core:build` after Rust changes or you will ship a stale `.wasm`.
 
 ## Client plugin
 

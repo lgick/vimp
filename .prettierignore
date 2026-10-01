@@ -26,4 +26,4 @@ build/
 packages/engine/contract/surface.json
 
 # Защита CSP SHA-256 хэша для importmap
-packages/engine/index.htm
+packages/engine/index.html
