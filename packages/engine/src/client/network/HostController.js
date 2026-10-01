@@ -52,9 +52,22 @@ export default class HostController {
    * @param {Function} [opts.onError] - сбой инициализации Worker'а
    *   (WASM/конфиг): комната не поднялась, нужно вернуть пользователя в лобби.
    * @param {Function} [opts.onMapChange] - смена карты в комнате (голосование/
-   *   таймер) — для актуализации mapName у мастера.
+   *   таймер).
+   * @param {Function} [opts.onLobbyInfoChange] - смена строки карточки
+   *   комнаты в лобби (string|null) — для актуализации info у мастера.
    * @param {Object} [opts.diagnostics] - журнал клиентских ошибок
    *   (lib/diagnostics.js, plan/client-reports): туда уходят ошибки Worker'а.
+   * @param {Uint8Array} [opts.checkpoint] - сжатая контрольная точка
+   *   (host-migration этап 5): Worker поднимает матч из неё на паузе, старт —
+   *   startAfterRestore(). Буфер передаётся списком переноса — после
+   *   конструктора он у вызывающего пуст.
+   * @param {number} [opts.seqFloor] - номер последнего кадра, который видели
+   *   клиенты: восстановленный матч продолжит нумерацию дальше него.
+   * @param {boolean} [opts.preload] - прогрев преемника (host-migration этап
+   *   6): Worker импортирует плагин и компилирует wasm, матч не создаёт;
+   *   готовность — onPreloaded.
+   * @param {Function} [opts.onPreloaded] - Worker прогрет ({ gameId,
+   *   gameVersion, wasmCompiled }).
    */
   constructor(
     room,
@@ -64,7 +77,12 @@ export default class HostController {
       onReady,
       onError,
       onMapChange,
+      onLobbyInfoChange,
       diagnostics,
+      checkpoint = null,
+      seqFloor = 0,
+      preload = false,
+      onPreloaded,
     } = {},
   ) {
     this._room = room;
@@ -76,11 +94,27 @@ export default class HostController {
     this._onReady = onReady;
     this._onError = onError;
     this._onMapChange = onMapChange;
+    this._onLobbyInfoChange = onLobbyInfoChange;
+    this._onPreloaded = onPreloaded;
     this._ready = false;
+    // прогретый Worker преемника: матча в нём нет
+    this._preloaded = false;
     this._deliveries = new Map(); // socketId → { onMessage, onClose }
-    this._pendingConnects = []; // socketId, ожидающие готовности Worker'а
+    this._pendingConnects = []; // connect-сообщения до готовности Worker'а
 
     this._swap = null; // состояние эстафеты (Этап 5.2)
+
+    // ожидание границы раунда плановой передачей (host-migration этап 8d)
+    this._roundBoundaryCallback = null;
+
+    // подписчики готовых контрольных точек (host-migration этап 5)
+    this._checkpointListeners = new Set();
+    // период включённых периодических точек (null — выключены): новый Worker
+    // эстафеты получает его заново, иначе поток точек бете молча встал бы
+    this._checkpointIntervalMs = null;
+
+    // подписчики метрик здоровья хоста (host-migration этап 9a)
+    this._healthListeners = new Set();
 
     // отладочные запросы в Worker (этап 6 плана plan/done/ai-debug):
     // requestId → { resolve, reject }
@@ -89,8 +123,21 @@ export default class HostController {
 
     this._worker.onmessage = e => this._onWorkerMessage(e.data);
 
-    // старт авторитетной части в Worker'е
-    this._worker.postMessage({ type: 'init', room });
+    // старт авторитетной части в Worker'е; контрольная точка — без копии
+    if (preload) {
+      this._worker.postMessage({ type: 'preload', room });
+    } else if (checkpoint) {
+      this._worker.postMessage({ type: 'init', room, checkpoint, seqFloor }, [
+        checkpoint.buffer,
+      ]);
+    } else {
+      this._worker.postMessage({ type: 'init', room });
+    }
+  }
+
+  // Worker прогрет (режим preload) и ждёт контрольную точку
+  get preloaded() {
+    return this._preloaded;
   }
 
   _createWorker(url) {
@@ -122,21 +169,28 @@ export default class HostController {
   }
 
   // регистрирует клиента и (при готовности) поднимает его соединение в Worker'е
-  open(socketId, { onMessage, onClose }) {
+  // resume — переподключение гостя к матчу (host-migration этап 4): Worker
+  // ждёт RESUME_REQUEST вместо хендшейка. Флаг едет только когда поднят —
+  // сообщение остаётся тем же, что понимал Worker до этапа 4
+  open(socketId, { onMessage, onClose, resume = false }) {
     this._deliveries.set(socketId, { onMessage, onClose });
 
+    const msg = resume
+      ? { type: 'connect', socketId, resume: true }
+      : { type: 'connect', socketId };
+
     if (!this._ready) {
-      this._pendingConnects.push(socketId);
+      this._pendingConnects.push(msg);
       return;
     }
 
     // пауза эстафеты: connect доедет в новый Worker (или в старый при отмене)
     if (this._swap?.paused) {
-      this._enqueueSwapMessage({ type: 'connect', socketId });
+      this._enqueueSwapMessage(msg);
       return;
     }
 
-    this._worker.postMessage({ type: 'connect', socketId });
+    this._worker.postMessage(msg);
   }
 
   // пересылает входящее сообщение клиента в Worker
@@ -165,15 +219,15 @@ export default class HostController {
     this._worker.postMessage(msg);
   }
 
-  // сообщает Worker'у hostId + per-room секрет, подтверждённые мастером при
-  // register_host (кодревью №1, plan/server-rating/review.md) — не известны
-  // при создании Worker'а (постится в него раньше ответа мастера).
-  // Сохраняются в _room, чтобы эстафета (swapWorker) тоже понесла их в новый
-  // Worker через 'init'
-  setHostId(hostId, hostSecret) {
-    this._room.hostId = hostId;
-    this._room.hostSecret = hostSecret;
-    this._worker.postMessage({ type: 'set_host_id', hostId, hostSecret });
+  // сообщает Worker'у roomId + секрет эпохи, подтверждённые мастером в
+  // host_registered — не известны при создании Worker'а (постится в него
+  // раньше ответа мастера). Сохраняются в _room, чтобы эстафета (swapWorker)
+  // тоже понесла их в новый Worker через 'init'
+  setRoom({ roomId, roomSecret, epoch }) {
+    this._room.roomId = roomId;
+    this._room.roomSecret = roomSecret;
+    this._room.epoch = epoch;
+    this._worker.postMessage({ type: 'set_room', roomId, roomSecret, epoch });
   }
 
   // передаёт обновлённый каталог карт мастера в Worker (Этап 5.1);
@@ -228,6 +282,152 @@ export default class HostController {
 
       this._worker.postMessage({ type: 'prepare_handoff' });
     });
+  }
+
+  // ***** контрольные точки (host-migration этап 5) ***** //
+
+  /**
+   * Периодические контрольные точки: Worker снимает их на границе кадра не
+   * чаще intervalMs и отдаёт подписчикам onCheckpoint.
+   * @param {number} intervalMs
+   */
+  startCheckpoints(intervalMs) {
+    this._checkpointIntervalMs = intervalMs;
+
+    // пауза эстафеты: состояние доедет до нужного Worker'а в конце свопа
+    if (!this._swap?.paused) {
+      this._worker.postMessage({ type: 'checkpoint_start', intervalMs });
+    }
+  }
+
+  stopCheckpoints() {
+    this._checkpointIntervalMs = null;
+
+    if (!this._swap?.paused) {
+      this._worker.postMessage({ type: 'checkpoint_stop' });
+    }
+  }
+
+  // текущее состояние периодических точек — Worker'у после эстафеты
+  _postCheckpointState(worker) {
+    worker.postMessage(
+      this._checkpointIntervalMs === null
+        ? { type: 'checkpoint_stop' }
+        : {
+            type: 'checkpoint_start',
+            intervalMs: this._checkpointIntervalMs,
+          },
+    );
+  }
+
+  /**
+   * Одна точка на ближайшей границе кадра.
+   * @param {Object} [options]
+   * @param {boolean} [options.final] - финальная (перед плановой передачей).
+   */
+  requestCheckpoint({ final = false } = {}) {
+    const msg = { type: 'checkpoint_request', final };
+
+    if (this._swap?.paused) {
+      this._enqueueSwapMessage(msg);
+      return;
+    }
+
+    this._worker.postMessage(msg);
+  }
+
+  /**
+   * Подписка на готовые точки: cb({ checkpointId, seq, createdAt, final,
+   * mode, bytes }).
+   * @param {Function} cb
+   * @returns {Function} Отписка.
+   */
+  onCheckpoint(cb) {
+    this._checkpointListeners.add(cb);
+
+    return () => this._checkpointListeners.delete(cb);
+  }
+
+  /**
+   * Подписка на метрики здоровья хоста (host-migration этап 9a): раз в ~1 с,
+   * пока матч идёт — cb({ tickRate, maxGapMs, lostMs, windowMs,
+   * peerRttMedian, peerCount }). Переживает эстафету Worker'ов.
+   * @param {Function} cb
+   * @returns {Function} Отписка.
+   */
+  onHealth(cb) {
+    this._healthListeners.add(cb);
+
+    return () => this._healthListeners.delete(cb);
+  }
+
+  /**
+   * Плановая передача хоста (host-migration этап 8d): cb сработает на
+   * ближайшей границе раунда — у игры с migration.midRound сразу (решает
+   * Worker). Новый вызов заменяет прежний колбэк.
+   * @param {Function} cb
+   */
+  awaitRoundBoundary(cb) {
+    this._roundBoundaryCallback = cb;
+    this._worker.postMessage({ type: 'round_boundary_wait' });
+  }
+
+  cancelRoundBoundary() {
+    if (this._roundBoundaryCallback) {
+      this._roundBoundaryCallback = null;
+      this._worker.postMessage({ type: 'round_boundary_cancel' });
+    }
+  }
+
+  // заморозка матча: цикл и отсчёты встают с остатками
+  freeze() {
+    this._worker.postMessage({ type: 'freeze' });
+  }
+
+  unfreeze() {
+    this._worker.postMessage({ type: 'unfreeze' });
+  }
+
+  // матч поднят из контрольной точки — запустить цикл и таймеры.
+  // waitForResume — промоушен преемника: Worker ждёт возврата людей точки
+  // (не дольше resumeWaitMs) и заводит не вернувшимся ожидание; reason —
+  // причина передачи из promote (сообщение игрокам о смене хоста)
+  startAfterRestore({ waitForResume = false, reason = null } = {}) {
+    if (!waitForResume) {
+      this._worker.postMessage({ type: 'start_after_restore' });
+      return;
+    }
+
+    this._worker.postMessage(
+      reason
+        ? { type: 'start_after_restore', waitForResume: true, reason }
+        : { type: 'start_after_restore', waitForResume: true },
+    );
+  }
+
+  /**
+   * Поднимает матч из контрольной точки в прогретом Worker'е (режим
+   * preload, host-migration этап 7.4). Колбэки — те же, что у конструктора:
+   * у прогрева они были свои.
+   * @param {Object} room - настройки комнаты (roomId, epoch, game, …).
+   * @param {Uint8Array} checkpoint - сжатая точка; буфер передаётся
+   *   списком переноса.
+   * @param {Object} [opts] - { seqFloor, onReady, onError, onMapChange,
+   *   onLobbyInfoChange }.
+   */
+  initFromCheckpoint(
+    room,
+    checkpoint,
+    { seqFloor = 0, onReady, onError, onMapChange, onLobbyInfoChange } = {},
+  ) {
+    this._room = room;
+    this._onReady = onReady;
+    this._onError = onError;
+    this._onMapChange = onMapChange;
+    this._onLobbyInfoChange = onLobbyInfoChange;
+    this._worker.postMessage({ type: 'init', room, checkpoint, seqFloor }, [
+      checkpoint.buffer,
+    ]);
   }
 
   /**
@@ -368,6 +568,14 @@ export default class HostController {
   _onNextWorkerMessage(msg) {
     if (msg.type === 'ready') {
       this._finishSwap();
+
+      // новый Worker своё начальное значение отдельным lobby_info не шлёт
+      // (считает его уже сообщённым), а оно могло измениться: новая версия
+      // игры включила lobbyInfo, или карта/текст модулей другие. Worker без
+      // поля (старше этапа 2 host-migration) карточку не трогает
+      if ('lobbyInfo' in msg) {
+        this._onLobbyInfoChange?.(msg.lobbyInfo ?? null);
+      }
     } else if (msg.type === 'error') {
       this._reportWorkerMessage(msg, 'error');
       this._abortSwap(msg.message);
@@ -405,6 +613,11 @@ export default class HostController {
 
     next.postMessage({ type: 'handoff_complete' });
 
+    // новый Worker не знает, что точки были включены
+    if (this._checkpointIntervalMs !== null) {
+      this._postCheckpointState(next);
+    }
+
     this._worker.terminate();
     this._worker = next;
     this._worker.onmessage = e => this._onWorkerMessage(e.data);
@@ -427,6 +640,9 @@ export default class HostController {
       this._worker.postMessage(msg);
     }
 
+    // за паузу точки могли включить или выключить
+    this._postCheckpointState(this._worker);
+
     this._swap = null;
 
     reject(new Error(reason || 'worker swap failed'));
@@ -437,8 +653,8 @@ export default class HostController {
       case 'ready':
         this._ready = true;
 
-        for (const socketId of this._pendingConnects) {
-          this._worker.postMessage({ type: 'connect', socketId });
+        for (const msg of this._pendingConnects) {
+          this._worker.postMessage(msg);
         }
 
         this._pendingConnects.length = 0;
@@ -450,6 +666,11 @@ export default class HostController {
         this._onError?.(msg);
         break;
 
+      case 'preloaded':
+        this._preloaded = true;
+        this._onPreloaded?.(msg);
+        break;
+
       case 'diagnostic':
         this._reportWorkerMessage(msg, msg.kind);
         break;
@@ -458,8 +679,39 @@ export default class HostController {
         this._onMapChange?.(msg.mapName);
         break;
 
+      case 'lobby_info':
+        this._onLobbyInfoChange?.(msg.info ?? null);
+        break;
+
       case 'handoff_state':
         this._onHandoffState(msg.state);
+        break;
+
+      case 'round_boundary': {
+        const cb = this._roundBoundaryCallback;
+
+        this._roundBoundaryCallback = null;
+        cb?.();
+        break;
+      }
+
+      case 'checkpoint': {
+        const checkpoint = { ...msg };
+
+        delete checkpoint.type;
+
+        for (const listener of this._checkpointListeners) {
+          listener(checkpoint);
+        }
+
+        break;
+      }
+
+      case 'health':
+        for (const listener of this._healthListeners) {
+          listener(msg.health);
+        }
+
         break;
 
       case 'debug_result': {

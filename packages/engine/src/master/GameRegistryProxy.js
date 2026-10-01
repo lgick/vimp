@@ -2,7 +2,7 @@
 //
 // Реестр живёт в Postgres auth-сервиса, а мастер БД не получает и ходит
 // REST'ом — тем же способом, каким уже ходит за rank/state/jwks
-// (PlayerDataProxy, HostRatingProxy). Как и они, прокси ничего не кэширует и
+// (PlayerDataProxy). Как и он, прокси ничего не кэширует и
 // не интерпретирует: отдаёт {status, json}, решение принимает вызывающий
 // (GameSync — каталог, lobby.js — код ответа админского роута).
 export default class GameRegistryProxy {

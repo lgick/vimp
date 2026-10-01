@@ -151,3 +151,44 @@ describe('VoteCoordinator.reset', () => {
     expect(deps.vote.reset).toHaveBeenCalled();
   });
 });
+
+// кулдаун голосования переживает контрольную точку: остаток уезжает в
+// timers.voteCooldowns и блокирует категорию у преемника
+describe('VoteCoordinator: кулдауны через контрольную точку', () => {
+  it('категория остаётся заблокированной остаток кулдауна', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+
+    const TimerManager = (
+      await import('../../packages/engine/src/host/meta/modules/TimerManager.js')
+    ).default;
+    const timers = { timeBlockedVote: 30000, voteTime: 10000 };
+    const first = new TimerManager(timers, {});
+
+    first.startVoteBlockTimer('mapChange', () => {});
+    vi.advanceTimersByTime(10000);
+
+    const { voteCooldowns } = first.serialize();
+
+    first.stopAllBlockedVoteTimers();
+    vi.resetModules();
+
+    const NextTimerManager = (
+      await import('../../packages/engine/src/host/meta/modules/TimerManager.js')
+    ).default;
+    const next = new NextTimerManager(timers, {});
+
+    for (const { name, leftMs } of voteCooldowns) {
+      next.startVoteBlockTimer(name, () => {}, leftMs);
+    }
+
+    const deps = makeDeps({ timerManager: next });
+    const vc = new VoteCoordinator({ ...deps, timerManager: next });
+
+    expect(vc.canCreateVote('mapChange')).toBe(false);
+    vi.advanceTimersByTime(20000);
+    expect(vc.canCreateVote('mapChange')).toBe(true);
+
+    vi.useRealTimers();
+  });
+});

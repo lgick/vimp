@@ -480,6 +480,11 @@ The pattern:
 
 ## Save / restore
 
-`serialize_state()` / `deserialize_state(bytes)` exist for tooling and tests.
-They are **not** used by the host handoff — a migrating room re-creates the
-map and respawns everyone.
+`serialize_state()` / `deserialize_state(bytes)` carry a match to another
+host when the game sets `gameConfig.migration.midRound` (a host checkpoint,
+[03-host-plugin.md](03-host-plugin.md#handoff-and-host-migration)): the dump
+is your `GameSim::serialize` plus the engine's world, map, PRNG and
+accumulator, and the new host continues from the same tick. Your
+`serialize`/`deserialize` must then cover **all** simulation state — a field
+left out silently resets at every host change. Without the flag the dump is
+not used: a migrating room re-creates the map and respawns everyone.

@@ -1,9 +1,8 @@
 import {
   isValidNick,
   isValidGameResult,
+  readWriteSeq,
   isValidStateSize,
-  isValidVoteValue,
-  isValidVoteReason,
   clampLimit,
   isValidGameId,
   isValidPackageName,
@@ -52,33 +51,6 @@ describe('isValidStateSize', () => {
   });
 });
 
-describe('isValidVoteValue', () => {
-  it('принимает только +1 и -1', () => {
-    expect(isValidVoteValue(1)).toBe(true);
-    expect(isValidVoteValue(-1)).toBe(true);
-  });
-
-  it('отклоняет любые другие значения', () => {
-    expect(isValidVoteValue(0)).toBe(false);
-    expect(isValidVoteValue(2)).toBe(false);
-    expect(isValidVoteValue('1')).toBe(false);
-    expect(isValidVoteValue(undefined)).toBe(false);
-  });
-});
-
-describe('isValidVoteReason', () => {
-  it('принимает непустую строку', () => {
-    expect(isValidVoteReason('good game')).toBe(true);
-  });
-
-  it('отклоняет пустую/пробельную строку и не-строки', () => {
-    expect(isValidVoteReason('')).toBe(false);
-    expect(isValidVoteReason('   ')).toBe(false);
-    expect(isValidVoteReason(undefined)).toBe(false);
-    expect(isValidVoteReason(null)).toBe(false);
-  });
-});
-
 // code review L3: клампинг GET /leaderboard?limit= вынесен из main.js сюда,
 // чтобы быть покрытым юнит-тестом независимо от роута
 describe('clampLimit', () => {
@@ -92,6 +64,20 @@ describe('clampLimit', () => {
     expect(clampLimit(undefined, 10, 100)).toBe(10);
     expect(clampLimit('junk', 10, 100)).toBe(10);
     expect(clampLimit(1.5, 10, 100)).toBe(10);
+  });
+});
+
+// host-migration 7.7: номер записи для отсева повтора; мусор — запись без
+// номера, а не отказ
+describe('readWriteSeq', () => {
+  it('пропускает положительное безопасное целое', () => {
+    expect(readWriteSeq(42)).toBe(42);
+  });
+
+  it('всё остальное — null', () => {
+    for (const value of [undefined, null, 0, -3, 2.5, '42', 2 ** 53]) {
+      expect(readWriteSeq(value)).toBeNull();
+    }
   });
 });
 

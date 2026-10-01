@@ -147,13 +147,26 @@ describe('SignalingClient: исходящие сообщения', () => {
     client.connect();
   });
 
-  it('sendOffer шлёт webrtc_offer', () => {
-    client.sendOffer('h1', { type: 'offer' });
+  it('sendOffer шлёт webrtc_offer комнате с memberId вкладки', () => {
+    client.sendOffer('r1', { type: 'offer' }, 'm1');
 
     expect(socket.lastSent()).toEqual({
       type: 'webrtc_offer',
-      hostId: 'h1',
+      roomId: 'r1',
       sdp: { type: 'offer' },
+      memberId: 'm1',
+    });
+  });
+
+  it('sendOffer переподключения несёт resume', () => {
+    client.sendOffer('r1', { type: 'offer' }, 'm1', { resume: true });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'webrtc_offer',
+      roomId: 'r1',
+      sdp: { type: 'offer' },
+      memberId: 'm1',
+      resume: true,
     });
   });
 
@@ -167,29 +180,35 @@ describe('SignalingClient: исходящие сообщения', () => {
     });
   });
 
-  it('pingHost, likeHost и unlikeHost шлют свои сообщения', () => {
-    client.pingHost('h1', 42);
+  it('pingHost шлёт ping_host комнате', () => {
+    client.pingHost('r1', 42);
     expect(socket.lastSent()).toEqual({
       type: 'ping_host',
-      hostId: 'h1',
+      roomId: 'r1',
       pingId: 42,
     });
+  });
 
-    client.likeHost('h1', 'good game', 'tok');
-    expect(socket.lastSent()).toEqual({
-      type: 'like_host',
-      hostId: 'h1',
-      reason: 'good game',
-      token: 'tok',
-    });
+  it('joinRoom шлёт join_room с memberId и токеном', () => {
+    client.joinRoom({ roomId: 'r1', memberId: 'm1', token: 't' });
 
-    client.unlikeHost('h1', 'aimbot', 'tok');
     expect(socket.lastSent()).toEqual({
-      type: 'unlike_host',
-      hostId: 'h1',
-      reason: 'aimbot',
-      token: 'tok',
+      type: 'join_room',
+      roomId: 'r1',
+      memberId: 'm1',
+      token: 't',
     });
+  });
+
+  it('leaveRoom шлёт leave_room', () => {
+    client.leaveRoom('r1');
+
+    expect(socket.lastSent()).toEqual({ type: 'leave_room', roomId: 'r1' });
+  });
+
+  it('методы /like·/unlike удалены', () => {
+    expect(client.likeHost).toBeUndefined();
+    expect(client.unlikeHost).toBeUndefined();
   });
 
   it('отправка при закрытом сокете молча игнорируется', () => {
@@ -205,35 +224,76 @@ describe('SignalingClient: исходящие сообщения хоста', ()
     client.connect();
   });
 
-  it('registerHost шлёт register_host с настройками комнаты', () => {
-    client.registerHost({ name: 'Room', maxPlayers: 8, mapName: 'pool_mini' });
+  it('registerHost шлёт register_host без имени комнаты', () => {
+    client.registerHost({
+      name: 'ignored',
+      gameId: 'tanks',
+      gameVersion: 'v1',
+      maxPlayers: 8,
+      info: 'pool_mini',
+      memberId: 'm1',
+    });
 
     expect(socket.lastSent()).toEqual({
       type: 'register_host',
-      name: 'Room',
+      gameId: 'tanks',
+      gameVersion: 'v1',
       maxPlayers: 8,
-      mapName: 'pool_mini',
+      info: 'pool_mini',
+      memberId: 'm1',
     });
   });
 
   it('registerHost прокидывает identity-токен хостера', () => {
-    client.registerHost({ name: 'Room', token: 'jwt-token' });
+    client.registerHost({ token: 'jwt-token' });
 
     expect(socket.lastSent()).toEqual({
       type: 'register_host',
-      name: 'Room',
       token: 'jwt-token',
     });
   });
 
-  it('updateHost шлёт update_host (heartbeat + currentPlayers)', () => {
-    client.updateHost({ currentPlayers: 3, mapName: 'pool_mini' });
+  it('reclaimHost шлёт reclaim_host с секретом эпохи и полями комнаты', () => {
+    client.reclaimHost({
+      roomId: 'r1',
+      epoch: 1,
+      roomSecret: 's',
+      memberId: 'm1',
+      token: 't',
+      gameId: 'tanks',
+      gameVersion: 'v1',
+      maxPlayers: 8,
+      info: 'arena',
+    });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'reclaim_host',
+      roomId: 'r1',
+      epoch: 1,
+      roomSecret: 's',
+      memberId: 'm1',
+      token: 't',
+      gameId: 'tanks',
+      gameVersion: 'v1',
+      maxPlayers: 8,
+      info: 'arena',
+    });
+  });
+
+  it('updateHost шлёт update_host (heartbeat + строка карточки)', () => {
+    client.updateHost({ currentPlayers: 3, info: 'pool_mini' });
 
     expect(socket.lastSent()).toEqual({
       type: 'update_host',
-      currentPlayers: 3,
-      mapName: 'pool_mini',
+      info: 'pool_mini',
     });
+  });
+
+  // null у мастера очищает строку — он обязан доехать, а не потеряться
+  it('updateHost с info: null передаёт null', () => {
+    client.updateHost({ info: null });
+
+    expect(socket.lastSent()).toEqual({ type: 'update_host', info: null });
   });
 
   it('sendAnswer шлёт webrtc_answer конкретному клиенту', () => {
@@ -253,6 +313,167 @@ describe('SignalingClient: исходящие сообщения хоста', ()
       type: 'pong_host',
       clientId: 'cl1',
       pingId: 7,
+    });
+  });
+});
+
+describe('SignalingClient: преемник (host-migration этап 6)', () => {
+  const caps = { canHost: true, mobile: false, hidden: false, iceType: null };
+
+  beforeEach(() => {
+    client.connect();
+  });
+
+  it('joinRoom несёт caps', () => {
+    client.joinRoom({ roomId: 'r1', memberId: 'm1', token: 't', caps });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'join_room',
+      roomId: 'r1',
+      memberId: 'm1',
+      token: 't',
+      caps,
+    });
+  });
+
+  it('registerHost несёт caps хоста', () => {
+    client.registerHost({ gameId: 'g', token: 't', memberId: 'm1', caps });
+
+    expect(socket.lastSent()).toMatchObject({ type: 'register_host', caps });
+  });
+
+  it('hostUnreachable шлёт host_unreachable с эпохой (host-migration 7.2)', () => {
+    client.hostUnreachable('r1', 3);
+
+    expect(socket.lastSent()).toEqual({
+      type: 'host_unreachable',
+      roomId: 'r1',
+      epoch: 3,
+    });
+  });
+
+  it('probeAck шлёт probe_ack с nonce пробы (host-migration 7.3)', () => {
+    client.probeAck('n1');
+
+    expect(socket.lastSent()).toEqual({ type: 'probe_ack', nonce: 'n1' });
+  });
+
+  it('registerHost и reclaimHost несут настройки комнаты (host-migration 7.6)', () => {
+    const settings = { map: 'dust', friendlyFire: true };
+
+    client.registerHost({ token: 't', settings });
+    expect(socket.lastSent()).toMatchObject({
+      type: 'register_host',
+      settings,
+    });
+
+    client.reclaimHost({ roomId: 'r1', epoch: 1, settings });
+    expect(socket.lastSent()).toMatchObject({
+      type: 'reclaim_host',
+      settings,
+    });
+  });
+
+  it('registerHost преемника несёт roomId, эпоху и promotionToken (7.4)', () => {
+    const promotion = {
+      roomId: 'r1',
+      epoch: 3,
+      promotionToken: 'a'.repeat(32),
+    };
+
+    client.registerHost({ token: 't', promotion });
+    expect(socket.lastSent()).toMatchObject({
+      type: 'register_host',
+      roomId: 'r1',
+      epoch: 3,
+      promotionToken: 'a'.repeat(32),
+    });
+
+    client.registerHost({ token: 't' });
+    expect(socket.lastSent()).not.toHaveProperty('promotionToken');
+  });
+
+  it('promoteFailed шлёт promote_failed (7.4)', () => {
+    client.promoteFailed({ roomId: 'r1', epoch: 3, promotionToken: 'x' });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'promote_failed',
+      roomId: 'r1',
+      epoch: 3,
+      promotionToken: 'x',
+    });
+  });
+
+  it('handoffBegin шлёт handoff_begin (этап 8)', () => {
+    client.handoffBegin({
+      roomId: 'r1',
+      epoch: 3,
+      reason: 'leave',
+      stay: false,
+    });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'handoff_begin',
+      roomId: 'r1',
+      epoch: 3,
+      reason: 'leave',
+      stay: false,
+    });
+  });
+
+  it('hostHealth шлёт host_health (этап 9c)', () => {
+    client.hostHealth({
+      roomId: 'r1',
+      epoch: 3,
+      tickRate: 118,
+      peerRttMedian: 80,
+      peerCount: 2,
+    });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'host_health',
+      roomId: 'r1',
+      epoch: 3,
+      tickRate: 118,
+      peerRttMedian: 80,
+      peerCount: 2,
+    });
+  });
+
+  it('hostLeaving шлёт host_leaving (этап 8)', () => {
+    client.hostLeaving('r1', 3);
+
+    expect(socket.lastSent()).toEqual({
+      type: 'host_leaving',
+      roomId: 'r1',
+      epoch: 3,
+    });
+  });
+
+  it('memberUpdate шлёт member_update', () => {
+    client.memberUpdate('r1', { ...caps, hidden: true });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'member_update',
+      roomId: 'r1',
+      caps: { ...caps, hidden: true },
+    });
+  });
+
+  it('standbyStatus шлёт standby_status', () => {
+    client.standbyStatus({
+      roomId: 'r1',
+      epoch: 2,
+      checkpointId: 'cp',
+      createdAt: 10,
+    });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'standby_status',
+      roomId: 'r1',
+      epoch: 2,
+      checkpointId: 'cp',
+      createdAt: 10,
     });
   });
 });

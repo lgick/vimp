@@ -59,6 +59,7 @@ export default class RTTManager {
   addUser(gameId) {
     this._users.set(gameId, {
       rtt: 100, // начальное значение RTT (предположение)
+      measured: false, // был ли хоть один pong (иначе rtt — догадка)
       missedPings: 0,
       outstandingPings: new Map(),
       pingIdCounter: 0,
@@ -150,6 +151,7 @@ export default class RTTManager {
       // с помощью экспоненциального скользящего среднего (EMA)
       // (предотвращает резкие скачки RTT из-за единичных сетевых флуктуаций)
       user.rtt = oldRtt * (1 - this._alpha) + newRttSample * this._alpha;
+      user.measured = true;
 
       // если замер RTT превышает установленный порог
       if (this._maxLatency && user.rtt > this._maxLatency) {
@@ -166,5 +168,37 @@ export default class RTTManager {
 
     // `pong` пришел для пинга, который уже не отслеживается (маловероятно)
     return null;
+  }
+
+  /**
+   * @description Медиана сглаженного RTT по измеренным пользователям
+   * (host-migration этап 9a: здоровье хоста). Пользователь без единого pong
+   * не считается — его rtt лишь стартовая догадка.
+   * @param {Function} [include] - (gameId) => boolean; например, без
+   * хост-игрока на loopback.
+   * @returns {{ median: number|null, count: number }}
+   */
+  getRttStats(include = () => true) {
+    const values = [];
+
+    this._users.forEach((user, gameId) => {
+      if (user.measured && include(gameId)) {
+        values.push(user.rtt);
+      }
+    });
+
+    if (values.length === 0) {
+      return { median: null, count: 0 };
+    }
+
+    values.sort((a, b) => a - b);
+
+    const mid = values.length >> 1;
+    const median =
+      values.length % 2 === 1
+        ? values[mid]
+        : (values[mid - 1] + values[mid]) / 2;
+
+    return { median: Math.round(median), count: values.length };
   }
 }

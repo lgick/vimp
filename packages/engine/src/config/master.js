@@ -73,14 +73,90 @@ export default {
 
   // ограничения регистрируемых комнат
   host: {
-    maxNameLength: 30, // длина имени комнаты
     // санитарная рамка вместимости комнаты для случая, когда игра комнаты
     // неизвестна мастеру (gameId: null у старых хостов или id не из
     // каталога). Потолок известной игры задаёт её манифест
     // (roomDefaults.maxPlayers) — движок его не ограничивает
     maxPlayersLimit: 8,
-    heartbeatTimeout: 30000, // нет heartbeat дольше — комната удаляется
-    sweepInterval: 10000, // период проверки протухших комнат
+    heartbeatTimeout: 30000, // нет heartbeat дольше — хост потерян
+    sweepInterval: 10000, // период уборки реестра комнат
+  },
+
+  // жизнь комнаты (host-migration, этап 2): комната живёт, пока в ней есть
+  // участник
+  room: {
+    // отсоединённый участник ещё считается в комнате (реконнект сигналинга)
+    memberGraceMs: 15000,
+    // обрыв WS хоста запускает миграцию сразу (reclaim_host до регистрации
+    // преемника её отменяет, этап 7.0); если повысить некого — комната
+    // ждёт reclaim_host столько, потом уборка мигрирует или закрывает её
+    hostReclaimGraceMs: 10000,
+    // потолок строки карточки комнаты в лобби (gameConfig.lobbyInfo игры)
+    maxInfoLength: 48,
+    // RTT участников (host-migration этап 6): ws.ping() каждой сессии с
+    // этим периодом; EMA RTT и джиттера — единая линейка связности для
+    // хоста и кандидатов
+    rttProbeIntervalMs: 5000,
+    // сессия без pong дольше — terminate(): «тихо умерший» хост находится
+    // быстрее, чем по heartbeatTimeout
+    wsDeadAfterMs: 12000,
+    // преемник (бета): кандидат должен пробыть в комнате не меньше этого
+    minMemberAgeMs: 10000,
+    // плановый пересчёт преемника (помимо join/leave/member_update)
+    successorReviewMs: 15000,
+    // гистерезис смены беты: лучший кандидат держит score не хуже
+    // successorSwitchRatio × score текущего дольше successorSwitchSustainMs
+    successorSwitchSustainMs: 30000,
+    successorSwitchRatio: 0.65,
+    // аварийная миграция (этап 7): бета — преемник с точкой, если её
+    // standby_status пришёл не раньше checkpointMaxAgeMs назад (статус идёт
+    // раз в 5 с — окно больше двух периодов), иначе cold-промоушен любого
+    // способного; преемник не занял комнату за promotionTimeoutMs
+    // (coldPromotionTimeoutMs — он перезагружает страницу) — следующий
+    checkpointMaxAgeMs: 12000,
+    promotionTimeoutMs: 10000,
+    coldPromotionTimeoutMs: 25000,
+    // отчёты host_unreachable: хост не ответил на probe за probeTimeoutMs —
+    // потерян; ответил, но за reportWindowMs отчиталась половина гостей —
+    // принудительная миграция, не чаще forcedMigrationCooldownMs на комнату
+    probeTimeoutMs: 2000,
+    reportWindowMs: 5000,
+    forcedMigrationCooldownMs: 30000,
+    // плановая передача (этап 8): преемник не занял комнату за
+    // handoffTimeoutMs — передача отменяется, хост размораживает матч
+    handoffTimeoutMs: 8000,
+    // автотриггеры (этап 9c). Сетевой лаг хоста: медиана его RTT до гостей
+    // (host_health) выше lagRttThresholdMs непрерывно lagSustainMs, а score
+    // беты лучше score хоста хотя бы на lagImprovementRatio — хосту
+    // request_handoff. Не раньше autoMigrationCooldownMs с прошлой
+    // авто-смены хоста в комнате (overload/hidden/network — кулдаун общий)
+    // и с получения роли текущим хостом
+    lagRttThresholdMs: 250,
+    lagSustainMs: 10000,
+    lagImprovementRatio: 0.35,
+    autoMigrationCooldownMs: 90000,
+    // бета — не ниже этого FPS рендера (caps.fps гостя; неизвестный FPS не
+    // отсеивает). Аварийный промоушен порог не применяет
+    minSuccessorFps: 30,
+    // голосование «Change host» (этап 10, /changehost; только лобби-режим):
+    // голоса считает мастер. Длительность голосования; повторный старт в
+    // комнате и тем же пользователем — не раньше кулдаунов; прошедшее
+    // голосование просит хоста отдать роль, не начал за voteForceAfterMs —
+    // принудительная миграция; снятый хост не бета и не хост комнаты
+    // demotedCooldownMs (кроме случая, когда больше принять некому)
+    vote: {
+      hostVoteDurationMs: 15000,
+      roomVoteCooldownMs: 120000,
+      userStartCooldownMs: 60000,
+      voteForceAfterMs: 5000,
+      demotedCooldownMs: 600000,
+    },
+    // GET /rooms/:roomId (прямая ссылка, этап 3) на IP: открытие ссылки —
+    // один запрос, лимит только против перебора roomId
+    lookupRateLimit: {
+      limit: 20,
+      windowMs: 1000,
+    },
   },
 
   // GET /auth/leaderboard (code review L2): TTL кэша на мастере (мс) и
@@ -104,7 +180,7 @@ export default {
   // стороне хоста, а мастер держит потолок для сломанного или злонамеренного
   // сервера, который этот интервал обошёл
   playerData: {
-    // PUT /auth/rank + /auth/state на комнату (проверенный hostId) в минуту.
+    // PUT /auth/rank + /auth/state на комнату (проверенный roomId) в минуту.
     // Честная комната на 32 при lobbyConfig.playerData.minFlushInterval в
     // 5 минут пишет 64 запроса за эти 5 минут, то есть ~13/мин; остальное —
     // запас на срочные границы (уход участника обходит интервал), и его
@@ -115,22 +191,6 @@ export default {
     // потолок результата ОДНОЙ игры, если игра не объявила свой
     // (master:games[].maxGameScore): обоснование — plan/snakes-v3/stage_2.md
     maxGameScore: 10000,
-  },
-
-  // рейтинг хостера комнаты (server-rating этап 2, plan/server-rating/
-  // stage_2.md): /like·/unlike гостей комнаты вместо соц-модерации /ban.
-  // Дефолт движка для всех игр; auth-сервис хранит и клампит рейтинг
-  // персистентно и глобально (нужно и для аннулирования rank/skills, этап 4) —
-  // это значение зеркалируется в packages/auth/src/config/auth.js:rating,
-  // фактический кламп/blocked считает auth, не мастер
-  rating: {
-    min: -10,
-    max: 10,
-    blockAt: -10,
-    // период опроса auth за актуальным рейтингом активных хостеров (этап 3,
-    // stage_3.md) — держит кэш GET /servers свежим (счёт мог измениться на
-    // другом мастере), голос/регистрация на этом мастере обновляют кэш сразу
-    refreshInterval: 30000,
   },
 
   // заголовки безопасности (гигиена среды, Этап 5.4). CSP на статику/.wasm в

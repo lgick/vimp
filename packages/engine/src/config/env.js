@@ -39,6 +39,43 @@ export function applyMasterEnv(config, env = process.env) {
   }
 }
 
+// минимальная длина VIMP_ROOM_SECRET_KEY — ключ HMAC-SHA256
+const ROOM_SECRET_KEY_MIN_BYTES = 32;
+
+/**
+ * Ключ секрета комнаты (host-migration, этап 2): roomSecret = HMAC(ключ,
+ * roomId:epoch:hostUserId) — им хост доказывает комнату после рестарта
+ * мастера. В production обязателен; в dev без него генерируется случайный на
+ * время процесса (комнаты после рестарта dev-мастера не восстанавливаются).
+ * @param {Object} [env] - Окружение (по умолчанию process.env).
+ * @param {Object} opts
+ * @param {boolean} opts.isProduction
+ * @param {Function} opts.randomBytes - crypto.randomBytes.
+ * @returns {{ key: string|Buffer, ephemeral: boolean }}
+ */
+export function readRoomSecretKey(
+  env = process.env,
+  { isProduction, randomBytes },
+) {
+  const key = env.VIMP_ROOM_SECRET_KEY;
+
+  if (key) {
+    if (Buffer.byteLength(key) < ROOM_SECRET_KEY_MIN_BYTES) {
+      throw new Error(
+        `VIMP_ROOM_SECRET_KEY: at least ${ROOM_SECRET_KEY_MIN_BYTES} bytes required`,
+      );
+    }
+
+    return { key, ephemeral: false };
+  }
+
+  if (isProduction) {
+    throw new Error('VIMP_ROOM_SECRET_KEY must be set in production');
+  }
+
+  return { key: randomBytes(ROOM_SECRET_KEY_MIN_BYTES), ephemeral: true };
+}
+
 /**
  * Настройки комнаты dedicated-сервера: VIMP_DEDICATED_ROOM — JSON-объект
  * (map, maxPlayers, roundTime, mapTime, friendlyFire, seed). Мусор в

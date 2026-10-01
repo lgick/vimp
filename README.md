@@ -1,14 +1,17 @@
 # VIMP
 
 A P2P multiplayer 2D real-time engine: games run authoritatively in a Web
-Worker in the room creator's browser tab, clients connect over WebRTC. Game
+Worker in one player's browser tab, clients connect over WebRTC, and the
+host role moves seamlessly to another player when that tab leaves. Game
 rules themselves are not part of this repo — they live in separately
 published, dynamically loaded game plugins.
 
 ![game video](./.github/assets/video/game.gif?raw=true)
 
-- **P2P**: the authoritative host is a Web Worker in the room creator's browser tab (a Rust simulation core compiled to WASM: Rapier 2D physics at ~120 Hz, bots, binary snapshots at 30 packets/sec); clients connect over WebRTC.
-- **Master server**: Node.js + Express + `ws` — lobby, WebRTC signaling, map catalog.
+- **P2P**: the authoritative host is a Web Worker in a player's browser tab (a Rust simulation core compiled to WASM: Rapier 2D physics at ~120 Hz, bots, binary snapshots at 30 packets/sec); clients connect over WebRTC.
+- **Seamless host change**: the room lives while it has players — a standby successor receives checkpoints and takes the match over when the host leaves, lags, or is voted out (`/changehost`), after a 1–3 s pause.
+- **Room links**: `#/<game>/<roomId>` joins a room directly, `#/<game>` starts a quick game; links survive login and host changes.
+- **Master server**: Node.js + Express + `ws` — lobby, WebRTC signaling, map catalog, room registry and migration arbitration.
 - **Accounts**: OAuth login and a global nick via a central auth service, JWT identity verified by the host, per-game rank/state synced across any master domain.
 - **Client**: PixiJS, snapshot interpolation, client-side prediction, procedural textures, spatial audio (Howler).
 - **Gameplay**: game rules (teams, weapons, bots, votes, chat, statistics, etc.) live in a separately published, dynamically loaded game plugin — see [vimp-tanks](https://github.com/lgick/vimp-tanks) for the reference tank-battle game.

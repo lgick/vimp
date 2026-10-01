@@ -1,5 +1,7 @@
 import { createHostRuntime } from '../lib/createHostRuntime.js';
+import { encodeCheckpoint, decodeCheckpoint } from '../lib/checkpointCodec.js';
 import { offlinePlayerData } from '../lib/offlinePlayerData.js';
+import { resumeKeysEqual } from '../lib/resumeKey.js';
 import VirtualClock, { flushMicrotasks } from './VirtualClock.js';
 import RecordingSocketManager from './RecordingSocketManager.js';
 import VirtualClient from './VirtualClient.js';
@@ -79,6 +81,15 @@ export function parseScenario(raw) {
     );
   }
 
+  const checkpointEvery = raw.checkpointEvery ?? null;
+
+  if (
+    checkpointEvery !== null &&
+    !(Number.isFinite(checkpointEvery) && checkpointEvery > 0)
+  ) {
+    throw new Error('scenario: checkpointEvery must be a positive number (ms)');
+  }
+
   return {
     version: 1,
     seed: raw.seed ?? 1,
@@ -98,6 +109,9 @@ export function parseScenario(raw) {
     ticks: raw.ticks ?? 600,
     dumpTicks: raw.dumpTicks ?? null,
     room: raw.room ?? {},
+    // смена хоста через контрольную точку каждые N мс матча (host-migration
+    // этап 5); то же разово — шаг таймлайна { op: 'checkpointRestore' }
+    checkpointEvery,
   };
 }
 
@@ -171,7 +185,13 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
     },
   };
 
-  const runtime = await createHostRuntime(room, {
+  const hostOptions = {
+    onMapChange: mapName =>
+      mapChanges.push({ tick: currentTick, map: mapName }),
+    playerDataFetch: emptyProfileFetch,
+  };
+
+  let runtime = await createHostRuntime(room, {
     loadHostPlugin: () => plugin.hostPlugin,
     // транспорт собирается той же фабрикой, что и боевой: наследник обязан
     // получить те же порты и ту же игровую параметризацию
@@ -184,17 +204,85 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
       return socketManager;
     },
     overrideGameConfig: game => mergeConfig(game, scenario.config),
-    hostOptions: {
-      onMapChange: mapName =>
-        mapChanges.push({ tick: currentTick, map: mapName }),
-      playerDataFetch: emptyProfileFetch,
-    },
+    hostOptions,
   });
 
   const { clientCfg, game, seed } = runtime;
   const stepMs = game.timers.timeStep;
 
   host = runtime.host;
+
+  // смены хоста через контрольную точку (host-migration этап 5)
+  const checkpointRestores = [];
+
+  // Старый хост замораживается и отдаёт финальную точку; точка проходит
+  // боевой кодек (сжатие → распаковка), из неё поднимается НОВЫЙ runtime на
+  // том же транспорте, и каждый клиент возвращается в своё место RESUME'ом —
+  // ровно как к преемнику в проде. Сбой любого шага — исключение: прогон
+  // красный, а не тихо продолжившийся на старом хосте
+  const restoreFromCheckpoint = async tick => {
+    let taken = null;
+
+    host.setCheckpointSink(checkpoint => {
+      taken = checkpoint;
+    });
+    host.freeze();
+    host.requestCheckpoint({ final: true });
+    host.setCheckpointSink(null);
+
+    if (!taken) {
+      throw new Error(`scenario: no checkpoint taken at tick ${tick}`);
+    }
+
+    const bytes = await encodeCheckpoint(taken.meta, taken.core);
+    const checkpoint = await decodeCheckpoint(bytes);
+
+    resetHostSingletons();
+
+    runtime = await createHostRuntime(room, {
+      loadHostPlugin: () => plugin.hostPlugin,
+      createSocketManager: () => socketManager,
+      overrideGameConfig: next => mergeConfig(next, scenario.config),
+      hostOptions: { ...hostOptions, checkpoint, seqFloor: taken.meta.seq },
+    });
+    host = runtime.host;
+
+    for (const client of clients.values()) {
+      const target = host.getResumeTarget(client.gameId);
+      const request = client.resumeRequest();
+
+      if (!target || !resumeKeysEqual(request.resumeKey, target.resumeKey)) {
+        throw new Error(
+          `scenario: participant ${client.gameId} cannot resume after ` +
+            `checkpoint at tick ${tick}`,
+        );
+      }
+
+      host.resumeUser(client.gameId, client.socketId, null);
+    }
+
+    host.startAfterRestore();
+    checkpointRestores.push({
+      tick,
+      mode: checkpoint.meta.mode,
+      bytes: bytes.byteLength,
+    });
+
+    await flushMicrotasks();
+  };
+
+  const checkpointTicks = new Set();
+
+  if (scenario.checkpointEvery) {
+    for (let tick = 1; tick <= scenario.ticks; tick += 1) {
+      if (
+        Math.floor((tick * stepMs) / scenario.checkpointEvery) >
+        Math.floor(((tick - 1) * stepMs) / scenario.checkpointEvery)
+      ) {
+        checkpointTicks.add(tick);
+      }
+    }
+  }
 
   // очередь операций сценария, разложенная по номеру тика: ввод хост
   // применяет синхронно при приходе сообщения (HostGame.updateKeys), очереди
@@ -218,7 +306,16 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
     currentTick = tick;
     socketManager.tick = tick;
 
+    if (checkpointTicks.has(tick)) {
+      await restoreFromCheckpoint(tick);
+    }
+
     for (const op of opsByTick.get(tick) ?? []) {
+      if (op.op === 'checkpointRestore') {
+        await restoreFromCheckpoint(tick);
+        continue;
+      }
+
       await applyOp(op, {
         host,
         clientCfg,
@@ -271,6 +368,7 @@ async function execute(scenario, plugin, virtualClock, { captureFrames }) {
     seed,
     stepMs,
     host,
+    checkpointRestores,
     core: runtime.core,
     game,
     clientCfg,
@@ -335,6 +433,11 @@ function routeFrame(frame, clients, pendingShots, virtualClock, host) {
 
   if (frame.method === 'sendMap') {
     client.setMap(frame.args[0]);
+    return;
+  }
+
+  if (frame.method === 'sendSessionData') {
+    client.noteSession(frame.args[0]);
     return;
   }
 
@@ -506,6 +609,11 @@ async function joinParticipant(op, ctx) {
   host.sendMap(gameId);
   host.mapReady(gameId);
   host.firstShotReady(gameId);
+
+  // секрет места — как SESSION_DATA порт-машины лобби на первом кадре:
+  // с ним клиент вернётся к новому хосту после смены (checkpointRestore)
+  client.noteSession({ resumeKey: host.issueResumeKey(gameId), gameId });
+
   byParticipant.set(op.who, { socketId, gameId });
   participantLog.push({
     who: op.who,
@@ -554,6 +662,7 @@ function buildReport(ctx) {
     seed,
     stepMs,
     host,
+    checkpointRestores,
     core,
     game,
     clientCfg,
@@ -603,6 +712,8 @@ function buildReport(ctx) {
     durationMs: stepMs * scenario.ticks,
     currentMap: host.currentMap,
     mapChanges,
+    // смены хоста через контрольную точку: тик, режим, размер сжатой точки
+    checkpointRestores,
     participants: [...byParticipant.entries()].map(([id, entry]) => ({
       id,
       ...entry,

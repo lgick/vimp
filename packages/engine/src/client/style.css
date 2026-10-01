@@ -86,7 +86,9 @@ body.hide-cursor {
   left: 0;
   right: 0;
   height: 24px;
-  z-index: 4;
+  /* 7 — выше прозрачного #game-informer (6), иначе тот перехватывал бы
+     клики по кнопке меню комнаты; ниже лобби/экрана авторизации игры (8) */
+  z-index: 7;
   overflow: hidden;
 }
 
@@ -357,6 +359,58 @@ body.hide-cursor {
 
 #vote .vote-nav p.active {
   display: block;
+}
+
+/*room menu (host-migration, этап 3): кнопка внутри #panel справа от
+  таблицы (RoomMenuView.placeInPanel); order — таблицу PanelView достраивает
+  позже, по CONFIG_DATA. Без панели (игра её не показывает) — угол экрана;
+  z-index 7 — выше прозрачного #game-informer (6) и ниже лобби (8)*/
+
+#room-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 7;
+  font-size: 12px;
+  text-transform: none;
+}
+
+#panel > #room-menu {
+  position: static;
+  order: 1;
+  flex: 0 0 auto;
+}
+
+#room-menu-toggle {
+  display: block;
+  margin-left: auto;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+}
+
+/* fixed — иначе список обрезал бы overflow: hidden панели */
+#room-menu-list {
+  position: fixed;
+  top: 24px;
+  right: 0;
+  padding: 4px;
+  background: #fff;
+}
+
+#room-menu-list input {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  margin-top: 5px;
+}
+
+#room-menu-status {
+  padding: 2px 4px;
+  /* тёмный: фон списка белый */
+  color: #333;
+  white-space: nowrap;
 }
 
 /*chat*/
@@ -633,6 +687,25 @@ body.hide-cursor {
   white-space: pre-line;
 }
 
+/* оверлей сессии (host-migration этап 4): матч на паузе, пока клиент
+   переподключается к хосту; уровень лобби/авторизации — они с ним не
+   показываются одновременно, а #tech-informer остаётся выше. Своего
+   display нет: скрыт он `.vimp-shell > *`, показывает его main.js (flex) */
+#session-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background-color: rgb(0 0 0 / 60%);
+  color: #fff;
+  font-size: 20px;
+  line-height: 24px;
+}
+
 #game-informer {
   position: absolute;
   top: 0;
@@ -700,13 +773,6 @@ body.hide-cursor {
   gap: 10px;
 }
 
-/* поле имени сервера — строка формы, а не узкий числовой инпут
-   (.form-row input[type='text'] рассчитан на счётчики вроде max players) */
-#lobby-name {
-  width: 200px;
-  text-align: left;
-}
-
 #lobby input[type='text'],
 #lobby select {
   box-sizing: border-box;
@@ -741,7 +807,7 @@ body.hide-cursor {
 
 .lobby-card {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto;
   column-gap: 8px;
   row-gap: 2px;
   padding: 10px 12px;
@@ -758,11 +824,17 @@ body.hide-cursor {
 }
 
 .lobby-card-name {
-  grid-column: 1 / -1;
+  grid-column: 1;
   font-weight: bold;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lobby-card-copy {
+  grid-column: 2;
+  font-size: 10px;
+  padding: 0 6px;
 }
 
 .lobby-card-info {
@@ -774,19 +846,8 @@ body.hide-cursor {
   white-space: nowrap;
 }
 
-.lobby-card-rating {
-  grid-column: 2;
-  text-align: right;
-  color: #4caf50;
-  font-size: 10px;
-}
-
-.lobby-card-rating.is-negative {
-  color: #e57373;
-}
-
 .lobby-card-latency {
-  grid-column: 3;
+  grid-column: 2;
   text-align: right;
   color: #ff0;
   font-size: 10px;

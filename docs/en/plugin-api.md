@@ -441,6 +441,7 @@ export default {
     // noSpectators: true,            // opt-in: no spectator team at all — exactly one team,
     //                                // a joining human enters it directly (no vote)
     // endlessRound: true,            // opt-in: the engine never restarts the round by itself
+    // migration: { midRound: true }, // opt-in: a new host continues the round from the same tick
     parts: { models, weapons, friendlyFire },   // from the game plugin's src/data (e.g. vimp-tanks's)
     snapshot,                         // the snapshot key schema (config/snapshot.js) — required
     playerKeys, // spectatorKeys are engine-owned (spectating is an engine mechanism)
@@ -448,6 +449,7 @@ export default {
     stat:  { columns: {name:{…}, status:{…}, score:{…}, deaths:{…}, latency:{…}} },
     scripted: { namePrefix: 'Bot', defaultModel: 'm1' },   // replaces Bot${id}/'m1' hardcodes
     mapScale: 0.3, mapSetId: 'c1', mapsInVote: 4, defaultMap: 'pool mini',
+    lobbyInfo: 'map',                 // optional: the room's lobby card shows the current map
     chatMaxLength: 60,
     initialVote: 'teamChange',        // replaces the SocketManager.sendFirstVote hardcode
     soundCues: { roundStart:'roundStart', victory:'victory', defeat:'defeat',
@@ -477,7 +479,8 @@ export default {
 
   createModules(ctx) { return { scripted: new MyBotManager(ctx) }; },
   // ctx = { participants, coreAdapter, panel, stat, chat, socketManager,
-  //         scripted /* gameConfig.scripted parameters */ }
+  //         scripted /* gameConfig.scripted parameters */,
+  //         lobby /* { setInfo(text | null) } — absent on older engines */ }
   // chat-command handlers get a different, meta-level ctx from
   // CommandProcessor: { participants, chat, scripted, roundManager,
   //   voteCoordinator, timerManager, teams, spectatorTeam, spectatorId,
@@ -485,6 +488,8 @@ export default {
   // Scripted-module contract (called by the engine — RoundManager/HostGame):
   //   createMap(scaledMapData), createScripted(count, team?), removeScripted(team?),
   //   removeOneForHuman(team), getCount(), getCountsPerTeam()
+  // Any module may add serializeState() → JSON and restoreState(state):
+  //   host checkpoints (see "Host migration" below)
 };
 ```
 
@@ -530,7 +535,42 @@ invariant I2 below.
 | `statMode`                | `'table'`                      | the engine draws the room table on Tab                                                                    |
 | `noSpectators`            | `false`                        | spectators exist as a concept                                                                             |
 | `endlessRound`            | `false`                        | the engine restarts the round itself                                                                      |
+| `lobbyInfo`               | `null`                         | the room's lobby card shows no text of the game                                                           |
+| `migration.midRound`      | `false`                        | a host change moves the meta and restarts the round (see below)                                           |
 | `spectatorTeam`           | derived                        | `null` under `noSpectators`; otherwise the `spectators` key of `teams`, else `null` with a `console.warn` |
+
+**The lobby card text** (`lobbyInfo`) is the game's own line on its room's
+card in the lobby (`gameId/roomId`, then `<text> · players/max · region`).
+`lobbyInfo: 'map'` shows the room's current map and follows map changes; any
+other value, or no field, shows nothing. A module can set an arbitrary text
+at run time — a server option, a mode, a phase — through `ctx.lobby` from
+`createModules`: `lobby?.setInfo('Hardcore')` (it wins over `'map'`;
+`setInfo(null)` withdraws it). The text is trimmed and capped by the master
+(`master.room.maxInfoLength`, 48). `lobby` is optional chaining on purpose:
+an older engine passes no `lobby`, and the game needs no `requires` entry for
+it.
+
+**Host migration** (`migration.midRound`). A room can move to another
+host — the engine takes a [checkpoint](host.md#checkpoints) of the match and
+raises it on the new one. By default the move is **soft**: the meta
+(participants, score, map with its remaining time, profiles) travels, and
+the round starts anew. `migration: { midRound: true }` is the game's
+promise that its state survives a move **in the middle of a round**:
+
+- `GameSim::serialize`/`deserialize` carry everything the core simulation
+  owns (the engine sends the `serialize_state` dump);
+- every module from `createModules` that keeps state in memory implements
+  `serializeState()` → a JSON value and `restoreState(state)`. The engine
+  calls them by the module's key in the `createModules` object while taking
+  and restoring a checkpoint (restore happens after the engine restored its
+  own meta, the map included). A module without the methods gets nothing
+  carried. A module whose `serializeState` throws turns the checkpoint soft.
+
+The capability `host.migration` names this in the engine; a game does not
+need to put it in `requires` — an older engine ignores the field, and the
+game migrates softly there. The check is the `vimp-sim` step
+`checkpointRestore` (or `--checkpoint-every <ms>`), see
+[debugging.md](debugging.md).
 
 Consistency of what the game _did_ send is still checked, and still throws:
 a declared `spectatorTeam` must be a key of `teams`, and `noSpectators`
@@ -622,18 +662,18 @@ and an unprovided service is silently `undefined` in the part.
 **Key point: the Stat/Panel/Vote/Chat modules are engine-owned but fully
 parameterized by the game's config.** Consequences:
 
-| Engine module                     | What the game supplies (via CONFIG_DATA / gameConfig)                                                                                                                                                                                           |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Panel (host + client MVC)         | field schema (`fields` + display types: bar/number/time/weapon icon), `activeKey`; the engine PanelView **generates DOM from the schema** (replacing the `panel.pug` hardcode `#panel-health/-bullet/-bomb/-time`), field appearance — game CSS |
-| Stat (host + client MVC)          | columns (names/aggregation) and a **team list of arbitrary length**; the engine StatView **generates tables by team count** (replacing the `stat.pug` hardcode `#team1/#team2/#spectators` and 5 fixed columns)                                 |
-| Vote (host + client MVC)          | game votes created dynamically (`voteCoordinator.createVote` from chat-command handlers) + all templates/menus (texts); engine-mechanism votes (teamChange, mapChangeByUser/BySystem) stay in the engine, their texts also come from the game   |
-| Chat (host + client MVC)          | game system-message codes (the `b:*` group and future ones) + ALL message texts; the engine owns the mechanism and its own mechanism codes (`s/v/m/c/n`)                                                                                        |
-| CommandProcessor                  | EVERY chat command: the engine parses none of its own, the game fills the whole registry (`/bot`, `/name`, `/nr`, `/timeleft`, `/mapname`, `/rank`)                                                                                             |
-| RoundManager / ParticipantManager | `teams` (arbitrary), `spectatorTeam`, respawns from maps, `scripted` parameters; the engine has the neutral "scripted participant"                                                                                                              |
-| SocketManager                     | `soundCues` (which sound plays on which engine event), `initialVote`                                                                                                                                                                            |
-| SoundManager (client)             | sound list + files (`assetsBase`)                                                                                                                                                                                                               |
-| Controls (client)                 | the player keyset and layout; the spectator set is engine-owned                                                                                                                                                                                 |
-| Auth                              | form schema (`authSchema`) + model validator                                                                                                                                                                                                    |
+| Engine module                     | What the game supplies (via CONFIG_DATA / gameConfig)                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Panel (host + client MVC)         | field schema (`fields` + display types: bar/number/time/weapon icon), `activeKey`; the engine PanelView **generates DOM from the schema** (replacing the `panel.pug` hardcode `#panel-health/-bullet/-bomb/-time`), field appearance — game CSS                                                                                                                              |
+| Stat (host + client MVC)          | columns (names/aggregation) and a **team list of arbitrary length**; the engine StatView **generates tables by team count** (replacing the `stat.pug` hardcode `#team1/#team2/#spectators` and 5 fixed columns)                                                                                                                                                              |
+| Vote (host + client MVC)          | game votes created dynamically (`voteCoordinator.createVote` from chat-command handlers) + all templates/menus (texts); engine-mechanism votes (teamChange, mapChangeByUser/BySystem) stay in the engine, and vote names starting with `@` are reserved for the engine (`@changeHost` — the master's "Change host?" window, lobby mode), their texts also come from the game |
+| Chat (host + client MVC)          | game system-message codes (the `b:*` group and future ones) + ALL message texts; the engine owns the mechanism and its own mechanism codes (`s/v/m/c/n`; `v:6`–`v:15` — the "Change host" vote notices, which the game must also give texts for)                                                                                                                             |
+| CommandProcessor                  | EVERY chat command: the engine parses none of its own, the game fills the whole registry (`/bot`, `/name`, `/nr`, `/timeleft`, `/mapname`, `/rank`). Exception: in lobby mode the client intercepts `/changehost` (the master's "Change host" vote) before it reaches the host — a game must not declare a command of that name                                              |
+| RoundManager / ParticipantManager | `teams` (arbitrary), `spectatorTeam`, respawns from maps, `scripted` parameters; the engine has the neutral "scripted participant"                                                                                                                                                                                                                                           |
+| SocketManager                     | `soundCues` (which sound plays on which engine event), `initialVote`                                                                                                                                                                                                                                                                                                         |
+| SoundManager (client)             | sound list + files (`assetsBase`)                                                                                                                                                                                                                                                                                                                                            |
+| Controls (client)                 | the player keyset and layout; the spectator set is engine-owned                                                                                                                                                                                                                                                                                                              |
+| Auth                              | form schema (`authSchema`) + model validator                                                                                                                                                                                                                                                                                                                                 |
 
 There is no `views` schema-bypass export: `ClientPlugin` has no field for
 supplying a custom Panel/Stat view class, and no plugin-loading code
@@ -996,12 +1036,9 @@ another game's.
   JWT, not from game code.
 - Both endpoints are proxied through the host (`PlayerDataProxy`) under the
   reporting player's own Bearer identity-token, and are attributed to the
-  hosting server (`hosterUserId`/`sessionId`). If that server's rating later
-  hits `blockAt`, every rank/skills contribution attributed to it is
-  reverted — see
+  reporting room (`sessionId`, verified by the master) — see
   [auth.md](auth.md#schema) and
-  [master.md](master.md#server-rating-likeunlike). A game cannot opt out of
-  this: it is a property of the shared profile, not of the game's own data.
+  [master.md](master.md#getput-authrank-getput-authstate).
 
 ## Compatibility invariants
 
@@ -1086,9 +1123,11 @@ that span several of them, level rules and falling for map bodies, `z` /
 `levelHeight`/`ramps` in the part context), `map.gameData` (the map's opaque
 `game` field in the core, `set_map` and the part context; the core's
 `on_map_loaded` hook), `map.bodyState` (the map body state byte,
-`role: 'state'`, and game access to map bodies by index) and `diagnostics`
+`role: 'state'`, and game access to map bodies by index), `diagnostics`
 (the client error journal service; optional, never worth a `requires`
-entry). A registered name is supported forever — a
+entry) and `host.migration` (host checkpoints: `gameConfig.migration`,
+module hooks `serializeState`/`restoreState`; never worth a `requires`
+entry either). A registered name is supported forever — a
 published game may have written it, and its `dist/` will never be touched
 again.
 

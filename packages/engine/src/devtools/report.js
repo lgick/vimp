@@ -103,6 +103,20 @@ export function formatMarkdown(report) {
     }
   }
 
+  // смены хоста через контрольную точку: 'soft' у игры, которая ждала
+  // 'midRound', — первое, что автор должен увидеть
+  if (report.checkpointRestores?.length) {
+    lines.push('');
+    lines.push('## Host checkpoints');
+    lines.push('');
+
+    for (const restore of report.checkpointRestores) {
+      lines.push(
+        `- tick ${restore.tick}: \`${restore.mode}\`, ${restore.bytes} B`,
+      );
+    }
+  }
+
   lines.push('');
 
   return `${lines.join('\n')}\n`;

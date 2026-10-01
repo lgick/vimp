@@ -9,6 +9,321 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- The lobby master refuses to start in production without
+  `VIMP_ROOM_SECRET_KEY` (at least 32 bytes): it is the key of the room
+  secret, `HMAC-SHA256(key, roomId:epoch:hostUserId)`, with which a host
+  reclaims its room after a master restart. A production environment that
+  started before now exits at startup. The dedicated server does not need it.
+- The plugin contract reserves more for the "Change host" vote:
+  `vimp-contract` rule `B8` now rejects a game's own system message codes
+  `v:6`–`v:15` (the engine's vote notices; group `v` was reserved up to 5),
+  and `B9` rejects a vote template or menu entry whose name starts with `@`
+  (engine votes). A game that used either passed the contract check before
+  and fails it now; at run time its codes would overwrite the engine's
+  notices, and an `@` vote's answer never reaches the host.
+
+### Migration
+
+- Generate a key (`openssl rand -hex 32`) and set it as
+  `VIMP_ROOM_SECRET_KEY` in the lobby master's environment; keep it the same
+  across restarts, or open rooms will not be reclaimed. With this repository's
+  deploy, store it as the GitHub secret `ROOM_SECRET_KEY` — `deploy.yml`
+  writes it into every lobby box's `.env` and fails the deploy without it.
+- A game with its own `v:*` system message codes at 6–15 moves them to its
+  own group letter (the engine leaves every letter but `s`, `v`, `m`, `c`,
+  `n` to games), and renames vote templates or menu entries that start with
+  `@`. Add client texts for the engine codes `v:6`–`v:15`.
+
+### Added
+
+- `gameConfig.lobbyInfo` and `deps.lobby.setInfo(text | null)` in
+  `createModules`: the game decides what its room's lobby card shows —
+  `lobbyInfo: 'map'` shows the current map and follows map changes, a module
+  may set any text at run time (it wins over `'map'`; `null` withdraws it).
+  Without either the card shows nothing there. Optional: a game calls
+  `lobby?.setInfo` and needs no `requires` entry.
+- `join_room`/`leave_room` signaling messages: the master tracks room members
+  itself (a guest joins after `AUTH_RESULT` and rejoins with the same tab
+  `memberId` after a signaling reconnect); `GET /servers` `currentPlayers` is
+  counted from the members, not reported by the host.
+- Direct links in the lobby mode: `#/<gameId>/<roomId>` opens that room
+  without showing the lobby, `#/<gameId>` is quick play (the fullest non-full
+  room of the game, else a new room with the form's defaults —
+  `lobbyConfig.quickPlay.autoCreate`). The link survives the login redirect
+  (the hash rides in `returnUrl`), and the address bar shows the room's link
+  while the tab is in it.
+- `GET /rooms/:roomId` on the lobby master: the public room shape plus
+  `status`, `404 unknownRoom`, rate-limited per IP
+  (`master.room.lookupRateLimit`).
+- "Copy link" on the lobby's room card (inside a room the link sits in the
+  address bar).
+- Session resume in the lobby mode: a guest's dropped WebRTC connection
+  reconnects to the room and resumes the player's place — same actor, team
+  and score — under a "Reconnecting…" overlay. New ports: server
+  `SESSION_DATA` (19, the resume secret) and `RESUME_RESULT` (20), client
+  `RESUME_REQUEST` (9) and `LEAVE` (10, leave at once without the grace).
+  The host keeps a disconnected player for `resumeGraceMs` (20 s, slot
+  taken, commands released); the client retries for
+  `lobbyConfig.session.reconnectWindowMs` (15 s) and treats
+  `session.hostSilenceMs` (3 s) of host silence in a match as a dead
+  connection. The dedicated server and the standalone SDK keep the old
+  behaviour.
+- `Publisher.off(type, fn, context)`.
+- Host checkpoints (`HANDOFF_VERSION` 4): the host Worker takes a full
+  checkpoint of the match at a frame boundary — the core dump
+  (`serialize_state`) plus the whole meta (participants, score, panel,
+  profiles without tokens, every timer with its remainder, round flags, the
+  map JSON and a game's `overrideMapData`) — gzipped by the new isomorphic
+  `lib/checkpointCodec.js` (`maxCheckpointBytes`, 8 MB unpacked). New Worker
+  messages `checkpoint_start`/`checkpoint_stop`/`checkpoint_request`,
+  `init { room, checkpoint, seqFloor }`, `start_after_restore`,
+  `freeze`/`unfreeze` and the reply `checkpoint { …, bytes }` (transferred);
+  `HostController` wraps them (`startCheckpoints`, `stopCheckpoints`,
+  `requestCheckpoint`, `onCheckpoint`, `freeze`, `unfreeze`,
+  `startAfterRestore`, constructor `{ checkpoint, seqFloor }`). A restored
+  match comes up paused with its players detached, waiting for `RESUME`.
+  The in-tab Worker handoff now sends the v4 format; v3 is still accepted.
+- `gameConfig.migration.midRound` (default `false`): a game that sets it
+  is restored from a checkpoint in the middle of the round, from the same
+  tick; without it a host change moves the meta and restarts the round.
+- Optional host-module hooks `serializeState()` / `restoreState(state)`
+  (modules from `createModules`, keyed by their name) carried in a
+  checkpoint of a game with `migration.midRound`.
+- Engine capability `host.migration` (no `requires` entry needed: an older
+  engine ignores the flag and migrates softly).
+- `vimp-sim` step `checkpointRestore` and option `--checkpoint-every <ms>`
+  (scenario field `checkpointEvery`): the host is swapped through a real
+  checkpoint, every client resumes, all invariants must stay green; the
+  report gets a `## Host checkpoints` section.
+- Standby successor: the master measures every member's RTT (WebSocket
+  ping/pong; a session silent for `master:room:wsDeadAfterMs` is
+  terminated) and designates a successor per room from the members'
+  capabilities (`caps` in `join_room`/`register_host`, the new
+  `member_update`); the host streams checkpoints to it over a `standby`
+  data channel (`lobbyConfig.migration`), and the successor pre-warms a
+  host Worker (`preload`).
+- Host migration in the lobby mode: when the host is lost the room is not
+  closed — the master promotes the standby successor, which restores the
+  match from its latest checkpoint; the guests reconnect and resume their
+  places; without a fresh checkpoint the room restarts cold on another
+  member under the same `roomId`.
+  - The master (`MigrationCoordinator`): when the host
+    is lost the room moves to `migrating`, the master promotes the successor
+    (mode `checkpoint` when its `standby_status` is fresh, else `cold` on any
+    able member), which takes the room with `register_host { roomId, epoch,
+promotionToken }` (no per-IP limit); the next candidate is tried after a
+    deadline or `promote_failed`. Guests report `host_unreachable`; the master
+    probes the host (`probe`/`probe_ack`) and forces a migration on no answer
+    or on a quorum of reports. New signaling messages `host_migrating`,
+    `promote`, `promote_cancelled`, `host_changed`, `host_revoked`; a
+    `reclaim_host` after a mere signaling drop cancels the migration
+    (`host_changed { mode: 'reclaimed' }`). `register_host`/`reclaim_host`
+    carry the room `settings` for a cold restart (`lib/roomSettings.js`). New
+    config `master:room:checkpointMaxAgeMs`, `promotionTimeoutMs`,
+    `coldPromotionTimeoutMs`, `probeTimeoutMs`, `reportWindowMs`,
+    `forcedMigrationCooldownMs`.
+  - Guests follow a host change: a dropped or silent transport is
+    reported to the master (`host_unreachable`); `host_migrating` closes the
+    transport to the old host at once and shows a "Switching host…" overlay
+    with keys and sound off; `host_changed` resumes the place at the new (or
+    returned) host, or reloads into the room on a `cold` restart; no
+    `host_changed` within `lobbyConfig.session.migrationWaitMs` (40 s) sends
+    the tab to quick play. A room link to a migrating room waits for it
+    (`session.migrationPollMs`) instead of falling back to quick play. Quick
+    play waits a random `quickPlay.createDelayMinMs`…`createDelayMaxMs` and
+    re-reads `GET /servers` before creating a room of its own.
+  - The promoted successor takes the room over: on `promote { mode:
+'checkpoint' }` it restores the match from its latest checkpoint (in the
+    pre-warmed Worker when the game version matches), registers with the
+    `promotionToken` and starts the match once the checkpoint's people resume
+    or after `resumeWaitMs` (3 s, `config/hostDefaults.js`); those still away
+    get the usual `resumeGraceMs` from that moment. `mode: 'cold'` reloads the
+    tab into the room and starts it afresh under the same `roomId`. A
+    failure reports `promote_failed` (as does a `checkpoint` promotion of a
+    tab whose own player has no resume secret); once the room is taken, a
+    failed return of the successor's own player keeps the room running for
+    the guests instead of reloading the tab. A former host that gets `host_revoked`
+    (or `staleEpoch` on reclaim) drops its Worker and resumes as a guest of the
+    new host. Worker message `start_after_restore { waitForResume }`,
+    `HostController.initFromCheckpoint`, `HostPrewarm.take()`,
+    `SessionSupervisor.resumeWith`, `LoopbackTransport` option `resume`.
+- Planned host handoff in the lobby mode: the host gives the role to the
+  standby successor, which continues the match from the same tick.
+  - The master: `handoff_begin { roomId, epoch, reason, stay }` from the
+    current host moves the room to `handing_off` and answers `handoff_go`
+    (the successor gets `promote { mode: 'planned' }`, the members
+    `host_migrating`) or `handoff_unavailable { reason }` (`noSuccessor`,
+    `busy`, `staleEpoch`). Success sends the old host `host_released`; a
+    successor that misses `master:room:handoffTimeoutMs` (8 s), refuses or
+    leaves aborts it (`handoff_aborted` to the host, `host_changed { mode:
+'reclaimed' }` to the members, the epoch unchanged); a host lost
+    mid-handoff turns it into an emergency migration (the successor is
+    re-promoted with `mode: 'checkpoint'`); the successor is not re-picked
+    while the host is changing. New guests' offers get
+    `error { code: 'migrating' }` meanwhile. `host_leaving { roomId, epoch }`
+    (the host's `pagehide`) starts an emergency migration at once.
+  - The successor: `promote { mode: 'planned' }` waits up to
+    `migration.finalWaitMs` (3 s) for the frozen host's final checkpoint,
+    otherwise takes the latest periodic one; a repeated `promote` with
+    `mode: 'checkpoint'` drops the wait. The final checkpoint has priority
+    on the `standby` channel — no periodic one overtakes it or replaces it
+    afterwards.
+  - The host: if the handoff is aborted, `unfreeze` sends every connected
+    participant a full resync, so entities removed while the world was
+    frozen do not linger on their canvas.
+  - The host's tab: `handoff_go` freezes the match and sends the final
+    checkpoint; on `host_released` its own player resumes as a guest of the
+    new host (handover) or the tab goes to the lobby (leave). The handoff has one deadline, `migration.handoffDeadlineMs` (10 s from `handoff_begin`, above the master's timeout): a slow master (no `handoff_go` within `migration.handoffSlowMs`, 3 s) is not a failure, and a late `handoff_go` still freezes the match and sends the final checkpoint. A refusal, `handoff_aborted`, a signaling drop or the deadline cancel it for good — the match unfreezes and the tab stays the host; a leaving host leaves anyway — `host_leaving` starts an emergency migration.
+    The room menu starts it: "Leave server" (everyone; a host alone closes
+    the room, a guest is released by the host at once with `LEAVE`) and
+    "Hand over host" (the host, when the master has assigned a successor);
+    while it runs the items are disabled and a status ("Handing over…",
+    "Slow connection…", "Host handover failed") takes their place. In a game
+    without `migration.midRound` a handover waits for the next round
+    (`migration.deferMaxMs`, 30 s at most); a leave does not wait.
+    `window.__vimpDebug.handoff({ reason, stay })` also starts one in a dev
+    build.
+  - The host's tab asks for confirmation before closing while other people
+    are in the room (`beforeunload`); `pagehide` sends the master
+    `host_leaving` at once (a guest's — `LEAVE` and `leave_room`).
+  - Guests: an offer refused with `error { code: 'migrating' }` is re-sent
+    after `webrtc.offerRetryMs` (1 s); a room link to a room in
+    `handing_off` waits for it like for `migrating`.
+- System message codes `s:7` (`HOST_CHANGED`, "Host changed"), `s:8`
+  (`HOST_REVOKED`, "You are no longer the host (connection lost)") and, in
+  place of `s:7` after an automatic handoff, `s:9`
+  (`HOST_CHANGED_OVERLOAD`, "Host changed: the previous host was lagging"),
+  `s:10` (`HOST_CHANGED_HIDDEN`, "… went inactive") and `s:11`
+  (`HOST_CHANGED_NETWORK`, "… had a poor connection"); contract rule `B8`
+  reserves group `s` up to 11. A game shows them once its client chat config
+  has texts at these indexes — without them the client drops the message
+  silently, nothing breaks. The master's `host_changed` carries the
+  migration's `reason`.
+- Host health metrics: the host Worker reports `health` about once a second
+  (loop `tickRate`, `maxGapMs`, `lostMs` cut off by the `dt` cap, and the
+  median RTT of remote humans) to `HostController.onHealth`; while the host
+  tab is hidden they are aggregated into one client-report warning,
+  `engine.host.hiddenHealth`, per hidden episode.
+- Automatic host handoff in the lobby mode (`HostHealthPolicy`, config
+  `lobby.migration.auto`): the host gives the role to its successor when its
+  tick rate stays low (soft overload waits for the round boundary, hard
+  overload goes at once) or its tab stays hidden; a deferred automatic
+  handoff is cancelled once the tick rate has recovered above a hysteresis
+  threshold. A per-tab cooldown and a minimum host tenure guard against
+  ping-pong. `PlannedHandoff` gains `hurry()`, `cancelDeferred()` and
+  `reason`.
+- Host network lag is decided by the master: the host reports
+  `host_health` every 2 s, and when its median RTT to the guests stays above
+  `master.room.lagRttThresholdMs` for `lagSustainMs` while the successor's
+  connectivity score is markedly better (`lagImprovementRatio`), the master
+  sends `request_handoff { reason: 'network', defer: true }`. A shared
+  per-room cooldown (`autoMigrationCooldownMs`, set by every successful
+  automatic host change — `overload`, `hidden` or `network`) keeps the room
+  from being passed around; a failed `network` handoff silences the lag
+  rule for the same cooldown. Guests report their mean render FPS in
+  `member_update.caps.fps`, and the master no longer picks a successor below
+  `master.room.minSuccessorFps`. The master accepts `overload`, `hidden` and
+  `network` as planned-handoff reasons.
+- "Change host" vote in lobby rooms — started with `/changehost`, counted
+  by the master (the host cannot block it); a passed vote hands the host
+  role over and bars the old host from it for 10 minutes. Not available in
+  dedicated or standalone mode. Its initiator sees "Voting has started",
+  like the initiator of a host vote, and a guest whose answer counted sees
+  "Your vote has been accepted". Signaling: `host_vote_start`/
+  `host_vote_answer` → `host_vote_started`/`host_vote`/`host_vote_accepted`/
+  `host_vote_result`, errors `voteRejected`
+  (with `reason`) and `noSuccessor`; `request_handoff` and handoffs take
+  `reason: 'vote'`; config `master:room:vote` (`hostVoteDurationMs`,
+  `roomVoteCooldownMs`, `userStartCooldownMs`, `voteForceAfterMs`,
+  `demotedCooldownMs`). The guests' "Change host?" window is the engine vote
+  `@changeHost` — vote names starting with `@` and the command `/changehost`
+  are reserved by the engine; an engine vote and a host vote wait for each
+  other instead of overwriting. Chat notices `v:6`–`v:15` (usage, "you are
+  the host", no master connection, held recently, no other host, already in
+  progress, not possible, passed/failed with the count, cancelled). A game
+  shows them once its client chat config has texts at these indexes —
+  without them the client drops the message silently.
+
+### Changed
+
+- A lost connection to the host no longer reloads the page immediately: in
+  the lobby mode a guest first tries to resume the session; a WebRTC attempt
+  whose channels do not open within `lobbyConfig.webrtc.connectTimeoutMs`
+  (10 s) now fails instead of hanging. A second `CONFIG_DATA`/`AUTH_RESULT`
+  inside a live session is logged (`engine.session.protocol`) and reloads
+  into the same room link instead of building a second client core.
+- Lobby mode, leaving a room: a kick (idle, latency, missed pings), a room
+  that failed to start or `hostLimit` no longer reloads the page — the address becomes the lobby's and the reason
+  stays on screen until clicked; a closed room reloads into quick play of
+  the same game instead of the lobby.
+- Rooms get a stable `roomId` (8 chars of lowercase crockford-base32) shown
+  on the lobby card as `gameId/roomId`; `GET /servers` search matches a
+  `roomId` prefix, a game, the card text or `gameId/<roomId prefix>`. Signaling
+  `register_host` takes no `name`, and `host_registered` carries
+  `roomId`/`epoch`/`roomSecret` (`hostId`/`hostSecret` kept as aliases, as is
+  `hostId` in `GET /servers`, offers, answers and pings).
+- The room secret is now `HMAC-SHA256(VIMP_ROOM_SECRET_KEY,
+roomId:epoch:hostUserId)`; `reclaim_host` keeps a room across a host
+  signaling reconnect and across a master restart. In development without
+  the key a random one is generated per process.
+- The lobby card no longer shows the current map by default: it shows the
+  game's `lobbyInfo` (see Added) and drops empty segments — no text when the
+  game sets none, no region when the master doesn't know it (no more
+  `unknown`). A game that wants the map back sets `lobbyInfo: 'map'`.
+  Signaling `register_host`/`reclaim_host`/`update_host` carry `info`
+  instead of `mapName` (`mapName` from older pages is still accepted;
+  `info: null` clears the text), and `GET /servers` returns `info` (`null`
+  when there is none) with `mapName` kept as an alias.
+- A lost host (its signaling closed, no heartbeat, or unreachable for the
+  guests) no longer closes a room that still has people: the room goes into
+  host migration (see Added) and is closed with `room_closed { reason:
+'noHost' }` only when nobody can take over; a room in migration or with a
+  detached host is left out of `GET /servers`. The client returns to the
+  lobby with the reason on `room_closed`; signaling `error`s
+  (`unknownRoom`, `invalidToken`, `hostLimit`, `roomTaken`,
+  `invalidRoomSecret`, `staleEpoch`) are handled by the client. An offer to
+  an unknown room answers `unknownRoom` (alias `unknownHost`).
+- `PUT /auth/rank`·`/state` attribution takes `roomId`/`roomSecret` (and
+  still `hostId`/`hostSecret` from older host Workers); the Worker learns them
+  from the new `set_room` message (`set_host_id` still understood).
+
+### Removed
+
+- Room name: the lobby `Server name` field (`#lobby-name`), `config.lobby`
+  `elems.nameId` and `create.defaultName`, master `host.maxNameLength`.
+- Server rating `/like`·`/unlike`: the lobby rating badge (and the rating
+  tie-break in the lobby sort), the chat interception of `/like`·`/unlike`,
+  the signaling messages `like_host`/`unlike_host` (a master now ignores
+  them), the `rating` field of `GET /servers`, the master config section
+  `rating`, the rating check on `register_host` (no more `blocked` /
+  `authServiceUnavailable` errors there) and the hoster attribution of
+  `PUT /auth/rank`·`/state` (only the verified room id is forwarded). Close
+  code `4002` (`blocked`) is retired and will not be reused.
+
+### Fixed
+
+- Rank/state writes lost after a Worker handoff (a code update in an open
+  room): the new Worker did not know the players' tokens and never loaded
+  their profiles, so nothing was written until the end of the session. The
+  in-tab handoff now carries the tokens (`localTokens`, never in a network
+  checkpoint) and the profiles.
+- Points not yet synced were lost at a Worker handoff: the old Worker now
+  flushes profiles before handing its state over (`handoffFlushTimeoutMs`,
+  3 s; past it the unsent points travel in the state).
+- A game result could be counted twice when a write was repeated after a
+  Worker handoff whose final flush timed out, or after a host restored from
+  a checkpoint: the write may already have reached auth. Each `PUT
+/auth/rank` now carries a per-participant number (`writeSeq`); a repeat
+  (5xx, 429, network failure, a restored host) goes out with the same number
+  and the same sum (unanswered writes travel in the checkpoint as `writes`;
+  a restored host pins the checkpoint's unsent points under the next number
+  and takes later numbers from a fresh random range), the master passes
+  `writeSeq` through, and auth drops the
+  repeat (`{ ok: true, duplicate: true }`, migration
+  `016_rank_write_idempotency.sql`).
+
 ## [0.35.6] — 2026-09-29
 
 ### Changed

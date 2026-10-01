@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createHostRuntime } from '../../packages/engine/src/lib/createHostRuntime.js';
+import {
+  createHostRuntime,
+  preloadHostRuntime,
+} from '../../packages/engine/src/lib/createHostRuntime.js';
 import RecordingSocketManager from '../../packages/engine/src/devtools/RecordingSocketManager.js';
 import { resetHostSingletons } from '../../packages/engine/src/devtools/resetHostSingletons.js';
 import clock from '../../packages/engine/src/lib/clock.js';
@@ -77,9 +80,54 @@ describe('createHostRuntime', () => {
     expect(createCore).not.toHaveBeenCalled();
   });
 
-  it('room.hostId сразу включает атрибуцию rank/state', async () => {
+  it('room.roomId сразу включает атрибуцию rank/state', async () => {
+    const runtime = await build({ roomId: 'r1', roomSecret: 's1', epoch: 2 });
+
+    expect(runtime.host._playerDataSync._roomId).toBe('r1');
+    expect(runtime.host._playerDataSync._roomSecret).toBe('s1');
+  });
+
+  // главный поток до host-migration этапа 2 кладёт в room hostId/hostSecret,
+  // а Worker поднимается уже по свежему манифесту
+  it('room.hostId от старого главного потока понимается как roomId', async () => {
     const runtime = await build({ hostId: 'h1', hostSecret: 's1' });
 
-    expect(runtime.host._playerDataSync._hostId).toBe('h1');
+    expect(runtime.host._playerDataSync._roomId).toBe('h1');
+    expect(runtime.host._playerDataSync._roomSecret).toBe('s1');
+  });
+});
+
+describe('preloadHostRuntime (host-migration этап 6)', () => {
+  it('импортирует плагин и компилирует wasm, матч не создаёт', async () => {
+    const createCore = vi.fn();
+    const compileWasm = vi.fn(async () => ({}));
+    const result = await preloadHostRuntime(
+      { game: { wasmUrl: '/games/t/1.0.0/core.wasm' } },
+      { loadHostPlugin: () => ({ ...hostPlugin, createCore }), compileWasm },
+    );
+
+    expect(result.wasmCompiled).toBe(true);
+    expect(compileWasm).toHaveBeenCalledWith('/games/t/1.0.0/core.wasm');
+    expect(createCore).not.toHaveBeenCalled();
+  });
+
+  it('без wasmUrl — только плагин', async () => {
+    const compileWasm = vi.fn();
+    const result = await preloadHostRuntime(
+      { game: {} },
+      { loadHostPlugin: () => hostPlugin, compileWasm },
+    );
+
+    expect(result).toEqual({ hostPlugin, wasmCompiled: false });
+    expect(compileWasm).not.toHaveBeenCalled();
+  });
+
+  it('несовместимый плагин виден уже при прогреве', async () => {
+    await expect(
+      preloadHostRuntime(
+        { game: {} },
+        { loadHostPlugin: () => ({ ...hostPlugin, gameConfig: {} }) },
+      ),
+    ).rejects.toThrow();
   });
 });

@@ -4,7 +4,7 @@ import { ERROR, skip, verdict } from '../result.js';
 // реестра: код в зарезервированном диапазоне затирает движковое сообщение
 // без предупреждения, и вместо «Vote passed» игрок видит игровой текст.
 // Диапазоны — длины движковых групп (client/config/chat messages).
-const RESERVED = { s: 6, v: 5, m: 1, c: 1, n: 1 };
+const RESERVED = { s: 11, v: 15, m: 1, c: 1, n: 1 };
 
 export default {
   id: 'B8',

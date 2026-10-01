@@ -1,4 +1,4 @@
-# Этап 2. Стабильная комната: `roomId` без имени, эпоха, участники на мастере, реконнект хоста
+# Этап 2. Стабильная комната: `roomId` без имени, эпоха, участники на мастере, реконнект хоста ✅ выполнен
 
 Цель: перевести мастер с «реестра хостов» на «реестр комнат». У комнаты
 стабильный публичный `roomId` (переживает смену хоста и реконнект
@@ -203,10 +203,18 @@ the room» пока остаётся верным, но с `room_closed`); `clie
 
 ## 2.9. CHANGELOG
 
+`### ⚠️ Breaking` + `### Migration`: лобби-мастер в production без
+`VIMP_ROOM_SECRET_KEY` не стартует — окружение, которое раньше запускалось,
+теперь отвергается (уточнено при ревью: правило `CLAUDE.md` приоритетнее
+плана, где стояло `Changed`).
+`### Added`: `join_room`/`leave_room`, мастер ведёт участников комнат;
+`gameConfig.lobbyInfo` + `deps.lobby.setInfo` (уточнено при ревью: строку
+карточки лобби задаёт игра — `'map'` у tanks, у snakes её нет; пустые
+сегменты карточки, включая неизвестный регион, не выводятся).
 `### Changed`: rooms get a stable `roomId` (lobby card and search),
-signaling `register_host` without `name`, `reclaim_host` keeps a room
-across a host signaling reconnect and a master restart, `room_closed`.
-`### Added`: `join_room`/`leave_room`, the master tracks room members.
+signaling `register_host` without `name`, `info` вместо `mapName`,
+`reclaim_host` keeps a room across a host signaling reconnect and a master
+restart, `room_closed`.
 `### Removed`: room name (`#lobby-name`, `config.lobby` `nameId`/
 `defaultName`, master `maxNameLength`).
 

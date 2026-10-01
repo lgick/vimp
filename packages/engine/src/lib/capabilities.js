@@ -46,6 +46,11 @@ export const ENGINE_CAPABILITIES = createRegistry('engine-capabilities', [
   // сервис пула `diagnostics` (журнал клиентских ошибок, plan/client-reports);
   // опционален — игра не пишет его в `requires`
   { value: 'diagnostics', since: '0.35.0' },
+  // контрольная точка хоста посреди раунда (host-migration этап 5):
+  // gameConfig.migration.midRound, хуки модулей serializeState/restoreState.
+  // Писать в `requires` не нужно: старый движок флаг просто игнорирует, и
+  // игра на нём мигрирует мягко
+  { value: 'host.migration', since: '0.36.0' },
 ]);
 
 // плоский список имён — то, чем правило контракта B2 проверяет `requires`

@@ -158,6 +158,11 @@ export default {
             '{0} killed {1}',
             '{0} joined the game',
             '{0} left the game',
+            'Host changed',
+            'You are no longer the host (connection lost)',
+            'Host changed: the previous host was lagging',
+            'Host changed: the previous host went inactive',
+            'Host changed: the previous host had a poor connection',
           ],
           v: [
             'A vote has been created',
@@ -166,6 +171,16 @@ export default {
             'Voting is temporarily unavailable',
             'Vote passed',
             'Vote failed',
+            'Usage: /changehost',
+            'You are the host — use “Hand over host” in the room menu',
+            'No connection to the master server',
+            'A host vote was held recently',
+            'No other player can host',
+            'A host vote is already in progress',
+            'A host vote is not possible right now',
+            'Vote to change host passed ({0}/{1})',
+            'Vote to change host failed ({0}/{1})',
+            'Host vote cancelled',
           ],
           m: ['Current map: {0}', 'Next map: {0}'],
           c: ['Command not found'],
@@ -778,10 +793,13 @@ export default {
   BOT_REMOVED_FROM_TEAM: 'b:4',
   BOT_CREATED: 'b:5',
   BOT_REMOVED: 'b:6',
+
+  TIME_LEFT: 't:0', // Time left: {0} (/timeleft)
 };
 ```
 
-Group `b` is free; `s`, `v`, `m`, `c`, `n` are the engine's.
+Groups `b` and `t` are free; `s`, `v`, `m`, `c`, `n` are the engine's.
+`/mapname` answers with the engine's `MAP_CURRENT`, not a raw text.
 
 ## Rust core layout
 

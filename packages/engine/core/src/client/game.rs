@@ -834,6 +834,17 @@ mod tests {
     }
 
     fn frame_bytes(server_time: f64, seq: u32, x: f32, with_player: bool) -> Vec<u8> {
+        frame_bytes_acked(server_time, seq, x, with_player, 0)
+    }
+
+    // то же с подтверждённым seq ввода в player-блоке
+    fn frame_bytes_acked(
+        server_time: f64,
+        seq: u32,
+        x: f32,
+        with_player: bool,
+        input_seq: u32,
+    ) -> Vec<u8> {
         let cfg = engine_client_config();
         let mut packer = SnapshotPacker::new(cfg.snapshot.clone());
 
@@ -852,7 +863,7 @@ mod tests {
         };
         let player = PlayerBlock {
             game_id: 2,
-            input_seq: 0,
+            input_seq,
             state: [x, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             centering: false,
         };
@@ -1110,6 +1121,40 @@ mod tests {
         state.reset();
 
         assert_eq!(state.take_frames(), "[]");
+    }
+
+    // возобновление сессии (host-migration этап 4): хост никогда не получит
+    // вводы, ушедшие в оборванный транспорт, и восстановленное состояние
+    // подтверждает seq меньше уже виденного. После reset() такой кадр — новая
+    // отправная точка: принят целиком, без отсева по seq кадра или ввода
+    #[test]
+    fn reset_accepts_older_acked_seq_after_resume() {
+        let mut state = make_state();
+
+        state.set_active(true);
+        state.push_frame(&frame_bytes_acked(1000.0, 10, 10.0, true, 105), 1000.0);
+        state.push_frame(&frame_bytes_acked(1100.0, 11, 20.0, true, 107), 1100.0);
+        state.sample(1150.0);
+
+        state.reset();
+        state.game.reconcile_log.clear();
+
+        assert_eq!(state.my_game_id(), None);
+
+        // seq кадра и подтверждённый ввод — оба меньше виденных до обрыва
+        assert!(state.push_frame(&frame_bytes_acked(2000.0, 3, 50.0, true, 95), 2000.0));
+
+        assert_eq!(state.my_game_id(), Some(2));
+        assert_eq!(state.game.reconcile_log, vec!["begin", "state", "finish"]);
+
+        let dump: serde_json::Value = serde_json::from_str(&state.debug_json()).unwrap();
+
+        assert_eq!(dump["interpolator"]["buffered"], 1);
+
+        // предикт продолжает работать: новые кадры поверх возобновлённого
+        assert!(state.push_frame(&frame_bytes_acked(2100.0, 4, 60.0, true, 108), 2100.0));
+        assert_eq!(state.sample(2150.0), state.hot().len());
+        assert!(state.hot()[0] as u32 & HOT_HAS_PREDICTED != 0);
     }
 
     #[test]

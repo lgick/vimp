@@ -438,6 +438,7 @@ export default {
     // noSpectators: true,            // opt-in: наблюдателей нет вовсе — ровно одна команда,
     //                                // подключившийся входит в неё сразу, без голосования
     // endlessRound: true,            // opt-in: движок сам раунд не перезапускает
+    // migration: { midRound: true }, // opt-in: новый хост продолжает раунд с того же тика
     parts: { models, weapons, friendlyFire },   // из src/data игры-плагина (например, vimp-tanks)
     snapshot,                         // снапшот-схема ключей (config/snapshot.js) — обязательное поле
     playerKeys, // spectatorKeys — движковые (наблюдение — механизм движка)
@@ -445,6 +446,7 @@ export default {
     stat:  { columns: {name:{…}, status:{…}, score:{…}, deaths:{…}, latency:{…}} },
     scripted: { namePrefix: 'Bot', defaultModel: 'm1' },   // вместо хардкодов Bot${id}/'m1'
     mapScale: 0.3, mapSetId: 'c1', mapsInVote: 4, defaultMap: 'pool mini',
+    lobbyInfo: 'map',                 // необязательно: карточка комнаты в лобби показывает текущую карту
     chatMaxLength: 60,
     initialVote: 'teamChange',        // вместо хардкода SocketManager.sendFirstVote
     soundCues: { roundStart:'roundStart', victory:'victory', defeat:'defeat',
@@ -474,7 +476,8 @@ export default {
 
   createModules(ctx) { return { scripted: new MyBotManager(ctx) }; },
   // ctx = { participants, coreAdapter, panel, stat, chat, socketManager,
-  //         scripted /* параметры gameConfig.scripted */ }
+  //         scripted /* параметры gameConfig.scripted */,
+  //         lobby /* { setInfo(text | null) } — нет на старых движках */ }
   // обработчики чат-команд получают другой, мета-уровневый ctx от
   // CommandProcessor: { participants, chat, scripted, roundManager,
   //   voteCoordinator, timerManager, teams, spectatorTeam, spectatorId,
@@ -482,6 +485,8 @@ export default {
   // Контракт scripted-модуля (дергает движок — RoundManager/HostGame):
   //   createMap(scaledMapData), createScripted(count, team?), removeScripted(team?),
   //   removeOneForHuman(team), getCount(), getCountsPerTeam()
+  // Любой модуль может добавить serializeState() → JSON и restoreState(state):
+  //   контрольные точки хоста (см. «Миграция хоста» ниже)
 };
 ```
 
@@ -527,7 +532,41 @@ gameId)` проверяет обязательные пути, подставл�
 | `statMode`                | `'table'`                      | по Tab движок рисует таблицу комнаты                                                         |
 | `noSpectators`            | `false`                        | наблюдатели существуют как концепция                                                         |
 | `endlessRound`            | `false`                        | движок сам перезапускает раунд                                                               |
+| `lobbyInfo`               | `null`                         | карточка комнаты в лобби не показывает текста игры                                           |
+| `migration.midRound`      | `false`                        | смена хоста переносит мету и начинает раунд заново (см. ниже)                                |
 | `spectatorTeam`           | выводится                      | `null` под `noSpectators`; иначе ключ `spectators` из `teams`, иначе `null` с `console.warn` |
+
+**Строка карточки лобби** (`lobbyInfo`) — собственная строка игры на
+карточке её комнаты в лобби (`gameId/roomId`, затем `<текст> · игроки/макс ·
+регион`). `lobbyInfo: 'map'` показывает текущую карту комнаты и следит за её
+сменой; любое другое значение или отсутствие поля — ничего. Модуль может
+задать произвольный текст во время работы — опцию сервера, режим, фазу —
+через `ctx.lobby` из `createModules`: `lobby?.setInfo('Hardcore')` (важнее
+`'map'`; `setInfo(null)` снимает его). Текст обрезается и ограничивается
+мастером (`master.room.maxInfoLength`, 48). Опциональная цепочка `lobby?.`
+нарочная: старый движок `lobby` не передаёт, и в `requires` игре ничего
+писать не нужно.
+
+**Миграция хоста** (`migration.midRound`). Комната может переехать к
+другому хосту — движок снимает [контрольную точку](host.md#контрольные-точки)
+матча и поднимает её на новом. По умолчанию переезд **мягкий**: мета
+(участники, счёт, карта с остатком времени, профили) переносится, раунд
+начинается заново. `migration: { midRound: true }` — обещание игры, что её
+состояние переживает переезд **посреди раунда**:
+
+- `GameSim::serialize`/`deserialize` переносят всё, чем владеет симуляция
+  ядра (движок отправляет дамп `serialize_state`);
+- каждый модуль из `createModules`, держащий состояние в памяти, реализует
+  `serializeState()` → JSON-значение и `restoreState(state)`. Движок зовёт
+  их по ключу модуля в объекте `createModules` при снятии и восстановлении
+  точки (восстановление — после того, как движок поднял свою мету, карту
+  включительно). Модулю без методов ничего не переносится. Модуль, чей
+  `serializeState` бросил исключение, делает точку мягкой.
+
+Возможность движка называется `host.migration`; писать её в `requires` не
+нужно — старый движок поле игнорирует, и игра мигрирует на нём мягко.
+Проверка — шаг `vimp-sim` `checkpointRestore` (или
+`--checkpoint-every <мс>`), см. [debugging.md](debugging.md).
 
 Согласованность того, что игра прислала, по-прежнему проверяется и
 по-прежнему бросает: объявленный `spectatorTeam` обязан быть ключом `teams`,
@@ -619,18 +658,18 @@ draw() {
 **Ключевое: модули Stat/Panel/Vote/Chat — движковые, но вся их
 параметризация — из конфига игры.** Следствия:
 
-| Движковый модуль                  | Что поставляет игра (через CONFIG_DATA / gameConfig)                                                                                                                                                                                                |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Panel (host + client MVC)         | схема полей (`fields` + типы отображения: bar/число/время/иконка-оружия), `activeKey`; движковый PanelView **генерирует DOM по схеме** (замена хардкода `panel.pug` `#panel-health/-bullet/-bomb/-time`), внешний вид полей — CSS игры              |
-| Stat (host + client MVC)          | колонки (имена/методы агрегации) и **список команд произвольной длины**; движковый StatView **генерирует таблицы по числу команд** (замена хардкода `stat.pug` `#team1/#team2/#spectators` и 5 фиксированных колонок)                               |
-| Vote (host + client MVC)          | игровые голосования создаются динамически (`voteCoordinator.createVote` из обработчиков чат-команд) + все шаблоны/меню (тексты); движковые голосования механизмов (teamChange, mapChangeByUser/BySystem) остаются в движке, их тексты — тоже у игры |
-| Chat (host + client MVC)          | игровые коды системных сообщений (группа `b:*` и будущие) + ВСЕ тексты сообщений; движок владеет механизмом и кодами своих механизмов (`s/v/m/c/n`)                                                                                                 |
-| CommandProcessor                  | ВСЕ чат-команды: движок своих не разбирает, реестр целиком наполняет игра (`/bot`, `/name`, `/nr`, `/timeleft`, `/mapname`, `/rank`)                                                                                                                |
-| RoundManager / ParticipantManager | `teams` (произвольные), `spectatorTeam`, respawns из карт, `scripted`-параметры; в движке — нейтральный «scripted participant»                                                                                                                      |
-| SocketManager                     | `soundCues` (какой звук на какое движковое событие), `initialVote`                                                                                                                                                                                  |
-| SoundManager (client)             | список звуков + файлы (`assetsBase`)                                                                                                                                                                                                                |
-| Controls (client)                 | player-keyset и раскладка; спектаторский набор — движковый                                                                                                                                                                                          |
-| Auth                              | схема формы (`authSchema`) + валидатор модели                                                                                                                                                                                                       |
+| Движковый модуль                  | Что поставляет игра (через CONFIG_DATA / gameConfig)                                                                                                                                                                                                                                                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Panel (host + client MVC)         | схема полей (`fields` + типы отображения: bar/число/время/иконка-оружия), `activeKey`; движковый PanelView **генерирует DOM по схеме** (замена хардкода `panel.pug` `#panel-health/-bullet/-bomb/-time`), внешний вид полей — CSS игры                                                                                                                          |
+| Stat (host + client MVC)          | колонки (имена/методы агрегации) и **список команд произвольной длины**; движковый StatView **генерирует таблицы по числу команд** (замена хардкода `stat.pug` `#team1/#team2/#spectators` и 5 фиксированных колонок)                                                                                                                                           |
+| Vote (host + client MVC)          | игровые голосования создаются динамически (`voteCoordinator.createVote` из обработчиков чат-команд) + все шаблоны/меню (тексты); движковые голосования механизмов (teamChange, mapChangeByUser/BySystem) остаются в движке, имена голосований с `@` зарезервированы движком (`@changeHost` — окно «Change host?» мастера, лобби-режим), их тексты — тоже у игры |
+| Chat (host + client MVC)          | игровые коды системных сообщений (группа `b:*` и будущие) + ВСЕ тексты сообщений; движок владеет механизмом и кодами своих механизмов (`s/v/m/c/n`; `v:6`–`v:15` — сообщения голосования «Change host», тексты для них игра тоже даёт)                                                                                                                          |
+| CommandProcessor                  | ВСЕ чат-команды: движок своих не разбирает, реестр целиком наполняет игра (`/bot`, `/name`, `/nr`, `/timeleft`, `/mapname`, `/rank`). Исключение: в лобби-режиме клиент перехватывает `/changehost` (голосование «Change host» мастера) до хоста — игра не должна объявлять команду с таким именем                                                              |
+| RoundManager / ParticipantManager | `teams` (произвольные), `spectatorTeam`, respawns из карт, `scripted`-параметры; в движке — нейтральный «scripted participant»                                                                                                                                                                                                                                  |
+| SocketManager                     | `soundCues` (какой звук на какое движковое событие), `initialVote`                                                                                                                                                                                                                                                                                              |
+| SoundManager (client)             | список звуков + файлы (`assetsBase`)                                                                                                                                                                                                                                                                                                                            |
+| Controls (client)                 | player-keyset и раскладка; спектаторский набор — движковый                                                                                                                                                                                                                                                                                                      |
+| Auth                              | схема формы (`authSchema`) + валидатор модели                                                                                                                                                                                                                                                                                                                   |
 
 Обхода схемы через `views` не существует: у `ClientPlugin` нет поля для
 своего Panel/Stat view-класса, и никакой код загрузки плагина его не
@@ -991,12 +1030,9 @@ fn render_rows() -> Vec<PredictedRow> (строки тел, которые иг�
 - Игра **никогда** не пишет ник или идентичность — они берутся из JWT
   игрока, не из игрового кода.
 - Оба эндпоинта проксируются через хост (`PlayerDataProxy`) под собственным
-  Bearer identity-токеном сообщающего игрока и атрибутируются к принимающему
-  серверу (`hosterUserId`/`sessionId`). Если рейтинг этого сервера позже
-  падает до `blockAt`, весь вклад rank/skills, отнесённый к нему,
-  откатывается — см. [auth.md](auth.md#схема-бд) и
-  [master.md](master.md#рейтинг-сервера-likeunlike). Игра не может отказаться
-  от этого поведения: это свойство общего профиля, а не игровых данных.
+  Bearer identity-токеном сообщающего игрока и атрибутируются к комнате-
+  источнику (`sessionId`, проверен мастером) — см. [auth.md](auth.md#схема-бд)
+  и [master.md](master.md#getput-authrank-getput-authstate).
 
 ## Инварианты совместимости
 
@@ -1080,8 +1116,10 @@ append-only реестре возможностей `src/lib/capabilities.js`, �
 `levelHeight`/`ramps` в контексте парта), `map.gameData` (непрозрачное поле
 карты `game` в ядре, `set_map` и контексте парта; хук ядра `on_map_loaded`),
 `map.bodyState` (байт состояния тела карты, `role: 'state'`, и доступ игры к
-телам карты по индексу) и `diagnostics` (сервис журнала клиентских ошибок;
-необязательный, в `requires` его не пишут). Зарегистрированное имя
+телам карты по индексу), `diagnostics` (сервис журнала клиентских ошибок;
+необязательный, в `requires` его не пишут) и `host.migration` (контрольные
+точки хоста: `gameConfig.migration`, хуки модулей
+`serializeState`/`restoreState`; в `requires` его тоже не пишут). Зарегистрированное имя
 поддерживается вечно — опубликованная игра могла его написать, и её `dist/`
 больше никто не тронет.
 

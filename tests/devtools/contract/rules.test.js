@@ -545,6 +545,42 @@ describe('B. host', () => {
     ).toMatch(/overwrites the engine message s:4/);
   });
 
+  it('B8 reserves the host-migration codes s:7 to s:11', () => {
+    expect(
+      violations('B8', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, systemMessages: { MINE: 's:8' } },
+      }),
+    ).toMatch(/overwrites the engine message s:8/);
+    expect(
+      violations('B8', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, systemMessages: { MINE: 's:11' } },
+      }),
+    ).toMatch(/overwrites the engine message s:11/);
+    expect(
+      violations('B8', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, systemMessages: { MINE: 's:12' } },
+      }),
+    ).toBe('');
+  });
+
+  it('B8 reserves the host vote codes v:6 to v:15', () => {
+    expect(
+      violations('B8', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, systemMessages: { MINE: 'v:15' } },
+      }),
+    ).toMatch(/overwrites the engine message v:15/);
+    expect(
+      violations('B8', {
+        ...base,
+        hostPlugin: { ...base.hostPlugin, systemMessages: { MINE: 'v:16' } },
+      }),
+    ).toBe('');
+  });
+
   it('B9 catches a reserved vote name and a template-less menu entry', () => {
     const vote = base.clientConfig.modules.vote.params;
     const found = violations('B9', {
@@ -557,6 +593,22 @@ describe('B. host', () => {
 
     expect(found).toMatch(/"mapChange" reuses a reserved vote name/);
     expect(found).toMatch(/"surrender" has no template/);
+  });
+
+  it('B9 reserves vote names starting with @ for engine votes', () => {
+    const vote = base.clientConfig.modules.vote.params;
+    const found = violations('B9', {
+      ...base,
+      clientConfig: withVote(base, {
+        templates: { ...vote.templates, '@kick': ['Kick?', ['Yes', 'No']] },
+        menu: [...vote.menu, ['@kick', ['Kick']], ['@changeHost', ['Host']]],
+      }),
+    });
+
+    expect(found).toMatch(/vote template "@kick" starts with "@"/);
+    expect(found).toMatch(/vote menu entry "@kick" starts with "@"/);
+    expect(found).toMatch(/vote menu entry "@changeHost" starts with "@"/);
+    expect(found).not.toMatch(/has no template/);
   });
 
   it('B10 catches respawns below maxPlayers and a team without them', () => {

@@ -17,13 +17,15 @@ import HostGame from '../host/HostGame.js';
 /**
  * Поднимает HostPlugin игры, ядро, SocketManager и HostGame.
  * @param {Object} room - Описание комнаты (game.hostEntryUrl, game.wasmUrl,
- *   game.version, hostSocketId, hostId/hostSecret, seed, переопределения).
+ *   game.version, hostSocketId, roomId/roomSecret/epoch, seed,
+ *   переопределения).
  * @param {Object} [options]
  * @param {Function} [options.loadHostPlugin] - Загрузчик плагина; по умолчанию
  *   динамический import по room.game.hostEntryUrl.
  * @param {Function} [options.createSocketManager] - Фабрика транспорта; по
  *   умолчанию боевой SocketManager (runner подставляет записывающий).
- * @param {Object} [options.hostOptions] - Опции HostGame (onMapChange, handoff).
+ * @param {Object} [options.hostOptions] - Опции HostGame (onMapChange,
+ *   handoff, checkpoint + seqFloor).
  * @param {Function} [options.overrideGameConfig] - Правка собранного конфига
  *   игры перед созданием ядра; в проде не задаётся, нужна отладочному
  *   прогону (сценарий подкручивает networkSendRate и таймеры).
@@ -81,20 +83,105 @@ export async function createHostRuntime(room, options = {}) {
   const host = new HostGame(game, socketManager, core, hostPlugin, {
     hostSocketId: room?.hostSocketId ?? null,
     gameVersion: room.game?.version ?? null,
+    // настройки комнаты едут в контрольной точке (host-migration этап 5):
+    // преемник собирает из них тот же конфиг ядра
+    roomSettings: pickRoomSettings(room),
+    mapsVersion: room?.mapsVersion ?? null,
     // рекордер (этап 6 плана plan/done/ai-debug) кладёт seed в сценарий — без него
     // записанный матч невоспроизводим
     seed,
     ...hostOptions,
   });
 
-  // эстафета Worker'ов несёт уже известные hostId+секрет в room — новый
+  // эстафета Worker'ов несёт уже известные roomId+секрет в room — новый
   // Worker не должен ждать повторного register_host, чтобы возобновить
-  // атрибуцию rank/state-flush; при холодном старте они придут позже
-  if (room?.hostId) {
-    host.setHostId(room.hostId, room.hostSecret);
+  // атрибуцию rank/state-flush; при холодном старте они придут позже.
+  // hostId/hostSecret — те же поля от главного потока до host-migration
+  // этапа 2
+  if (room?.roomId) {
+    host.setRoom({
+      roomId: room.roomId,
+      roomSecret: room.roomSecret,
+      epoch: room.epoch,
+    });
+  } else if (room?.hostId) {
+    host.setRoom({ roomId: room.hostId, roomSecret: room.hostSecret });
   }
 
   return { hostPlugin, game, seed, core, clientCfg, socketManager, host };
+}
+
+/**
+ * Прогрев Worker'а преемника (host-migration этап 6): плагин импортирован и
+ * проверен, wasm скомпилирован — матч не создаётся. Повторный import того же
+ * URL в том же Worker'е берётся из кэша модулей, а скачанный wasm — из
+ * HTTP-кэша, поэтому промоушен (этап 7) не ждёт сети.
+ * @param {Object} room - { game: { id, version, hostEntryUrl, wasmUrl } }.
+ * @param {Object} [options]
+ * @param {Function} [options.loadHostPlugin]
+ * @param {Function} [options.compileWasm] - (url) → Promise; по умолчанию
+ *   WebAssembly.compileStreaming с фолбэком на compile(arrayBuffer).
+ * @returns {Promise<{ hostPlugin: Object, wasmCompiled: boolean }>}
+ */
+export async function preloadHostRuntime(room, options = {}) {
+  const {
+    loadHostPlugin = defaultLoadHostPlugin,
+    compileWasm = defaultCompileWasm,
+  } = options;
+
+  const hostPlugin = await loadHostPlugin(room);
+
+  // та же проверка формы, что при init: битый плагин виден до аварии
+  assertGameConfigShape(hostPlugin);
+
+  let wasmCompiled = false;
+
+  if (room.game?.wasmUrl) {
+    await compileWasm(room.game.wasmUrl);
+    wasmCompiled = true;
+  }
+
+  return { hostPlugin, wasmCompiled };
+}
+
+async function defaultCompileWasm(url) {
+  if (typeof WebAssembly.compileStreaming === 'function') {
+    try {
+      return await WebAssembly.compileStreaming(fetch(url));
+    } catch {
+      // сервер отдал wasm не с application/wasm — компиляция из буфера
+    }
+  }
+
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error(`wasm: HTTP ${res.status}`);
+  }
+
+  return WebAssembly.compile(await res.arrayBuffer());
+}
+
+// ровно то, что читают applyRoomOverrides и buildCoreConfig
+const ROOM_SETTING_KEYS = [
+  'map',
+  'maxPlayers',
+  'roundTime',
+  'mapTime',
+  'friendlyFire',
+  'isDevMode',
+];
+
+function pickRoomSettings(room) {
+  const settings = {};
+
+  for (const key of ROOM_SETTING_KEYS) {
+    if (room?.[key] !== undefined) {
+      settings[key] = room[key];
+    }
+  }
+
+  return settings;
 }
 
 // до onInit движок игру не знает вовсе — только URL её host-бандла из

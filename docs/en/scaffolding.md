@@ -93,7 +93,7 @@ npm run check:contract  # vimp-contract: the static engine↔game contract
 npm run core:test       # cargo test --workspace (includes the parity test)
 npm test && npx eslint .
 npm run build           # dist/: both bundles, maps, sounds, manifest.json
-npm run sim             # a headless match on the real core
+npm run sim             # a headless match on the real core, host swapped every 0.5 s
 npm run dev             # the same match in the browser, against bots
 ```
 

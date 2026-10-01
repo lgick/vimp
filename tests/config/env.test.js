@@ -1,6 +1,9 @@
 import { describe, test, expect } from 'vitest';
 
-import { readDedicatedRoom } from '../../packages/engine/src/config/env.js';
+import {
+  readDedicatedRoom,
+  readRoomSecretKey,
+} from '../../packages/engine/src/config/env.js';
 
 // VIMP_DEDICATED_ROOM приезжает из SERVERS_MATRIX через toJSON(matrix.settings),
 // схлопнутый в одну строку через jq -c (см. .github/workflows/deploy.yml):
@@ -50,5 +53,47 @@ describe('readDedicatedRoom', () => {
     expect(() => readDedicatedRoom(env)).toThrow(
       /VIMP_DEDICATED_ROOM: invalid JSON/,
     );
+  });
+});
+
+// ключ секрета комнаты (host-migration, этап 2): без него в проде reclaim_host
+// после рестарта мастера не отличил бы хоста от угонщика
+describe('readRoomSecretKey', () => {
+  const randomBytes = n => Buffer.alloc(n, 7);
+
+  test('в production обязателен', () => {
+    expect(() =>
+      readRoomSecretKey({}, { isProduction: true, randomBytes }),
+    ).toThrow(/VIMP_ROOM_SECRET_KEY must be set/);
+  });
+
+  test('заданный ключ берётся как есть', () => {
+    const key = 'k'.repeat(32);
+
+    expect(
+      readRoomSecretKey(
+        { VIMP_ROOM_SECRET_KEY: key },
+        { isProduction: true, randomBytes },
+      ),
+    ).toEqual({ key, ephemeral: false });
+  });
+
+  test('ключ короче 32 байт — именованный отказ и в dev', () => {
+    expect(() =>
+      readRoomSecretKey(
+        { VIMP_ROOM_SECRET_KEY: 'short' },
+        { isProduction: false, randomBytes },
+      ),
+    ).toThrow(/at least 32 bytes/);
+  });
+
+  test('в dev без ключа генерируется случайный на время процесса', () => {
+    const { key, ephemeral } = readRoomSecretKey(
+      {},
+      { isProduction: false, randomBytes },
+    );
+
+    expect(ephemeral).toBe(true);
+    expect(key).toEqual(Buffer.alloc(32, 7));
   });
 });

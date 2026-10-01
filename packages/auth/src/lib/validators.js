@@ -21,18 +21,16 @@ export const isValidGameResult = (points, best, { maxGameScore, maxPoints }) =>
   points <= maxPoints &&
   best <= points;
 
+// номер записи результата игры (host-migration 7.7, миграция 016):
+// положительное безопасное целое, иначе null — строка пишется без защиты от
+// повтора, как у хостов до этой версии. Продублировано с движкового
+// readWriteSeq (packages/engine/src/lib/validators.js), как и ник выше
+export const readWriteSeq = value =>
+  Number.isSafeInteger(value) && value > 0 ? value : null;
+
 // state — непрозрачный JSON игры, auth проверяет только общий объём
 export const isValidStateSize = (state, maxBytes) =>
   Buffer.byteLength(JSON.stringify(state)) <= maxBytes;
-
-// server-rating этап 2 (stage_2.md, 2.1): голос — ровно +1 (/like) или
-// -1 (/unlike), никаких других значений
-export const isValidVoteValue = value => value === 1 || value === -1;
-
-// причина обязательна (правило /like·/unlike, как раньше у /ban); пустая —
-// голос не учитывается
-export const isValidVoteReason = reason =>
-  typeof reason === 'string' && reason.trim().length > 0;
 
 // клампит query-параметр в целое [1, max]; невалидное значение — fallback
 // (lobby-page-plan: GET /leaderboard?limit=). Вынесено из main.js (code

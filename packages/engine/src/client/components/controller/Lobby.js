@@ -64,12 +64,12 @@ export default class LobbyCtrl {
     this._model.loadMore();
   }
 
-  pingHost(hostId) {
-    this._model.pingHost(hostId, this._clock());
+  pingHost(roomId) {
+    this._model.pingHost(roomId, this._clock());
   }
 
-  join(hostId) {
-    this._model.join(hostId);
+  join(roomId) {
+    this._model.join(roomId);
   }
 
   showTab(tab) {

@@ -302,7 +302,7 @@ and flushes profiles), then the HTTP server, then the process exits.
   world. Pausing on an empty room (`stopGameTimers()` when the last socket
   leaves, `resumeGameTimers(mapTimeLeft)` plus `initiateNewRound()` on the
   first entry) is a follow-up: round/map timer semantics need their own pass.
-- **No server rating and no `GET /servers`.** A dedicated server does not
+- **No `GET /servers`.** A dedicated server does not
   register in the lobby catalog and is not discoverable through it — players
   reach it by its URL.
 

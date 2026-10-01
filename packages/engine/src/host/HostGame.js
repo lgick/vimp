@@ -14,14 +14,45 @@ import CommandProcessor from './meta/core/CommandProcessor.js';
 import { sanitizeMessage } from '../lib/sanitizers.js';
 import closeCodes from '../config/closeCodes.js';
 import clock from '../lib/clock.js';
+import { createResumeKey } from '../lib/resumeKey.js';
 import GameCoreAdapter from './GameCoreAdapter.js';
 import DebugRecorder from './DebugRecorder.js';
+import enginePkg from '../../package.json' with { type: 'json' };
 
 // Версия формата handoff-меты эстафеты Worker'ов (Этап 5.2; →2 в Этапе 6.5 —
-// добавлены gameId/gameVersion; →3 в Этапе Д3 — нейтральное поле scripted).
+// добавлены gameId/gameVersion; →3 в Этапе Д3 — нейтральное поле scripted;
+// →4 в host-migration этапе 5 — контрольная точка посреди раунда).
 // Несовместимая версия валит init нового Worker'а — главный поток
-// возобновляет старый, комната продолжает жить на прежней версии кода
-export const HANDOFF_VERSION = 3;
+// возобновляет старый, комната продолжает жить на прежней версии кода.
+// Восстановление принимает и v3: смена кода в открытой комнате передаёт
+// состояние от Worker'а предыдущей версии
+export const HANDOFF_VERSION = 4;
+
+// версии handoff-меты, которые понимает восстановление
+const LEGACY_HANDOFF_VERSION = 3;
+
+// на сколько номер кадра уходит вперёд при восстановлении из контрольной
+// точки: клиенты видели кадры новее точки, и кадр со старым номером
+// интерполятор отбросил бы как устаревший
+const RESTORE_SEQ_GAP = 30;
+
+// заглушка соединения отсоединённого участника (host-migration этап 4):
+// рассылки RoundManager/Chat/Vote на время паузы молча пропадают
+const DETACHED_SOCKET = {
+  send: () => {},
+  sendBinary: () => {},
+  close: () => {},
+};
+
+const detachedSocketId = gameId => `detached:${gameId}`;
+
+// причина автоматической передачи (promote.reason) → системное сообщение
+// вместо HOST_CHANGED
+const HOST_CHANGED_BY_REASON = {
+  overload: 'HOST_CHANGED_OVERLOAD',
+  hidden: 'HOST_CHANGED_HIDDEN',
+  network: 'HOST_CHANGED_NETWORK',
+};
 
 // Троттлинг отправки кадров (замена SnapshotManager: ядро само копит события
 // и дренирует их в pack_body, здесь нужен только контроль частоты).
@@ -48,6 +79,16 @@ class SnapshotThrottle {
   reset() {
     this._tick = 0;
   }
+
+  // фаза троттлинга — едет в контрольной точке (host-migration этап 5),
+  // чтобы ритм отправки кадров не сбился после восстановления
+  get tick() {
+    return this._tick;
+  }
+
+  set tick(value) {
+    this._tick = Math.min(Math.max(0, value >>> 0), this._sendRate - 1);
+  }
 }
 
 // Host-фасад: авторитетная часть матча в Worker'е хоста. Симуляция,
@@ -68,7 +109,10 @@ export default class HostGame {
    * @param {string} [opts.hostSocketId] - socketId хоста-игрока (loopback):
    *   исключается из kick-политик — его отключение убивает комнату для всех.
    * @param {Function} [opts.onMapChange] - вызывается с именем карты при её
-   *   смене (голосование/таймер) — для актуализации комнаты у мастера.
+   *   смене (голосование/таймер).
+   * @param {Function} [opts.onLobbyInfoChange] - вызывается со строкой
+   *   карточки лобби (gameConfig.lobbyInfo / lobby.setInfo) или null при её
+   *   смене — для актуализации комнаты у мастера.
    * @param {Object} [opts.handoff] - handoff-мета эстафеты Worker'ов
    *   (Этап 5.2): восстановление комнаты вместо холодного старта.
    * @param {string} [opts.gameVersion] - версия игры комнаты (room.game.version,
@@ -76,6 +120,15 @@ export default class HostGame {
    *   восстанавливающего Worker'а валит init тем же путём, что и версия формата.
    * @param {number} [opts.seed] - seed мира, которым инициализировано ядро
    *   (createHostRuntime): без него записанный сценарий невоспроизводим.
+   * @param {Object} [opts.checkpoint] - распакованная контрольная точка
+   *   { meta, core } (host-migration этап 5): матч поднимается из неё на
+   *   паузе, люди — отсоединёнными (ждут RESUME), цикл запустит
+   *   startAfterRestore().
+   * @param {number} [opts.seqFloor] - номер последнего кадра, который могли
+   *   видеть клиенты: seq восстановленного матча уходит дальше него.
+   * @param {Object} [opts.roomSettings] - настройки комнаты (карта, лимит,
+   *   таймеры, friendly fire) — едут в контрольной точке.
+   * @param {string} [opts.mapsVersion] - версия каталога карт мастера.
    */
   constructor(
     data,
@@ -85,17 +138,40 @@ export default class HostGame {
     {
       hostSocketId = null,
       onMapChange = null,
+      onLobbyInfoChange = null,
       handoff = null,
       gameVersion = null,
       playerDataFetch = null,
       seed = null,
+      checkpoint = null,
+      seqFloor = 0,
+      roomSettings = null,
+      mapsVersion = null,
     } = {},
   ) {
     this._isDevMode = data.isDevMode || false;
     this._seed = seed;
 
+    // контрольная точка (host-migration этап 5): игра гарантирует, что дамп
+    // ядра и хуки модулей переносят всё её состояние посреди раунда
+    this._migrationMidRound = data.migration?.midRound === true;
+    this._handoffFlushTimeoutMs = data.handoffFlushTimeoutMs ?? 3000;
+    // промоушен преемника (host-migration этап 7.4): сколько восстановленный
+    // матч ждёт возврата людей точки перед стартом
+    this._resumeWaitMs = data.resumeWaitMs ?? 3000;
+    // настройки комнаты (то, что читает applyRoomOverrides): преемник
+    // собирает по ним тот же конфиг ядра
+    this._roomSettings = roomSettings;
+    this._mapsVersion = mapsVersion;
+    this._roomId = null;
+
     this._hostSocketId = hostSocketId;
     this._onMapChange = onMapChange;
+    this._onLobbyInfoChange = onLobbyInfoChange;
+    // строка карточки лобби: 'map' — текущая карта, иначе ничего; значение
+    // модулей игры (lobby.setInfo) важнее
+    this._lobbyInfoMode = data.lobbyInfo === 'map' ? 'map' : null;
+    this._lobbyInfoOverride = null;
 
     // составной codeVersion (Этап 6.5): id — из самого загруженного плагина
     // (источник истины), version — то, что заявил Worker при инициализации
@@ -105,6 +181,11 @@ export default class HostGame {
     this._maps = data.maps;
     this._mapList = Object.keys(data.maps);
     this._spectatorKeys = data.spectatorKeys;
+    // команды актора: отсоединённому участнику (host-migration этап 4) их
+    // все отпускают — иначе танк ехал бы и стрелял всю паузу
+    this._playerKeyNames = Object.keys(data.playerKeys ?? {});
+    // эпоха комнаты (setRoom) — уходит в RESUME_RESULT
+    this._epoch = null;
     this._maxPlayers = data.maxPlayers;
     this._chatMaxLength = data.chatMaxLength;
 
@@ -175,8 +256,9 @@ export default class HostGame {
     // в проде null, и все точки записи ниже вырождаются в ?.
     this._recorder = this._isDevMode ? new DebugRecorder() : null;
 
-    // игровые host-модули (scripted-модуль игры)
-    this._scripted = hostPlugin.createModules({
+    // игровые host-модули (scripted-модуль игры); весь объект нужен
+    // контрольной точке — хуки serializeState/restoreState по имени модуля
+    this._modules = hostPlugin.createModules({
       participants: this._participants,
       coreAdapter: this._game,
       panel: this._panel,
@@ -184,7 +266,11 @@ export default class HostGame {
       chat: this._chat,
       socketManager: this._socketManager,
       scripted: data.scripted,
-    }).scripted;
+      // строка карточки комнаты в лобби; на движке старше этого поля нет —
+      // игра зовёт lobby?.setInfo
+      lobby: { setInfo: text => this.setLobbyInfo(text) },
+    });
+    this._scripted = this._modules.scripted;
 
     this._RTTManager = new RTTManager(data.rtt, {
       onKickForMissedPings: gameId => this._kickForMissedPings(gameId),
@@ -197,6 +283,7 @@ export default class HostGame {
       onShotTick: dt => this._onShotTick(dt),
       onIdleCheck: () => this._kickIdleUsers(),
       onSendPing: () => this._sendPing(),
+      onLoopStats: stats => this._onLoopStats(stats),
     });
 
     this._voteCoordinator = new VoteCoordinator({
@@ -258,6 +345,26 @@ export default class HostGame {
     this._handoffRestored = false;
     this._handoffMapTimeLeft = null;
 
+    // контрольные точки (host-migration этап 5)
+    this._checkpointSink = null; // ({ meta, core, final }) => void
+    // здоровье хоста (host-migration этап 9a): раз в окно цикла
+    this._healthSink = null; // (health) => void
+    this._checkpointIntervalMs = 0; // 0 — периодических точек нет
+    this._lastCheckpointAt = 0;
+    this._checkpointRequest = null; // { final } — точка на ближайшем кадре
+    this._checkpointCounter = 0;
+    // матч поднят из точки и ждёт startAfterRestore: цикл и таймеры стоят
+    this._restorePending = false;
+    this._restoreMode = null; // 'midRound' | 'soft'
+    this._restoredTimers = null;
+    this._frozen = false;
+    // точка снята на замороженном хосте: pack_body осушил тело кадра вне
+    // цикла, и его события (удаления, взрывы) никому не ушли
+    this._drainedWhileFrozen = false;
+    // ожидание возврата людей перед стартом восстановленного матча
+    // (startAfterResume): { timer, onStart, reason }
+    this._resumeWait = null;
+
     // матч закрывается (destroy): снятие участников исход раунда не решает
     this._isDestroying = false;
 
@@ -271,14 +378,17 @@ export default class HostGame {
     // эстафета Worker'ов (Этап 5.2): восстановление вместо холодного старта;
     // игровой цикл и первый раунд запустит completeHandoff() после
     // переподключения клиентов главным потоком
-    if (handoff) {
+    if (checkpoint) {
+      this._restoreFromCheckpoint(checkpoint, seqFloor);
+    } else if (handoff) {
       this._restoreFromHandoff(handoff);
     } else {
       this._roundManager.createMap();
     }
 
-    // отслеживание смены карты (для актуализации комнаты в лобби мастера)
+    // отслеживание смены карты и строки карточки лобби
     this._lastReportedMap = this._roundManager.currentMap;
+    this._lastReportedLobbyInfo = this.lobbyInfo;
   }
 
   // комната заполнена людьми — новые подключения отклоняются.
@@ -297,6 +407,24 @@ export default class HostGame {
   // текущая карта комнаты (после эстафеты может отличаться от room.map)
   get currentMap() {
     return this._roundManager.currentMap;
+  }
+
+  // строка карточки комнаты в лобби или null — показывать нечего
+  get lobbyInfo() {
+    if (this._lobbyInfoOverride !== null) {
+      return this._lobbyInfoOverride;
+    }
+
+    return this._lobbyInfoMode === 'map'
+      ? (this._roundManager?.currentMap ?? null)
+      : null;
+  }
+
+  // значение модулей игры: непустая строка перекрывает gameConfig.lobbyInfo,
+  // null (или пустое) снимает его
+  setLobbyInfo(text) {
+    this._lobbyInfoOverride =
+      typeof text === 'string' && text.trim() !== '' ? text.trim() : null;
   }
 
   // хост-игрок не кикается: закрытие его loopback = смерть комнаты для всех
@@ -353,6 +481,14 @@ export default class HostGame {
     if (currentMap !== this._lastReportedMap) {
       this._lastReportedMap = currentMap;
       this._onMapChange?.(currentMap);
+    }
+
+    // строка карточки лобби — уведомить главный поток (мастер)
+    const lobbyInfo = this.lobbyInfo;
+
+    if (lobbyInfo !== this._lastReportedLobbyInfo) {
+      this._lastReportedLobbyInfo = lobbyInfo;
+      this._onLobbyInfoChange?.(lobbyInfo);
     }
 
     // список удаляемых с полотна игроков ведёт RoundManager, но null-маркеры
@@ -466,6 +602,10 @@ export default class HostGame {
         this._socketManager.sendVote(socketId, voteUser);
       }
     });
+
+    // граница кадра: pack_body опустошил накопители снапшота — единственный
+    // момент, когда дамп ядра корректен
+    this._maybeCheckpoint();
   }
 
   // проверяет игроков на бездействие и кикает, если превышен порог
@@ -474,7 +614,12 @@ export default class HostGame {
     const usersToKick = [];
 
     for (const user of this._participants.getHumans()) {
-      if (user.isReady !== true || this._isHostPlayer(user)) {
+      // отсоединённого снимет истечение ожидания возврата, а не бездействие
+      if (
+        user.isReady !== true ||
+        user.detachedAt !== null ||
+        this._isHostPlayer(user)
+      ) {
         continue;
       }
 
@@ -683,6 +828,12 @@ export default class HostGame {
    */
   async destroy() {
     this._isDestroying = true;
+
+    if (this._resumeWait) {
+      clock.clearTimeout(this._resumeWait.timer);
+      this._resumeWait = null;
+    }
+
     this._timerManager.stopGameTimers();
     this._timerManager.stopIdleCheckTimer();
     this._timerManager.stopAllVoteTimers();
@@ -712,13 +863,48 @@ export default class HostGame {
 
   // запрашивает перенос: на ближайшей границе раунда игра останавливается
   // и cb получает handoff-мету. Ядро не дампится — мир пересоздаётся стартом
-  // раунда в новом Worker'е (см. RoundManager._startRound)
+  // раунда в новом Worker'е (см. RoundManager._startRound). Перед отдачей
+  // профили синхронизируются на мастер: terminate() старого Worker'а
+  // оборвал бы летящие записи
   requestHandoff(cb) {
     this._roundManager.requestHandoff(() => {
       this._timerManager.stopGameTimers();
       this._timerManager.stopIdleCheckTimer();
-      cb(this._collectHandoff());
+      this._flushBeforeHandoff().then(() => cb(this._collectHandoff()));
     });
+  }
+
+  // плановая передача хоста (host-migration этап 8d): игра без
+  // migration.midRound переносит только мету — передача посреди раунда
+  // отняла бы его у всех, поэтому она ждёт следующего раунда. Игра с
+  // midRound продолжает у преемника с того же тика — ждать нечего
+  awaitRoundBoundary(cb) {
+    if (this._migrationMidRound) {
+      cb();
+      return;
+    }
+
+    this._roundManager.onRoundBoundary(cb);
+  }
+
+  cancelRoundBoundary() {
+    this._roundManager.cancelRoundBoundary();
+  }
+
+  // финальная синхронизация профилей, но не дольше handoffFlushTimeoutMs:
+  // зависший auth-сервис не должен держать эстафету — неотправленное едет
+  // в состоянии (playerData) и уйдёт из нового Worker'а
+  _flushBeforeHandoff() {
+    let timer = null;
+
+    const timeout = new Promise(resolve => {
+      timer = clock.setTimeout(resolve, this._handoffFlushTimeoutMs);
+    });
+
+    return Promise.race([
+      this._playerDataSync.flushAll({ urgent: true }),
+      timeout,
+    ]).finally(() => clock.clearTimeout(timer));
   }
 
   // отказ от эстафеты (новый Worker не поднялся): вернуть таймеры и
@@ -739,6 +925,7 @@ export default class HostGame {
     }
 
     this._handoffRestored = false;
+    this._restorePending = false;
 
     for (const user of this._participants.getHumans()) {
       if (!connectedSocketIds.has(user.socketId)) {
@@ -750,59 +937,37 @@ export default class HostGame {
     this._roundManager.initiateNewRound();
   }
 
-  // собирает переносимую мету: участники, счёт, карта с остатком времени,
-  // seq кадров. Осознанно не переносятся: чат-история, активные голосования,
-  // RTT-статистика, panel (значения живут в ядре и сбрасываются раундом)
+  // мета эстафеты внутри вкладки: формат контрольной точки (kind:
+  // 'boundary', всегда мягкий режим) плюс токены участников. Токены —
+  // только здесь: состояние уходит postMessage'ем в соседний Worker той же
+  // вкладки и никогда — по сети (сетевые точки их не несут)
   _collectHandoff() {
-    const humans = this._participants
-      .getHumans()
-      .filter(user => user.isReady)
-      .map(user => ({
-        gameId: user.gameId,
-        socketId: user.socketId,
-        name: user.name,
-        model: user.model,
-        team: user.team,
-        teamId: user.teamId,
-      }));
+    const { meta } = this._collectState('boundary');
+    const localTokens = {};
 
-    const scripted = this._participants.getScripted().map(participant => ({
-      gameId: participant.gameId,
-      name: participant.name,
-      model: participant.model,
-      team: participant.team,
-      teamId: participant.teamId,
-    }));
+    for (const user of this._participants.getHumans()) {
+      if (typeof user.token === 'string' && user.token !== '') {
+        localTokens[user.gameId] = user.token;
+      }
+    }
 
-    return {
-      version: HANDOFF_VERSION,
-      gameId: this._gameId,
-      gameVersion: this._gameVersion,
-      seq: this._seq,
-      currentMap: this._roundManager.currentMap,
-      mapTimeLeft: this._timerManager.getMapTimeLeft(),
-      humans,
-      scripted,
-      stat: this._stat.serialize(),
-    };
+    return { ...meta, localTokens };
   }
 
   // восстанавливает комнату из handoff-меты. Ошибка (несовместимый формат,
   // чужая игра, карта ушла из каталога) валит init Worker'а — главный поток
   // возобновляет старый Worker, комната живёт на прежней версии
   _restoreFromHandoff(meta) {
-    if (!meta || meta.version !== HANDOFF_VERSION) {
+    if (meta && meta.version === HANDOFF_VERSION) {
+      this._restoreState(meta, null, { boundary: true });
+      return;
+    }
+
+    if (!meta || meta.version !== LEGACY_HANDOFF_VERSION) {
       throw new Error(`unsupported handoff version: ${meta && meta.version}`);
     }
 
-    // составной codeVersion (Этап 6.5): своп меняет только версию кода в
-    // рамках той же игры — смена самой игры комнаты handoff'ом не
-    // предусмотрена, рассинхрон id — явный сбой конфигурации свопа
-    if (meta.gameId !== undefined && meta.gameId !== this._gameId) {
-      throw new Error(
-        `handoff game mismatch: expected "${this._gameId}", got "${meta.gameId}"`,
-      );
-    }
+    this._assertSameGame(meta.gameId);
 
     if (!this._maps[meta.currentMap]) {
       throw new Error(`handoff map missing from catalog: ${meta.currentMap}`);
@@ -810,6 +975,11 @@ export default class HostGame {
 
     this._seq = meta.seq >>> 0;
     this._handoffMapTimeLeft = meta.mapTimeLeft;
+
+    // мета старого Worker'а поля может не нести — тогда текста модулей нет
+    if (typeof meta.lobbyInfo === 'string') {
+      this.setLobbyInfo(meta.lobbyInfo);
+    }
 
     for (const record of meta.humans) {
       const user = this._participants.restoreHuman(record);
@@ -844,6 +1014,530 @@ export default class HostGame {
 
     this._roundManager.restoreMap(meta.currentMap);
     this._handoffRestored = true;
+  }
+
+  // составной codeVersion (Этап 6.5): своп меняет только версию кода в
+  // рамках той же игры — смена самой игры комнаты handoff'ом не
+  // предусмотрена, рассинхрон id — явный сбой конфигурации свопа
+  _assertSameGame(gameId) {
+    if (gameId !== undefined && gameId !== this._gameId) {
+      throw new Error(
+        `handoff game mismatch: expected "${this._gameId}", got "${gameId}"`,
+      );
+    }
+  }
+
+  // ***** здоровье хоста (host-migration этап 9a) ***** //
+
+  /**
+   * Приёмник метрик здоровья: раз в окно игрового цикла (~1 с) —
+   * { tickRate, maxGapMs, lostMs, windowMs, peerRttMedian, peerCount }.
+   * Пока матч заморожен или стоит, метрик нет.
+   * @param {Function|null} sink
+   */
+  setHealthSink(sink) {
+    this._healthSink = typeof sink === 'function' ? sink : null;
+  }
+
+  // RTT — только удалённые люди: хост-игрок на loopback связь хоста не мерит
+  _onLoopStats(stats) {
+    if (!this._healthSink) {
+      return;
+    }
+
+    const { median, count } = this._RTTManager.getRttStats(gameId => {
+      const user = this._participants.get(gameId);
+
+      return Boolean(user) && !this._isHostPlayer(user);
+    });
+
+    this._healthSink({ ...stats, peerRttMedian: median, peerCount: count });
+  }
+
+  // ***** контрольная точка (host-migration этап 5) ***** //
+
+  /**
+   * Приёмник готовых точек (Worker кодирует и отдаёт главному потоку).
+   * @param {Function|null} sink - ({ meta, core, final }) => void.
+   */
+  setCheckpointSink(sink) {
+    this._checkpointSink = typeof sink === 'function' ? sink : null;
+  }
+
+  // периодические точки: снимаются на границе кадра не чаще intervalMs
+  startCheckpoints(intervalMs) {
+    this._checkpointIntervalMs = Math.max(0, Number(intervalMs) || 0);
+    this._lastCheckpointAt = 0;
+  }
+
+  stopCheckpoints() {
+    this._checkpointIntervalMs = 0;
+  }
+
+  // одна точка на ближайшей границе кадра. Цикл стоит (заморозка или матч
+  // ждёт старта после восстановления) — следующего кадра не будет, точка
+  // снимается сразу
+  requestCheckpoint({ final = false } = {}) {
+    if (this._frozen || this._restorePending) {
+      this._emitCheckpoint(final === true, { packFirst: true });
+      return;
+    }
+
+    this._checkpointRequest = { final: final === true };
+  }
+
+  _maybeCheckpoint() {
+    if (!this._checkpointSink) {
+      return;
+    }
+
+    const now = clock.now();
+    let final = false;
+
+    if (this._checkpointRequest) {
+      final = this._checkpointRequest.final;
+      this._checkpointRequest = null;
+    } else if (
+      this._checkpointIntervalMs === 0 ||
+      now - this._lastCheckpointAt < this._checkpointIntervalMs
+    ) {
+      return;
+    }
+
+    this._emitCheckpoint(final);
+  }
+
+  _emitCheckpoint(final, { packFirst = false } = {}) {
+    if (!this._checkpointSink) {
+      return;
+    }
+
+    // вне цикла граница кадра не гарантирована: дренаж накопителей —
+    // предусловие дампа; недоставленные события перекроет полный кадр,
+    // который возобновлённый клиент получает на входе
+    if (packFirst) {
+      this._game.packBody();
+      this._drainedWhileFrozen ||= this._frozen;
+    }
+
+    this._lastCheckpointAt = clock.now();
+
+    const { meta, core } = this._collectState('checkpoint');
+
+    this._checkpointSink({ meta, core, final });
+  }
+
+  /**
+   * Собирает контрольную точку: мета (формат HANDOFF_VERSION 4) и дамп
+   * ядра. Ядро прикладывается только у игры с migration.midRound и только
+   * если дамп снялся — иначе режим 'soft' (восстановление начнёт раунд
+   * заново).
+   * @param {'checkpoint'|'boundary'} [kind]
+   * @returns {{meta: Object, core: Uint8Array|null}}
+   */
+  collectCheckpoint(kind = 'checkpoint') {
+    return this._collectState(kind);
+  }
+
+  _collectState(kind) {
+    let core = null;
+    let plugin = null;
+
+    if (kind === 'checkpoint' && this._migrationMidRound) {
+      try {
+        plugin = this._serializeModules();
+        core = this._game.serializeState();
+      } catch (e) {
+        // точка остаётся полезной и без ядра: аварийный преемник начнёт
+        // раунд заново, а не потеряет комнату
+        console.warn(`[checkpoint] mid-round state skipped: ${e.message}`);
+        core = null;
+        plugin = null;
+      }
+    }
+
+    const createdAt = clock.now();
+    const currentMap = this._roundManager.currentMap;
+    const round = this._roundManager.serialize();
+    const participants = this._participants.serialize();
+    const isBoundary = kind === 'boundary';
+    const dropped = [];
+
+    this._checkpointCounter += 1;
+
+    participants.humans = participants.humans
+      .filter(record => {
+        const user = this._participants.get(record.gameId);
+
+        // внутри вкладки переносятся завершившие хендшейк (переподключатся
+        // тем же socketId); по сети — те, кому есть чем вернуться (resumeKey)
+        const keep = isBoundary ? user.isReady : Boolean(user.resumeKey);
+
+        if (!keep) {
+          dropped.push(record.gameId);
+        }
+
+        return keep;
+      })
+      .map(record => {
+        const user = this._participants.get(record.gameId);
+
+        return {
+          ...record,
+          isHostPlayer: this._isHostPlayer(user),
+          ...(isBoundary ? { socketId: user.socketId } : {}),
+        };
+      });
+
+    // не попавшие в точку люди: их акторы остаются в дампе ядра, и
+    // преемник снимает их сам — иначе в мире остались бы бесхозные тела
+    participants.dropped = dropped;
+
+    const meta = {
+      version: HANDOFF_VERSION,
+      kind,
+      mode: core ? 'midRound' : 'soft',
+      gameId: this._gameId,
+      gameVersion: this._gameVersion,
+      engineVersion: enginePkg.version,
+      createdAt,
+      checkpointId: `${createdAt.toString(36)}-${this._checkpointCounter}`,
+      seq: this._seq,
+      snapshotTick: this._snapshotManager.tick,
+      room: {
+        roomId: this._roomId,
+        epoch: this._epoch,
+        settings: this._roomSettings,
+        game: { id: this._gameId, version: this._gameVersion },
+      },
+      map: {
+        name: currentMap,
+        data: this._roundManager.baseMapData,
+        mapsVersion: this._mapsVersion,
+        override: round.override,
+      },
+      // матч поднят из точки и ещё не запущен: таймеры стоят, их остатки —
+      // те, что приехали в точке
+      timers: this._restorePending
+        ? structuredClone(this._restoredTimers)
+        : this._timerManager.serialize(),
+      round: {
+        isRoundEnding: round.isRoundEnding,
+        wipedTeamIds: round.wipedTeamIds,
+        removedPlayers: round.removedPlayers,
+        startMapNumber: round.startMapNumber,
+      },
+      participants,
+      stat: this._stat.serialize(),
+      panel: this._panel.serialize(),
+      playerData: this._playerDataSync.serialize(),
+      plugin: plugin ?? {},
+      // текст карточки лобби, выставленный модулем игры (lobby.setInfo):
+      // модули нового Worker'а создаются с нуля и сами его не повторят
+      lobbyInfo: this._lobbyInfoOverride,
+    };
+
+    // JSON-круг: точка уезжает по сети и в соседний Worker, ссылки на живые
+    // объекты меты (stat, карта) не должны правиться задним числом
+    return { meta: JSON.parse(JSON.stringify(meta)), core };
+  }
+
+  // состояние JS-модулей игры: ключ — имя модуля в объекте createModules
+  _serializeModules() {
+    const out = {};
+
+    for (const [name, module] of Object.entries(this._modules ?? {})) {
+      if (typeof module?.serializeState === 'function') {
+        out[name] = module.serializeState();
+      }
+    }
+
+    return out;
+  }
+
+  _restoreModules(state = {}) {
+    for (const [name, module] of Object.entries(this._modules ?? {})) {
+      if (
+        Object.hasOwn(state, name) &&
+        typeof module?.restoreState === 'function'
+      ) {
+        module.restoreState(state[name]);
+      }
+    }
+  }
+
+  // матч из контрольной точки, снятой (возможно) на другой машине
+  _restoreFromCheckpoint({ meta, core = null } = {}, seqFloor = 0) {
+    this._restoreState(meta, core, { boundary: false, seqFloor });
+  }
+
+  // общий путь восстановления формата v4: эстафета внутри вкладки
+  // (boundary — клиенты переподключаются теми же socketId) и контрольная
+  // точка (люди поднимаются отсоединёнными и ждут RESUME)
+  _restoreState(meta, core, { boundary, seqFloor = 0 }) {
+    if (!meta || meta.version !== HANDOFF_VERSION) {
+      throw new Error(`unsupported handoff version: ${meta && meta.version}`);
+    }
+
+    this._assertSameGame(meta.gameId);
+
+    const mapName = meta.map?.name;
+    const mapData = meta.map?.data ?? this._maps[mapName];
+
+    if (!mapData) {
+      throw new Error(`handoff map missing from catalog: ${mapName}`);
+    }
+
+    const midRound = !boundary && meta.mode === 'midRound' && Boolean(core);
+
+    // ядро — первым: битый дамп валит init до того, как мета что-то
+    // поменяла
+    if (midRound) {
+      this._game.deserializeState(core);
+    }
+
+    this._seq = boundary
+      ? meta.seq >>> 0
+      : (Math.max(meta.seq >>> 0, seqFloor >>> 0) + RESTORE_SEQ_GAP) >>> 0;
+
+    if (typeof meta.lobbyInfo === 'string') {
+      this.setLobbyInfo(meta.lobbyInfo);
+    }
+
+    const tokens = boundary ? (meta.localTokens ?? {}) : {};
+    const now = clock.now();
+
+    for (const record of meta.participants.humans) {
+      const user = this._participants.restoreHuman(
+        {
+          ...record,
+          socketId: boundary
+            ? record.socketId
+            : detachedSocketId(record.gameId),
+          token: tokens[record.gameId] ?? null,
+        },
+        { full: midRound },
+      );
+
+      if (!user) {
+        continue;
+      }
+
+      user.isReady = boundary || record.isReady !== false;
+      user.currentMap = mapName;
+
+      this._chat.addUser(user.gameId);
+      this._vote.addUser(user.gameId);
+      this._panel.addUser(user.gameId);
+
+      if (boundary) {
+        this._RTTManager.addUser(user.gameId);
+      } else {
+        // место ждёт возврата участника (RESUME): рассылки уходят в заглушку
+        user.detachedAt = now;
+        user.lastActionTime = now;
+        this._socketManager.addUser(user.socketId, DETACHED_SOCKET);
+      }
+    }
+
+    for (const record of meta.participants.scripted) {
+      const participant = this._participants.restoreScripted(record, {
+        full: midRound,
+      });
+
+      if (participant) {
+        this._panel.addUser(participant.gameId);
+      }
+    }
+
+    if (midRound) {
+      this._participants.restoreTopology(meta.participants);
+      this._panel.restore(meta.panel);
+
+      for (const gameId of meta.participants.dropped ?? []) {
+        if (!this._participants.get(gameId)) {
+          this._game.removePlayer(gameId);
+        }
+      }
+    }
+
+    const keepIds = new Set(this._participants.getAll().map(p => p.gameId));
+
+    this._stat.restore(meta.stat, keepIds);
+
+    // профили: накопленное, но не отправленное переезжает; токены — только
+    // в эстафете внутри вкладки. Участник, чей профиль так и не доехал с
+    // мастера, догружается сразу (иначе rank/state не писались бы до конца
+    // сессии)
+    const playerData = Object.fromEntries(
+      Object.entries(meta.playerData ?? {}).filter(([id]) => keepIds.has(id)),
+    );
+
+    this._playerDataSync.restore(playerData, { tokens });
+
+    for (const [gameId, token] of Object.entries(tokens)) {
+      if (keepIds.has(gameId) && !this._playerDataSync.isLoaded(gameId)) {
+        this._playerDataSync.load(gameId, token);
+      }
+    }
+
+    this._roundManager.restoreMap(mapName, {
+      mapData,
+      override: midRound ? meta.map.override : null,
+    });
+
+    if (midRound) {
+      this._roundManager.restoreRound(meta.round);
+      this._snapshotManager.tick = meta.snapshotTick;
+      this._restoreModules(meta.plugin);
+    }
+
+    this._restoreMode = midRound ? 'midRound' : 'soft';
+    this._restoredTimers = meta.timers ?? {};
+    this._restorePending = true;
+
+    if (boundary) {
+      this._handoffRestored = true;
+      this._handoffMapTimeLeft = this._restoredTimers.mapTimeLeft ?? null;
+    }
+  }
+
+  // режим восстановления матча: 'midRound' | 'soft' | null (холодный старт)
+  get restoreMode() {
+    return this._restoreMode;
+  }
+
+  // ждёт ли восстановленный матч запуска (startAfterRestore)
+  get isRestorePending() {
+    return this._restorePending;
+  }
+
+  /**
+   * Запускает матч, поднятый из контрольной точки: посреди раунда —
+   * таймеры с остатками и цикл с того же тика; в мягком режиме — карта с
+   * остатком и новый раунд (как после эстафеты).
+   * @returns {boolean} false — запускать нечего.
+   */
+  startAfterRestore() {
+    if (!this._restorePending) {
+      return false;
+    }
+
+    const timers = this._restoredTimers ?? {};
+
+    this._restorePending = false;
+    this._handoffRestored = false;
+
+    if (this._restoreMode === 'midRound') {
+      this._timerManager.resumeFromState(timers);
+
+      for (const item of timers.pending ?? []) {
+        if (item.kind === 'mapChange' && this._maps[item.targetMap]) {
+          this._roundManager.scheduleMapChange(item.targetMap, item.leftMs);
+        }
+      }
+    } else {
+      this._timerManager.resumeGameTimers(timers.mapTimeLeft);
+      this._roundManager.initiateNewRound();
+    }
+
+    return true;
+  }
+
+  /**
+   * Старт матча, поднятого из точки преемником (host-migration этап 7.4):
+   * когда возобновились все люди точки или прошло resumeWaitMs — что
+   * раньше. Пауза переключения не съедает окно возврата: onStart получает
+   * gameId так и не вернувшихся, их ожидание (grace) заводится с этого
+   * момента.
+   * @param {Function} [onStart] - (detachedGameIds) после старта.
+   * @param {Object} [options]
+   * @param {string|null} [options.reason] - причина миграции из promote:
+   *   у автоматической передачи игроки видят её вместо «Host changed».
+   * @returns {boolean} false — запускать нечего или ожидание уже идёт.
+   */
+  startAfterResume(onStart = null, { reason = null } = {}) {
+    if (!this._restorePending || this._resumeWait) {
+      return false;
+    }
+
+    this._resumeWait = { timer: null, onStart, reason };
+
+    if (this.detachedGameIds().length === 0) {
+      this._finishResumeWait();
+    } else {
+      this._resumeWait.timer = clock.setTimeout(
+        () => this._finishResumeWait(),
+        this._resumeWaitMs,
+      );
+    }
+
+    return true;
+  }
+
+  _finishResumeWait() {
+    const wait = this._resumeWait;
+
+    if (!wait) {
+      return;
+    }
+
+    this._resumeWait = null;
+    clock.clearTimeout(wait.timer);
+
+    if (!this.startAfterRestore()) {
+      return;
+    }
+
+    this._chat.pushSystem(
+      Object.hasOwn(HOST_CHANGED_BY_REASON, wait.reason)
+        ? HOST_CHANGED_BY_REASON[wait.reason]
+        : 'HOST_CHANGED',
+    );
+    wait.onStart?.(this.detachedGameIds());
+  }
+
+  // gameId людей, ждущих возобновления
+  detachedGameIds() {
+    return this._participants
+      .getHumans()
+      .filter(user => user.detachedAt !== null)
+      .map(user => user.gameId);
+  }
+
+  // заморозка (финальная точка плановой передачи): цикл и все отсчёты
+  // встают с остатками
+  freeze() {
+    if (this._frozen) {
+      return;
+    }
+
+    this._frozen = true;
+    this._timerManager.pause();
+  }
+
+  // разморозка (передача сорвалась): отсчёты продолжаются с остатков.
+  // Если за заморозку снималась точка, события осушенного тела потеряны —
+  // оставшимся на связи участникам уходит полная синхронизация (пакет входа
+  // RESUME), иначе на полотне остались бы «призраки» удалённых сущностей
+  unfreeze() {
+    if (!this._frozen) {
+      return;
+    }
+
+    this._frozen = false;
+    this._timerManager.resume();
+
+    if (this._drainedWhileFrozen) {
+      this._drainedWhileFrozen = false;
+      this._participants
+        .getNetworkedReady()
+        .forEach(user => this._sendResumeEntry(user));
+    }
+  }
+
+  get isFrozen() {
+    return this._frozen;
   }
 
   // меняет и возвращает gameId наблюдаемого игрока
@@ -939,6 +1633,11 @@ export default class HostGame {
     const { team, teamId } = user;
 
     this._recorder?.noteLeave(gameId);
+
+    // место не дождалось возврата — снять и заглушку соединения
+    if (user.isNetworked && user.detachedAt !== null) {
+      this._socketManager.removeUser(user.socketId);
+    }
 
     this._RTTManager.removeUser(gameId);
     this._stat.removeUser(gameId, teamId);
@@ -1184,12 +1883,173 @@ export default class HostGame {
     return this._playerDataSync.flushAll({ urgent });
   }
 
-  // hostId + per-room секрет комнаты, подтверждённые мастером при
-  // register_host (кодревью №1) — не известны при создании HostGame (Worker
-  // стартует раньше ответа мастера); нужны PlayerDataSync для атрибуции
+  // roomId + секрет эпохи комнаты, подтверждённые мастером в
+  // host_registered — не известны при создании HostGame (Worker стартует
+  // раньше ответа мастера); нужны PlayerDataSync для атрибуции
   // rank/state-flush (секрет доказывает мастеру владение комнатой)
-  setHostId(hostId, hostSecret) {
-    this._playerDataSync.setHostId(hostId, hostSecret);
+  setRoom({ roomId, roomSecret, epoch } = {}) {
+    this._roomId = roomId ?? null;
+    this._epoch = epoch ?? null;
+    this._playerDataSync.setRoom({ roomId, roomSecret, epoch });
+  }
+
+  // ***** возобновление сессии (host-migration этап 4) ***** //
+
+  // выдаёт участнику секрет возобновления, если его ещё нет; ключ —
+  // только для нового выданного (null — уже выдан или участника нет)
+  issueResumeKey(gameId) {
+    const user = this._participants.get(gameId);
+
+    if (!user?.isNetworked || user.resumeKey) {
+      return null;
+    }
+
+    user.resumeKey = createResumeKey();
+
+    return user.resumeKey;
+  }
+
+  // транспорт участника оборвался без LEAVE: место держится до возврата.
+  // Слот занят (isFull его считает), актор остаётся в мире, но все его
+  // команды отпущены; RTT- и idle-кики его не трогают. false — держать
+  // нечего (не вошёл в матч, хост-игрок, уже отсоединён) — снимать сразу
+  detachUser(gameId) {
+    const user = this._participants.get(gameId);
+
+    if (
+      !user?.isNetworked ||
+      !user.resumeKey ||
+      user.detachedAt !== null ||
+      this._isHostPlayer(user)
+    ) {
+      return false;
+    }
+
+    if (user.isWatching !== true) {
+      for (const name of this._playerKeyNames) {
+        this._game.applyInput(gameId, user.lastInputSeq, 'up', name);
+      }
+    }
+
+    this._RTTManager.removeUser(gameId);
+    user.detachedAt = clock.now();
+
+    // рассылки на это время уходят в никуда: сокета нет, а id соединения
+    // мог уже достаться другому подключению
+    user.socketId = detachedSocketId(gameId);
+    this._socketManager.addUser(user.socketId, DETACHED_SOCKET);
+
+    return true;
+  }
+
+  // участник ждёт возобновления
+  isDetached(gameId) {
+    const user = this._participants.get(gameId);
+
+    return Boolean(user && user.detachedAt !== null);
+  }
+
+  // что нужно порт-машине для проверки RESUME_REQUEST: ник, под которым
+  // участник входил, и его секрет. null — возвращаться некуда
+  getResumeTarget(gameId) {
+    const user = this._participants.get(gameId);
+
+    if (!user?.isNetworked || !user.resumeKey) {
+      return null;
+    }
+
+    return {
+      identityName: user.identityName,
+      resumeKey: user.resumeKey,
+      socketId: user.socketId,
+    };
+  }
+
+  // привязывает участника к новому соединению и шлёт ему всё, что нужно,
+  // чтобы продолжить с того же места: RESUME_RESULT, затем пакет входа
+  // (очистка, полный кадр, stat/panel/keyset/accolades) и новый секрет.
+  // Участник мог быть и не отсоединён — перехват полуоткрытой сессии
+  resumeUser(gameId, socketId, token) {
+    const user = this._participants.get(gameId);
+
+    if (!user) {
+      return false;
+    }
+
+    if (user.detachedAt !== null) {
+      this._socketManager.removeUser(user.socketId);
+      this._RTTManager.addUser(gameId);
+      user.detachedAt = null;
+    }
+
+    user.socketId = socketId;
+    user.lastActionTime = clock.now();
+
+    if (typeof token === 'string' && token !== '') {
+      user.token = token;
+      this._playerDataSync.attachToken(gameId, token);
+    }
+
+    this._socketManager.sendResumeResult(socketId, {
+      ok: true,
+      gameId,
+      epoch: this._epoch,
+    });
+
+    if (user.isReady) {
+      this._sendResumeEntry(user);
+    } else {
+      // карта сменилась, пока участник отсутствовал (или он вышел посреди
+      // загрузки): обычный путь загрузки карты
+      this.sendMap(gameId);
+    }
+
+    // ключ ротируется: прежний мог уйти вместе с полуоткрытым соединением
+    user.resumeKey = createResumeKey();
+    this._socketManager.sendSessionData(socketId, {
+      resumeKey: user.resumeKey,
+      gameId,
+    });
+
+    // вернулся последний из ожидаемых — восстановленный матч стартует сразу
+    if (this._resumeWait && this.detachedGameIds().length === 0) {
+      this._finishResumeWait();
+    }
+
+    return true;
+  }
+
+  // пакет входа возобновлённого участника — тот же набор, что видит игрок
+  // на первом кадре (sendFirstShot) и при выдаче актора
+  _sendResumeEntry(user) {
+    const { socketId, gameId } = user;
+
+    // keyset наблюдателя — до очистки полотна, как в RoundManager.createMap:
+    // иначе клиентский предикт успел бы пересоздать сущность после CLEAR
+    this._socketManager.sendSpectatorDefaultShot(socketId);
+    this._socketManager.sendClear(socketId);
+    // CLEAR без списка стирает и карту, а первый кадр несёт лишь частичные
+    // данные её сущностей — карту клиент собирает заново. Не
+    // RoundManager.sendMap: это не загрузка, участник остаётся готовым.
+    // Метка resume — клиенту: MAP_READY не нужен (обычная загрузка
+    // неготового участника тоже приходит, пока клиент возобновляется)
+    this._socketManager.sendMap(socketId, {
+      ...this._roundManager.currentMapData,
+      resume: true,
+    });
+    this._socketManager.sendFirstShot(socketId);
+
+    if (user.isWatching !== true) {
+      this._socketManager.sendPlayerDefaultShot(socketId, gameId);
+    }
+
+    const accoladesNow = this._accolades.current();
+
+    if (Object.keys(accoladesNow.places).length) {
+      this._socketManager.sendAccolades(socketId, accoladesNow);
+    }
+
+    user.forceCameraReset = true;
   }
 
   // обновляет значение round trip time

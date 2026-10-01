@@ -1,6 +1,7 @@
 /**
  * Observer pattern (Publisher)
  * on: добавляет слушателя (подписчика)
+ * off: снимает слушателя
  * emit: рассылает событие подписчикам
  */
 class Publisher {
@@ -27,6 +28,31 @@ class Publisher {
       fn,
       context: context || this,
     });
+  }
+
+  /**
+   * Снимает подписчика, добавленного on() с теми же аргументами.
+   * @param {string} type - Тип события.
+   * @param {Function|string} fn - Функция-обработчик или имя метода.
+   * @param {Object} [context] - Контекст, переданный в on().
+   */
+  off(type, fn, context) {
+    const subscribers = this.subs[type];
+
+    if (!subscribers) {
+      return;
+    }
+
+    if (typeof fn !== 'function') {
+      fn = context[fn];
+    }
+
+    // новый массив, а не splice: отписка из обработчика посреди emit не
+    // должна сдвинуть обход и пропустить соседа
+    this.subs[type] = subscribers.filter(
+      sub =>
+        sub.fn !== fn || (context !== undefined && sub.context !== context),
+    );
   }
 
   /**

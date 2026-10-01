@@ -13,7 +13,7 @@ export default class PlayerDataProxy {
       method,
       headers: {
         // lobby-page-plan: getLeaderboard — публичный эндпоинт, вызывается
-        // без Bearer-токена (как HostRatingProxy.getPublic)
+        // без Bearer-токена
         ...(token ? { authorization: `Bearer ${token}` } : {}),
         ...(body ? { 'content-type': 'application/json' } : {}),
       },
@@ -50,14 +50,15 @@ export default class PlayerDataProxy {
 
   // snakes-v3 этап 3: /rank принимает результат игры — `points` (сумма
   // завершённых игр с прошлой синхронизации) и `best` (лучшая среди них),
-  // не дельту и не абсолют. attribution ({ hosterUserId, sessionId },
-  // кодревью №1) — проставлена мастером из проверенного register_host, не
-  // из тела хоста
-  putRank(token, game, { points, best }, attribution = {}) {
+  // не дельту и не абсолют. attribution ({ sessionId } — проверенная
+  // комната) проставлена мастером по секрету комнаты, не из тела хоста.
+  // writeSeq (host-migration 7.7) — номер записи для отсева повтора; без
+  // него поле в тело не попадает
+  putRank(token, game, { points, best, writeSeq }, attribution = {}) {
     return this._request('/rank', token, {
       method: 'PUT',
       game,
-      body: { points, best, ...attribution },
+      body: { points, best, writeSeq, ...attribution },
     });
   }
 

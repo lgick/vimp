@@ -31,6 +31,10 @@ export default {
     // места участников в глобальном топе (snakes-v3 этап 4): косметика
     // для parts игры, в снапшот не идёт
     ACCOLADES_DATA: 18,
+    // возобновление сессии (host-migration этап 4): секрет участника
+    // { resumeKey, gameId } и ответ на RESUME_REQUEST
+    SESSION_DATA: 19,
+    RESUME_RESULT: 20,
   },
   // порты получения данных от клиента
   client: {
@@ -43,5 +47,9 @@ export default {
     CHAT_DATA: 6,
     VOTE_DATA: 7,
     PONG: 8,
+    // возобновление места после обрыва транспорта (host-migration этап 4)
+    RESUME_REQUEST: 9,
+    // игрок уходит сам: хост снимает его сразу, без ожидания возврата
+    LEAVE: 10,
   },
 };

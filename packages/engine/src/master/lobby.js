@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import https from 'https';
@@ -7,11 +8,15 @@ import express from 'express';
 import ViteExpress from 'vite-express';
 import { WebSocketServer } from 'ws';
 import authClientConfig from '../config/authClient.js';
-import { applyMasterEnv } from '../config/env.js';
+import { applyMasterEnv, readRoomSecretKey } from '../config/env.js';
 import config from '../lib/config.js';
 import RateLimiter from '../lib/rateLimiter.js';
 import security from '../lib/security.js';
-import { clampGameResult, clampLimit } from '../lib/validators.js';
+import {
+  clampGameResult,
+  clampLimit,
+  readWriteSeq,
+} from '../lib/validators.js';
 import { createAdminAuth } from './adminAuth.js';
 import {
   createClientReports,
@@ -31,12 +36,12 @@ import { createGameStatic, parseGamePath } from './gameStatic.js';
 import { createGameRoutes } from './gameRoutes.js';
 import { applyLocalGames } from './localGames.js';
 import { denySourceMaps, securityHeaders } from './httpSecurity.js';
-import HostRatingProxy from './HostRatingProxy.js';
-import HostRegistry from './HostRegistry.js';
 import JwksProxy from './JwksProxy.js';
 import LeaderboardCache from './LeaderboardCache.js';
 import PlacementCache from './PlacementCache.js';
 import PlayerDataProxy from './PlayerDataProxy.js';
+import RoomRegistry from './RoomRegistry.js';
+import { createRoomRoutes } from './roomRoutes.js';
 import { etagFor, isNotModified } from './etag.js';
 import WorkerCatalog from './WorkerCatalog.js';
 import SignalingServer from './SignalingServer.js';
@@ -87,6 +92,29 @@ if (isProduction) {
 // в dev просто не заданы.
 applyMasterEnv(config, env);
 
+// ключ секрета комнаты (host-migration, этап 2): без него в проде reclaim_host
+// после рестарта мастера не отличил бы хоста от угонщика
+let roomSecretKey;
+
+try {
+  const { key, ephemeral } = readRoomSecretKey(env, {
+    isProduction,
+    randomBytes: crypto.randomBytes,
+  });
+
+  roomSecretKey = key;
+
+  if (ephemeral) {
+    console.warn(
+      '-> VIMP_ROOM_SECRET_KEY is not set: using a random key, rooms will ' +
+        'not survive a master restart',
+    );
+  }
+} catch (e) {
+  console.error(`ERROR: ${e.message}`);
+  process.exit(1);
+}
+
 // локально реестр обычно не поднят, а прилинкованную игру надо видеть в
 // лобби: игры берутся из node_modules — обычной зависимостью или симлинком
 // `npm link`, — вместо правки master:games в опубликованном конфиге движка
@@ -121,7 +149,7 @@ const placementCache = new PlacementCache(playerDataProxy, {
 // потолок записи профилей на комнату (snakes-v3 этап 3.3, решение
 // пользователя 9): минимальный интервал синхронизации держит движок на
 // стороне хоста, но хост недоверенный — мастер держит собственный потолок
-// на проверенный hostId. Превышение — 429, движок уходит в бэкофф
+// на проверенную комнату. Превышение — 429, движок уходит в бэкофф
 const playerDataLimiter = new RateLimiter({
   limit: config.get('master:playerData:writesPerMinute'),
   windowMs: 60000,
@@ -141,13 +169,6 @@ function limitSubmits(req, res, next) {
 
   next();
 }
-
-// проксирует GET/PUT /host-rating central auth-сервиса (server-rating этап 2,
-// plan/server-rating/stage_2.md) — рейтинг хостера/голоса гостей персистентны
-// и глобальны, поэтому живут в БД auth, не в памяти мастера
-const hostRatingProxy = new HostRatingProxy(
-  config.get('master:security:authServiceUrl'),
-);
 
 // каталог игр-плагинов (Этап A2): по конфигу `master:games` резолвит пакеты
 // в node_modules и читает <package>/dist/manifest.json (продукт `npm run
@@ -251,9 +272,6 @@ console.info(
 console.info(
   `-> Max players per host: declared by the game (roomDefaults.maxPlayers); ${config.get('master:host:maxPlayersLimit')} for an unknown game`,
 );
-console.info(
-  `-> Host rating range: [${config.get('master:rating:min')}..${config.get('master:rating:max')}], blockAt: ${config.get('master:rating:blockAt')}`,
-);
 
 // источник каталога виден в логе: реестр auth (штатный прод) и node_modules
 // (локальная разработка с `npm link`). Расхождение «правлю игру, а едет
@@ -292,12 +310,16 @@ if (gameCatalog.ids.length > 0) {
 
 console.info('------------------------------------------');
 
-const registry = new HostRegistry({
+const registry = new RoomRegistry({
   regionThreshold: config.get('master:servers:regionThreshold'),
   defaultLimit: config.get('master:servers:defaultLimit'),
   maxLimit: config.get('master:servers:maxLimit'),
-  maxNameLength: config.get('master:host:maxNameLength'),
+  secretKey: roomSecretKey,
+  heartbeatTimeout: config.get('master:host:heartbeatTimeout'),
+  memberGraceMs: config.get('master:room:memberGraceMs'),
+  hostReclaimGraceMs: config.get('master:room:hostReclaimGraceMs'),
   maxPlayersLimit: config.get('master:host:maxPlayersLimit'),
+  maxInfoLength: config.get('master:room:maxInfoLength'),
   // потолок комнаты объявляет игра — тот же манифест каталога, из которого
   // лобби берёт roomDefaults формы комнаты
   gameMaxPlayers: id => gameCatalog.getManifest(id)?.roomDefaults?.maxPlayers,
@@ -312,24 +334,49 @@ const workerCatalog = new WorkerCatalog(
 const signaling = new SignalingServer(registry, {
   iceServers: config.get('master:iceServers'),
   regionHeader: config.get('master:regionHeader'),
-  heartbeatTimeout: config.get('master:host:heartbeatTimeout'),
   pingLimiter: new RateLimiter(config.get('master:pingRateLimit')),
   // в проде мастер стоит за Nginx деплоя, который перезаписывает X-Real-IP;
   // в dev процесс смотрит в браузер напрямую и заголовкам верить нельзя
   trustProxy: isProduction,
   codeVersion: workerCatalog.version,
   gameCatalog,
-  // server-rating этап 2: идентичность хостера/голосующего — Bearer
-  // identity-токен, проверенный по тому же JWKS-прокси, каким его проверяет
-  // Worker хоста, и той же политике issuer (packages/engine/src/config/authClient.js)
+  // идентичность хоста — Bearer identity-токен, проверенный по тому же
+  // JWKS-прокси, каким его проверяет Worker хоста, и той же политике issuer
+  // (packages/engine/src/config/authClient.js)
   jwksProxy,
-  hostRatingProxy,
   issuer: authClientConfig.issuer,
   checkOrigin: security.createOriginValidator({
     protocol: config.get('master:protocol'),
     domain: config.get('master:domain'),
     port: config.get('master:port'),
   }),
+  // RTT участников и преемник комнаты (host-migration этап 6)
+  wsDeadAfterMs: config.get('master:room:wsDeadAfterMs'),
+  successor: {
+    minMemberAgeMs: config.get('master:room:minMemberAgeMs'),
+    switchRatio: config.get('master:room:successorSwitchRatio'),
+    switchSustainMs: config.get('master:room:successorSwitchSustainMs'),
+    minFps: config.get('master:room:minSuccessorFps'),
+  },
+  // миграция хоста: аварийная (host-migration этап 7) и плановая (этап 8)
+  migration: {
+    checkpointMaxAgeMs: config.get('master:room:checkpointMaxAgeMs'),
+    promotionTimeoutMs: config.get('master:room:promotionTimeoutMs'),
+    coldPromotionTimeoutMs: config.get('master:room:coldPromotionTimeoutMs'),
+    probeTimeoutMs: config.get('master:room:probeTimeoutMs'),
+    reportWindowMs: config.get('master:room:reportWindowMs'),
+    forcedMigrationCooldownMs: config.get(
+      'master:room:forcedMigrationCooldownMs',
+    ),
+    handoffTimeoutMs: config.get('master:room:handoffTimeoutMs'),
+    // автотриггеры (этап 9c): правило сетевого лага хоста
+    lagRttThresholdMs: config.get('master:room:lagRttThresholdMs'),
+    lagSustainMs: config.get('master:room:lagSustainMs'),
+    lagImprovementRatio: config.get('master:room:lagImprovementRatio'),
+    autoMigrationCooldownMs: config.get('master:room:autoMigrationCooldownMs'),
+  },
+  // голосование «Change host» (этап 10)
+  vote: config.get('master:room:vote'),
 });
 
 // EXPRESS
@@ -449,6 +496,19 @@ app.get('/servers', adminAuth.optional, (req, res) => {
   );
 });
 
+// REST API: комната по прямому id (ссылка #/<gameId>/<roomId>, этап 3
+// host-migration) — публичная форма + status; скрытые тоже отдаются
+const roomLookupLimiter = new RateLimiter(
+  config.get('master:room:lookupRateLimit'),
+);
+const roomRoutes = createRoomRoutes({
+  registry,
+  limiter: roomLookupLimiter,
+  trustProxy: isProduction,
+});
+
+app.get('/rooms/:roomId', roomRoutes.lookup);
+
 // REST API: JWKS central auth-сервиса, проксированный под origin мастера
 // (Этап B3) — Worker хоста проверяет по нему подпись identity-токена
 app.get('/auth/jwks', (req, res) => {
@@ -513,14 +573,20 @@ app.get('/auth/rank', (req, res) =>
   ),
 );
 
-// атрибуция rank_events/state_snapshots (server-rating кодревью №1) идёт от
-// мастера, из hosterUserId, проверенного при register_host — не из тела хоста.
-// hostId+hostSecret из тела проверяются реестром (verifiedAttribution): секрет
-// доказывает владение комнатой, поэтому подставить чужой публичный hostId
-// нельзя (иначе можно было бы обойти void или подставить хостера-жертву)
+// roomId+roomSecret из тела проверяются реестром (verifiedAttribution): секрет
+// доказывает владение комнатой, поэтому подставить чужой публичный roomId и
+// писать в чужой бакет rate-limit нельзя. hostId/hostSecret — имена тех же
+// полей у Worker'ов до host-migration этапа 2.
 // потолок записи профилей на комнату (snakes-v3 этап 3.3): ключ — проверенная
-// комната (sessionId), а не hostId из тела; неатрибутированной записи ключом
-// служит IP, иначе потолок обходился бы пустым hostId
+// комната (sessionId), а не roomId из тела; неатрибутированной записи ключом
+// служит IP, иначе потолок обходился бы пустым roomId
+function attributionOf(body) {
+  return registry.verifiedAttribution(
+    body?.roomId ?? body?.hostId,
+    body?.roomSecret ?? body?.hostSecret,
+  );
+}
+
 function writeAllowed(req, attribution) {
   const key = attribution.sessionId ?? `ip:${req.ip}`;
 
@@ -543,10 +609,7 @@ function maxGameScoreOf(game) {
 }
 
 app.put('/auth/rank', (req, res) => {
-  const attribution = registry.verifiedAttribution(
-    req.body?.hostId,
-    req.body?.hostSecret,
-  );
+  const attribution = attributionOf(req.body);
 
   if (!writeAllowed(req, attribution)) {
     res.status(429).json({ error: 'tooManyWrites' });
@@ -573,7 +636,15 @@ app.put('/auth/rank', (req, res) => {
       );
     }
 
-    return playerDataProxy.putRank(token, game, { points, best }, attribution);
+    // writeSeq (host-migration 7.7) едет в auth как есть: по нему auth
+    // узнаёт повтор записи после отката к контрольной точке. Повтор несёт то
+    // же тело, поэтому и кламп выше даёт тот же результат
+    return playerDataProxy.putRank(
+      token,
+      game,
+      { points, best, writeSeq: readWriteSeq(raw.writeSeq) ?? undefined },
+      attribution,
+    );
   });
 });
 
@@ -584,10 +655,7 @@ app.get('/auth/state', (req, res) =>
 );
 
 app.put('/auth/state', (req, res) => {
-  const attribution = registry.verifiedAttribution(
-    req.body?.hostId,
-    req.body?.hostSecret,
-  );
+  const attribution = attributionOf(req.body);
 
   if (!writeAllowed(req, attribution)) {
     res.status(429).json({ error: 'tooManyWrites' });
@@ -934,10 +1002,19 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws, req) => signaling.handleConnection(ws, req));
 
-// периодическая уборка комнат без heartbeat
+// периодическая уборка реестра: потерянные хосты, отсоединённые участники,
+// пустые комнаты
+setInterval(() => signaling.sweep(), config.get('master:host:sweepInterval'));
+
+// RTT участников (ws.ping) и плановый пересчёт преемников комнат
+// (host-migration этап 6)
 setInterval(
-  () => signaling.sweepStaleHosts(),
-  config.get('master:host:sweepInterval'),
+  () => signaling.probeSessions(),
+  config.get('master:room:rttProbeIntervalMs'),
+);
+setInterval(
+  () => signaling.reviewSuccessors(),
+  config.get('master:room:successorReviewMs'),
 );
 
 // уборка памяти кэша мест и окон потолка записи (snakes-v3 этап 3.3):
@@ -946,24 +1023,8 @@ setInterval(
 setInterval(() => {
   placementCache.sweep();
   playerDataLimiter.sweep();
+  roomLookupLimiter.sweep();
 }, config.get('master:placement:cacheTtl'));
-
-// периодический опрос auth за рейтингом активных хостеров (server-rating
-// этап 3) — держит кэш GET /servers свежим между голосами/регистрациями.
-// Самоперезапуск через setTimeout после завершения (кодревью, мелкая
-// находка) — setInterval не ждёт разрешения промиса, и при медленном auth
-// с многими хостерами циклы наслаивались бы друг на друга
-(function scheduleRatingsRefresh() {
-  signaling
-    .refreshRatings()
-    .catch(err => console.error('[rating] refresh cycle failed:', err.message))
-    .finally(() => {
-      setTimeout(
-        scheduleRatingsRefresh,
-        config.get('master:rating:refreshInterval'),
-      );
-    });
-})();
 
 // раздача клиентской статики в dev; в prod её отдаёт Nginx
 ViteExpress.bind(app, server);

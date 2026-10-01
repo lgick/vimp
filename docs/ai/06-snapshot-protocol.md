@@ -198,20 +198,24 @@ Host → client (`wsports.server`):
 | 16   | `VOTE_DATA`        | vote payload                                                                              |
 | 17   | `KEYSET_DATA`      | `0` (spectator) or `1` (player)                                                           |
 | 18   | `ACCOLADES_DATA`   | `{ [gameId]: { daily, monthly } }` — places in the global top, sent only when they change |
+| 19   | `SESSION_DATA`     | `{ resumeKey, gameId }` — the engine's session-resume secret (lobby only)                 |
+| 20   | `RESUME_RESULT`    | `{ ok, gameId, epoch }` or `{ ok: false, reason }` — reply to `RESUME_REQUEST`            |
 
 Client → host (`wsports.client`):
 
-| Port | Name               | Payload                  |
-| ---- | ------------------ | ------------------------ |
-| 0    | `CONFIG_READY`     | —                        |
-| 1    | `AUTH_RESPONSE`    | `{ …authFields, token }` |
-| 2    | `MODULES_READY`    | —                        |
-| 3    | `MAP_READY`        | —                        |
-| 4    | `FIRST_SHOT_READY` | —                        |
-| 5    | `KEYS_DATA`        | `"seq:action:name"`      |
-| 6    | `CHAT_DATA`        | message text             |
-| 7    | `VOTE_DATA`        | chosen option            |
-| 8    | `PONG`             | latency reply            |
+| Port | Name               | Payload                           |
+| ---- | ------------------ | --------------------------------- |
+| 0    | `CONFIG_READY`     | —                                 |
+| 1    | `AUTH_RESPONSE`    | `{ …authFields, token }`          |
+| 2    | `MODULES_READY`    | —                                 |
+| 3    | `MAP_READY`        | —                                 |
+| 4    | `FIRST_SHOT_READY` | —                                 |
+| 5    | `KEYS_DATA`        | `"seq:action:name"`               |
+| 6    | `CHAT_DATA`        | message text                      |
+| 7    | `VOTE_DATA`        | chosen option                     |
+| 8    | `PONG`             | latency reply                     |
+| 9    | `RESUME_REQUEST`   | `{ v, gameId, resumeKey, token }` |
+| 10   | `LEAVE`            | — (the player leaves on purpose)  |
 
 ## Stat wire format
 

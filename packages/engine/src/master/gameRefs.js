@@ -1,8 +1,9 @@
 // Форматы ссылок на игру. Дублируют packages/auth/src/config/auth.js:games —
 // пакеты разные, общей зависимости между ними нет. Значения обязаны
 // совпадать: id — сегмент URL раздачи И имя каталога на диске, version —
-// сегмент URL И имя подкаталога версии
-export const GAME_ID_PATTERN = /^[a-z][a-z0-9-]{1,30}$/;
+// сегмент URL И имя подкаталога версии. Формат id живёт в изоморфном
+// lib/gameId.js: его же проверяет клиентский роутер ссылок
+export { GAME_ID_PATTERN } from '../lib/gameId.js';
 export const GAME_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
 export const PACKAGE_NAME_PATTERN =
   /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;

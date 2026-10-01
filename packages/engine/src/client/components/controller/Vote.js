@@ -29,8 +29,10 @@ export default class VoteCtrl {
       this._model.updateValues(data);
       // если данные - объект (данные для создания голосования)
     } else if (typeof data === 'object' && data !== null) {
-      this._model.createWithTemplate(data);
-      this._model.open();
+      // false — ждёт закрытия открытого голосования движка
+      if (this._model.createWithTemplate(data) !== false) {
+        this._model.open();
+      }
       // иначе открыть меню
     } else {
       this._model.createMenu();
@@ -51,5 +53,19 @@ export default class VoteCtrl {
   // удаляет голосование
   removeVote() {
     this._model.complete();
+  }
+
+  // голосование движка (host-migration этап 10: «Change host?» от мастера)
+  openEngineVote(vote) {
+    this._model.createEngineVote(vote);
+  }
+
+  closeEngineVote(name) {
+    this._model.closeEngineVote(name);
+  }
+
+  // голосования хоста не пережили переподключение
+  removeHostVotes() {
+    this._model.removeHostVotes();
   }
 }

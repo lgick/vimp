@@ -48,14 +48,15 @@ npm run sim:replay <scenario.json>                    # shorthand for --scenario
 npm run sim:check                                     # verdict to stdout, no files
 ```
 
-| Option              | Meaning                                                                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--scenario <path>` | scenario JSON (see below); omitted → a built-in smoke scenario (read the warning under this table)                                         |
-| `--game <path>`     | your package directory, or its `dist/manifest.json`                                                                                        |
-| `--core <path>`     | Node build of your core, overriding `entries.wasmNode` — only together with `--game`, otherwise the run silently falls back to the fixture |
-| `--out <dir>`       | report root (default `.debug`)                                                                                                             |
-| `--no-write`        | print the report instead of writing files                                                                                                  |
-| `--determinism`     | run the scenario twice and compare the frame streams                                                                                       |
+| Option                    | Meaning                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--scenario <path>`       | scenario JSON (see below); omitted → a built-in smoke scenario (read the warning under this table)                                         |
+| `--game <path>`           | your package directory, or its `dist/manifest.json`                                                                                        |
+| `--core <path>`           | Node build of your core, overriding `entries.wasmNode` — only together with `--game`, otherwise the run silently falls back to the fixture |
+| `--out <dir>`             | report root (default `.debug`)                                                                                                             |
+| `--no-write`              | print the report instead of writing files                                                                                                  |
+| `--determinism`           | run the scenario twice and compare the frame streams                                                                                       |
+| `--checkpoint-every <ms>` | every `<ms>` of match time swap the host through a checkpoint (`checkpointRestore`, below); overrides `checkpointEvery`                    |
 
 **Do not judge your plugin by the built-in scenario.** Run without
 `--scenario` and one participant joins, holds a key and releases it. The
@@ -139,21 +140,33 @@ verdict about code you no longer ship.
 | `config`             | patch merged into your assembled `gameConfig` before the core is created; **timers go only under `config.timers`** (`{ "timers": { "networkSendRate": 1 } }`) — a top-level key patches the game config and is never routed into timers |
 | `room`               | extra room overrides, as the lobby form would send them                                                                                                                                                                                 |
 | `participants`       | `[{ id, name, model }]`; `id` is a scenario-local handle referenced by `who`                                                                                                                                                            |
-| `timeline`           | ops (`join`, `leave`, `key`, `chat`, `vote`), sorted by `tick`                                                                                                                                                                          |
+| `timeline`           | ops (`join`, `leave`, `key`, `chat`, `vote`, `checkpointRestore`), sorted by `tick`                                                                                                                                                     |
 | `unusedSnapshotKeys` | snapshot keys this scenario deliberately never produces; `"*"` = "this scenario does not audit key coverage", which makes invariant 2 skip (what the built-in scenario uses on a game it does not know)                                 |
 | `divergence`         | prediction-drift thresholds (and `angles`, components compared on the circle); `{}` = defaults, `null` = detector off, which makes invariant 9 skip                                                                                     |
 | `ticks`              | total ticks to run (default `600`)                                                                                                                                                                                                      |
 | `dumpTicks`          | ticks at which a full scene slice is written out                                                                                                                                                                                        |
+| `checkpointEvery`    | ms of match time between host swaps through a checkpoint (default: none)                                                                                                                                                                |
 
 Ops:
 
-| `op`    | Fields                                                              |
-| ------- | ------------------------------------------------------------------- |
-| `join`  | `who`, `team` — a real `ClientCore` is created for this participant |
-| `leave` | `who`                                                               |
-| `key`   | `who`, `action` (`down`/`up`), `name` (a `playerKeys` name)         |
-| `chat`  | `who`, `text` (chat commands included)                              |
-| `vote`  | `who`, `data`                                                       |
+| `op`                | Fields                                                              |
+| ------------------- | ------------------------------------------------------------------- |
+| `join`              | `who`, `team` — a real `ClientCore` is created for this participant |
+| `leave`             | `who`                                                               |
+| `key`               | `who`, `action` (`down`/`up`), `name` (a `playerKeys` name)         |
+| `chat`              | `who`, `text` (chat commands included)                              |
+| `vote`              | `who`, `data`                                                       |
+| `checkpointRestore` | — — a host change at this tick (below)                              |
+
+**`checkpointRestore` checks your `serialize`.** The host is frozen, takes
+its final checkpoint, the checkpoint goes through the real codec, a **new**
+host is raised from it, and every client resumes its place (`RESUME`); the
+match then goes on and all 12 invariants must stay green. With
+`gameConfig.migration.midRound` (or `"config": { "migration": { "midRound":
+true } }` in the scenario, to try before flipping the flag) the core dump
+and your modules' `serializeState`/`restoreState` are exercised; the report's
+`## Host checkpoints` shows each swap's mode — `soft` in a game that opted in
+means the dump failed (see the `[checkpoint]` warning).
 
 The tick step is **not** a scenario field: it comes from your
 `gameConfig.timers.timeStep`, and the runner drives the engine's real game

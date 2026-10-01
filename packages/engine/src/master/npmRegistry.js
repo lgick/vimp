@@ -10,7 +10,7 @@ import { x as tarExtract } from 'tar';
 //
 // Модуль без состояния: конфиг не читается, всё приходит аргументами, а
 // сеть инъектируется через `fetchImpl` — тем же приёмом, которым тестируют
-// JwksProxy/PlayerDataProxy/HostRatingProxy без сети.
+// JwksProxy/PlayerDataProxy без сети.
 //
 // Инвариант, унаследованный от scripts/release/registry.js: «пакета нет»
 // (404 → null) обязано отличаться от «реестр не ответил» (throw). Иначе

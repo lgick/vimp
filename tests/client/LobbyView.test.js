@@ -79,16 +79,14 @@ class FakeObserver {
 
 const makeModel = () => ({ publisher: new Publisher() });
 
-const server = (hostId, over = {}) => ({
-  hostId,
+const server = (roomId, over = {}) => ({
+  roomId,
   gameId: over.gameId || 'tanks',
-  name: over.name || `room-${hostId}`,
-  mapName: over.mapName || 'arena',
+  info: 'info' in over ? over.info : 'arena',
   currentPlayers: over.currentPlayers ?? 1,
   maxPlayers: over.maxPlayers ?? 8,
-  region: over.region || 'EU',
+  region: 'region' in over ? over.region : 'EU',
   latency: over.latency ?? null,
-  rating: over.rating ?? 0,
 });
 
 let observer;
@@ -151,7 +149,7 @@ describe('LobbyView: футер движка', () => {
 });
 
 describe('LobbyView: рендер списка', () => {
-  it('рисует карточку на сервер с именем, инфо и latency', () => {
+  it('рисует карточку gameId/roomId с инфо и latency (имени у комнаты нет)', () => {
     const model = makeModel();
 
     new LobbyView(model, elems, observerFactory);
@@ -164,9 +162,9 @@ describe('LobbyView: рендер списка', () => {
     const cards = document.querySelectorAll('.lobby-card');
 
     expect(cards).toHaveLength(1);
-    expect(cards[0].dataset.hostId).toBe('a');
+    expect(cards[0].dataset.roomId).toBe('a');
     expect(cards[0].querySelector('.lobby-card-name').textContent).toBe(
-      'tanks/room-a',
+      'tanks/a',
     );
     expect(cards[0].querySelector('.lobby-card-info').textContent).toBe(
       'arena · 1/8 · EU',
@@ -176,24 +174,34 @@ describe('LobbyView: рендер списка', () => {
     );
   });
 
-  it('рисует рейтинг хостера со знаком для положительных значений', () => {
+  // строку карточки задаёт игра (gameConfig.lobbyInfo), регион — заголовок
+  // CDN: чего нет, того в карточке нет — ни сегмента, ни 'unknown'
+  it.each([
+    [{ info: null }, '1/8 · EU'],
+    [{ info: '' }, '1/8 · EU'],
+    [{ region: 'unknown' }, 'arena · 1/8'],
+    [{ region: '' }, 'arena · 1/8'],
+    [{ info: null, region: 'unknown' }, '1/8'],
+  ])('пустые сегменты не выводятся: %o → %s', (over, text) => {
     const model = makeModel();
 
     new LobbyView(model, elems, observerFactory);
+
     model.publisher.emit('list', {
-      servers: [
-        server('a', { rating: 7 }),
-        server('b', { rating: -3 }),
-        server('c', { rating: 0 }),
-      ],
+      servers: [server('a', over)],
       hasMore: false,
     });
 
-    const ratings = [...document.querySelectorAll('.lobby-card-rating')].map(
-      el => el.textContent,
-    );
+    expect(document.querySelector('.lobby-card-info').textContent).toBe(text);
+  });
 
-    expect(ratings).toEqual(['+7', '-3', '0']);
+  it('карточка не рисует рейтинг хостера (/like·/unlike удалены)', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('list', { servers: [server('a')], hasMore: false });
+
+    expect(document.querySelector('.lobby-card-rating')).toBeNull();
   });
 
   it('неизвестная latency показывается как …', () => {
@@ -234,7 +242,7 @@ describe('LobbyView: рендер списка', () => {
     const cards = document.querySelectorAll('.lobby-card');
 
     expect(cards).toHaveLength(1);
-    expect(cards[0].dataset.hostId).toBe('b');
+    expect(cards[0].dataset.roomId).toBe('b');
   });
 });
 
@@ -263,7 +271,7 @@ describe('LobbyView: события', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('клик по карточке эмитит join с hostId', () => {
+  it('клик по карточке эмитит join с roomId', () => {
     const model = makeModel();
     const view = new LobbyView(model, elems, observerFactory);
     const joins = [];
@@ -276,7 +284,50 @@ describe('LobbyView: события', () => {
     expect(joins).toEqual(['a']);
   });
 
-  it('видимость карточки эмитит visible с hostId', () => {
+  // host-migration, этап 3: «Copy link» не входит в комнату (клик не
+  // всплывает до карточки) и кладёт в буфер абсолютную ссылку
+  it('Copy link копирует ссылку на комнату и не эмитит join', async () => {
+    const writeText = vi.fn().mockResolvedValue();
+
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+
+    const model = makeModel();
+    const view = new LobbyView(model, elems, observerFactory);
+    const joins = [];
+
+    view.publisher.on('join', id => joins.push(id));
+    model.publisher.emit('list', {
+      servers: [server('k7m2qx3a')],
+      hasMore: false,
+    });
+
+    const btn = document.querySelector('.lobby-card-copy');
+    const event = { stopPropagation: vi.fn() };
+
+    btn.onclick(event);
+    await vi.waitFor(() => expect(btn.value).toBe('Copied'));
+
+    expect(event.stopPropagation).toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}${window.location.pathname}#/tanks/k7m2qx3a`,
+    );
+    expect(joins).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it('без gameId кнопки Copy link нет', () => {
+    const model = makeModel();
+
+    new LobbyView(model, elems, observerFactory);
+    model.publisher.emit('list', {
+      servers: [{ ...server('a'), gameId: null }],
+      hasMore: false,
+    });
+
+    expect(document.querySelector('.lobby-card-copy')).toBeNull();
+  });
+
+  it('видимость карточки эмитит visible с roomId', () => {
     const model = makeModel();
     const view = new LobbyView(model, elems, observerFactory);
     const visible = [];
@@ -297,7 +348,7 @@ describe('LobbyView: обновление пинга', () => {
     new LobbyView(model, elems, observerFactory);
     model.publisher.emit('list', { servers: [server('a')], hasMore: false });
 
-    model.publisher.emit('ping-update', { hostId: 'a', latency: 55 });
+    model.publisher.emit('ping-update', { roomId: 'a', latency: 55 });
 
     expect(document.querySelector('.lobby-card-latency').textContent).toBe(
       '55 ms',
@@ -313,12 +364,12 @@ describe('LobbyView: обновление пинга', () => {
       hasMore: false,
     });
 
-    model.publisher.emit('ping-update', { hostId: 'c', latency: 20 });
-    model.publisher.emit('ping-update', { hostId: 'a', latency: 90 });
-    model.publisher.emit('ping-update', { hostId: 'b', latency: 50 });
+    model.publisher.emit('ping-update', { roomId: 'c', latency: 20 });
+    model.publisher.emit('ping-update', { roomId: 'a', latency: 90 });
+    model.publisher.emit('ping-update', { roomId: 'b', latency: 50 });
 
     const order = [...document.querySelectorAll('.lobby-card')].map(
-      c => c.dataset.hostId,
+      c => c.dataset.roomId,
     );
 
     // c(20) < b(50) < a(90)
@@ -332,7 +383,7 @@ describe('LobbyView: обновление пинга', () => {
     model.publisher.emit('list', { servers: [server('a')], hasMore: false });
 
     expect(() =>
-      model.publisher.emit('ping-update', { hostId: 'ghost', latency: 10 }),
+      model.publisher.emit('ping-update', { roomId: 'ghost', latency: 10 }),
     ).not.toThrow();
   });
 });

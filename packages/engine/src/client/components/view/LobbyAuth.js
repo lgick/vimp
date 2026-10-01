@@ -18,8 +18,9 @@ const LOGIN_ERROR_MESSAGES = {
 };
 
 // Представление логина лобби: переключает login/nick секции lobbyAuth.pug и
-// бейдж пользователя в lobby.pug (#lobby-user), скрывает/показывает #lobby
-// целиком — до авторизации список серверов недоступен (B2)
+// бейдж пользователя в lobby.pug (#lobby-user), скрывает #lobby целиком —
+// до авторизации список серверов недоступен (B2). Показывает лобби main.js,
+// когда маршрут в него ведёт: вход по ссылке минует лобби вовсе
 export default class LobbyAuthView {
   constructor(model, config) {
     if (lobbyAuthView) {
@@ -96,7 +97,6 @@ export default class LobbyAuthView {
 
   showLobby({ nick }) {
     this._container.style.display = 'none';
-    this._lobby.style.display = 'flex';
     this._user.style.display = 'flex';
     this._userNick.textContent = nick;
   }

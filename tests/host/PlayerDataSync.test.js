@@ -52,6 +52,7 @@ const makeSync = (fetchImpl, options = {}) => {
       return Promise.resolve();
     },
     random: () => 0.5, // середина диапазона джиттера — ровно minFlushInterval
+    writeSeqStart: () => 2 ** 47, // старт номеров записей (host-migration 7.7)
     ...options,
   });
 
@@ -391,14 +392,14 @@ describe('PlayerDataSync.flush', () => {
     const made = makeSync(fetchImpl);
 
     await made.sync.load('p1', 'tok');
-    made.sync.setHostId('host-1', 'secret-1');
+    made.sync.setRoom({ roomId: 'room-1', roomSecret: 'secret-1' });
     made.clock.now += lobbyConfig.playerData.minFlushInterval;
     fetchImpl.mockClear();
 
     return { ...made, fetchImpl };
   };
 
-  it('шлёт результат игры { points, best } с hostId для атрибуции', async () => {
+  it('шлёт результат игры { points, best } с roomId для атрибуции', async () => {
     const { sync, fetchImpl } = await loaded();
 
     sync.addPoints('p1', 2);
@@ -414,15 +415,17 @@ describe('PlayerDataSync.flush', () => {
       body: JSON.stringify({
         points: 2,
         best: 2,
-        hostId: 'host-1',
-        hostSecret: 'secret-1',
+        // старт номеров 2^47 (makeSync), это первая запись
+        writeSeq: 2 ** 47 + 1,
+        roomId: 'room-1',
+        roomSecret: 'secret-1',
       }),
     });
   });
 
-  // кодревью №1 (plan/server-rating/review.md): без setHostId PUT несёт
-  // атрибуцию null — auth молча пишет событие без хостера, а не отклоняет
-  it('без setHostId шлёт hostId/hostSecret: null (атрибуция не назначена)', async () => {
+  // без setRoom PUT несёт roomId/roomSecret: null — мастер пишет событие
+  // без комнаты (rate-limit по IP), а не отклоняет
+  it('без setRoom шлёт roomId/roomSecret: null (атрибуция не назначена)', async () => {
     const fetchImpl = makeFetch();
     const { sync, clock } = makeSync(fetchImpl);
 
@@ -437,8 +440,8 @@ describe('PlayerDataSync.flush', () => {
     );
 
     expect(JSON.parse(opts.body)).toMatchObject({
-      hostId: null,
-      hostSecret: null,
+      roomId: null,
+      roomSecret: null,
     });
   });
 
@@ -492,8 +495,8 @@ describe('PlayerDataSync.flush', () => {
       },
       body: JSON.stringify({
         state: { skill: 9 },
-        hostId: 'host-1',
-        hostSecret: 'secret-1',
+        roomId: 'room-1',
+        roomSecret: 'secret-1',
       }),
     });
   });
@@ -860,5 +863,333 @@ describe('PlayerDataSync: предел синхронизации', () => {
     expect(clock.now - startedAt).toBe(
       3 * Math.ceil(1000 / lobbyConfig.playerData.maxRequestsPerSecond),
     );
+  });
+});
+
+describe('PlayerDataSync.attachToken', () => {
+  it('следующая запись идёт со свежим токеном', async () => {
+    const fetchImpl = makeFetch();
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'old');
+    expect(sync.attachToken('p1', 'fresh')).toBe(true);
+
+    sync.addPoints('p1', 5);
+    sync.finishGame('p1');
+    await sync.flush('p1', { urgent: true });
+
+    const put = fetchImpl.mock.calls.find(([, opts]) => opts?.method === 'PUT');
+
+    expect(put[1].headers.authorization).toBe('Bearer fresh');
+  });
+
+  it('без записи участника или с пустым токеном — false', async () => {
+    const { sync } = makeSync(makeFetch());
+
+    expect(sync.attachToken('missing', 'fresh')).toBe(false);
+
+    await sync.load('p1', 'old');
+    expect(sync.attachToken('p1', '')).toBe(false);
+  });
+});
+
+describe('PlayerDataSync: контрольная точка (host-migration этап 5)', () => {
+  it('serialize не несёт токенов, restore переносит накопленное', async () => {
+    const sync = new PlayerDataSync('tanks', {
+      fetchImpl: makeFetch(),
+      writeSeqStart: () => 2 ** 47,
+    });
+
+    await sync.load('1', 'secret-token');
+    sync.addPoints('1', 5);
+    sync.finishGame('1');
+    sync.addPoints('1', 2);
+
+    const state = sync.serialize();
+
+    expect(JSON.stringify(state)).not.toContain('secret-token');
+    expect(state['1']).toMatchObject({
+      pendingPoints: 5,
+      pendingBest: 5,
+      currentGamePoints: 2,
+      stateLoaded: true,
+      writeSeq: 2 ** 47,
+      writes: [],
+    });
+
+    const fetchImpl = makeFetch();
+    const next = new PlayerDataSync('tanks', { fetchImpl });
+
+    next.restore(state);
+
+    expect(next.isLoaded('1')).toBe(true);
+    expect(next.getRating('1', 'month').value).toBe(405);
+  });
+
+  it('без токена запись ждёт возврата участника и не пишет', async () => {
+    const fetchImpl = makeFetch();
+    // точка без writeSeq (Worker до 7.7): накопленное остаётся в pending и
+    // уходит первой записью нового диапазона — здесь он с 0
+    const sync = new PlayerDataSync('tanks', {
+      fetchImpl,
+      writeSeqStart: () => 0,
+    });
+
+    sync.restore({
+      1: { pendingPoints: 3, pendingBest: 3, stateLoaded: true },
+    });
+    await sync.flush('1', { urgent: true });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    sync.attachToken('1', 'fresh');
+    await sync.flush('1', { urgent: true });
+
+    const put = fetchImpl.mock.calls.find(
+      ([url, opts]) => opts.method === 'PUT' && url.startsWith('/auth/rank'),
+    );
+
+    expect(put[1].headers.authorization).toBe('Bearer fresh');
+    expect(JSON.parse(put[1].body)).toMatchObject({ points: 3, best: 3 });
+    expect(sync.serialize()['1'].writeSeq).toBe(1);
+  });
+
+  it('restore с токеном вкладки пишет сразу', async () => {
+    const fetchImpl = makeFetch();
+    const sync = new PlayerDataSync('tanks', { fetchImpl });
+
+    sync.restore(
+      { 1: { pendingPoints: 2, pendingBest: 2, stateLoaded: true } },
+      { tokens: { 1: 'tab-token' } },
+    );
+    await sync.flush('1', { urgent: true });
+
+    expect(
+      fetchImpl.mock.calls.some(
+        ([, opts]) => opts.headers?.authorization === 'Bearer tab-token',
+      ),
+    ).toBe(true);
+  });
+});
+
+// host-migration 7.7: номер закрепляется за записью, повтор уходит с тем же
+// номером и той же суммой — auth отсеивает дубль
+describe('PlayerDataSync: идемпотентность записи (writeSeq)', () => {
+  const rankBodies = fetchImpl =>
+    putCalls(fetchImpl)
+      .filter(([url]) => url.startsWith('/auth/rank'))
+      .map(([, opts]) => JSON.parse(opts.body));
+
+  const finish = (sync, id, points) => {
+    sync.addPoints(id, points);
+    sync.finishGame(id);
+  };
+
+  it('каждая новая запись получает следующий номер', async () => {
+    const fetchImpl = makeFetch();
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 2);
+    await sync.flush('p1', { urgent: true });
+    finish(sync, 'p1', 3);
+    await sync.flush('p1', { urgent: true });
+
+    const [first, second] = rankBodies(fetchImpl);
+
+    expect(second.writeSeq).toBe(first.writeSeq + 1);
+  });
+
+  it('повтор после 5xx несёт тот же номер и ту же сумму, накопленное уходит следом', async () => {
+    let broken = true;
+    const fetchImpl = makeFetch({
+      put: () => (broken ? fail(500) : okJson({ ok: true })),
+    });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 5);
+    await sync.flush('p1', { urgent: true });
+
+    // между попытками закончилась ещё одна игра — в повтор она не входит
+    finish(sync, 'p1', 7);
+    broken = false;
+    await sync.flush('p1', { urgent: true });
+
+    const [failed, retried, next] = rankBodies(fetchImpl);
+
+    expect(retried).toEqual(failed);
+    expect(retried).toMatchObject({ points: 5, best: 5 });
+    // накопленное за время сбоя ушло в той же серии, новым номером
+    expect(next).toMatchObject({
+      points: 7,
+      best: 7,
+      writeSeq: failed.writeSeq + 1,
+    });
+  });
+
+  it('сетевой сбой (fetch бросил) тоже повторяется тем же номером', async () => {
+    let down = true;
+    const fetchImpl = makeFetch({
+      put: () => {
+        if (down) {
+          throw new Error('network');
+        }
+
+        return okJson({ ok: true });
+      },
+    });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 4);
+    await sync.flush('p1', { urgent: true });
+    down = false;
+    await sync.flush('p1', { urgent: true });
+
+    const [first, second] = rankBodies(fetchImpl);
+
+    expect(second).toEqual(first);
+  });
+
+  it('отклонённая (400) запись закрывается, следующая — с новым номером', async () => {
+    let invalid = true;
+    const fetchImpl = makeFetch({
+      put: () => (invalid ? fail(400) : okJson({ ok: true })),
+    });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 4);
+    await sync.flush('p1', { urgent: true });
+    invalid = false;
+    finish(sync, 'p1', 6);
+    await sync.flush('p1', { urgent: true });
+
+    const [rejected, next] = rankBodies(fetchImpl);
+
+    expect(next).toMatchObject({
+      points: 6,
+      writeSeq: rejected.writeSeq + 1,
+    });
+  });
+
+  // ревью этапа 5: эстафета Worker'ов с зависшим PUT — новый Worker обязан
+  // повторить запись с тем же номером, а не отправить ту же сумму новым
+  it('летящая запись едет в точке отдельно, новый хост повторяет её тем же номером', async () => {
+    const fetchImpl = makeFetch({ put: () => new Promise(() => {}) });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 5);
+    sync.flush('p1', { urgent: true });
+    await vi.waitFor(() => expect(rankBodies(fetchImpl)).toHaveLength(1));
+
+    const state = sync.serialize();
+    const [sent] = rankBodies(fetchImpl);
+
+    expect(state.p1.pendingPoints).toBe(0);
+    expect(state.p1.writes).toEqual([
+      { writeSeq: sent.writeSeq, points: 5, best: 5 },
+    ]);
+
+    const nextFetch = makeFetch();
+    const next = makeSync(nextFetch, { writeSeqStart: () => 1000 }).sync;
+
+    next.restore(state, { tokens: { p1: 'tok' } });
+    await next.flush('p1', { urgent: true });
+
+    expect(rankBodies(nextFetch)).toEqual([
+      expect.objectContaining({ points: 5, best: 5, writeSeq: sent.writeSeq }),
+    ]);
+  });
+
+  // ревью 7d: restore не продолжает номера точки — накопленное на момент
+  // точки получает номер, который дал бы ему старый хост (N+1, его отправку
+  // auth отсеет), а всё после — номера нового диапазона
+  it('restore: летящая — свой номер, накопленное — N+1, дальше новый диапазон', async () => {
+    const fetchImpl = makeFetch({ put: () => new Promise(() => {}) });
+    const { sync } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 5);
+    sync.flush('p1', { urgent: true });
+    await vi.waitFor(() => expect(rankBodies(fetchImpl)).toHaveLength(1));
+    // во время запроса закончилась ещё одна игра
+    finish(sync, 'p1', 2);
+
+    const state = sync.serialize();
+    const n = state.p1.writeSeq;
+
+    expect(state.p1.pendingPoints).toBe(2);
+
+    const nextFetch = makeFetch();
+    const next = makeSync(nextFetch, { writeSeqStart: () => 1000 }).sync;
+
+    next.restore(state, { tokens: { p1: 'tok' } });
+    await next.flush('p1', { urgent: true });
+    finish(next, 'p1', 9);
+    await next.flush('p1', { urgent: true });
+
+    expect(rankBodies(nextFetch)).toEqual([
+      expect.objectContaining({ points: 5, writeSeq: n }),
+      expect.objectContaining({ points: 2, writeSeq: n + 1 }),
+      // свежие очки — не n + 2: его старый хост мог уже занять после точки
+      expect.objectContaining({ points: 9, writeSeq: 1001 }),
+    ]);
+  });
+
+  it('вернувшийся в комнату участник не повторяет номера прошлого входа', async () => {
+    const starts = [100, 900];
+    const fetchImpl = makeFetch();
+    const { sync } = makeSync(fetchImpl, {
+      writeSeqStart: () => starts.shift(),
+    });
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 2);
+    await sync.flush('p1', { urgent: true });
+    sync.removeUser('p1');
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 2);
+    await sync.flush('p1', { urgent: true });
+
+    expect(rankBodies(fetchImpl).map(body => body.writeSeq)).toEqual([
+      101, 901,
+    ]);
+  });
+
+  it('дефолтный старт номеров — случайное безопасное целое из 48 бит', () => {
+    const sync = new PlayerDataSync('tanks', { fetchImpl: makeFetch() });
+
+    sync.restore({ p1: {}, p2: {} });
+
+    const { p1, p2 } = sync.serialize();
+
+    for (const { writeSeq } of [p1, p2]) {
+      expect(Number.isSafeInteger(writeSeq)).toBe(true);
+      expect(writeSeq).toBeGreaterThanOrEqual(0);
+      expect(writeSeq).toBeLessThan(2 ** 48);
+    }
+
+    expect(p1.writeSeq).not.toBe(p2.writeSeq);
+  });
+
+  it('неотправленная запись держит показанное значение при /rank', async () => {
+    const fetchImpl = makeFetch({
+      put: () => fail(500),
+      placement: () => okJson({ placement: 1, total: 10, rank: 0 }),
+    });
+    const { sync, clock } = makeSync(fetchImpl);
+
+    await sync.load('p1', 'tok');
+    finish(sync, 'p1', 9);
+    await sync.flush('p1', { urgent: true });
+    clock.now += lobbyConfig.playerData.placementTtl;
+
+    const rating = await sync.refreshPlacement('p1', 'month');
+
+    expect(rating.value).toBe(409);
   });
 });

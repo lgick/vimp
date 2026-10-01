@@ -24,6 +24,8 @@ export function debugLog(...args) {
  *   если вкладка не хостит комнату).
  * @param {Function} params.getClientCore - Текущий ClientCore.
  * @param {string} params.reportUrl - Эндпоинт выгрузки на мастере.
+ * @param {Function} [params.startHandoff] - ({ reason, stay }) => boolean —
+ *   плановая передача хоста (host-migration этап 8), пока у неё нет меню.
  * @param {Function} [params.fetchImpl] - fetch (подменяется в тестах).
  * @param {Function} [params.log] - Логгер (подменяется в тестах).
  * @returns {Object} API для window.__vimpDebug.
@@ -32,6 +34,7 @@ export function createDebugApi({
   getHostController,
   getClientCore,
   reportUrl,
+  startHandoff = null,
   fetchImpl,
   log = debugLog,
 }) {
@@ -155,6 +158,24 @@ export function createDebugApi({
       log('divergence', dump);
 
       return dump;
+    },
+
+    /**
+     * Плановая передача роли хоста бете (host-migration этап 8): stay —
+     * остаться в комнате гостем, иначе уход в лобби.
+     * @param {Object} [options]
+     * @param {string} [options.reason]
+     * @param {boolean} [options.stay]
+     * @returns {boolean} передача началась.
+     */
+    handoff({ reason = 'handover', stay = true } = {}) {
+      requireHost();
+
+      const started = startHandoff?.({ reason, stay }) === true;
+
+      log(started ? `handoff started (${reason})` : 'handoff not started');
+
+      return started;
     },
   };
 }

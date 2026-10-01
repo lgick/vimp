@@ -126,4 +126,47 @@ describe('RTTManager', () => {
     const entries = [...rtt.scheduleNextPing()];
     expect(entries).toHaveLength(0);
   });
+
+  it('getRttStats: медиана только измеренных и включённых, без догадки 100', () => {
+    vi.setSystemTime(1_000_000);
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 5000 },
+      makeCallbacks(),
+    );
+
+    ['u1', 'u2', 'u3', 'host', 'fresh'].forEach(id => rtt.addUser(id));
+    rtt.scheduleNextPing();
+
+    // EMA (alpha 0.1) от стартовых 100: 100 → 100, 300 → 120, 500 → 140
+    for (const [id, sample] of [
+      ['u1', 100],
+      ['u2', 300],
+      ['u3', 500],
+      ['host', 1100],
+    ]) {
+      vi.setSystemTime(1_000_000 + sample);
+      rtt.handlePong(id, 1);
+    }
+
+    expect(rtt.getRttStats(id => id !== 'host')).toEqual({
+      median: 120,
+      count: 3,
+    });
+    // чётное число — среднее двух средних
+    expect(rtt.getRttStats(id => id === 'u1' || id === 'u2')).toEqual({
+      median: 110,
+      count: 2,
+    });
+  });
+
+  it('getRttStats без измеренных — median null, count 0', () => {
+    const rtt = new RTTManager(
+      { maxMissedPings: 5, maxLatency: 1000 },
+      makeCallbacks(),
+    );
+
+    rtt.addUser('u1');
+
+    expect(rtt.getRttStats()).toEqual({ median: null, count: 0 });
+  });
 });

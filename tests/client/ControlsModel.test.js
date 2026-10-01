@@ -126,3 +126,64 @@ describe('ControlsModel.changeKeySet', () => {
     expect(downs).toHaveLength(2);
   });
 });
+
+describe('ControlsModel: resendHeld (host-migration этап 4)', () => {
+  const sockets = events =>
+    events.filter(e => e.type === 'socket').map(e => e.data);
+
+  it('повторяет down удерживаемых клавиш после смены набора', () => {
+    const model = makeModel();
+
+    model.setKeysEnabled(true);
+    model.addKey(ev(87)); // forward зажат
+
+    // пакет входа хоста: набор сменился — _pressedKeys сброшен
+    model.changeKeySet(0);
+
+    const events = collect(model);
+
+    model.resendHeld();
+    expect(sockets(events)).toEqual(['down:forward']);
+
+    // отпускание после повтора снова доходит до хоста
+    model.removeKey(ev(87));
+    expect(sockets(events)).toEqual(['down:forward', 'up:forward']);
+  });
+
+  it('клавиша, зажатая при выключенном вводе, тоже повторяется', () => {
+    const model = makeModel();
+
+    model.addKey(ev(83)); // back — ввод выключен (переподключение)
+    model.setKeysEnabled(true);
+
+    const events = collect(model);
+
+    model.resendHeld();
+    expect(sockets(events)).toEqual(['down:back']);
+  });
+
+  it('отпущенные клавиши и уже отправленные не повторяются', () => {
+    const model = makeModel();
+
+    model.setKeysEnabled(true);
+    model.addKey(ev(87));
+    model.addKey(ev(83));
+    model.removeKey(ev(83));
+
+    const events = collect(model);
+
+    model.resendHeld();
+    expect(sockets(events)).toEqual([]);
+  });
+
+  it('при выключенном вводе ничего не шлёт', () => {
+    const model = makeModel();
+
+    model.addKey(ev(87));
+
+    const events = collect(model);
+
+    model.resendHeld();
+    expect(sockets(events)).toEqual([]);
+  });
+});

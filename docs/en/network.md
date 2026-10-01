@@ -51,9 +51,19 @@ client's network layer — [packages/engine/src/client/network/](../../packages/
     frame with event blocks → meta, otherwise → state). The client
     receives data from both channels as a single stream (`handleMessage`)
     and doesn't distinguish their source.
+  - **`standby`** (reliable-ordered, opened **by the host**, host-migration
+    stage 6): only the room's successor named by the master has it; a
+    regular guest never sees it. It carries the host's checkpoints cut into
+    chunks ([host.md](host.md#standby-successor)) and is not part of the
+    game stream — the client hands it to `StandbyReceiver`, not to
+    `handleMessage`.
 
 The client is the initiator (offerer): it creates the channels and the SDP
-offer, exchanges SDP/ICE with the host through `SignalingClient`. Outgoing
+offer, exchanges SDP/ICE with the host through `SignalingClient`. Signaling
+addresses the **room**, not the host tab: the offer goes to `roomId` (plus the
+tab's `memberId`), the master routes it to the room's current host, and ICE
+candidates from the host arrive with `fromId` = `roomId` and the host's
+`epoch` ([master.md](master.md#shared-messages)). Outgoing
 client messages (ports 0–8 client→server) are control messages and travel
 over the reliable `meta` channel.
 
@@ -67,8 +77,8 @@ in the body — a stateless getter on the core, doesn't change `pack_body`) ∨
 `SocketManager.sendShot(socketId, buffer, reliable)` to the main thread,
 which picks the channel. Backpressure: a positional frame is dropped when
 the state channel's `bufferedAmount` overflows, `meta` never is. The host
-registers the room with the master (`register_host` + heartbeat
-`update_host`).
+registers the room with the master (`register_host`, `reclaim_host` after a
+signaling reconnect, heartbeat `update_host`).
 
 **The interpolator's buffer** was switched from "push at the end" (only
 correct with TCP ordering) to **insertion by `seq`** with deduplication:
@@ -77,15 +87,6 @@ duplicated. Events from a late reliable frame, whose `serverTime` is
 already behind `renderTime`, are emitted immediately on the next
 `sample()` — "exactly once" is preserved (see
 [client.md](client.md#client-core-clientcore)).
-
-**The `/like`·`/unlike` server-rating vote** travels **outside the port
-protocol**: the client intercepts the command before sending it to the host
-and sends `like_host`/`unlike_host { hostId, reason, token }` over the
-master's signaling WS (`SignalingClient.likeHost`/`unlikeHost`), bypassing
-the P2P channel to the host. The reason: the host runs its own
-`CommandProcessor` and could filter out a vote against itself. `token` is the
-voter's Bearer identity-token; rating logic lives on the master and the
-central auth service ([master.md](master.md#server-rating-likeunlike)).
 
 ## Three transports (WebRTC / loopback / WebSocket)
 
@@ -141,6 +142,8 @@ unchanged — only the object implementing `open`/`send`/`disconnect` differs.
 |  16  | `VOTE_DATA`        |    JSON    | Vote data                                                                                                                                                                                                                                                                                                                |
 |  17  | `KEYSET_DATA`      |    JSON    | The active key set: `0` — spectator, `1` — player; sent on a status change, and on a map change (the spectator set right before `CLEAR`)                                                                                                                                                                                 |
 |  18  | `ACCOLADES_DATA`   |    JSON    | Global leaderboard placements for the room's participants, produced by `host/meta/modules/Accolades.js` and applied client-side by `lib/accolades.js`                                                                                                                                                                    |
+|  19  | `SESSION_DATA`     |    JSON    | The participant's resume secret `{ resumeKey, gameId }`: sent once after the first `FIRST_SHOT_READY` and again (rotated) after every successful resume — see [Session resume](#session-resume)                                                                                                                          |
+|  20  | `RESUME_RESULT`    |    JSON    | The reply to `RESUME_REQUEST`: `{ ok: true, gameId, epoch }` or `{ ok: false, reason: 'unknown' \| 'auth' \| 'version' }`                                                                                                                                                                                                |
 
 ### Client → server
 
@@ -155,11 +158,16 @@ unchanged — only the object implementing `open`/`send`/`disconnect` differs.
 |  6   | `CHAT_DATA`        | A chat message / command                                                                                                                                                        |
 |  7   | `VOTE_DATA`        | A vote response `[voteName, value]` or a list request (`'maps'`, `'teams'`)                                                                                                     |
 |  8   | `PONG`             | A reply to PING (the ping id)                                                                                                                                                   |
+|  9   | `RESUME_REQUEST`   | `{ v: 1, gameId, resumeKey, token }` — take the participant's place back over a new connection (the only port open on a resume connection)                                      |
+|  10  | `LEAVE`            | No payload: the player leaves on purpose — the host removes the participant at once, without the resume grace                                                                   |
 
 The host enables client ports in stages (the port state machine in
-[packages/engine/src/host/host.worker.js](../../packages/engine/src/host/host.worker.js)): only
+[packages/engine/src/host/PortMachine.js](../../packages/engine/src/host/PortMachine.js)): only
 `CONFIG_READY` is active before auth, `AUTH_RESPONSE` after, and the rest
-once the user is created. A message on an inactive port is ignored.
+once the user is created. A resume connection opens `RESUME_REQUEST` only.
+A message on an inactive port is ignored; a port without a handler on the
+client is ignored too (`lib/socketDispatch.js`), so an older client simply
+skips `SESSION_DATA`/`RESUME_RESULT`.
 
 ## Connection lifecycle
 
@@ -173,7 +181,10 @@ meta+state channels open → connect in the Worker
   → AUTH_DATA → AUTH_RESPONSE → AUTH_RESULT
   → createUser (spectator) → MODULES_READY → MAP_DATA → MAP_READY
   → FIRST_SHOT_DATA (+ full STAT/PANEL/KEYSET) → FIRST_SHOT_READY
-  → the user joins the game loop (SHOT_DATA, 30 frames/sec) → removeUser on close
+  → SESSION_DATA (lobby only) → the user joins the game loop
+    (SHOT_DATA, 30 frames/sec)
+  → transport closes: LEAVE → removeUser; otherwise detach (lobby) or
+    removeUser (dedicated, standalone)
 ```
 
 Details:
@@ -189,17 +200,17 @@ Details:
   there the reason is delivered as a separate `TECH_INFORM_DATA` over `meta`
   before closing; a WebSocket (dedicated, signaling) carries the code itself.
 
-  | Code   | Key                  | Sent by                                          | Client                                   |
-  | ------ | -------------------- | ------------------------------------------------ | ---------------------------------------- |
-  | `4000` | `staleHost`          | `master/SignalingServer.js`                      | host's signaling socket, no player UI    |
-  | `4001` | `invalidOrigin`      | `master/SignalingServer.js`, `dedicated/main.js` | stays put, shows the reason              |
-  | `4002` | `blocked`            | `master/SignalingServer.js`                      | hoster blocked by rating; room evacuated |
-  | `4003` | `kickForMaxLatency`  | `host/HostGame.js`                               | reloads after 3 s                        |
-  | `4004` | `kickForMissedPings` | `host/HostGame.js`                               | reloads after 3 s                        |
-  | `4005` | `kickIdle`           | `host/HostGame.js`                               | reloads after 3 s                        |
-  | `4006` | `roomFull`           | `host/PortMachine.js`                            | stays put, shows the reason              |
-  | `4008` | `handshakeTimeout`   | `dedicated/main.js`                              | stays put, shows the reason              |
-  | `4009` | `tooManyConnections` | `dedicated/main.js`                              | stays put, shows the reason              |
+  | Code   | Key                  | Sent by                                                                  | Client                                |
+  | ------ | -------------------- | ------------------------------------------------------------------------ | ------------------------------------- |
+  | `4000` | `staleHost`          | `master/SignalingServer.js`                                              | host's signaling socket, no player UI |
+  | `4001` | `invalidOrigin`      | `master/SignalingServer.js`, `dedicated/main.js`                         | stays put, shows the reason           |
+  | `4002` | — retired            | —                                                                        | server rating removed; never reused   |
+  | `4003` | `kickForMaxLatency`  | `host/HostGame.js`                                                       | reloads after 3 s                     |
+  | `4004` | `kickForMissedPings` | `host/HostGame.js`                                                       | reloads after 3 s                     |
+  | `4005` | `kickIdle`           | `host/HostGame.js`                                                       | reloads after 3 s                     |
+  | `4006` | `roomFull`           | `host/PortMachine.js`                                                    | stays put, shows the reason           |
+  | `4008` | `handshakeTimeout`   | `dedicated/main.js`, `host/PortMachine.js` (no `RESUME_REQUEST` in time) | stays put, shows the reason           |
+  | `4009` | `tooManyConnections` | `dedicated/main.js`                                                      | stays put, shows the reason           |
 
   "Stays put" is the policy rule of
   [`src/client/network/policyClose.js`](../../packages/engine/src/client/network/policyClose.js)
@@ -209,6 +220,94 @@ Details:
 
 - After `FIRST_SHOT_READY` the user gets the game's initial vote (e.g. a
   team-selection vote in `vimp-tanks`) and starts receiving frames.
+
+### Session resume
+
+A dropped WebRTC connection in the lobby no longer ends the match for the
+guest (host migration, stage 4). Only the browser host's Worker enables it
+(`resumeGraceMs` in
+[`config/hostDefaults.js`](../../packages/engine/src/config/hostDefaults.js),
+20 s); the dedicated server and the standalone SDK build `PortMachine`
+without it and remove a participant on close, as before.
+
+- **Detach.** The transport of a participant who has entered the match
+  (holds a `resumeKey`) closes without `LEAVE` →
+  `HostGame.detachUser`: the slot stays taken (`isFull` counts it), the
+  actor stays in the world with every `playerKeys` command released, the
+  participant leaves RTT and idle kicks and stops receiving frames. After
+  `resumeGraceMs` without a resume it is removed as usual. The host player
+  (loopback) is never detached.
+- **`LEAVE`** (client port 10) removes the participant at once.
+- **Resume connection.** The client sends a fresh `webrtc_offer` with
+  `resume: true` to the room (the master routes it to the current host);
+  the Worker gets `connect { socketId, resume: true }`, sends no
+  `CONFIG_DATA` and waits `resumeRequestTimeoutMs` (5 s) for
+  `RESUME_REQUEST`, otherwise closes (`4008`). One attempt per connection.
+- **Checks**, in order: format version (`version`); the participant exists
+  and the key matches — compared in constant time, an unknown `gameId` and
+  a wrong key are indistinguishable (`unknown`); the token resolves through
+  the identity strategy to the nick the participant entered with (`auth`).
+  A participant still bound to an old, half-open connection is taken over:
+  the old connection is closed, the participant is not removed.
+- **Success**: the new socket is bound to the participant, RTT/idle
+  tracking resumes, `PlayerDataSync.attachToken` gets the fresh token, and
+  the host sends `RESUME_RESULT { ok, gameId, epoch }`, then the entry
+  packet — spectator `KEYSET` before `CLEAR`, `MAP_DATA` (the `CLEAR` wipes
+  the map too; marked `resume: true`, the client rebuilds it without `MAP_READY`), `FIRST_SHOT_DATA` with full
+  `STAT`/empty `PANEL`, the player's full `PANEL` + `KEYSET 1` if the actor
+  is alive, `ACCOLADES_DATA` — and a rotated `SESSION_DATA` last. If the map
+  changed during the pause, the host sends `MAP_DATA` instead of the frame
+  (the regular map-load path).
+- **Prediction resets, it does not replay.** Inputs sent into the dropped
+  transport never reach the host, and the restored state acknowledges an
+  older `seq` than the client has seen. The client calls
+  `clientCore.reset()`, keeps numbering inputs from its current `inputSeq`
+  and re-sends held keys (`Controls.resendHeld`) after `SESSION_DATA`.
+
+### Host migration
+
+In the lobby mode the room outlives its host (stage 7 of the host-migration
+plan). The transport side of it is session resume above, aimed at a new
+host:
+
+```
+host lost (its signaling closed, heartbeat timeout, guests' host_unreachable
+           + the master's probe)
+  → master: host_migrating { epoch: N+1 } to everyone → guests close the
+    transport to the old host at once, "Switching host…", keys and sound off
+  → master: promote { mode } to the successor
+      checkpoint — the successor restores the match from its latest
+                   checkpoint, register_host { epoch: N+1, promotionToken }
+      cold       — the successor reloads into the room and starts it afresh
+  → master: host_changed { epoch: N+1, mode } to everyone
+      checkpoint/reclaimed — webrtc_offer { resume: true } to the new host
+                             → RESUME_REQUEST → RESUME_RESULT (as above)
+      cold                 — reload into the room, full handshake
+```
+
+**What a rollback means for the player.** The successor continues from its
+latest checkpoint (`lobbyConfig.migration.checkpointIntervalMs`, 500 ms),
+so the world goes back by up to about half a second plus the checkpoint's
+transit; everything after it (moves, shots, kills, chat commands handled by
+the host) is lost, while the round, map, remaining time and score are those
+of the checkpoint. A game without `gameConfig.migration.midRound` keeps the
+meta and starts the round anew. Frame numbering does not go back: the new
+host numbers frames from the larger of the checkpoint's `seq` and the latest
+frame its own client saw, plus 30, so the clients' interpolators accept its
+frames. Every participant comes back detached, with every command released;
+the client resets its prediction (`clientCore.reset()`) and re-sends the
+keys still held, so a key held through the pause keeps working. Active
+votes are dropped, the chat history stays on the clients. Points of games
+the host had already written are not counted twice: rank writes carry
+`writeSeq` (see [auth.md](auth.md)). The successor starts the match once
+every person of the checkpoint has resumed or after `resumeWaitMs` (3 s);
+those still away get the usual `resumeGraceMs`.
+
+Details: the master's state machine, reports, probe and quorum —
+[master.md](master.md#host-migration); the successor and the checkpoint
+format — [host.md](host.md#host-migration); the client supervisor —
+[client.md](client.md). The dedicated server and the standalone SDK do not
+migrate.
 
 ## Channel split: the hot snapshot vs. meta
 
@@ -437,6 +536,14 @@ The server sends `payload`:
 
 The client's reply: `[voteName, selectedValue]`. Requesting a dynamic
 list: the string `'maps'` | `'teams'`.
+
+The "Change host" vote (host-migration stage 10, lobby mode) does **not**
+use this port: it runs between the clients and the master over signaling
+(`host_vote_start`, `host_vote`, `host_vote_answer`, `host_vote_result`,
+see [master.md](master.md#change-host-vote)), so the host it is about never
+sees it. Its window is an engine vote named `@changeHost`; its answer never
+goes out as `[voteName, value]` on port 7. Names starting with `@` are
+reserved for engine votes.
 
 ---
 

@@ -40,6 +40,8 @@ export default class SocketManager {
     this._PORT_VOTE_DATA = ports.VOTE_DATA;
     this._PORT_KEYSET_DATA = ports.KEYSET_DATA;
     this._PORT_ACCOLADES_DATA = ports.ACCOLADES_DATA;
+    this._PORT_SESSION_DATA = ports.SESSION_DATA;
+    this._PORT_RESUME_RESULT = ports.RESUME_RESULT;
 
     this._soundCues = soundCues;
     this._initialVote = initialVote;
@@ -434,6 +436,24 @@ export default class SocketManager {
     } else {
       this.sendGameInform(socketId, 'gameOver');
     }
+  }
+
+  /**
+   * Отправка секрета возобновления сессии (host-migration этап 4).
+   * @param {string} socketId
+   * @param {Object} data - { resumeKey, gameId }.
+   */
+  sendSessionData(socketId, data) {
+    this._send(socketId, this._PORT_SESSION_DATA, data);
+  }
+
+  /**
+   * Ответ на RESUME_REQUEST (host-migration этап 4).
+   * @param {string} socketId
+   * @param {Object} data - { ok: true, gameId, epoch } | { ok: false, reason }.
+   */
+  sendResumeResult(socketId, data) {
+    this._send(socketId, this._PORT_RESUME_RESULT, data);
   }
 
   /**

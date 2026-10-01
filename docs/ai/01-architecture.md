@@ -32,8 +32,9 @@ client connected to that tab over WebRTC.
   client half talks to its Worker through a loopback transport, not WebRTC.
 - The master never executes plugin code. It reads the already-built
   `dist/manifest.json` and serves `dist/` statically.
-- The host browser is **untrusted**. Anti-cheat is out of scope; the only
-  countermeasure is social (server rating, see `08-gameplay-meta.md`).
+- The host browser is **untrusted**. Anti-cheat is out of scope; there is
+  no countermeasure inside the engine today (the server rating `/like` ·
+  `/unlike` was removed).
 
 ## Who owns what
 
@@ -61,7 +62,7 @@ the Worker, and the master only reads `dist/manifest.json`.
 | ------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `ENGINE_API_VERSION`      | `4`, frozen | Generation label of the plugin contract (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema). **Not a gate**: no plugin is rejected for its age | nowhere at runtime; contract rule `B2` checks it is consistent inside the package |
 | `SNAPSHOT_FORMAT_VERSION` | `5`         | Byte layout of the state frame                                                                                                                                   | inside the WASM core, both ends                                                   |
-| `HANDOFF_VERSION`         | `3`         | Shape of the state blob passed when host duty migrates                                                                                                           | `HostGame` (rejects a mismatched blob)                                            |
+| `HANDOFF_VERSION`         | `4`         | Shape of the meta in a checkpoint (host migration) or an in-tab Worker handoff; a checkpoint must be v4, the in-tab handoff also accepts v3                      | `HostGame` (rejects other versions)                                               |
 
 A plugin publishes `engineApi` in **three** places and all three must agree
 **with each other** (a mismatch means a stale `dist/`): `manifest.engineApi`,
@@ -93,8 +94,9 @@ skipped with a warning and the game silently disappears from the lobby.
 1. **Create.** A logged-in user fills the room form in the lobby (fields come
    from `manifest.roomForm`, defaults from `manifest.roomDefaults`) and the
    tab sends `register_host` to the master over WebSocket. The master's
-   `HostRegistry` sanitises the name (≤30 chars), clamps `maxPlayers` to
-   `1..8`, and allows **one room per IP**.
+   `RoomRegistry` gives the room a stable `roomId` (rooms have no name),
+   clamps `maxPlayers` to the game's `roomDefaults.maxPlayers`, and allows
+   **one hosted room per IP**.
 2. **Boot.** The host tab spawns the Worker, which dynamically imports the
    host plugin, validates the required `gameConfig` fields,
    merges engine defaults with `gameConfig`, applies the room overrides,
@@ -106,10 +108,18 @@ skipped with a warning and the game silently disappears from the lobby.
    sounds, informs) travel as JSON messages on the reliable channel.
 5. **Rotate.** Round ends on team wipe or timeout; map rotates when the map
    timer expires (a system vote picks the next one).
-6. **End / handoff.** When the host leaves, the match either ends or the host
-   duty migrates to another participant, carrying a `HANDOFF_VERSION`-tagged
-   blob (participants, scores, current map, remaining map time — **not** the
-   physics world).
+6. **Host migration.** The room lives while it has people (lobby mode). The
+   host streams **checkpoints** (`HANDOFF_VERSION`-tagged meta — participants,
+   scores, map, timers, module state — plus the core's `serialize_state`
+   bytes) ~2/s to a successor the master picked. When the host leaves,
+   lags, hides its tab or is voted out (`/changehost`), the successor
+   restores the latest (or, planned, the final) checkpoint and takes the
+   room over under the same `roomId` with the next `epoch`; clients resume
+   their places after a 1–3 s pause. A game with
+   `gameConfig.migration.midRound: true` continues from the checkpoint's
+   tick; any other game migrates **softly** — meta kept, the round restarts
+   (the physics world is not carried). Dedicated and standalone hosts never
+   migrate. Details: [03-host-plugin.md](03-host-plugin.md#handoff-and-host-migration).
 
 ## Transport: two data channels
 

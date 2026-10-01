@@ -19,6 +19,7 @@ const scenario = {
 const makeApi = ({
   hostController = null,
   clientCore = null,
+  startHandoff,
   fetchImpl,
 } = {}) => {
   const log = vi.fn();
@@ -27,6 +28,7 @@ const makeApi = ({
     getHostController: () => hostController,
     getClientCore: () => clientCore,
     reportUrl: '/debug/report',
+    startHandoff,
     fetchImpl:
       fetchImpl ??
       vi.fn(async () => ({ ok: true, json: async () => ({ file: 'f.json' }) })),
@@ -132,6 +134,29 @@ describe('createDebugApi', () => {
 
     expect(await api.startRecording()).toBe(false);
     expect(log).toHaveBeenCalledWith(expect.stringContaining('unavailable'));
+  });
+
+  it('handoff: только хостом, по умолчанию handover со stay', () => {
+    const startHandoff = vi.fn(() => true);
+
+    expect(() => makeApi({ startHandoff }).api.handoff()).toThrow(
+      'not hosting',
+    );
+
+    const { api } = makeApi({ hostController: {}, startHandoff });
+
+    expect(api.handoff()).toBe(true);
+    expect(startHandoff).toHaveBeenLastCalledWith({
+      reason: 'handover',
+      stay: true,
+    });
+
+    startHandoff.mockReturnValue(false);
+    expect(api.handoff({ reason: 'leave', stay: false })).toBe(false);
+    expect(startHandoff).toHaveBeenLastCalledWith({
+      reason: 'leave',
+      stay: false,
+    });
   });
 
   it('префикс лога стабилен — по нему фильтруется консоль', () => {

@@ -229,3 +229,179 @@ describe('TimerManager: периодические проверки', () => {
     tm.stopIdleCheckTimer();
   });
 });
+
+describe('TimerManager: контрольная точка (host-migration этап 5)', () => {
+  it('serialize отдаёт остатки карты, раунда, отложенных вызовов и кулдаунов', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm.startMapTimer();
+    tm.startRoundTimer();
+    vi.advanceTimersByTime(4000);
+    tm.startRoundRestartDelay();
+    tm.startMapChangeDelay(() => {}, { targetMap: 'dust' });
+    tm.startVoteBlockTimer('mapChange', () => {});
+    vi.advanceTimersByTime(500);
+
+    const state = tm.serialize();
+
+    expect(state.mapTimeLeft).toBe(600000 - 4500);
+    expect(state.roundTimeLeft).toBe(120000 - 4500);
+    expect(state.roundElapsed).toBe(4500);
+    expect(state.teamChangeGraceLeft).toBe(10000 - 4500);
+    expect(state.pending).toEqual([
+      { kind: 'roundRestart', leftMs: 4500 },
+      { kind: 'mapChange', leftMs: 1500, targetMap: 'dust' },
+    ]);
+    expect(state.voteCooldowns).toEqual([{ name: 'mapChange', leftMs: 29500 }]);
+
+    tm.stopGameTimers();
+    tm.stopAllBlockedVoteTimers();
+  });
+
+  it('resumeFromState поднимает таймеры с остатками и виртуальным стартом раунда', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm.resumeFromState({
+      mapTimeLeft: 1000,
+      roundTimeLeft: 115000,
+      roundElapsed: 5000,
+      pending: [{ kind: 'roundRestart', leftMs: 200 }],
+      voteCooldowns: [{ name: 'mapChange', leftMs: 300 }],
+    });
+
+    expect(tm.getRoundTimeLeftMs()).toBe(115000);
+    expect(tm.canChangeTeamInCurrentRound()).toBe(true);
+    expect(tm.isVoteBlocked('mapChange')).toBe(true);
+
+    vi.advanceTimersByTime(200);
+    expect(callbacks.onRoundTimeEnd).toHaveBeenCalledTimes(1);
+    expect(callbacks.onShotTick).toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(tm.isVoteBlocked('mapChange')).toBe(false);
+
+    vi.advanceTimersByTime(700);
+    expect(callbacks.onMapTimeEnd).toHaveBeenCalledTimes(1);
+
+    tm.stopGameTimers();
+  });
+
+  it('раунд без таймера (завершается) восстанавливает прошедшее время', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm.resumeFromState({
+      mapTimeLeft: 1000,
+      roundTimeLeft: null,
+      roundElapsed: 20000,
+    });
+
+    expect(tm.canChangeTeamInCurrentRound()).toBe(false);
+
+    tm.stopGameTimers();
+  });
+
+  it('pause/resume замораживают цикл и остатки карты и раунда', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm.startGameTimers();
+    vi.advanceTimersByTime(1000);
+    tm.pause();
+
+    const ticks = callbacks.onShotTick.mock.calls.length;
+    const mapLeft = tm.getMapTimeLeft();
+    const roundLeft = tm.getRoundTimeLeftMs();
+
+    vi.advanceTimersByTime(60000);
+
+    expect(tm.isPaused).toBe(true);
+    expect(callbacks.onShotTick.mock.calls.length).toBe(ticks);
+    expect(tm.getMapTimeLeft()).toBe(mapLeft);
+    expect(callbacks.onRoundTimeEnd).not.toHaveBeenCalled();
+
+    tm.resume();
+
+    expect(tm.getMapTimeLeft()).toBe(mapLeft);
+    expect(tm.getRoundTimeLeftMs()).toBe(roundLeft);
+
+    vi.advanceTimersByTime(100);
+    expect(callbacks.onShotTick.mock.calls.length).toBeGreaterThan(ticks);
+
+    tm.stopGameTimers();
+  });
+});
+
+describe('TimerManager: метрики здоровья цикла (host-migration 9a)', () => {
+  let restoreClock;
+
+  beforeEach(async () => {
+    const clock = (await import('../../packages/engine/src/lib/clock.js'))
+      .default;
+
+    // dt цикла — от тех же фейковых часов, что двигают таймеры
+    restoreClock = clock.install({ monotonic: () => Date.now() });
+    callbacks.onLoopStats = vi.fn();
+  });
+
+  afterEach(() => {
+    restoreClock();
+  });
+
+  it('раз в ~1 с отдаёт tickRate и maxGapMs без потерь', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm._startGameLoop();
+    vi.advanceTimersByTime(1000);
+
+    expect(callbacks.onLoopStats).toHaveBeenCalledTimes(1);
+
+    const stats = callbacks.onLoopStats.mock.calls[0][0];
+
+    // фейковые таймеры целочисленны: шаг 8.33 мс идёт как 8–9 мс
+    expect(stats.tickRate).toBeGreaterThan(100);
+    expect(stats.tickRate).toBeLessThanOrEqual(125);
+    expect(stats.maxGapMs).toBeLessThanOrEqual(10);
+    expect(stats.lostMs).toBe(0);
+    expect(stats.windowMs).toBeGreaterThanOrEqual(1000);
+
+    tm._stopGameLoop();
+  });
+
+  it('разрыв больше капа dt копится в lostMs и maxGapMs', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm._startGameLoop();
+    vi.advanceTimersByTime(100);
+
+    // главный поток Worker'а «спал» 350 мс: срезано 250 мс сверх капа 0.1 с
+    vi.setSystemTime(Date.now() + 350);
+    vi.advanceTimersByTime(1000);
+
+    const stats = callbacks.onLoopStats.mock.calls[0][0];
+
+    expect(stats.maxGapMs).toBeGreaterThanOrEqual(350);
+    expect(stats.lostMs).toBeGreaterThanOrEqual(240);
+    expect(stats.lostMs).toBeLessThanOrEqual(260);
+
+    tm._stopGameLoop();
+  });
+
+  it('на паузе метрик нет, после resume окно начинается заново', () => {
+    const tm = new TimerManager(timers, callbacks);
+
+    tm.startGameTimers();
+    vi.advanceTimersByTime(500);
+    tm.pause();
+    vi.advanceTimersByTime(5000);
+
+    expect(callbacks.onLoopStats).not.toHaveBeenCalled();
+
+    tm.resume();
+    vi.advanceTimersByTime(1000);
+
+    expect(callbacks.onLoopStats).toHaveBeenCalledTimes(1);
+    // пауза не считается разрывом цикла
+    expect(callbacks.onLoopStats.mock.calls[0][0].lostMs).toBe(0);
+
+    tm.stopGameTimers();
+  });
+});

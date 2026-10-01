@@ -37,7 +37,69 @@ class AbstractTimer {
       };
 
       const timerId = clock.setTimeout(wrappedCallback, duration);
-      this._timers.set(key, { timerId, isInterval });
+
+      // срок и исходный колбэк — для остатка времени и паузы (контрольная
+      // точка хоста, host-migration этап 5)
+      this._timers.set(key, {
+        timerId,
+        isInterval,
+        callback,
+        endsAt: clock.now() + duration,
+        leftMs: null,
+      });
+    }
+  }
+
+  /**
+   * Остаток времени setTimeout-таймера (у стоящего на паузе — замороженный).
+   * @protected
+   * @param {string} key - ключ таймера
+   * @returns {number|null} - миллисекунды; null — таймера нет или интервал
+   */
+  _timeLeft(key) {
+    const entry = this._timers.get(key);
+
+    if (!entry || entry.isInterval) {
+      return null;
+    }
+
+    if (entry.leftMs !== null) {
+      return entry.leftMs;
+    }
+
+    return Math.max(0, entry.endsAt - clock.now());
+  }
+
+  /**
+   * Ставит setTimeout-таймеры на паузу: срабатывание снимается, остаток
+   * запоминается, ключ остаётся (_hasTimer по-прежнему true).
+   * @protected
+   * @param {function} [filter] - (key) => boolean; без него — все
+   */
+  _pauseTimers(filter = () => true) {
+    for (const [key, entry] of this._timers) {
+      if (entry.isInterval || entry.leftMs !== null || !filter(key)) {
+        continue;
+      }
+
+      clock.clearTimeout(entry.timerId);
+      entry.leftMs = Math.max(0, entry.endsAt - clock.now());
+    }
+  }
+
+  /**
+   * Снимает с паузы таймеры, поставленные _pauseTimers: каждый дожидается
+   * своего остатка.
+   * @protected
+   * @param {function} [filter] - (key) => boolean; без него — все
+   */
+  _resumeTimers(filter = () => true) {
+    const paused = [...this._timers].filter(
+      ([key, entry]) => entry.leftMs !== null && filter(key),
+    );
+
+    for (const [key, entry] of paused) {
+      this._startTimer(key, entry.callback, entry.leftMs);
     }
   }
 

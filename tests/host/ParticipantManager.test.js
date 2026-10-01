@@ -381,3 +381,86 @@ describe('ParticipantManager: цвет ника в чате', () => {
     expect(() => pm.setChatColor('42', '#ff4d4d')).not.toThrow();
   });
 });
+
+describe('ParticipantManager: контрольная точка (host-migration этап 5)', () => {
+  it('serialize не несёт токенов и сохраняет топологию команд', () => {
+    const pm = make();
+    const id = pm.createHuman(
+      { name: 'Alice', model: 'm1', token: 'secret' },
+      's1',
+    );
+
+    pm.removeFromTeam(id, 'spectators');
+    pm.addToTeam(id, 'team1');
+    pm.addActive(id);
+    pm.get(id).team = 'team1';
+    pm.get(id).resumeKey = 'k';
+
+    const state = pm.serialize();
+
+    expect(JSON.stringify(state)).not.toContain('secret');
+    expect(state.humans[0]).toMatchObject({
+      gameId: id,
+      identityName: 'Alice',
+      resumeKey: 'k',
+    });
+    expect(state.teamSizes.team1).toEqual([id]);
+    expect(state.activePlayers).toEqual([id]);
+  });
+
+  it('full-восстановление переносит игровое состояние, мягкое — только личность', () => {
+    const record = {
+      gameId: '3',
+      socketId: 'x',
+      name: 'Bob#1',
+      model: 'm1',
+      team: 'team1',
+      teamId: 1,
+      status: 'active',
+      isWatching: false,
+      watchedGameId: null,
+      respawnIndex: 2,
+      lastInputSeq: 41,
+      chatColor: '#fff',
+      resumeKey: 'rk',
+      identityName: 'Bob',
+    };
+
+    const full = make().restoreHuman(record, { full: true });
+    const soft = make().restoreHuman(record);
+
+    expect(full).toMatchObject({
+      status: 'active',
+      isWatching: false,
+      respawnIndex: 2,
+      lastInputSeq: 41,
+      resumeKey: 'rk',
+      identityName: 'Bob',
+      chatColor: '#fff',
+    });
+    expect(soft).toMatchObject({
+      status: 'spectator',
+      isWatching: true,
+      respawnIndex: null,
+      lastInputSeq: 0,
+      resumeKey: 'rk',
+      identityName: 'Bob',
+    });
+  });
+
+  it('restoreTopology отбрасывает id, не пережившие восстановление', () => {
+    const pm = make();
+
+    pm.restoreScripted(
+      { gameId: '1', name: 'Bot1', model: 'm1', team: 'team1', teamId: 1 },
+      { full: true },
+    );
+    pm.restoreTopology({
+      teamSizes: { team1: ['1', '9'] },
+      activePlayers: ['9', '1'],
+    });
+
+    expect(pm.getTeamSize('team1')).toBe(1);
+    expect(pm.getActiveList()).toEqual(['1']);
+  });
+});

@@ -182,6 +182,7 @@ still want. The same holds for `rtt` and `idleKickTimeout`.
 | `mapScale`                 | `number`                                       | global map scale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `mapSetId`                 | `string`                                       | default map construction set id                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `mapsInVote`               | `number`                                       | how many maps a rotation vote offers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `lobbyInfo`                | `'map'`                                        | optional: the text of the room's lobby card. `'map'` shows the current map and follows map changes; omitted — the card shows no game text. A module may set any text at run time with `ctx.lobby?.setInfo(text \| null)` (see `createModules`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `stat`                     | schema                                         | statistics table, host half                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `panel`                    | `{ fields, activeKey }`                        | HUD schema, host half                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `soundCues`                | `{ roundStart, victory, defeat, frag, death }` | engine event → sound name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -220,7 +221,7 @@ The context is exactly:
 
 ```js
 {
-  (participants, coreAdapter, panel, stat, chat, socketManager, scripted);
+  (participants, coreAdapter, panel, stat, chat, socketManager, scripted, lobby);
 }
 ```
 
@@ -231,6 +232,11 @@ The context is exactly:
 - `panel`, `stat`, `chat`, `socketManager` — engine meta modules.
 - `scripted` — the `gameConfig.scripted` **config object**
   (`{ namePrefix, defaultModel }`), not a module.
+- `lobby` — `{ setInfo(text | null) }`: the text of the room's lobby card at
+  run time (a server option, a mode, a phase). It wins over
+  `gameConfig.lobbyInfo: 'map'`; `null` withdraws it; the master trims it to
+  48 characters. Absent on engines older than this field — call
+  `ctx.lobby?.setInfo(...)`, no `requires` entry is needed.
 
 > There is **no** `timerManager` and **no** `voteCoordinator` in this context
 > — they exist only in the chat-command context below. If a bot manager needs
@@ -319,8 +325,13 @@ with `ctx.isDevMode`), `/timeleft` (`ctx.timerManager.getMapTimeLeft()`),
 (`ctx.playerDataSync.refreshPlacement(gameId, period)`, or `getRating` for the
 value the last refresh left behind) — are game code now; the scaffold ships
 them in `src/host/metaCommands.js`. Registering one name twice silently drops a
-handler. `/like` and `/unlike` are intercepted by the client and go to the
-master — they never reach the host.
+handler.
+
+`/changehost` is **reserved** by the engine: in lobby mode the client
+intercepts it before it reaches the host and starts the master's "Change
+host" vote (the host it is about must not be able to block it). Do not
+declare a command with that name — in lobby mode it would never run, in
+dedicated/standalone mode it would mean something else than in the lobby.
 
 ## `systemMessages`
 
@@ -329,16 +340,30 @@ Chat system messages travel as short codes; the **texts live on the client**
 
 Engine-reserved groups — do not use these letters:
 
-| Group | Indexes | Meaning                                                                  |
-| ----- | ------- | ------------------------------------------------------------------------ |
-| `s`   | 0–6     | team full, your team, new team, now spectator, kill report, joined, left |
-| `v`   | 0–5     | vote created / started / accepted / unavailable / passed / failed        |
-| `m`   | 0–1     | current map, next map                                                    |
-| `c`   | 0–1     | command not found, rank                                                  |
-| `n`   | 0–1     | invalid name, name changed                                               |
+| Group | Indexes | Meaning                                                                                                                                                        |
+| ----- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `s`   | 0–11    | team full, your team, new team, now spectator, kill report, joined, left, host changed, no longer the host, host changed: lagging / inactive / poor connection |
+| `v`   | 0–15    | vote created / started / accepted / unavailable / passed / failed; 6–15 — the "Change host" vote notices (see below)                                           |
+| `m`   | 0–1     | current map, next map                                                                                                                                          |
+| `c`   | 0–1     | command not found, rank                                                                                                                                        |
+| `n`   | 0–1     | invalid name, name changed                                                                                                                                     |
 
-Your own codes pick any other letter (tanks uses `b`, the test fixture uses
-`g`):
+The client must have a text for **every** engine code too — a code without
+a text is silently dropped (`s:7` "Host changed", `s:8` "You are no
+longer the host (connection lost)" and `s:9`–`s:11` "Host changed: the
+previous host was lagging / went inactive / had a poor connection" arrive
+with host migration; `v:6`–`v:15` are the "Change host" vote notices the
+client adds itself — "Usage: /changehost", "You are the host — use “Hand
+over host” in the room menu", "No connection to the master server", "A host
+vote was held recently", "No other player can host", "A host vote is
+already in progress", "A host vote is not possible right now", "Vote to
+change host passed ({0}/{1})", "… failed ({0}/{1})", "Host vote
+cancelled"). Never send a
+raw text array instead of a code: data goes in params (`MAP_CURRENT` with the
+map name, not `[mapName]`).
+
+Your own codes pick any other letter (tanks uses `b` and `t`, the test
+fixture uses `g`):
 
 ```js
 export default { BOTS_SPAWNED: 'g:0' }; // client text: '{0} bot(s) spawned'
@@ -367,7 +392,10 @@ createVote({ voteName, voteCategory, payload, resultFunc, userList, gameId })
 - A tie is broken **randomly**.
 - Options are paginated 7 per page (keys `1`–`7`, `8`/`9` page, `0` cancel).
 
-Reserved vote names: `mapChange`, `teamChange`. Reserved `values` shorthands
+Reserved vote names: `mapChange`, `teamChange`, and every name starting with
+`@` (engine votes — `@changeHost` is the master's "Change host?" window in
+lobby mode; its answer never reaches the host; contract rule `B9` rejects
+such a template or menu entry). Reserved `values` shorthands
 in client templates: `'teams'`, `'maps'` (the engine substitutes the live
 list).
 
@@ -557,35 +585,65 @@ onCoreEvent(data, { vimp, panel }) {
 Only `custom` events reach the plugin; `panelSet`, `panelActive`, `death` and
 `shake` are consumed by the engine itself. Ids arrive stringified.
 
-## Handoff
+## Handoff and host migration
 
-When host duty migrates, the engine serialises:
+A room can move to another host — a new code version in the same tab (at a
+round boundary) or another player's machine (a **checkpoint**, any frame).
+The engine carries a versioned meta (`HANDOFF_VERSION = 4`): participants
+(ids, names, teams, status, `resumeKey`), the score, panel values, player
+profiles (unsent points, state — never tokens), the current map's JSON and a
+map your game substituted with `vimp.overrideMapData`, every timer with its
+remainder (map, round, deferred restart/map change, vote cooldowns), round
+flags, the frame `seq`, the lobby card text.
+
+What happens to **your** state depends on one opt-in:
+
+- **default (soft)** — the physics world is not carried; the restored room
+  re-creates the map and restarts the round. JS state inside your host
+  modules is lost. Design modules so that this is survivable.
+- **`gameConfig.migration = { midRound: true }`** — the engine attaches the
+  core dump (`serialize_state` → your `GameSim::serialize`) and the new host
+  continues **from the same tick**. In exchange, everything must be carried:
+  - the core: `GameSim::serialize`/`deserialize` must cover all simulation
+    state (see [05-wasm-core.md](05-wasm-core.md#save--restore));
+  - every module from `createModules` that keeps state in memory implements
+    `serializeState()` → a JSON value and `restoreState(state)`; the engine
+    calls them by the module's key in the `createModules` object, restore
+    after its own meta (map included). No methods — nothing carried. A
+    throwing `serializeState` makes that checkpoint soft.
 
 ```js
-{ version: 3, gameId, gameVersion, seq, currentMap, mapTimeLeft,
-  humans: [{ gameId, name, model, team, teamId, … }],
-  scripted: [{ gameId, name, model, team, teamId }],
-  stat }
+export default class ArenaScaler {
+  serializeState() {
+    return { size: this._size, population: this._population };
+  }
+
+  restoreState(state) {
+    this._size = state.size;
+    this._population = state.population;
+  }
+}
 ```
 
-**Not carried:** the physics world (the core is not dumped) and any JS state
-held inside your host modules. A restored room re-creates the map and respawns
-everyone. Design host modules so that losing their in-memory state at a
-handoff is survivable.
+**Never carried:** active votes (closures), chat history, RTT, idle timers.
+Check it with `vimp-sim --checkpoint-every <ms>` or the scenario op
+`checkpointRestore` ([13-debugging.md](13-debugging.md)): the host is
+swapped through a real checkpoint and every invariant must stay green. The
+capability is `host.migration`; do not put it in `requires` — an older
+engine ignores the flag and migrates softly.
 
 ## Kicks and close codes
 
-| Code   | Reason                                                                                               |
-| ------ | ---------------------------------------------------------------------------------------------------- |
-| `4002` | the host's account was blocked by server rating — the whole room is evacuated (issued by the master) |
-| `4003` | EMA latency above `rtt.maxLatency`                                                                   |
-| `4004` | more than `rtt.maxMissedPings` unanswered pings                                                      |
-| `4005` | idle beyond `idleKickTimeout.<role>`                                                                 |
-| `4006` | room full                                                                                            |
+| Code   | Reason                                          |
+| ------ | ----------------------------------------------- |
+| `4003` | EMA latency above `rtt.maxLatency`              |
+| `4004` | more than `rtt.maxMissedPings` unanswered pings |
+| `4005` | idle beyond `idleKickTimeout.<role>`            |
+| `4006` | room full                                       |
 
 The host's own client is socket id `'local'` and is immune to all of these.
-There is **no kick vote** in the engine; social moderation is the master's
-`/like` · `/unlike` rating.
+There is **no kick vote** in the engine. Code `4002` is retired (it was the
+removed server rating) and is never sent.
 
 Technical messages are indexed into the client's `techInformList`:
 

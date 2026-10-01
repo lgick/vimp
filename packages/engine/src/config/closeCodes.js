@@ -7,7 +7,7 @@
 export default {
   staleHost: 4000, // master/SignalingServer.js — сигнальный WS хоста протух
   invalidOrigin: 4001, // master/SignalingServer.js, dedicated/main.js
-  blocked: 4002, // master/SignalingServer.js — хостер заблокирован рейтингом
+  // 4002 retired (server rating removed) — номер не переиспользуется
   kickForMaxLatency: 4003, // host/HostGame.js
   kickForMissedPings: 4004, // host/HostGame.js
   kickIdle: 4005, // host/HostGame.js

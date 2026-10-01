@@ -23,8 +23,6 @@ import {
   isValidNick,
   isValidGameResult,
   isValidStateSize,
-  isValidVoteValue,
-  isValidVoteReason,
   clampLimit,
   isValidGameId,
   isValidPackageName,
@@ -34,6 +32,7 @@ import {
   isValidModeratorNote,
   isValidMaxGameScore,
   missingGameField,
+  readWriteSeq,
 } from './lib/validators.js';
 import RateLimiter from './lib/rateLimiter.js';
 import rateLimit from './lib/rateLimit.js';
@@ -861,7 +860,7 @@ function readPeriod(raw) {
 }
 
 // GET /leaderboard — публичный (без requireAuth) топ-N рейтинга игры
-// (lobby-page-plan): показывается всем в лобби до логина, как /host-rating/:id
+// (lobby-page-plan): показывается всем в лобби до логина
 app.get('/leaderboard', async (req, res) => {
   const gameId = req.query.game;
 
@@ -913,24 +912,16 @@ app.get('/rank', requireAuth, async (req, res) => {
   res.json({ rank: await userRepo.getRank(req.user.id, gameId) });
 });
 
-// server-rating этап 1 (stage_1.md): извлекает атрибуцию записи к
-// серверу/сессии из тела запроса — мастер проставляет её из проверенного при
-// register_host hosterUserId (не тело от хоста, кодревью №1); опциональна
-// (отсутствие не отклоняется, событие просто без хостера). Number.isInteger +
-// `> 0` (не Number.isFinite, кодревью, мелкая находка) — явный
-// `hosterUserId: null` иначе давал бы 0 и атрибутировал к несуществующему user 0
+// извлекает комнату, из которой пришла запись: мастер проставляет sessionId
+// по проверенному секрету комнаты (не тело от хоста); опциональна —
+// отсутствие не отклоняется, событие просто без комнаты
 function readAttribution(body) {
-  const rawHosterUserId = Number(body?.hosterUserId);
-  const hosterUserId =
-    Number.isInteger(rawHosterUserId) && rawHosterUserId > 0
-      ? rawHosterUserId
-      : null;
   const sessionId =
     typeof body?.sessionId === 'string' && body.sessionId
       ? body.sessionId
       : null;
 
-  return { hosterUserId, sessionId };
+  return { sessionId };
 }
 
 app.put('/rank', requireAuth, async (req, res) => {
@@ -953,16 +944,18 @@ app.put('/rank', requireAuth, async (req, res) => {
     return;
   }
 
-  await userRepo.recordGameResult(
+  // writeSeq (host-migration 7.7): повтор уже учтённой записи — тоже успех,
+  // иначе хост держал бы её в повторе; второй строки и очков он не даёт
+  const { inserted } = await userRepo.recordGameResult(
     req.user.id,
     gameId,
-    { points, best },
+    { points, best, writeSeq: readWriteSeq(req.body?.writeSeq) },
     readAttribution(req.body),
   );
 
   // пересчитанный rank больше не считается на записи (all-time — суточный
   // снимок), и возвращать его здесь было бы ложью
-  res.json({ ok: true });
+  res.json(inserted ? { ok: true } : { ok: true, duplicate: true });
 });
 
 app.get('/state', requireAuth, async (req, res) => {
@@ -998,69 +991,8 @@ app.put('/state', requireAuth, async (req, res) => {
     return;
   }
 
-  await userRepo.upsertState(
-    req.user.id,
-    gameId,
-    state,
-    readAttribution(req.body),
-  );
+  await userRepo.upsertState(req.user.id, gameId, state);
   res.json({ ok: true });
-});
-
-// server-rating этап 2 (stage_2.md): собственный рейтинг хостера, каким его
-// видит сам хостер (для проверки блокировки при регистрации комнаты мастером)
-app.get('/host-rating', requireAuth, async (req, res) => {
-  res.json(await userRepo.getHostRating(req.user.id));
-});
-
-// публичный (без авторизации) рейтинг хостера — server-rating этап 3
-// (stage_3.md): мастер опрашивает его периодически для кэша GET /servers, не
-// держа Bearer-токен конкретного хостера между запросами; значение и так
-// публично показывается в лобби, секретов тут нет
-app.get('/host-rating/:hosterUserId', async (req, res) => {
-  const hosterUserId = Number(req.params.hosterUserId);
-
-  if (!Number.isInteger(hosterUserId)) {
-    res.status(400).json({ error: 'badRequest' });
-    return;
-  }
-
-  res.json(await userRepo.getHostRating(hosterUserId));
-});
-
-// голос гостя за/против хостера комнаты; req.user — голосующий (из его
-// Bearer), :hosterUserId — цель голоса (не может голосовать сам за себя —
-// это отдельный источник спойлинга собственного рейтинга)
-app.put('/host-rating/:hosterUserId', requireAuth, async (req, res) => {
-  const hosterUserId = Number(req.params.hosterUserId);
-  const { value, reason } = req.body || {};
-
-  if (!Number.isInteger(hosterUserId)) {
-    res.status(400).json({ error: 'badRequest' });
-    return;
-  }
-
-  if (!isValidVoteValue(value)) {
-    res.status(400).json({ error: 'invalidVote' });
-    return;
-  }
-
-  if (hosterUserId === req.user.id) {
-    res.status(403).json({ error: 'selfVote' });
-    return;
-  }
-
-  if (!isValidVoteReason(reason)) {
-    res.json({
-      counted: false,
-      ...(await userRepo.getHostRating(hosterUserId)),
-    });
-    return;
-  }
-
-  res.json(
-    await userRepo.voteHost(hosterUserId, req.user.id, value, reason.trim()),
-  );
 });
 
 // Финальный обработчик: без него отказ БД уходил в дефолтный обработчик

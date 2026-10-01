@@ -17,6 +17,17 @@ import lobbyConfig from '../../../config/lobby.js';
 
 const PERIODS = ['day', 'month', 'all'];
 
+// старт номеров записей (host-migration 7.7): 48 случайных бит из CSPRNG
+// (crypto изоморфен — Worker, браузер, Node). Ключ дубля в auth — (игрок,
+// игра, номер) без комнаты, поэтому разные записи профиля одного игрока
+// (перевход, другая комната, хост из точки) обязаны не пересекаться: 2^48
+// диапазонов на это хватает, и до Number.MAX_SAFE_INTEGER далеко
+const randomWriteSeq = () => {
+  const [high, low] = crypto.getRandomValues(new Uint32Array(2));
+
+  return (high % 2 ** 16) * 2 ** 32 + low;
+};
+
 export default class PlayerDataSync {
   // дефолт fetchImpl обёрнут стрелкой, а не взят как голый `fetch`: из поля
   // объекта он вызывался бы с `this` экземпляра, а в браузере/воркере у
@@ -33,6 +44,7 @@ export default class PlayerDataSync {
       now = () => Date.now(),
       sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
       random = () => Math.random(),
+      writeSeqStart = randomWriteSeq,
     } = {},
   ) {
     this._gameId = gameId;
@@ -40,15 +52,16 @@ export default class PlayerDataSync {
     this._defaultState = defaultState;
     this._now = now;
     this._sleep = sleep;
+    this._writeSeqStart = writeSeqStart;
     this._entries = new Map(); // participantId -> запись профиля (_makeEntry)
-    // hostId + per-room секрет комнаты (кодревью №1, plan/server-rating/
-    // review.md): неизвестны при создании (назначаются мастером на
-    // register_host, после запуска Worker'а) — проставляются позже через
-    // setHostId(). Едут в теле PUT rank/state; мастер сверяет секрет с
-    // реестром и по нему подставляет проверенную атрибуцию, не доверяя
-    // hostId из тела напрямую (иначе можно было бы подставить чужую комнату)
-    this._hostId = null;
-    this._hostSecret = null;
+    // roomId + секрет эпохи комнаты (host-migration, этап 2): неизвестны при
+    // создании (назначаются мастером на register_host, после запуска
+    // Worker'а) — проставляются позже через setRoom(). Едут в теле PUT
+    // rank/state; мастер сверяет секрет с реестром и по нему подставляет
+    // проверенную атрибуцию, не доверяя roomId из тела напрямую (иначе можно
+    // было бы подставить чужую комнату)
+    this._roomId = null;
+    this._roomSecret = null;
 
     const settings = lobbyConfig.playerData;
 
@@ -75,9 +88,9 @@ export default class PlayerDataSync {
 
   // вызывается HostGame, когда мастер подтвердил регистрацию комнаты
   // (host_registered) — до этого flush уходит без атрибуции
-  setHostId(hostId, hostSecret = null) {
-    this._hostId = hostId;
-    this._hostSecret = hostSecret;
+  setRoom({ roomId = null, roomSecret = null } = {}) {
+    this._roomId = roomId;
+    this._roomSecret = roomSecret;
   }
 
   _makeEntry(token) {
@@ -114,6 +127,22 @@ export default class PlayerDataSync {
       inFlightPromise: null,
       flushAgain: false,
       lastFlushAt: 0,
+      // номер последней записи результата участника (host-migration 7.7),
+      // auth по нему отсеивает повтор. Старт случайный (randomWriteSeq), а не
+      // с нуля: участник, вышедший и вернувшийся в комнату, получает новую
+      // запись — счёт с нуля совпал бы с номерами прошлого входа, и auth
+      // выбросил бы честные очки как дубль
+      writeSeq: this._writeSeqStart(),
+      // записи результата, которым уже выдан номер, по порядку — { writeSeq,
+      // points, best }. Сумма вычтена из pending в момент выдачи номера, и
+      // до ответа auth запись живёт здесь: повтор (сбой сети, 5xx/429, хост
+      // из точки) уходит с ТЕМ ЖЕ номером и той же суммой — дошедший до auth
+      // запрос не засчитается дважды. Больше одной бывает только после
+      // restore (см. там)
+      writes: [],
+      // запись восстановлена из контрольной точки без токена (токены по сети
+      // не ездят): писать нечем, пока участник не вернётся (attachToken)
+      awaitingToken: false,
     };
   }
 
@@ -189,6 +218,7 @@ export default class PlayerDataSync {
     const entry = this._entries.get(participantId) ?? this._makeEntry(token);
 
     entry.token = token;
+    entry.awaitingToken = false;
     this._entries.set(participantId, entry);
 
     try {
@@ -378,7 +408,9 @@ export default class PlayerDataSync {
         // ноль после смены суток); есть неотправленное — оно ещё не учтено
         // сервером, и показывать меньше уже показанного нельзя
         rating.value =
-          entry.pendingPoints > 0 || entry.pendingBest > 0
+          entry.pendingPoints > 0 ||
+          entry.pendingBest > 0 ||
+          entry.writes.length > 0
             ? Math.max(rating.value, server)
             : server;
         rating.placement = placement ?? null;
@@ -473,6 +505,114 @@ export default class PlayerDataSync {
     this._entries.delete(participantId);
   }
 
+  // свежий токен участника, вернувшегося в матч новым соединением
+  // (host-migration этап 4): старый мог истечь за время жизни комнаты, а
+  // следующие flush идут с токеном записи. Подгрузку не повторяет —
+  // профиль уже в памяти. false — записи участника нет
+  attachToken(participantId, token) {
+    const entry = this._entries.get(participantId);
+
+    if (!entry || typeof token !== 'string' || token === '') {
+      return false;
+    }
+
+    entry.token = token;
+    entry.awaitingToken = false;
+
+    return true;
+  }
+
+  // ***** контрольная точка (host-migration этап 5) ***** //
+
+  // профили участников без токенов: точка уезжает по сети к другому игроку.
+  // Записи с номерами едут отдельно (writes) и в pending не входят: новый
+  // хост повторит их с теми же номерами, и дошедшая до auth не засчитается
+  // второй раз (host-migration 7.7)
+  serialize() {
+    const out = {};
+
+    for (const [id, entry] of this._entries) {
+      out[id] = {
+        ratings: structuredClone(entry.ratings),
+        ratingsLoaded: { ...entry.ratingsLoaded },
+        currentGamePoints: entry.currentGamePoints,
+        pendingPoints: entry.pendingPoints,
+        pendingBest: entry.pendingBest,
+        state: structuredClone(entry.state),
+        stateLoaded: entry.stateLoaded,
+        lastSyncedState: entry.lastSyncedState,
+        writeSeq: entry.writeSeq,
+        writes: entry.writes.map(write => ({ ...write })),
+      };
+    }
+
+    return out;
+  }
+
+  // поднимает профили из точки. tokens — { [id]: token } только для эстафеты
+  // внутри вкладки; без токена запись ждёт возврата участника (attachToken)
+  restore(state = {}, { tokens = {} } = {}) {
+    for (const [id, saved] of Object.entries(state)) {
+      const token = tokens[id] ?? null;
+      const entry = this._makeEntry(token);
+
+      entry.ratings = structuredClone(saved.ratings ?? entry.ratings);
+      entry.ratingsLoaded = { ...entry.ratingsLoaded, ...saved.ratingsLoaded };
+      entry.currentGamePoints = Number(saved.currentGamePoints) || 0;
+      entry.pendingPoints = Number(saved.pendingPoints) || 0;
+      entry.pendingBest = Number(saved.pendingBest) || 0;
+      entry.state = structuredClone(saved.state ?? this._defaultState);
+      entry.stateLoaded = saved.stateLoaded === true;
+      entry.lastSyncedState = saved.lastSyncedState ?? null;
+      entry.writes = (Array.isArray(saved.writes) ? saved.writes : [])
+        .map(write => this._restoreWrite(write))
+        .filter(Boolean);
+
+      // Номера точки НЕ продолжаются: старый хост мог после неё занять
+      // writeSeq+1, +2…, и свежие очки этого хоста под теми же номерами auth
+      // выбросил бы как дубль. Накопленное на момент точки закрепляется под
+      // writeSeq+1 — этот номер дал бы ему старый хост, и если он его успел
+      // отправить, auth отсеет повтор. Всё дальше — из нового случайного
+      // диапазона (writeSeq из _makeEntry). Точка без номера (Worker до 7.7)
+      // своих записей с номерами не слала — её накопленное остаётся в pending
+      if (
+        Number.isSafeInteger(saved.writeSeq) &&
+        (entry.pendingPoints > 0 || entry.pendingBest > 0)
+      ) {
+        entry.writes.push({
+          writeSeq: saved.writeSeq + 1,
+          points: entry.pendingPoints,
+          best: entry.pendingBest,
+        });
+        entry.pendingPoints = 0;
+        entry.pendingBest = 0;
+      }
+
+      entry.awaitingToken = token === null;
+
+      this._entries.set(id, entry);
+    }
+  }
+
+  _restoreWrite(saved) {
+    if (!saved || !Number.isSafeInteger(saved.writeSeq)) {
+      return null;
+    }
+
+    return {
+      writeSeq: saved.writeSeq,
+      points: Number(saved.points) || 0,
+      best: Number(saved.best) || 0,
+    };
+  }
+
+  // всё ли с мастера уже приехало: тогда повторная загрузка не нужна
+  isLoaded(participantId) {
+    const entry = this._entries.get(participantId);
+
+    return Boolean(entry && entry.stateLoaded && this._ratingsComplete(entry));
+  }
+
   // синхронизирует накопленный результат+state участника на мастер. Сбой не
   // бросается дальше — следующий flush попробует снова с уже накопленными
   // (не потерянными) данными.
@@ -483,7 +623,9 @@ export default class PlayerDataSync {
   async flush(participantId, { urgent = false } = {}) {
     const entry = this._entries.get(participantId);
 
-    if (!entry) {
+    // восстановлен из точки без токена — писать нечем; накопленное ждёт
+    // возврата участника
+    if (!entry || entry.awaitingToken) {
       return;
     }
 
@@ -545,11 +687,9 @@ export default class PlayerDataSync {
 
     const { token } = entry;
     const requests = [];
-    // отправляем именно накопленное на этот момент и вычитаем его же после
-    // успеха — finishGame во время await не теряется (тот же паттерн, что
-    // F9 в load())
-    const points = entry.pendingPoints;
-    const best = entry.pendingBest;
+    // незакрытая запись прошлой попытки (или предшественника — точка,
+    // эстафета) уходит первой и как есть: тот же номер, та же сумма
+    const carried = entry.writes.length > 0;
 
     // РЕЗУЛЬТАТ ИГРЫ ОТПРАВЛЯЕТСЯ БЕЗУСЛОВНО. Гейт по загруженности здесь
     // был бы вреден: это не абсолютное значение, а строка в леджер (auth
@@ -557,27 +697,49 @@ export default class PlayerDataSync {
     // /auth/placements держал бы очки в pending до конца жизни комнаты и
     // терял бы их вместе с ней. Гейт нужен ровно state ниже: тот PUT
     // ЗАМЕЩАЕТ сохранённый JSON, и дефолтом поверх настоящего нельзя (F4)
-    if (points > 0 || best > 0) {
+    if (!carried && (entry.pendingPoints > 0 || entry.pendingBest > 0)) {
+      // накопленное на этот момент получает номер и уходит из pending сразу:
+      // finishGame во время await копит уже следующую запись
+      entry.writeSeq += 1;
+      entry.writes.push({
+        writeSeq: entry.writeSeq,
+        points: entry.pendingPoints,
+        best: entry.pendingBest,
+      });
+      entry.pendingPoints = 0;
+      entry.pendingBest = 0;
+    }
+
+    const [write] = entry.writes;
+
+    if (write) {
       requests.push(
         this._enqueue(() =>
           this._authedFetch(lobbyConfig.playerData.rankUrl, token, {
             method: 'PUT',
             body: {
-              points,
-              best,
-              hostId: this._hostId,
-              hostSecret: this._hostSecret,
+              points: write.points,
+              best: write.best,
+              writeSeq: write.writeSeq,
+              roomId: this._roomId,
+              roomSecret: this._roomSecret,
             },
           }),
         ).then(res => {
-          // pendingBest только растёт: если он тот же — отправленное учтено
-          // целиком; если больше — во время запроса закончилась игра лучше,
-          // и её максимум ещё не отправлен
+          // запись закрыта: следующая получит новый номер. Закрыта старая
+          // (повтор, запись из точки) — оставшиеся записи и накопленное за
+          // время сбоев уходят в этой же серии, а не ждут следующей границы:
+          // срочный flush ухода участника иначе увёз бы их вместе с записью
           const drop = () => {
-            entry.pendingPoints -= points;
+            if (entry.writes[0] === write) {
+              entry.writes.shift();
+            }
 
-            if (entry.pendingBest === best) {
-              entry.pendingBest = 0;
+            if (
+              entry.writes.length > 0 ||
+              (carried && (entry.pendingPoints > 0 || entry.pendingBest > 0))
+            ) {
+              entry.flushAgain = true;
             }
           };
 
@@ -591,10 +753,10 @@ export default class PlayerDataSync {
             );
 
             // 4xx (кроме 429) — отказ ПО СОДЕРЖАНИЮ: повтор того же тела
-            // получит тот же ответ. Оставить его в pending значит слать
+            // получит тот же ответ. Оставить запись открытой значит слать
             // заведомый мусор на каждом flush до конца жизни комнаты, а
-            // накопленное сверху — сверх него. Очки теряются, и это честнее
-            // вечного цикла (сам отказ уже в логе выше)
+            // накопленное после неё не ушло бы вовсе. Очки теряются, и это
+            // честнее вечного цикла (сам отказ уже в логе выше)
             if (res.status >= 400 && res.status < 500 && res.status !== 429) {
               drop();
             }
@@ -612,8 +774,8 @@ export default class PlayerDataSync {
             method: 'PUT',
             body: {
               state: entry.state,
-              hostId: this._hostId,
-              hostSecret: this._hostSecret,
+              roomId: this._roomId,
+              roomSecret: this._roomSecret,
             },
           }),
         ).then(res => {

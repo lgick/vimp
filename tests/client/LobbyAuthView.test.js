@@ -105,11 +105,14 @@ describe('LobbyAuthView: переключение секций', () => {
     );
   });
 
-  it('authenticated скрывает lobby-auth и показывает lobby + бейдж ника', () => {
+  // лобби показывает main.js, когда маршрут ведёт в лобби: при входе по
+  // ссылке оно иначе оставалось бы поверх матча (ручная проверка этапа 7)
+  it('authenticated скрывает lobby-auth и показывает бейдж ника, но не лобби', () => {
+    document.getElementById('lobby').style.display = 'none';
     model.publisher.emit('authenticated', { nick: 'Vanya' });
 
     expect(document.getElementById('lobby-auth').style.display).toBe('none');
-    expect(document.getElementById('lobby').style.display).toBe('flex');
+    expect(document.getElementById('lobby').style.display).toBe('none');
     expect(document.getElementById('lobby-user').style.display).toBe('flex');
     expect(document.getElementById('lobby-user-nick').textContent).toBe(
       'Vanya',

@@ -241,6 +241,45 @@ export default class GameCoreAdapter {
     );
   }
 
+  // ***** контрольная точка (host-migration этап 5) ***** //
+
+  /**
+   * Дамп состояния ядра (замороженный ABI `serialize_state`). Звать только
+   * на границе кадра — сразу после packBody: накопители снапшота должны
+   * быть опустошены (предусловие ядра).
+   * @returns {Uint8Array} Собственная копия байтов в JS-куче.
+   * @throws {Error} Ядро не смогло сериализовать мир — точка пропускается.
+   */
+  serializeState() {
+    let bytes;
+
+    try {
+      bytes = this._core.serialize_state();
+    } catch (e) {
+      throw new Error(`core serialize_state failed: ${errorText(e)}`);
+    }
+
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error('core serialize_state returned no bytes');
+    }
+
+    return bytes;
+  }
+
+  /**
+   * Поднимает мир ядра из дампа. Конфиг ядра обязан совпадать с конфигом
+   * ядра, снявшего дамп.
+   * @param {Uint8Array} bytes
+   * @throws {Error} Битый или несовместимый дамп.
+   */
+  deserializeState(bytes) {
+    try {
+      this._core.deserialize_state(bytes);
+    } catch (e) {
+      throw new Error(`core deserialize_state failed: ${errorText(e)}`);
+    }
+  }
+
   // ***** отладка ***** //
 
   /**
@@ -295,4 +334,10 @@ export default class GameCoreAdapter {
 
     return Boolean(participant && participant.isScripted);
   }
+}
+
+// JsError wasm-bindgen и обычный Error — у обоих есть message; строка из
+// throw внутри фейка — тоже ответ
+function errorText(e) {
+  return e && e.message ? e.message : String(e);
 }

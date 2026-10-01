@@ -26,7 +26,8 @@ export default class HostConnectionManager {
     this._threshold = opts.backpressureThreshold ?? 262144; // 256 КБ
     this._onPeersChange = opts.onPeersChange;
 
-    this._peers = new Map(); // clientId → { pc, meta, state, openCount }
+    // clientId → { pc, meta, state, openCount, memberId }
+    this._peers = new Map();
 
     signaling.publisher.on('webrtc_offer', 'onOffer', this);
     signaling.publisher.on('ice_candidate', 'onRemoteCandidate', this);
@@ -35,14 +36,33 @@ export default class HostConnectionManager {
 
   // приём SDP-оффера клиента: создаёт peer, отвечает answer
   async onOffer(msg) {
-    const { clientId, sdp } = msg;
+    // memberId — id вкладки гостя (переживает реконнект сигналинга);
+    // понадобится назначению преемника (host-migration, этап 6)
+    const { clientId, sdp, memberId = null } = msg;
+    // переподключение гостя к матчу (host-migration этап 4): Worker не
+    // начнёт хендшейк, а будет ждать RESUME_REQUEST
+    const resume = msg.resume === true;
 
     if (this._peers.has(clientId)) {
-      return;
+      // гость с тем же сигнальным id переподключается: для него прежнее
+      // соединение уже мертво, а у нас ещё полуоткрыто — снять его
+      // (Worker отсоединит участника и дождётся возобновления)
+      if (!resume) {
+        return;
+      }
+
+      this._closePeer(clientId);
     }
 
     const pc = this._peerFactory({ iceServers: this._iceServers });
-    const peer = { pc, meta: null, state: null, openCount: 0 };
+    const peer = {
+      pc,
+      meta: null,
+      state: null,
+      openCount: 0,
+      memberId,
+      resume,
+    };
 
     this._peers.set(clientId, peer);
 
@@ -124,12 +144,14 @@ export default class HostConnectionManager {
       peer.openCount += 1;
 
       // оба канала открыты — поднимаем соединение клиента в Worker'е
-      // (Worker сразу шлёт CONFIG_DATA по meta)
+      // (Worker сразу шлёт CONFIG_DATA по meta, а при resume ждёт
+      // RESUME_REQUEST)
       if (peer.openCount === 2) {
         this._controller.open(clientId, {
           onMessage: (payload, reliable) =>
             this._deliver(peer, payload, reliable),
           onClose: () => this._closePeer(clientId),
+          resume: peer.resume,
         });
 
         this._onPeersChange?.(this._peers.size);
@@ -184,7 +206,28 @@ export default class HostConnectionManager {
     this._onPeersChange?.(this._peers.size);
   }
 
-  // число активных пиров (для currentPlayers у мастера)
+  // memberId пира по clientId (null — оффер без него, страница до этапа 2)
+  memberIdOf(clientId) {
+    return this._peers.get(clientId)?.memberId ?? null;
+  }
+
+  // RTCPeerConnection гостя по memberId (канал standby преемнику,
+  // host-migration этап 6): только пир с открытыми meta/state; null — нет
+  peerConnectionOf(memberId) {
+    if (!memberId) {
+      return null;
+    }
+
+    for (const peer of this._peers.values()) {
+      if (peer.memberId === memberId && peer.openCount === 2) {
+        return peer.pc;
+      }
+    }
+
+    return null;
+  }
+
+  // число активных пиров
   get peerCount() {
     return this._peers.size;
   }

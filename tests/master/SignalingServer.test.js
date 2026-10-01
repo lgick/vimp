@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import jwt from 'jsonwebtoken';
-import HostRegistry from '../../packages/engine/src/master/HostRegistry.js';
+import RoomRegistry from '../../packages/engine/src/master/RoomRegistry.js';
 import SignalingServer from '../../packages/engine/src/master/SignalingServer.js';
 import RateLimiter from '../../packages/engine/src/lib/rateLimiter.js';
 
@@ -46,8 +46,8 @@ class FakeWs {
 
 const nextTick = () => new Promise(resolve => process.nextTick(resolve));
 
-// register_host/like_host/unlike_host — асинхронные обработчики (проверка
-// identity-токена по JWKS, запрос к hostRatingProxy). Раньше ждали фиксированным
+// register_host — асинхронный обработчик (проверка identity-токена по
+// JWKS). Раньше ждали фиксированным
 // циклом setImmediate — на full run изредка не хватало тиков (тредпул под
 // нагрузкой много RSA-верификаций подряд). signaling.idle() ждёт реальный
 // промис хендлера, а не гадает по числу тиков — детерминированно, без таймеров.
@@ -59,7 +59,7 @@ const allowAllOrigins = (requestOrigin, cb) => process.nextTick(() => cb(null));
 
 const ICE_SERVERS = [{ urls: 'stun:stun.test:3478' }];
 
-// identity-токены (server-rating этап 2): подписаны реальным RS256-ключом,
+// identity-токены: подписаны реальным RS256-ключом,
 // проверяются verifyIdentityToken по jwks — как настоящий Worker хоста
 const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -87,40 +87,36 @@ const signToken = (sub, { issuer = ISSUER } = {}) =>
     expiresIn: '15m',
   });
 
+const SECRET_KEY = 'k'.repeat(32);
+const REGISTRY_OPTIONS = {
+  maxPlayersLimit: 8,
+  secretKey: SECRET_KEY,
+  heartbeatTimeout: 1000,
+  memberGraceMs: 500,
+  hostReclaimGraceMs: 300,
+};
+
+// memberId вкладки — crypto.randomUUID() на клиенте
+const memberIdOf = n =>
+  `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
 let registry;
 let signaling;
 let jwksProxy;
-let hostRatingProxy;
 
 beforeEach(() => {
-  registry = new HostRegistry({ maxPlayersLimit: 8 });
+  registry = new RoomRegistry(REGISTRY_OPTIONS);
 
   jwksProxy = { get: vi.fn(async () => jwks) };
-  hostRatingProxy = {
-    getRating: vi.fn(async () => ({
-      status: 200,
-      json: { score: 0, blocked: false },
-    })),
-    vote: vi.fn(async () => ({
-      status: 200,
-      json: { score: 1, blocked: false, counted: true },
-    })),
-    getPublic: vi.fn(async () => ({
-      status: 200,
-      json: { score: 0, blocked: false },
-    })),
-  };
-
   signaling = new SignalingServer(registry, {
     iceServers: ICE_SERVERS,
     regionHeader: 'x-region',
-    heartbeatTimeout: 1000,
+    hostReclaimGraceMs: 300,
     pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
     checkOrigin: allowAllOrigins,
     mapsVersion: 'v-test',
     codeVersion: 'code-test',
     jwksProxy,
-    hostRatingProxy,
     issuer: ISSUER,
   });
 });
@@ -143,21 +139,21 @@ const connect = async ({
   return { ws, id: ws.sent[0]?.id };
 };
 
-// подключает и регистрирует хоста; hosterUserId — subject identity-токена
+// подключает и регистрирует хоста; hostUserId — subject identity-токена
 const connectHost = async (options = {}) => {
-  const { hosterUserId = 1, ...connectOptions } = options;
+  const { hostUserId = 1, ...connectOptions } = options;
   const conn = await connect({ ip: '1.1.1.1', ...connectOptions });
 
   conn.ws.message({
     type: 'register_host',
-    name: 'Room',
     maxPlayers: 8,
-    mapName: 'arena',
-    token: signToken(hosterUserId),
+    info: 'arena',
+    token: signToken(hostUserId),
+    memberId: memberIdOf(hostUserId),
   });
   await flushAsync();
 
-  // fail-fast: без этого сбой регистрации даёт каскад "Cannot read 'hostId' of
+  // fail-fast: без этого сбой регистрации даёт каскад "Cannot read 'roomId' of
   // undefined" в далёких ассертах вместо внятной причины
   const reply = conn.ws.lastSent();
 
@@ -167,8 +163,10 @@ const connectHost = async (options = {}) => {
     );
   }
 
-  conn.hostId = reply.hostId;
-  conn.hosterUserId = hosterUserId;
+  conn.roomId = reply.roomId;
+  conn.epoch = reply.epoch;
+  conn.roomSecret = reply.roomSecret;
+  conn.hostUserId = hostUserId;
 
   return conn;
 };
@@ -303,21 +301,48 @@ describe('register_host', () => {
       game: { id: null, version: null },
     });
 
-    const host = registry.get(reply.hostId);
+    const room = registry.get(reply.roomId);
 
-    expect(host).toMatchObject({ name: 'Room', region: 'US', ip: '1.1.1.1' });
+    expect(room).toMatchObject({
+      epoch: 1,
+      region: 'US',
+      host: { ip: '1.1.1.1', memberId: memberIdOf(1) },
+    });
+    expect(room).not.toHaveProperty('name');
+    expect(reply.epoch).toBe(1);
 
-    // per-room секрет (кодревью №1, доработка) уходит только этой сессии и
-    // совпадает с секретом записи комнаты — хост доказывает им владение при
-    // атрибуции rank/state
-    expect(reply.hostSecret).toBeTypeOf('string');
-    expect(reply.hostSecret).toBe(host.secret);
+    // секрет эпохи уходит только этой сессии — хост доказывает им владение
+    // при атрибуции rank/state и в reclaim_host
+    expect(reply.roomSecret).toBe(registry.roomSecret(room));
+    // алиасы для страниц, загруженных до деплоя
+    expect(reply.hostId).toBe(reply.roomId);
+    expect(reply.hostSecret).toBe(reply.roomSecret);
   });
 
-  it('атрибутирует комнату к hosterUserId из проверенного identity-токена', async () => {
-    const { ws } = await connectHost({ hosterUserId: 7 });
+  it('хост — участник своей комнаты (ник из токена)', async () => {
+    const { roomId } = await connectHost({ hostUserId: 4 });
 
-    expect(registry.get(ws.lastSent().hostId).hosterUserId).toBe(7);
+    expect(registry.get(roomId).members.get(memberIdOf(4))).toMatchObject({
+      userId: 4,
+      nick: 'user4',
+    });
+  });
+
+  it('без memberId (страница до этапа 2) участником становится соединение', async () => {
+    const { ws, id } = await connect({ ip: '1.1.1.1' });
+
+    ws.message({ type: 'register_host', name: 'Old', token: signToken(1) });
+    await flushAsync();
+
+    const room = registry.get(ws.lastSent().roomId);
+
+    expect(room.host.memberId).toBe(id);
+  });
+
+  it('привязывает комнату к hostUserId из проверенного identity-токена', async () => {
+    const { ws } = await connectHost({ hostUserId: 7 });
+
+    expect(registry.get(ws.lastSent().roomId).host.userId).toBe(7);
   });
 
   it('без токена — invalidToken, комната не создаётся', async () => {
@@ -348,42 +373,6 @@ describe('register_host', () => {
     expect(ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
   });
 
-  // кодревью №3 (plan/server-rating/review.md): раньше сбой auth бросал
-  // необработанным (пойман только логирующим диспетчером) — хост не получал
-  // ни host_registered, ни error, и UI регистрации зависал
-  it('недоступность auth при регистрации — явная ошибка клиенту, не тихое зависание', async () => {
-    hostRatingProxy.getRating.mockRejectedValue(new Error('auth unreachable'));
-
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { ws } = await connect({ ip: '1.1.1.1' });
-
-    ws.message({ type: 'register_host', name: 'Room', token: signToken(1) });
-    await flushAsync();
-
-    expect(ws.lastSent()).toEqual({
-      type: 'error',
-      code: 'authServiceUnavailable',
-    });
-    expect(registry.size).toBe(0);
-
-    errSpy.mockRestore();
-  });
-
-  it('заблокированный по рейтингу хостер не может зарегистрировать комнату', async () => {
-    hostRatingProxy.getRating.mockResolvedValue({
-      status: 200,
-      json: { score: -10, blocked: true },
-    });
-
-    const { ws } = await connect({ ip: '1.1.1.1' });
-
-    ws.message({ type: 'register_host', name: 'Room', token: signToken(1) });
-    await flushAsync();
-
-    expect(ws.lastSent()).toEqual({ type: 'error', code: 'blocked' });
-    expect(registry.size).toBe(0);
-  });
-
   // игра, помеченная каталогом недоступной (compat.ok === false, этап 5
   // плана plugin-forward-compat), в лобби показана disabled — но это решение
   // КЛИЕНТА. Хост со своей сборкой поднял бы по ней комнату, она попала бы в
@@ -406,7 +395,6 @@ describe('register_host', () => {
         mapsVersion: 'v-test',
         codeVersion: 'code-test',
         jwksProxy,
-        hostRatingProxy,
         issuer: ISSUER,
         gameCatalog: catalogWithUnavailable(),
       });
@@ -439,8 +427,8 @@ describe('register_host', () => {
         code: 'gameUnavailable',
       });
       expect(registry.size).toBe(0);
-      // проверка стоит до обращения к auth: она дешевле сетевого запроса
-      expect(hostRatingProxy.getRating).not.toHaveBeenCalled();
+      // проверка стоит до проверки токена: она дешевле запроса JWKS
+      expect(jwksProxy.get).not.toHaveBeenCalled();
     });
 
     it('доступная игра того же каталога регистрируется как обычно', async () => {
@@ -505,20 +493,16 @@ describe('register_host', () => {
   // за прод-Nginx адрес приходит в X-Real-IP (его прокси перезаписывает), и
   // соединения с разными X-Real-IP — разные клиенты, хотя сокет один и тот же
   it('с trustProxy ключом становится X-Real-IP', async () => {
-    const proxied = new SignalingServer(
-      new HostRegistry({ maxPlayersLimit: 8 }),
-      {
-        iceServers: ICE_SERVERS,
-        regionHeader: 'x-region',
-        heartbeatTimeout: 1000,
-        pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
-        checkOrigin: allowAllOrigins,
-        trustProxy: true,
-        jwksProxy,
-        hostRatingProxy,
-        issuer: ISSUER,
-      },
-    );
+    const proxied = new SignalingServer(new RoomRegistry(REGISTRY_OPTIONS), {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      heartbeatTimeout: 1000,
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      trustProxy: true,
+      jwksProxy,
+      issuer: ISSUER,
+    });
 
     const register = async (realIp, userId) => {
       const ws = new FakeWs();
@@ -566,7 +550,7 @@ describe('register_host', () => {
     const reply = ws.lastSent();
 
     expect(reply.gameId).toBe('tanks');
-    expect(registry.get(reply.hostId)).toMatchObject({
+    expect(registry.get(reply.roomId)).toMatchObject({
       gameId: 'tanks',
       gameVersion: 'v9',
     });
@@ -582,7 +566,6 @@ describe('register_host', () => {
       mapsVersion: 'fallback-version',
       codeVersion: 'code-test',
       jwksProxy,
-      hostRatingProxy,
       issuer: ISSUER,
       gameCatalog: {
         getManifest: id =>
@@ -629,7 +612,6 @@ describe('register_host', () => {
       mapsVersion: 'fallback-version',
       codeVersion: 'code-test',
       jwksProxy,
-      hostRatingProxy,
       issuer: ISSUER,
       gameCatalog: {
         getManifest: () => ({ version: 'tanks-v3', maps: { version: 'm1' } }),
@@ -654,9 +636,9 @@ describe('register_host', () => {
     });
     await staged.idle();
 
-    const hostId = ws.lastSent().hostId;
+    const roomId = ws.lastSent().roomId;
 
-    expect(registry.get(hostId).hidden).toBe(true);
+    expect(registry.get(roomId).hidden).toBe(true);
     expect(registry.getList().servers).toEqual([]);
     expect(registry.getList({ includeHidden: true }).servers).toHaveLength(1);
   });
@@ -667,56 +649,107 @@ describe('register_host', () => {
     expect(ws.lastSent().mapsVersion).toBe('v-test');
   });
 
-  it('кэширует рейтинг хостера из getRating в реестре (server-rating этап 3)', async () => {
-    hostRatingProxy.getRating.mockResolvedValue({
-      status: 200,
-      json: { score: 4, blocked: false },
-    });
-
+  it('host_registered и публичный список не несут рейтинга', async () => {
     const { ws } = await connectHost();
 
-    expect(registry.get(ws.lastSent().hostId).rating).toBe(4);
+    expect(ws.lastSent()).not.toHaveProperty('rating');
+    expect(registry.getList().servers[0]).not.toHaveProperty('rating');
   });
 });
 
 describe('update_host / heartbeat', () => {
-  it('update_host актуализирует данные комнаты', async () => {
-    const { ws, hostId } = await connectHost();
+  it('update_host актуализирует строку карточки; самоотчёт currentPlayers игнорируется', async () => {
+    const { ws, roomId } = await connectHost();
 
-    ws.message({ type: 'update_host', currentPlayers: 3, mapName: 'dune' });
+    ws.message({ type: 'update_host', currentPlayers: 3, info: 'dune' });
 
-    expect(registry.get(hostId)).toMatchObject({
-      currentPlayers: 3,
-      mapName: 'dune',
-    });
+    expect(registry.get(roomId).info).toBe('dune');
+    expect(registry.getList().servers[0].currentPlayers).toBe(1);
   });
 
   it('heartbeat обновляет lastSeen', async () => {
-    const { ws, hostId } = await connectHost();
-    const host = registry.get(hostId);
+    const { ws, roomId } = await connectHost();
+    const room = registry.get(roomId);
 
-    host.lastSeen = 0;
+    room.lastSeen = 0;
     ws.message({ type: 'heartbeat' });
 
-    expect(host.lastSeen).toBeGreaterThan(0);
+    expect(room.lastSeen).toBeGreaterThan(0);
+  });
+
+  it('update_host { info: null } очищает строку, без поля — не трогает', async () => {
+    const { ws, roomId } = await connectHost();
+
+    ws.message({ type: 'update_host' });
+    expect(registry.get(roomId).info).toBe('arena');
+
+    ws.message({ type: 'update_host', info: null });
+    expect(registry.get(roomId).info).toBeNull();
+  });
+
+  // страница до host-migration этапа 2 присылает имя карты как mapName
+  it('mapName старых страниц — алиас info', async () => {
+    const { ws, roomId } = await connectHost();
+
+    ws.message({ type: 'update_host', mapName: 'dune' });
+
+    expect(registry.get(roomId).info).toBe('dune');
+
+    const old = await connect({ ip: '2.2.2.2' });
+
+    old.ws.message({
+      type: 'register_host',
+      name: 'Old',
+      mapName: 'arena',
+      token: signToken(2),
+    });
+    await flushAsync();
+
+    expect(registry.get(old.ws.lastSent().roomId).info).toBe('arena');
+  });
+
+  it('register_host без info — строки карточки нет', async () => {
+    const { ws } = await connect({ ip: '3.3.3.3' });
+
+    ws.message({ type: 'register_host', token: signToken(3) });
+    await flushAsync();
+
+    expect(registry.get(ws.lastSent().roomId).info).toBeNull();
+  });
+
+  it('update_host/heartbeat не от хоста комнаты игнорируются', async () => {
+    const { roomId } = await connectHost();
+    const stranger = await connect();
+    const room = registry.get(roomId);
+
+    room.lastSeen = 0;
+    stranger.ws.message({ type: 'update_host', info: 'hacked' });
+    stranger.ws.message({ type: 'heartbeat' });
+
+    expect(room).toMatchObject({ lastSeen: 0, info: 'arena' });
   });
 });
 
 describe('маршрутизация WebRTC', () => {
-  it('пересылает оффер хосту с clientId, ответ — клиенту с hostId', async () => {
+  it('пересылает оффер хосту комнаты с clientId/memberId/epoch, ответ — клиенту с roomId', async () => {
     const host = await connectHost();
     const client = await connect();
 
     client.ws.message({
       type: 'webrtc_offer',
-      hostId: host.hostId,
+      roomId: host.roomId,
       sdp: 'OFFER',
+      memberId: memberIdOf(50),
+      resume: true,
     });
 
     expect(host.ws.lastSent()).toEqual({
       type: 'webrtc_offer',
       clientId: client.id,
       sdp: 'OFFER',
+      memberId: memberIdOf(50),
+      resume: true,
+      epoch: 1,
     });
 
     host.ws.message({
@@ -727,19 +760,36 @@ describe('маршрутизация WebRTC', () => {
 
     expect(client.ws.lastSent()).toEqual({
       type: 'webrtc_answer',
-      hostId: host.hostId,
+      roomId: host.roomId,
+      hostId: host.roomId,
+      epoch: 1,
       sdp: 'ANSWER',
     });
   });
 
-  it('оффер неизвестному хосту возвращает ошибку', async () => {
+  it('hostId в оффере — алиас roomId (страницы до этапа 2)', async () => {
+    const host = await connectHost();
     const client = await connect();
 
-    client.ws.message({ type: 'webrtc_offer', hostId: 'nope', sdp: 'OFFER' });
+    client.ws.message({ type: 'webrtc_offer', hostId: host.roomId, sdp: 'O' });
+
+    expect(host.ws.lastSent()).toEqual({
+      type: 'webrtc_offer',
+      clientId: client.id,
+      sdp: 'O',
+      epoch: 1,
+    });
+  });
+
+  it('оффер в неизвестную комнату — unknownRoom (алиас unknownHost)', async () => {
+    const client = await connect();
+
+    client.ws.message({ type: 'webrtc_offer', roomId: 'nope', sdp: 'OFFER' });
 
     expect(client.ws.lastSent()).toEqual({
       type: 'error',
-      code: 'unknownHost',
+      code: 'unknownRoom',
+      alias: 'unknownHost',
     });
   });
 
@@ -749,7 +799,7 @@ describe('маршрутизация WebRTC', () => {
 
     client.ws.message({
       type: 'ice_candidate',
-      targetId: host.hostId,
+      targetId: host.roomId,
       candidate: 'C1',
     });
 
@@ -767,7 +817,8 @@ describe('маршрутизация WebRTC', () => {
 
     expect(client.ws.lastSent()).toEqual({
       type: 'ice_candidate',
-      fromId: host.hostId,
+      fromId: host.roomId,
+      epoch: 1,
       candidate: 'C2',
     });
   });
@@ -778,7 +829,7 @@ describe('ping_host / pong_host', () => {
     const host = await connectHost();
     const client = await connect();
 
-    client.ws.message({ type: 'ping_host', hostId: host.hostId, pingId: 7 });
+    client.ws.message({ type: 'ping_host', roomId: host.roomId, pingId: 7 });
 
     expect(host.ws.lastSent()).toEqual({
       type: 'ping_host',
@@ -790,7 +841,8 @@ describe('ping_host / pong_host', () => {
 
     expect(client.ws.lastSent()).toEqual({
       type: 'pong_host',
-      hostId: host.hostId,
+      roomId: host.roomId,
+      hostId: host.roomId,
       pingId: 7,
     });
   });
@@ -800,9 +852,9 @@ describe('ping_host / pong_host', () => {
     const client = await connect();
 
     // лимит в тестовом конфиге — 2 за окно
-    client.ws.message({ type: 'ping_host', hostId: host.hostId, pingId: 1 });
-    client.ws.message({ type: 'ping_host', hostId: host.hostId, pingId: 2 });
-    client.ws.message({ type: 'ping_host', hostId: host.hostId, pingId: 3 });
+    client.ws.message({ type: 'ping_host', hostId: host.roomId, pingId: 1 });
+    client.ws.message({ type: 'ping_host', roomId: host.roomId, pingId: 2 });
+    client.ws.message({ type: 'ping_host', roomId: host.roomId, pingId: 3 });
 
     expect(client.ws.lastSent()).toEqual({
       type: 'error',
@@ -815,292 +867,650 @@ describe('ping_host / pong_host', () => {
   });
 });
 
-describe('like_host / unlike_host', () => {
-  // сессия получает право голоса, только отправив оффер этой комнате
-  const joinRoom = (client, hostId) => {
-    client.ws.message({ type: 'webrtc_offer', hostId, sdp: 'offer' });
+// /like·/unlike удалены вместе с рейтингом серверов: старый клиент, ещё
+// шлющий like_host/unlike_host, получает тишину, комната не трогается
+describe('like_host / unlike_host (удалены)', () => {
+  it('сообщения игнорируются как неизвестный type', async () => {
+    const host = await connectHost({ hostUserId: 3 });
+    const client = await connect({ ip: '5.5.5.5' });
+
+    client.ws.message({ type: 'webrtc_offer', roomId: host.roomId, sdp: 'o' });
+
+    const sentBefore = client.ws.sent.length;
+
+    for (const type of ['like_host', 'unlike_host']) {
+      client.ws.message({
+        type,
+        hostId: host.roomId,
+        reason: 'r',
+        token: signToken(9),
+      });
+    }
+    await flushAsync();
+
+    expect(client.ws.sent.length).toBe(sentBefore);
+    expect(host.ws.closed).toBeFalsy();
+    expect(registry.get(host.roomId)).toBeDefined();
+  });
+});
+
+// гость входит в комнату (после AUTH_RESULT у хоста) и выходит из неё
+const joinRoom = async (roomId, { userId = 50, ip = '5.5.5.5' } = {}) => {
+  const conn = await connect({ ip });
+
+  conn.memberId = memberIdOf(userId);
+  conn.ws.message({
+    type: 'join_room',
+    roomId,
+    memberId: conn.memberId,
+    token: signToken(userId),
+  });
+  await flushAsync();
+
+  return conn;
+};
+
+describe('join_room / leave_room', () => {
+  it('участник добавлен, ответ room_joined с эпохой', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    expect(guest.ws.lastSent()).toEqual({
+      type: 'room_joined',
+      roomId: host.roomId,
+      epoch: 1,
+    });
+    expect(registry.get(host.roomId).members.get(guest.memberId)).toMatchObject(
+      { userId: 50, nick: 'user50', sessionId: guest.id },
+    );
+    expect(registry.getList().servers[0].currentPlayers).toBe(2);
+  });
+
+  it('неизвестная комната — unknownRoom, без токена — invalidToken', async () => {
+    const guest = await joinRoom('abcd1234');
+
+    expect(guest.ws.lastSent()).toEqual({ type: 'error', code: 'unknownRoom' });
+
+    const host = await connectHost();
+    const anon = await connect({ ip: '6.6.6.6' });
+
+    anon.ws.message({
+      type: 'join_room',
+      roomId: host.roomId,
+      memberId: memberIdOf(60),
+    });
+    await flushAsync();
+
+    expect(anon.ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
+  });
+
+  it('реконнект сигналинга: тот же memberId перепривязывается', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.handlers.close();
+
+    const member = registry.get(host.roomId).members.get(guest.memberId);
+
+    expect(member.sessionId).toBeNull();
+
+    const again = await joinRoom(host.roomId);
+
+    expect(
+      registry.get(host.roomId).members.get(guest.memberId).sessionId,
+    ).toBe(again.id);
+    expect(registry.get(host.roomId).members.size).toBe(2);
+  });
+
+  it('leave_room удаляет участника сразу', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.message({ type: 'leave_room', roomId: host.roomId });
+
+    expect(registry.get(host.roomId).members.has(guest.memberId)).toBe(false);
+  });
+
+  it('leave_room хоста комнату не трогает', async () => {
+    const host = await connectHost();
+
+    host.ws.message({ type: 'leave_room', roomId: host.roomId });
+
+    expect(registry.get(host.roomId).members.size).toBe(1);
+  });
+});
+
+describe('reclaim_host', () => {
+  const reclaim = async (conn, fields) => {
+    conn.ws.message({
+      type: 'reclaim_host',
+      maxPlayers: 8,
+      info: 'arena',
+      ...fields,
+    });
+    await flushAsync();
+
+    return conn.ws.lastSent();
   };
 
-  it('/like шлёт голос +1 в auth через hostRatingProxy', async () => {
-    const host = await connectHost({ hosterUserId: 3 });
-    const client = await connect({ ip: '5.5.5.5' });
-    const token = signToken(9);
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      reason: 'good game',
-      token,
-    });
-    await flushAsync();
-
-    expect(hostRatingProxy.vote).toHaveBeenCalledWith(token, 3, 1, 'good game');
-  });
-
-  it('/unlike шлёт голос -1', async () => {
-    const host = await connectHost({ hosterUserId: 3 });
-    const client = await connect({ ip: '5.5.5.5' });
-    const token = signToken(9);
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'unlike_host',
-      hostId: host.hostId,
-      reason: 'aimbot',
-      token,
-    });
-    await flushAsync();
-
-    expect(hostRatingProxy.vote).toHaveBeenCalledWith(token, 3, -1, 'aimbot');
-  });
-
-  it('отклоняет голос от сессии, не подключавшейся к комнате', async () => {
-    const host = await connectHost();
-    const stranger = await connect({ ip: '7.7.7.7' });
-
-    stranger.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      reason: 'aimbot',
-      token: signToken(9),
-    });
-    await flushAsync();
-
-    expect(stranger.ws.lastSent()).toEqual({
-      type: 'error',
-      code: 'voteRejected',
-    });
-    expect(hostRatingProxy.vote).not.toHaveBeenCalled();
-  });
-
-  it('не учитывает голос без причины (причина обязательна)', async () => {
-    const host = await connectHost();
-    const client = await connect({ ip: '5.5.5.5' });
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      token: signToken(9),
-    });
-    await flushAsync();
-
-    expect(hostRatingProxy.vote).not.toHaveBeenCalled();
-  });
-
-  it('без валидного identity-токена голосующего — invalidToken', async () => {
-    const host = await connectHost();
-    const client = await connect({ ip: '5.5.5.5' });
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      reason: 'good',
-    });
-    await flushAsync();
-
-    expect(client.ws.lastSent()).toEqual({
-      type: 'error',
-      code: 'invalidToken',
-    });
-    expect(hostRatingProxy.vote).not.toHaveBeenCalled();
-  });
-
-  it('голос комнате, отключившейся после оффера, возвращает unknownHost', async () => {
-    const host = await connectHost();
-    const client = await connect({ ip: '5.5.5.5' });
-
-    joinRoom(client, host.hostId);
-    host.ws.handlers.close(); // хост ушёл, комната удалена из реестра
-
-    client.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      reason: 'x',
-      token: signToken(9),
-    });
-    await flushAsync();
-
-    expect(client.ws.lastSent()).toEqual({
-      type: 'error',
-      code: 'unknownHost',
-    });
-  });
-
-  it('при достижении blockAt закрывает сигнальный WS хоста', async () => {
-    hostRatingProxy.vote.mockResolvedValue({
-      status: 200,
-      json: { score: -10, blocked: true },
-    });
-
-    const host = await connectHost();
-    const client = await connect({ ip: '5.5.5.5' });
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'unlike_host',
-      hostId: host.hostId,
-      reason: 'cheat',
-      token: signToken(9),
-    });
-    await flushAsync();
-
-    // WS хоста закрыт кодом 4002; его close-хендлер убрал комнату из реестра
-    expect(host.ws.closed.code).toBe(4002);
-    expect(registry.get(host.hostId)).toBeUndefined();
-  });
-
-  // кодревью №3 (plan/server-rating/review.md): раньше сбой auth во время
-  // голоса бросал необработанным — клиенту уже сказали "Vote sent", ошибка
-  // никуда не долетала
-  it('недоступность auth при голосе — явная ошибка, а не тихий провал', async () => {
-    hostRatingProxy.vote.mockRejectedValue(new Error('auth unreachable'));
-
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const host = await connectHost({ hosterUserId: 3 });
-    const client = await connect({ ip: '5.5.5.5' });
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      reason: 'good',
-      token: signToken(9),
-    });
-    await flushAsync();
-
-    expect(client.ws.lastSent()).toEqual({
-      type: 'error',
-      code: 'authServiceUnavailable',
-    });
-
-    errSpy.mockRestore();
-  });
-
-  it('обновляет закэшированный рейтинг комнаты сразу после голоса', async () => {
-    hostRatingProxy.vote.mockResolvedValue({
-      status: 200,
-      json: { score: 5, blocked: false, counted: true },
-    });
-
-    const host = await connectHost();
-    const client = await connect({ ip: '5.5.5.5' });
-
-    joinRoom(client, host.hostId);
-    client.ws.message({
-      type: 'like_host',
-      hostId: host.hostId,
-      reason: 'good',
-      token: signToken(9),
-    });
-    await flushAsync();
-
-    expect(registry.get(host.hostId).rating).toBe(5);
-  });
-});
-
-describe('refreshRatings', () => {
-  it('обновляет рейтинг активных хостеров периодическим опросом auth', async () => {
-    const a = await connectHost({ hosterUserId: 1, ip: '10.0.0.1' });
-    const b = await connectHost({ hosterUserId: 2, ip: '10.0.0.2' });
-
-    hostRatingProxy.getPublic.mockImplementation(async hosterUserId => ({
-      status: 200,
-      json: { score: hosterUserId === 1 ? 3 : -2, blocked: false },
-    }));
-
-    await signaling.refreshRatings();
-
-    expect(registry.get(a.hostId).rating).toBe(3);
-    expect(registry.get(b.hostId).rating).toBe(-2);
-  });
-
-  it('без hostRatingProxy — no-op', async () => {
-    const bare = new SignalingServer(registry, {
-      iceServers: ICE_SERVERS,
-      regionHeader: 'x-region',
-      heartbeatTimeout: 1000,
-      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
-      checkOrigin: allowAllOrigins,
-    });
-
-    await expect(bare.refreshRatings()).resolves.toBeUndefined();
-  });
-
-  it('ошибку опроса одного хостера логирует и не прерывает остальных', async () => {
-    await connectHost({ hosterUserId: 1, ip: '10.0.0.3' });
-    const b = await connectHost({ hosterUserId: 2, ip: '10.0.0.4' });
-
-    hostRatingProxy.getPublic.mockImplementation(async hosterUserId => {
-      if (hosterUserId === 1) {
-        throw new Error('network fail');
-      }
-
-      return { status: 200, json: { score: 7, blocked: false } };
-    });
-
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    await signaling.refreshRatings();
-
-    expect(registry.get(b.hostId).rating).toBe(7);
-    expect(errSpy).toHaveBeenCalled();
-
-    errSpy.mockRestore();
-  });
-
-  // кодревью №2 (plan/server-rating/review.md): блок раньше применялся
-  // только в register_host/_vote — хостер, забаненный на другом мастере
-  // (или в прошлом, до рестарта), продолжал держать живую комнату здесь до
-  // следующей попытки регистрации. refreshRatings теперь эвакуирует её.
-  it('эвакуирует комнату хостера, заблокированного вне этого мастера', async () => {
-    const host = await connectHost({ hosterUserId: 1, ip: '10.0.0.5' });
-
-    hostRatingProxy.getPublic.mockResolvedValue({
-      status: 200,
-      json: { score: -10, blocked: true },
-    });
-
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await signaling.refreshRatings();
-
-    expect(host.ws.closed.code).toBe(4002);
-    expect(registry.get(host.hostId)).toBeUndefined();
-
-    warnSpy.mockRestore();
-  });
-});
-
-describe('жизненный цикл хоста', () => {
-  it('отключение хоста удаляет комнату из реестра', async () => {
+  it('реконнект хоста возвращает живую комнату с теми же roomId/epoch/секретом', async () => {
     const host = await connectHost();
 
     host.ws.handlers.close();
 
-    expect(registry.get(host.hostId)).toBeUndefined();
+    const conn = await connect({ ip: '1.1.1.1' });
+    const reply = await reclaim(conn, {
+      roomId: host.roomId,
+      epoch: 1,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+    });
 
-    // адресованные мёртвому хосту сообщения дают unknownHost
+    expect(reply).toMatchObject({
+      type: 'host_registered',
+      roomId: host.roomId,
+      epoch: 1,
+      roomSecret: host.roomSecret,
+    });
+    expect(registry.get(host.roomId).host.sessionId).toBe(conn.id);
+    expect(registry.size).toBe(1);
+
+    // офферы снова доходят до хоста
     const client = await connect();
-    client.ws.message({ type: 'webrtc_offer', hostId: host.hostId, sdp: 'X' });
 
-    expect(client.ws.lastSent()).toEqual({
-      type: 'error',
-      code: 'unknownHost',
+    client.ws.message({ type: 'webrtc_offer', roomId: host.roomId, sdp: 'O' });
+
+    expect(conn.ws.lastSent().type).toBe('webrtc_offer');
+  });
+
+  it('после рестарта мастера комната создаётся заново с тем же roomId', async () => {
+    const host = await connectHost();
+
+    // рестарт: новый реестр (тот же ключ) и новый сигналинг
+    registry = new RoomRegistry(REGISTRY_OPTIONS);
+    signaling = new SignalingServer(registry, {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      jwksProxy,
+      issuer: ISSUER,
+    });
+
+    const conn = await connect({ ip: '1.1.1.1' });
+    const reply = await reclaim(conn, {
+      roomId: host.roomId,
+      epoch: 1,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+      gameId: 'tanks',
+    });
+
+    expect(reply).toMatchObject({
+      type: 'host_registered',
+      roomId: host.roomId,
+      epoch: 1,
+    });
+    expect(registry.get(host.roomId)).toMatchObject({
+      gameId: 'tanks',
+      host: { userId: 1 },
     });
   });
 
-  it('sweepStaleHosts удаляет протухшую комнату и закрывает её сокет', async () => {
+  it('угон: чужой пользователь с видимым roomId и чужим/подобранным секретом — invalidRoomSecret', async () => {
+    const host = await connectHost();
+    const thief = await connect({ ip: '6.6.6.6' });
+
+    // секрет хоста, но токен вора — HMAC привязан к userId
+    expect(
+      await reclaim(thief, {
+        roomId: host.roomId,
+        epoch: 1,
+        roomSecret: host.roomSecret,
+        token: signToken(66),
+      }),
+    ).toEqual({ type: 'error', code: 'invalidRoomSecret' });
+
+    expect(
+      await reclaim(thief, {
+        roomId: host.roomId,
+        epoch: 1,
+        roomSecret: 'A'.repeat(43),
+        token: signToken(66),
+      }),
+    ).toEqual({ type: 'error', code: 'invalidRoomSecret' });
+
+    expect(registry.get(host.roomId).host.sessionId).not.toBe(thief.id);
+  });
+
+  it('эпоха комнаты новее — staleEpoch', async () => {
     const host = await connectHost();
 
-    registry.get(host.hostId).lastSeen = 0;
+    registry.get(host.roomId).epoch = 2;
 
-    const removed = signaling.sweepStaleHosts(5000);
+    const conn = await connect({ ip: '1.1.1.1' });
 
-    expect(removed).toEqual([host.hostId]);
-    expect(registry.get(host.hostId)).toBeUndefined();
+    expect(
+      await reclaim(conn, {
+        roomId: host.roomId,
+        epoch: 1,
+        roomSecret: host.roomSecret,
+        token: signToken(1),
+      }),
+    ).toEqual({ type: 'error', code: 'staleEpoch' });
+  });
+
+  it('id занят комнатой другого пользователя — roomTaken', async () => {
+    const host = await connectHost({ hostUserId: 1 });
+
+    registry.get(host.roomId).host.userId = 2;
+
+    const conn = await connect({ ip: '1.1.1.1' });
+
+    expect(
+      await reclaim(conn, {
+        roomId: host.roomId,
+        epoch: 1,
+        roomSecret: host.roomSecret,
+        token: signToken(1),
+      }),
+    ).toEqual({ type: 'error', code: 'roomTaken' });
+  });
+
+  it('без токена — invalidToken', async () => {
+    const host = await connectHost();
+    const conn = await connect({ ip: '1.1.1.1' });
+
+    expect(
+      await reclaim(conn, {
+        roomId: host.roomId,
+        epoch: 1,
+        roomSecret: host.roomSecret,
+      }),
+    ).toEqual({ type: 'error', code: 'invalidToken' });
+  });
+});
+
+describe('жизненный цикл комнаты', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('закрытие WS хоста без других людей — комната удалена сразу (reclaim восстановит её)', async () => {
+    const host = await connectHost();
+
+    host.ws.handlers.close();
+
+    expect(registry.get(host.roomId)).toBeUndefined();
+
+    const client = await connect();
+
+    client.ws.message({ type: 'webrtc_offer', roomId: host.roomId, sdp: 'X' });
+
+    expect(client.ws.lastSent()).toMatchObject({ code: 'unknownRoom' });
+  });
+
+  it('закрытие WS хоста, повысить некого — комната ждёт reclaim, после grace room_closed noHost', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+    const sentBefore = guest.ws.sent.length;
+
+    host.ws.handlers.close();
+
+    // P2P-матч, возможно, цел: комната ждёт хоста, гостю ничего
+    expect(registry.get(host.roomId)).toMatchObject({ status: 'online' });
+    expect(guest.ws.sent).toHaveLength(sentBefore);
+
+    signaling.sweep(Date.now() + 300);
+
+    expect(registry.get(host.roomId)).toBeUndefined();
+    expect(guest.ws.lastSent()).toEqual({
+      type: 'room_closed',
+      roomId: host.roomId,
+      reason: 'noHost',
+    });
+  });
+
+  it('sweep: хост молчит дольше heartbeatTimeout, кандидатов нет — room_closed, его сокету staleHost', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    registry.get(host.roomId).lastSeen = 0;
+
+    const { lost } = signaling.sweep(5000);
+
+    expect(lost).toEqual([host.roomId]);
+    expect(registry.get(host.roomId)).toBeUndefined();
+    expect(guest.ws.lastSent()).toMatchObject({
+      type: 'room_closed',
+      reason: 'noHost',
+    });
+    expect(guest.ws.sent.some(msg => msg.type === 'host_migrating')).toBe(
+      false,
+    );
     expect(host.ws.closed.code).toBe(4000);
+  });
+
+  it('отсоединённый гость после grace выпадает из комнаты', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.handlers.close();
+    // grace участника 500 мс истёк, heartbeat хоста (1000 мс) — ещё нет
+    signaling.sweep(Date.now() + 600);
+
+    expect(registry.get(host.roomId).members.has(guest.memberId)).toBe(false);
+  });
+});
+
+describe('преемник комнаты (host-migration этап 6)', () => {
+  const clock = { now: 0 };
+
+  beforeEach(() => {
+    // часы сервера впереди реестра: joinedAt участника ставит реестр по
+    // Date.now(), и возраст участника не должен выйти отрицательным
+    clock.now = Date.now() + 60000;
+    signaling = new SignalingServer(registry, {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      hostReclaimGraceMs: 300,
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      jwksProxy,
+      issuer: ISSUER,
+      now: () => clock.now,
+      wsDeadAfterMs: 12000,
+      successor: {
+        minMemberAgeMs: 0,
+        switchRatio: 0.65,
+        switchSustainMs: 30000,
+      },
+    });
+  });
+
+  const CAN_HOST = { canHost: true, mobile: false, hidden: false };
+
+  const join = async (roomId, userId, caps = CAN_HOST) => {
+    const conn = await connect({ ip: `5.5.5.${userId}` });
+
+    conn.memberId = memberIdOf(userId);
+    conn.ws.message({
+      type: 'join_room',
+      roomId,
+      memberId: conn.memberId,
+      token: signToken(userId),
+      caps,
+    });
+    await flushAsync();
+
+    return conn;
+  };
+
+  const typed = (ws, type) => ws.sent.filter(msg => msg.type === type);
+
+  describe('RTT участников', () => {
+    const withPing = ws => {
+      ws.pings = 0;
+      ws.ping = () => {
+        ws.pings += 1;
+      };
+
+      return ws;
+    };
+
+    it('ping/pong: EMA RTT и джиттера, score = rtt + 2 × jitter', async () => {
+      const { ws, id } = await connect();
+
+      withPing(ws);
+
+      expect(signaling.scoreOf(id)).toBeNull();
+
+      signaling.probeSessions(clock.now);
+      expect(ws.pings).toBe(1);
+
+      clock.now += 100;
+      ws.handlers.pong();
+      expect(signaling.scoreOf(id)).toBe(100);
+
+      signaling.probeSessions(clock.now);
+      clock.now += 300;
+      ws.handlers.pong();
+
+      // jitter = 0.2 × |300 − 100| = 40; rtt = 100 + 0.2 × 200 = 140
+      expect(signaling.scoreOf(id)).toBeCloseTo(140 + 2 * 40);
+    });
+
+    it('pong без нашего ping RTT не трогает', async () => {
+      const { ws, id } = await connect();
+
+      ws.handlers.pong();
+
+      expect(signaling.scoreOf(id)).toBeNull();
+    });
+
+    it('сессия без pong дольше wsDeadAfterMs — terminate', async () => {
+      const { ws } = await connect();
+
+      withPing(ws);
+      signaling.probeSessions(clock.now + 11999);
+      expect(ws.terminated).toBe(false);
+
+      signaling.probeSessions(clock.now + 12000);
+      expect(ws.terminated).toBe(true);
+    });
+
+    it('pong продлевает жизнь сессии', async () => {
+      const { ws } = await connect();
+
+      withPing(ws);
+      clock.now += 10000;
+      signaling.probeSessions(clock.now);
+      ws.handlers.pong();
+      signaling.probeSessions(clock.now + 11000);
+
+      expect(ws.terminated).toBe(false);
+    });
+  });
+
+  it('кандидат вошёл — ему standby_assigned, хосту successor_assigned', async () => {
+    const host = await connectHost();
+    const guest = await join(host.roomId, 50);
+
+    expect(typed(guest.ws, 'standby_assigned')).toEqual([
+      { type: 'standby_assigned', roomId: host.roomId, epoch: 1 },
+    ]);
+    expect(host.ws.lastSent()).toEqual({
+      type: 'successor_assigned',
+      roomId: host.roomId,
+      epoch: 1,
+      successorMemberId: guest.memberId,
+      successorClientId: guest.id,
+    });
+    expect(registry.get(host.roomId).successorMemberId).toBe(guest.memberId);
+  });
+
+  it('гость без caps (страница до этапа 6) бетой не становится', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    expect(typed(guest.ws, 'standby_assigned')).toEqual([]);
+    expect(typed(host.ws, 'successor_assigned')).toEqual([]);
+  });
+
+  it('caps санируются: лишние поля и чужой iceType отбрасываются', async () => {
+    const host = await connectHost();
+    const guest = await join(host.roomId, 50, {
+      canHost: 'yes',
+      hidden: false,
+      iceType: 'bogus',
+      extra: 1,
+      fps: 5000,
+    });
+
+    expect(registry.get(host.roomId).members.get(guest.memberId).caps).toEqual({
+      canHost: false,
+      mobile: false,
+      hidden: false,
+      iceType: null,
+      fps: null,
+    });
+  });
+
+  it('caps.fps (этап 9c): округляется; вне 0…1000 и не число — null', async () => {
+    const host = await connectHost();
+    const guest = await join(host.roomId, 50, { canHost: true, fps: 59.7 });
+    const caps = () =>
+      registry.get(host.roomId).members.get(guest.memberId).caps;
+
+    expect(caps().fps).toBe(60);
+
+    for (const fps of [-1, '60', Infinity]) {
+      guest.ws.message({
+        type: 'member_update',
+        roomId: host.roomId,
+        caps: { canHost: true, fps },
+      });
+      expect(caps().fps).toBeNull();
+    }
+  });
+
+  it('бета спрятала вкладку (member_update) — бета переназначается', async () => {
+    const host = await connectHost();
+    const first = await join(host.roomId, 50);
+    const second = await join(host.roomId, 51);
+
+    first.ws.message({
+      type: 'member_update',
+      roomId: host.roomId,
+      caps: { ...CAN_HOST, hidden: true },
+    });
+
+    expect(first.ws.lastSent()).toEqual({
+      type: 'standby_released',
+      roomId: host.roomId,
+    });
+    expect(typed(second.ws, 'standby_assigned')).toHaveLength(1);
+    expect(host.ws.lastSent()).toMatchObject({
+      type: 'successor_assigned',
+      successorMemberId: second.memberId,
+    });
+  });
+
+  it('member_update не из своей комнаты игнорируется', async () => {
+    const host = await connectHost();
+    const stranger = await connect({ ip: '7.7.7.7' });
+
+    stranger.ws.message({
+      type: 'member_update',
+      roomId: host.roomId,
+      caps: CAN_HOST,
+    });
+
+    expect(registry.get(host.roomId).members.size).toBe(1);
+  });
+
+  it('ушла бета — назначается другая; последний кандидат ушёл — null', async () => {
+    const host = await connectHost();
+    const first = await join(host.roomId, 50);
+    const second = await join(host.roomId, 51);
+
+    first.ws.handlers.close();
+
+    expect(host.ws.lastSent()).toMatchObject({
+      type: 'successor_assigned',
+      successorMemberId: second.memberId,
+    });
+
+    second.ws.message({ type: 'leave_room', roomId: host.roomId });
+
+    expect(host.ws.lastSent()).toMatchObject({
+      type: 'successor_assigned',
+      successorMemberId: null,
+      successorClientId: null,
+    });
+  });
+
+  it('гистерезис на плановом пересчёте: заметно лучший сменяет бету через switchSustainMs', async () => {
+    const host = await connectHost();
+    const first = await join(host.roomId, 50);
+    const second = await join(host.roomId, 51);
+    const room = registry.get(host.roomId);
+
+    expect(room.successorMemberId).toBe(first.memberId);
+
+    // RTT: бета 300 мс, второй 50 мс
+    for (const [conn, rtt] of [
+      [first, 300],
+      [second, 50],
+    ]) {
+      conn.ws.ping = () => {};
+      signaling.probeSessions(clock.now);
+      clock.now += rtt;
+      conn.ws.handlers.pong();
+    }
+
+    signaling.reviewSuccessors(clock.now);
+    expect(room.successorMemberId).toBe(first.memberId);
+
+    signaling.reviewSuccessors(clock.now + 30000);
+    expect(room.successorMemberId).toBe(second.memberId);
+    expect(first.ws.lastSent()).toMatchObject({ type: 'standby_released' });
+  });
+
+  it('standby_status: принимается только от беты текущей эпохи', async () => {
+    const host = await connectHost();
+    const beta = await join(host.roomId, 50);
+    const other = await join(host.roomId, 51);
+    const room = registry.get(host.roomId);
+    const status = {
+      type: 'standby_status',
+      roomId: host.roomId,
+      epoch: 1,
+      checkpointId: 'abc-1',
+      createdAt: 1234,
+    };
+
+    other.ws.message(status);
+    beta.ws.message({ ...status, epoch: 2 });
+    expect(room.standby).toBeNull();
+
+    beta.ws.message(status);
+    expect(room.standby).toEqual({
+      memberId: beta.memberId,
+      checkpointId: 'abc-1',
+      createdAt: 1234,
+      receivedAt: clock.now,
+    });
+  });
+
+  it('хост вернулся (reclaim_host) — ему снова successor_assigned', async () => {
+    const host = await connectHost();
+    const beta = await join(host.roomId, 50);
+
+    host.ws.handlers.close();
+
+    const again = await connect({ ip: '1.1.1.1' });
+
+    again.ws.message({
+      type: 'reclaim_host',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+    });
+    await flushAsync();
+
+    expect(typed(again.ws, 'successor_assigned')).toEqual([
+      {
+        type: 'successor_assigned',
+        roomId: host.roomId,
+        epoch: 1,
+        successorMemberId: beta.memberId,
+        successorClientId: beta.id,
+      },
+    ]);
   });
 });

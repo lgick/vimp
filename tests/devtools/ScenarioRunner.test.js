@@ -308,3 +308,60 @@ describe('runScenario (фикстура miniGame)', () => {
     );
   });
 });
+
+// host-migration этап 5: смена хоста через контрольную точку посреди прогона
+describe('runScenario: checkpointRestore', () => {
+  let plugin;
+
+  beforeAll(async () => {
+    plugin = await loadGameForSim({});
+  });
+
+  const withRestore = (extra = {}) => ({
+    ...scenario(),
+    ...extra,
+    timeline: [...scenario().timeline, { tick: 20, op: 'checkpointRestore' }],
+  });
+
+  it('шаг таймлайна поднимает новый хост, клиент возвращается RESUME', async () => {
+    const report = await runScenario(
+      withRestore({
+        config: {
+          timers: { networkSendRate: 1 },
+          migration: { midRound: true },
+        },
+      }),
+      { plugin },
+    );
+
+    expect(report.checkpointRestores).toEqual([
+      { tick: 20, mode: 'midRound', bytes: expect.any(Number) },
+    ]);
+    expect(report.invariantSummary.failed).toBe(0);
+    // игрок продолжил ехать после смены хоста
+    expect(report.clients[0].camera[1]).toBeLessThan(100);
+  });
+
+  it('игра без opt-in мигрирует мягко, инварианты зелёные', async () => {
+    const report = await runScenario(withRestore(), { plugin });
+
+    expect(report.checkpointRestores[0].mode).toBe('soft');
+    expect(report.invariantSummary.failed).toBe(0);
+  });
+
+  it('checkpointEvery снимает точки по времени матча', async () => {
+    const report = await runScenario(
+      { ...scenario(), checkpointEvery: 200 },
+      { plugin },
+    );
+
+    expect(report.checkpointRestores.map(item => item.tick)).toEqual([24, 48]);
+    expect(report.invariantSummary.failed).toBe(0);
+  });
+
+  it('checkpointEvery проверяется при разборе', () => {
+    expect(() => parseScenario({ ...scenario(), checkpointEvery: -1 })).toThrow(
+      /checkpointEvery/,
+    );
+  });
+});

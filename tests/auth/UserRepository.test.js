@@ -150,6 +150,7 @@ describe('UserRepository', () => {
     const db = createDbStub(text => {
       expect(text).toMatch(/INSERT INTO rank_events/);
       expect(text).toMatch(/delta, best/);
+      expect(text).not.toMatch(/hoster_user_id/);
       return { rows: [] };
     });
 
@@ -159,20 +160,56 @@ describe('UserRepository', () => {
       1,
       'tanks',
       { points: 120, best: 90 },
-      {
-        hosterUserId: 2,
-        sessionId: 's1',
-      },
+      { sessionId: 's1' },
     );
 
     expect(db.query).toHaveBeenCalledWith(expect.any(String), [
       1,
       'tanks',
-      2,
       's1',
       120,
       90,
+      null,
     ]);
+  });
+
+  // host-migration 7.7 (миграция 016): повтор записи с тем же номером после
+  // отката к контрольной точке не даёт второй строки и не трогает агрегат —
+  // агрегат берёт строки только из вставки леджера
+  it('recordGameResult отсеивает повтор по writeSeq', async () => {
+    const calls = [];
+    let rowCount = 2;
+    const db = createDbStub((text, values) => {
+      calls.push({ text, values });
+      return { rows: [], rowCount };
+    });
+    const repo = new UserRepository(db);
+
+    const first = await repo.recordGameResult(
+      1,
+      'tanks',
+      { points: 5, best: 5, writeSeq: 7 },
+      { sessionId: 'room-1' },
+    );
+
+    expect(first).toEqual({ inserted: true });
+    expect(calls[0].values).toEqual([1, 'tanks', 'room-1', 5, 5, 7]);
+    expect(calls[0].text).toMatch(
+      /ON CONFLICT \(user_id, game_id, write_seq\)\s+WHERE write_seq IS NOT NULL\s+DO NOTHING/,
+    );
+    // агрегат читает только из CTE вставки: пустой CTE — ни строки
+    expect(calls[0].text).toMatch(/FROM event CROSS JOIN/);
+
+    rowCount = 0;
+
+    const again = await repo.recordGameResult(
+      1,
+      'tanks',
+      { points: 5, best: 5, writeSeq: 7 },
+      { sessionId: 'room-1' },
+    );
+
+    expect(again).toEqual({ inserted: false });
   });
 
   // агрегат срезов (миграция 008) пишется ТЕМ ЖЕ запросом, что и леджер:
@@ -268,349 +305,30 @@ describe('UserRepository', () => {
     expect(rank).toBe(0);
   });
 
-  it('upsertState с sessionId сначала снимает снапшот текущего state', async () => {
+  // снапшоты state существовали только для отката при аннулировании вклада
+  // хостера — удалены вместе с рейтингом серверов
+  it('upsertState пишет только states, без снапшотов', async () => {
     const calls = [];
     const db = createDbStub(text => {
       calls.push(text);
-
-      if (text.startsWith('SELECT state')) {
-        return { rows: [{ state: { skill: 1 } }] };
-      }
-
       return { rows: [] };
     });
 
-    const repo = new UserRepository(db);
+    await new UserRepository(db).upsertState(1, 'tanks', { skill: 2 });
 
-    await repo.upsertState(
-      1,
-      'tanks',
-      { skill: 2 },
-      { hosterUserId: 2, sessionId: 's1' },
-    );
-
-    expect(calls[0]).toMatch(/SELECT state/);
-    expect(calls[1]).toMatch(/INSERT INTO state_snapshots/);
-    expect(calls[2]).toMatch(/INSERT INTO states/);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatch(/INSERT INTO states/);
   });
 
-  it('snapshotState идемпотентен на (user, game, session) — ON CONFLICT DO NOTHING', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT state')) {
-        return { rows: [{ state: { skill: 1 } }] };
-      }
+  it('методы рейтинга хостера удалены', () => {
+    const repo = new UserRepository(createDbStub(() => ({ rows: [] })));
 
-      expect(text).toMatch(
-        /ON CONFLICT \(user_id, game_id, session_id\) DO NOTHING/,
-      );
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-
-    await repo.snapshotState(1, 'tanks', 's1', 2);
+    expect(repo.getHostRating).toBeUndefined();
+    expect(repo.voteHost).toBeUndefined();
+    expect(repo.voidHosterContributions).toBeUndefined();
+    expect(repo.snapshotState).toBeUndefined();
   });
 
-  it('getHostRating возвращает { score: 0, blocked: false } если записи нет', async () => {
-    const db = createDbStub(() => ({ rows: [] }));
-    const repo = new UserRepository(db);
-
-    expect(await repo.getHostRating(5)).toEqual({ score: 0, blocked: false });
-  });
-
-  it('getHostRating возвращает сохранённые score/blocked', async () => {
-    const db = createDbStub(() => ({ rows: [{ score: -3, blocked: false }] }));
-    const repo = new UserRepository(db);
-
-    expect(await repo.getHostRating(5)).toEqual({ score: -3, blocked: false });
-  });
-
-  it('voteHost: первый голос пишет строку и пересчитывает score', async () => {
-    const calls = [];
-    const db = createDbStub(text => {
-      calls.push(text);
-
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [] }; // голоса ещё не было
-      }
-
-      if (text.includes('SUM(value)')) {
-        return { rows: [{ total: '1' }] };
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-    const result = await repo.voteHost(5, 9, 1, 'good game');
-
-    expect(result).toEqual({ score: 1, blocked: false, counted: true });
-    expect(calls[1]).toMatch(/INSERT INTO host_votes/);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringMatching(/INSERT INTO host_votes/),
-      [5, 9, 1, 'good game'],
-    );
-  });
-
-  it('voteHost: повторный тот же голос — no-op (counted: false)', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [{ value: 1 }] };
-      }
-
-      if (text.startsWith('SELECT score, blocked')) {
-        return { rows: [{ score: 1, blocked: false }] };
-      }
-
-      throw new Error('unexpected query: ' + text);
-    });
-
-    const repo = new UserRepository(db);
-    const result = await repo.voteHost(5, 9, 1, 'good game again');
-
-    expect(result).toEqual({ score: 1, blocked: false, counted: false });
-  });
-
-  it('voteHost: смена мнения (like→unlike) переставляет голос, Δ=-2', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [{ value: 1 }] }; // раньше лайкнул
-      }
-
-      if (text.includes('SUM(value)')) {
-        return { rows: [{ total: '-1' }] }; // теперь один голос -1
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-    const result = await repo.voteHost(5, 9, -1, 'changed my mind');
-
-    expect(result).toEqual({ score: -1, blocked: false, counted: true });
-  });
-
-  it('voteHost клампит score в config.rating и выставляет blocked при достижении blockAt', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [] };
-      }
-
-      if (text.includes('SUM(value)')) {
-        return { rows: [{ total: '-25' }] }; // много unlike — за пределами min
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-    const result = await repo.voteHost(5, 9, -1, 'cheat');
-
-    expect(result.score).toBe(-10); // clamp к config.rating.min
-    expect(result.blocked).toBe(true); // <= config.rating.blockAt
-  });
-
-  it('voteHost на первом переходе в blocked аннулирует вклад хостера (этап 4)', async () => {
-    const calls = [];
-    const db = createDbStub(text => {
-      calls.push(text);
-
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [] };
-      }
-
-      // getHostRating "before": ещё не заблокирован
-      if (text.startsWith('SELECT score, blocked')) {
-        return { rows: [{ score: -8, blocked: false }] };
-      }
-
-      if (text.includes('SUM(value)')) {
-        return { rows: [{ total: '-10' }] };
-      }
-
-      if (
-        text ===
-        'SELECT DISTINCT user_id, game_id FROM rank_events WHERE hoster_user_id = $1'
-      ) {
-        return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }] };
-      }
-
-      if (text.includes('SUM(delta)')) {
-        return { rows: [{ total: '3' }] };
-      }
-
-      if (
-        text.startsWith('SELECT DISTINCT user_id, game_id FROM state_snapshots')
-      ) {
-        return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }] };
-      }
-
-      if (text.startsWith('SELECT state_before')) {
-        return { rows: [{ 'state_before': { skill: 1 } }] };
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-    const result = await repo.voteHost(5, 9, -1, 'cheat again');
-
-    expect(result.blocked).toBe(true);
-    expect(calls).toContain(
-      'UPDATE rank_events SET voided = true WHERE hoster_user_id = $1 AND voided = false',
-    );
-    expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(
-      true,
-    );
-  });
-
-  it('voteHost не повторяет аннулирование, если хостер уже был заблокирован', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [] };
-      }
-
-      // getHostRating "before": уже заблокирован
-      if (text.startsWith('SELECT score, blocked')) {
-        return { rows: [{ score: -10, blocked: true }] };
-      }
-
-      if (text.includes('SUM(value)')) {
-        return { rows: [{ total: '-10' }] };
-      }
-
-      if (text.startsWith('SELECT DISTINCT')) {
-        throw new Error('voidHosterContributions must not run again');
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-    const result = await repo.voteHost(5, 9, -1, 'still cheating');
-
-    expect(result.blocked).toBe(true);
-  });
-
-  // кодревью №6 (plan/server-rating/review.md): host_ratings.blocked должен
-  // фиксироваться только ПОСЛЕ успешного void — иначе сбой на середине void
-  // навсегда застревал бы в частично-погашенном состоянии (before.blocked
-  // уже true при следующем голосе, повтор void не запускается)
-  it('voteHost: если void упал на первом переходе в blocked, host_ratings не обновляется — следующий голос повторит void', async () => {
-    const calls = [];
-    const db = createDbStub(text => {
-      calls.push(text);
-
-      if (text.startsWith('SELECT value FROM host_votes')) {
-        return { rows: [] };
-      }
-
-      if (text.startsWith('SELECT score, blocked')) {
-        return { rows: [{ score: -8, blocked: false }] };
-      }
-
-      if (text.includes('SUM(value)')) {
-        return { rows: [{ total: '-10' }] };
-      }
-
-      if (
-        text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')
-      ) {
-        throw new Error('auth db unavailable mid-void');
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-
-    await expect(repo.voteHost(5, 9, -1, 'cheat')).rejects.toThrow(
-      'auth db unavailable mid-void',
-    );
-
-    expect(
-      calls.some(text => text.startsWith('INSERT INTO host_ratings')),
-    ).toBe(false);
-  });
-
-  it('voidHosterContributions гасит непогашенные rank_events, пересчитывает кэш и откатывает states к самому раннему снапшоту', async () => {
-    const calls = [];
-    const db = createDbStub(text => {
-      calls.push(text);
-
-      if (
-        text.startsWith('SELECT DISTINCT user_id, game_id FROM rank_events')
-      ) {
-        return {
-          rows: [
-            { 'user_id': 1, 'game_id': 'tanks' },
-            { 'user_id': 2, 'game_id': 'tanks' },
-          ],
-        };
-      }
-
-      if (text.startsWith('UPDATE rank_events')) {
-        return { rows: [] };
-      }
-
-      if (text.includes('SUM(delta)')) {
-        return { rows: [{ total: '0' }] };
-      }
-
-      if (
-        text.startsWith('SELECT DISTINCT user_id, game_id FROM state_snapshots')
-      ) {
-        return { rows: [{ 'user_id': 1, 'game_id': 'tanks' }] };
-      }
-
-      if (text.startsWith('SELECT state_before')) {
-        return { rows: [{ 'state_before': { skill: 0 } }] };
-      }
-
-      return { rows: [] };
-    });
-
-    const repo = new UserRepository(db);
-
-    await repo.voidHosterContributions(5);
-
-    expect(calls).toContain(
-      'UPDATE rank_events SET voided = true WHERE hoster_user_id = $1 AND voided = false',
-    );
-    expect(calls.filter(text => text.includes('SUM(delta)')).length).toBe(2); // пересчёт для обоих задетых (user, game)
-    // агрегат срезов — производная того же леджера, и аннулирование обязано
-    // дойти и до него: `best` это максимум, вычесть из него нельзя, поэтому
-    // пересчёт, а не правка. Плюс уборка окон, от которых не осталось событий
-    expect(
-      calls.filter(text => text.includes('INSERT INTO rank_periods')).length,
-    ).toBe(2);
-    expect(
-      calls.filter(text => text.startsWith('DELETE FROM rank_periods')).length,
-    ).toBe(2);
-    expect(calls.some(text => text.startsWith('INSERT INTO states'))).toBe(
-      true,
-    );
-  });
-
-  it('voidHosterContributions игрока без событий на баненном сервере не трогает', async () => {
-    const db = createDbStub(text => {
-      if (text.startsWith('SELECT DISTINCT')) {
-        return { rows: [] };
-      }
-
-      if (text.startsWith('UPDATE rank_events')) {
-        return { rows: [] };
-      }
-
-      throw new Error('unexpected query: ' + text);
-    });
-
-    const repo = new UserRepository(db);
-
-    await expect(repo.voidHosterContributions(5)).resolves.toBeUndefined();
-  });
-
-  // lobby-page-plan: топ-N рейтинга игры и позиция вызывающего
   it('getLeaderboard возвращает топ-N, total и place одним запросом (проверка SQL/параметров)', async () => {
     const db = createDbStub((text, values) => {
       expect(text).toMatch(/r\.rank > 0 AND u\.nick IS NOT NULL/);

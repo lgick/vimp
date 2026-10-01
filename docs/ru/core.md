@@ -419,8 +419,10 @@ String>`; игровой crate маппит их в `JsError`). Статичес
   `players_json`, `on_fixed_step(ctx, dt)`, `on_contacts(ctx, pairs)`,
   `on_before_destroy`, `on_ai_tick(ctx, dt)`, `refresh_cached`,
   `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
-  `remove_players_and_shots`, `clear`, `serialize/deserialize` (handoff
-  посреди раунда — задел на будущее), `rebuild_spatial_grid`;
+  `remove_players_and_shots`, `clear`, `serialize/deserialize` (контрольная
+  точка хоста: при `gameConfig.migration.midRound` дамп `serialize_state`
+  переносит матч к новому хосту посреди раунда, см.
+  [host.md](host.md#контрольные-точки)), `rebuild_spatial_grid`;
   `on_map_loaded(ctx)` (дефолт `Ok(())`, см. [Тела карты](#тела-карты)).
 - `SimCtx<'a>` — доступ игры к возможностям движка внутри тиковых
   колбэков; **не** генерик по игре: `world` (Rapier), `cfg`

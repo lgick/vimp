@@ -131,3 +131,21 @@ export const createFixtureHost = async ({
 
   return { host, socket, core, config, hostPlugin };
 };
+
+// Эстафета Worker'ов: запрос переноса + граница раунда. Мета отдаётся после
+// финальной синхронизации профилей (flushAll), поэтому асинхронно — fake
+// timers двигаются, пока колбэк не сработает.
+export const takeHandoff = async host => {
+  let handoffMeta = null;
+
+  host.requestHandoff(meta => {
+    handoffMeta = meta;
+  });
+  host._roundManager.initiateNewRound();
+
+  for (let i = 0; i < 50 && handoffMeta === null; i += 1) {
+    await vi.advanceTimersByTimeAsync(100);
+  }
+
+  return handoffMeta;
+};

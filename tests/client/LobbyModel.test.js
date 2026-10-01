@@ -3,9 +3,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // LobbyModel — синглтон, перезагружаем модуль для изоляции
 let LobbyModel;
 
-const server = (hostId, over = {}) => ({
-  hostId,
-  name: over.name || `room-${hostId}`,
+const server = (roomId, over = {}) => ({
+  roomId,
   mapName: over.mapName || 'arena',
   currentPlayers: over.currentPlayers ?? 0,
   maxPlayers: over.maxPlayers ?? 8,
@@ -70,8 +69,25 @@ describe('LobbyModel: применение списка', () => {
     model.publisher.on('list', l => lists.push(l));
     model.setList({ total: 3, servers: [server('a'), server('b')] });
 
-    expect(lists[0].servers.map(s => s.hostId)).toEqual(['a', 'b']);
+    expect(lists[0].servers.map(s => s.roomId)).toEqual(['a', 'b']);
     expect(lists[0].hasMore).toBe(true); // 2 из 3
+  });
+
+  // мастер до host-migration этапа 2 отдаёт id комнаты только как hostId
+  it('setList берёт hostId как roomId, если roomId нет', () => {
+    const lists = [];
+    const joins = [];
+
+    model.publisher.on('list', l => lists.push(l));
+    model.publisher.on('join', j => joins.push(j));
+    model.setList({
+      total: 1,
+      servers: [{ hostId: 'old', gameId: 'tanks', mapName: 'arena' }],
+    });
+    model.join('old');
+
+    expect(lists[0].servers[0].roomId).toBe('old');
+    expect(joins).toEqual([{ roomId: 'old', gameId: 'tanks' }]);
   });
 
   it('append дополняет список, replace — заменяет', () => {
@@ -99,14 +115,14 @@ describe('LobbyModel: применение списка', () => {
 });
 
 describe('LobbyModel: выбор сервера', () => {
-  it('join известного сервера эмитит hostId и gameId комнаты', () => {
+  it('join известного сервера эмитит roomId и gameId комнаты', () => {
     const joins = [];
 
     model.publisher.on('join', payload => joins.push(payload));
     model.setList({ total: 1, servers: [server('a', { gameId: 'snakes' })] });
     model.join('a');
 
-    expect(joins).toEqual([{ hostId: 'a', gameId: 'snakes' }]);
+    expect(joins).toEqual([{ roomId: 'a', gameId: 'snakes' }]);
   });
 
   // хосты старше 6.4 не присылают gameId — клиент должен зайти на активной
@@ -118,7 +134,7 @@ describe('LobbyModel: выбор сервера', () => {
     model.setList({ total: 1, servers: [server('a', { gameId: undefined })] });
     model.join('a');
 
-    expect(joins).toEqual([{ hostId: 'a', gameId: undefined }]);
+    expect(joins).toEqual([{ roomId: 'a', gameId: undefined }]);
   });
 
   it('join неизвестного сервера игнорируется', () => {
@@ -142,7 +158,7 @@ describe('LobbyModel: умный пинг', () => {
     model.publisher.on('ping-request', r => reqs.push(r));
 
     expect(model.pingHost('a', 1000)).toBe(true);
-    expect(reqs[0]).toEqual({ hostId: 'a', pingId: 1 });
+    expect(reqs[0]).toEqual({ roomId: 'a', pingId: 1 });
   });
 
   it('повторный пинг в пределах интервала подавляется', () => {
@@ -163,7 +179,7 @@ describe('LobbyModel: умный пинг', () => {
     model.pingHost('a', 1000);
     model.resolvePong(1, 1042);
 
-    expect(updates[0]).toEqual({ hostId: 'a', latency: 42 });
+    expect(updates[0]).toEqual({ roomId: 'a', latency: 42 });
   });
 
   it('pong с неизвестным pingId игнорируется', () => {

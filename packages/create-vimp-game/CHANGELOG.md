@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The generated game opts into host migration in the middle of a round:
+  `gameConfig.migration = { midRound: true }` (the template's core already
+  serializes its whole simulation, and its host modules keep no state), and
+  `npm run sim` swaps the host through a checkpoint every 0.5 s
+  (`vimp-sim --checkpoint-every 500`).
+- Chat texts for the engine's host-migration messages `s:7` ("Host
+  changed"), `s:8` ("You are no longer the host (connection lost)") and
+  `s:9`–`s:11` ("Host changed: the previous host was lagging / went
+  inactive / had a poor connection").
+- Chat texts for the engine's "Change host" vote notices `v:6`–`v:15`
+  ("Usage: /changehost", "You are the host — use “Hand over host” in the
+  room menu", "No connection to the master server", "A host vote was held
+  recently", "No other player can host", "A host vote is already in
+  progress", "A host vote is not possible right now", "Vote to change host
+  passed / failed ({0}/{1})", "Host vote cancelled").
+
 ## [0.4.37] — 2026-09-29
 
 ### Changed

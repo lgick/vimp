@@ -64,6 +64,7 @@ class ParticipantManager {
       socketId,
       watchedGameId: this._activePlayersList[0] || null,
       token: params.token,
+      identityName: params.name,
     });
 
     this._participants.set(gameId, participant);
@@ -93,8 +94,14 @@ class ParticipantManager {
   }
 
   // восстанавливает человека с исходным gameId (эстафета Worker'ов, Этап 5.2);
-  // занятый id или неизвестная команда — null (запись пропускается)
-  restoreHuman({ gameId, socketId, name, model, team, teamId }) {
+  // занятый id или неизвестная команда — null (запись пропускается).
+  // Поля личности (ник входа, секрет места, цвет ника, токен) переносятся
+  // всегда; игровое состояние (статус, камера, слот респауна, номер ввода) —
+  // только при full: восстановлении посреди раунда (host-migration этап 5),
+  // иначе раунд всё равно начнётся заново
+  restoreHuman(record, { full = false } = {}) {
+    const { gameId, socketId, name, model, team, teamId } = record;
+
     if (this._participants.has(gameId) || !this._teamSizes[team]) {
       return null;
     }
@@ -107,7 +114,19 @@ class ParticipantManager {
       teamId,
       socketId,
       watchedGameId: this._activePlayersList[0] || null,
+      token: record.token ?? null,
+      identityName: record.identityName ?? null,
     });
+
+    participant.chatColor = record.chatColor ?? null;
+    participant.resumeKey = record.resumeKey ?? null;
+
+    if (full) {
+      this._applyPlayState(participant, record);
+      participant.isWatching = record.isWatching !== false;
+      participant.watchedGameId = record.watchedGameId ?? null;
+      participant.lastInputSeq = record.lastInputSeq >>> 0;
+    }
 
     this._participants.set(gameId, participant);
     this._teamSizes[team].add(gameId);
@@ -117,7 +136,9 @@ class ParticipantManager {
 
   // восстанавливает scripted-участника с исходным gameId
   // (эстафета Worker'ов, Этап 5.2)
-  restoreScripted({ gameId, name, model, team, teamId }) {
+  restoreScripted(record, { full = false } = {}) {
+    const { gameId, name, model, team, teamId } = record;
+
     if (this._participants.has(gameId) || !this._teamSizes[team]) {
       return null;
     }
@@ -130,10 +151,81 @@ class ParticipantManager {
       teamId,
     });
 
+    participant.chatColor = record.chatColor ?? null;
+
+    if (full) {
+      this._applyPlayState(participant, record);
+    }
+
     this._participants.set(gameId, participant);
     this._teamSizes[team].add(gameId);
 
     return participant;
+  }
+
+  _applyPlayState(participant, record) {
+    if (typeof record.status === 'string') {
+      participant.status = record.status;
+    }
+
+    participant.respawnIndex = Number.isInteger(record.respawnIndex)
+      ? record.respawnIndex
+      : null;
+  }
+
+  // ***** контрольная точка (host-migration этап 5) ***** //
+
+  // участники и топология команд. Токенов здесь нет: точка уезжает по сети
+  // к другому игроку, токен — личный секрет участника
+  serialize() {
+    return {
+      humans: this.getHumans().map(p => ({
+        gameId: p.gameId,
+        name: p.name,
+        model: p.model,
+        team: p.team,
+        teamId: p.teamId,
+        status: p.status,
+        isReady: p.isReady,
+        isWatching: p.isWatching,
+        watchedGameId: p.watchedGameId,
+        respawnIndex: p.respawnIndex,
+        lastInputSeq: p.lastInputSeq,
+        chatColor: p.chatColor,
+        resumeKey: p.resumeKey,
+        identityName: p.identityName,
+      })),
+      scripted: this.getScripted().map(p => ({
+        gameId: p.gameId,
+        name: p.name,
+        model: p.model,
+        team: p.team,
+        teamId: p.teamId,
+        status: p.status,
+        respawnIndex: p.respawnIndex,
+        chatColor: p.chatColor,
+      })),
+      teamSizes: Object.fromEntries(
+        Object.entries(this._teamSizes).map(([team, ids]) => [team, [...ids]]),
+      ),
+      activePlayers: [...this._activePlayersList],
+    };
+  }
+
+  // состав команд и список активных из точки — после restoreHuman/
+  // restoreScripted; id, не пережившие восстановление, отбрасываются
+  restoreTopology({ teamSizes = {}, activePlayers = [] } = {}) {
+    for (const [team, ids] of Object.entries(teamSizes)) {
+      if (this._teamSizes[team]) {
+        this._teamSizes[team] = new Set(
+          ids.filter(id => this._participants.has(id)),
+        );
+      }
+    }
+
+    this._activePlayersList = activePlayers.filter(id =>
+      this._participants.has(id),
+    );
   }
 
   // полностью удаляет участника из реестра (команда + список активных)
@@ -181,9 +273,10 @@ class ParticipantManager {
     return this.getAll().filter(p => p.isScripted);
   }
 
-  // люди, готовые к игре (получатели сетевого кадра)
+  // люди, готовые к игре (получатели сетевого кадра); отсоединённые
+  // (ждут возобновления, host-migration этап 4) кадров не получают
   getNetworkedReady() {
-    return this.getHumans().filter(p => p.isReady);
+    return this.getHumans().filter(p => p.isReady && p.detachedAt === null);
   }
 
   // проверяет уникальность имени по всему реестру (люди + scripted)

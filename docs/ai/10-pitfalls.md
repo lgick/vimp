@@ -62,6 +62,10 @@ name the violation. Do not verify those by eye — run the tool
       as nothing.
 - [ ] ⚙ `B9` Vote names `mapChange` and `teamChange`, and the template `values`
       strings `'teams'` / `'maps'`, are reserved.
+- [ ] ⚙ `B9` Vote names starting with `@` (templates and menu entries) and
+      the chat command `/changehost` are reserved by the engine (the master's
+      "Change host" vote, lobby mode).
+      The client needs texts for `v:6`–`v:15` like for every engine code.
 - [ ] A vote category is on cooldown for `timers.timeBlockedVote` (30 s);
       always call `canCreateVote` first.
 - [ ] Vote ties are broken **randomly** — do not rely on a deterministic
@@ -119,7 +123,7 @@ name the violation. Do not verify those by eye — run the tool
       predictor, and a `cargo` parity test asserts they agree. Re-run it after
       **any** movement change.
 - [ ] The core is **not** rebuilt by `npm run build` — run `npm run
-  core:build` after Rust changes or you will ship a stale `.wasm`.
+core:build` after Rust changes or you will ship a stale `.wasm`.
 
 ## Client plugin
 
@@ -294,12 +298,18 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] Host-side code is Worker-safe: no `window`, no `document`, no DOM, no
       PixiJS, no Node globals.
 - [ ] Host module state does not survive a handoff — the physics world is not
-      serialised and your JS module state is not carried over.
+      serialised and your JS module state is not carried over (unless the
+      game opts into `migration.midRound`, below).
+- [ ] `gameConfig.migration.midRound: true` — then **all** state must be in
+      `GameSim::serialize` (core) or in `serializeState`/`restoreState`
+      (each stateful host module); anything else resets at a host change.
+      Check with `vimp-sim --checkpoint-every <ms>` (`checkpointRestore`):
+      the report's `## Host checkpoints` must say `midRound`.
 
 ## Things that do not exist
 
-- No kick vote, no `/ban` endpoint (social moderation is `/like` · `/unlike`
-  on the master, outside the plugin).
+- No kick vote, no `/ban` endpoint, no `/like` · `/unlike` server rating
+  (removed).
 - No `views: { Panel, Stat }` field on `ClientPlugin`.
 - No `GameClientDef::motion_step`, `render_from_state`, or `STATE_LEN`.
 - No `spawn_scripted` / `build_blocks` (the real names are

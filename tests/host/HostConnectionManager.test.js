@@ -80,6 +80,46 @@ describe('HostConnectionManager', () => {
     );
   });
 
+  // memberId гостя понадобится назначению преемника (host-migration, этап 6)
+  it('хранит memberId пира из оффера рядом с clientId', async () => {
+    await mgr.onOffer({
+      clientId: 'c1',
+      sdp: { type: 'offer' },
+      memberId: 'm1',
+    });
+
+    expect(mgr.memberIdOf('c1')).toBe('m1');
+    expect(mgr.memberIdOf('ghost')).toBeNull();
+  });
+
+  it('peerConnectionOf: pc гостя по memberId — только с открытыми каналами', async () => {
+    await mgr.onOffer({
+      clientId: 'c1',
+      sdp: { type: 'offer' },
+      memberId: 'm1',
+    });
+
+    expect(mgr.peerConnectionOf('m1')).toBeNull();
+
+    const meta = makeChannel('meta');
+    const state = makeChannel('state');
+
+    pc.ondatachannel({ channel: meta });
+    pc.ondatachannel({ channel: state });
+    meta.onopen();
+    state.onopen();
+
+    expect(mgr.peerConnectionOf('m1')).toBe(pc);
+    expect(mgr.peerConnectionOf('m2')).toBeNull();
+    expect(mgr.peerConnectionOf(null)).toBeNull();
+  });
+
+  it('оффер без memberId (страница до этапа 2) — memberId null', async () => {
+    await mgr.onOffer({ clientId: 'c1', sdp: { type: 'offer' } });
+
+    expect(mgr.memberIdOf('c1')).toBeNull();
+  });
+
   it('подписан на webrtc_offer сигналинга', () => {
     // побочный эффект onOffer до первого await — доказательство подписки
     signaling.publisher.emit('webrtc_offer', {
@@ -229,5 +269,57 @@ describe('HostConnectionManager', () => {
     expect(meta.onclose).toBeNull();
     expect(state.onmessage).toBeNull();
     expect(state.onclose).toBeNull();
+  });
+
+  describe('переподключение гостя (host-migration этап 4)', () => {
+    it('оффер с resume поднимает соединение в Worker с resume', async () => {
+      await mgr.onOffer({
+        clientId: 'c1',
+        sdp: { type: 'offer' },
+        resume: true,
+      });
+
+      const meta = makeChannel('meta');
+      const state = makeChannel('state');
+
+      pc.ondatachannel({ channel: meta });
+      pc.ondatachannel({ channel: state });
+      meta.onopen();
+      state.onopen();
+
+      expect(controller.open.mock.calls[0][1].resume).toBe(true);
+    });
+
+    it('обычный оффер — без resume', async () => {
+      await connectPeer('c1');
+
+      expect(controller.open.mock.calls[0][1].resume).toBe(false);
+    });
+
+    it('resume-оффер того же клиента снимает полуоткрытого пира', async () => {
+      await connectPeer('c1');
+
+      const oldPc = pc;
+
+      pc = makePc();
+      await mgr.onOffer({
+        clientId: 'c1',
+        sdp: { type: 'offer' },
+        resume: true,
+      });
+
+      expect(oldPc.close).toHaveBeenCalled();
+      expect(controller.disconnect).toHaveBeenCalledWith('c1');
+      expect(signaling.sendAnswer).toHaveBeenCalledTimes(2);
+      expect(mgr.peerCount).toBe(1);
+    });
+
+    it('повторный обычный оффер того же клиента игнорируется', async () => {
+      await connectPeer('c1');
+      await mgr.onOffer({ clientId: 'c1', sdp: { type: 'offer' } });
+
+      expect(controller.disconnect).not.toHaveBeenCalled();
+      expect(signaling.sendAnswer).toHaveBeenCalledTimes(1);
+    });
   });
 });

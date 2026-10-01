@@ -1,6 +1,7 @@
 import Publisher from '../../../lib/Publisher.js';
 import { ENGINE_PROJECT_URL, ENGINE_VERSION } from '../../lib/engineVersion.js';
 import { renderProjectLink } from '../../lib/footerLink.js';
+import { absoluteLink, formatRoomLink } from '../../lib/roomLink.js';
 
 // Singleton LobbyView
 
@@ -9,9 +10,16 @@ let lobbyView;
 // неизвестная задержка сортируется в конец списка
 const UNKNOWN_LATENCY = Infinity;
 
+// 'unknown' мастер ставит, когда заголовка региона нет: в карточке это шум
+const knownRegion = region =>
+  typeof region === 'string' && region !== '' && region !== 'unknown'
+    ? region
+    : null;
+
 // Представление лобби: рендер списка серверов, поиск, «Загрузить ещё» и
 // умный пинг через IntersectionObserver (пинг шлётся только для карточек,
 // попавших в видимую область). Observer инъектируется ради тестируемости.
+
 export default class LobbyView {
   constructor(model, elems, observerFactory) {
     if (lobbyView) {
@@ -83,7 +91,7 @@ export default class LobbyView {
     // границе LIMIT, см. комментарий в renderLeaderboard)
     this._selfNick = '';
 
-    this._cards = new Map(); // hostId -> { card, latencyEl, latency }
+    this._cards = new Map(); // roomId -> { card, latencyEl, latency }
 
     this.publisher = new Publisher();
 
@@ -91,11 +99,11 @@ export default class LobbyView {
       observerFactory ||
       (cb => new IntersectionObserver(cb, { root: this._list }));
 
-    // видимая карточка → запрос пинга (hostId в data-атрибуте)
+    // видимая карточка → запрос пинга (roomId в data-атрибуте)
     this._observer = makeObserver(entries => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
-          this.publisher.emit('visible', entry.target.dataset.hostId);
+          this.publisher.emit('visible', entry.target.dataset.roomId);
         }
       });
     });
@@ -262,8 +270,8 @@ export default class LobbyView {
   }
 
   // обновляет задержку карточки и переставляет её по возрастанию latency
-  updatePing({ hostId, latency }) {
-    const entry = this._cards.get(hostId);
+  updatePing({ roomId, latency }) {
+    const entry = this._cards.get(roomId);
 
     if (!entry) {
       return;
@@ -272,36 +280,34 @@ export default class LobbyView {
     entry.latency = latency;
     entry.latencyEl.textContent = `${latency} ms`;
 
-    this._reorderCard(hostId);
+    this._reorderCard(roomId);
   }
 
   _appendCard(server) {
     const card = document.createElement('li');
 
     card.className = 'lobby-card';
-    card.dataset.hostId = server.hostId;
+    card.dataset.roomId = server.roomId;
 
     const name = document.createElement('span');
 
     name.className = 'lobby-card-name';
-    // формат "gameId/name" (lobby-page-plan): готовит серверный поиск
-    // "gameId/name" к тому, чтобы искать по тому же, что видно на карточке;
-    // gameId nullable для хостов до Этапа 6.4 (code review L6)
-    name.textContent = `${server.gameId ?? '?'}/${server.name}`;
+    // формат "gameId/roomId": серверный поиск понимает ровно то, что видно
+    // на карточке; gameId nullable для хостов до Этапа 6.4 (code review L6)
+    name.textContent = `${server.gameId ?? '?'}/${server.roomId}`;
 
     const info = document.createElement('span');
 
     info.className = 'lobby-card-info';
-    info.textContent = `${server.mapName} · ${server.currentPlayers}/${server.maxPlayers} · ${server.region}`;
-
-    // рейтинг хостера (server-rating этап 3) — сервер уже отдаёт кэшированное
-    // значение в GET /servers, диапазон известен из конфига движка
-    const ratingEl = document.createElement('span');
-
-    ratingEl.className = 'lobby-card-rating';
-    ratingEl.classList.toggle('is-negative', server.rating < 0);
-    ratingEl.textContent =
-      server.rating > 0 ? `+${server.rating}` : `${server.rating}`;
+    // пустые сегменты не выводятся: строку карточки игра может не задавать
+    // (gameConfig.lobbyInfo), а регион мастер не знает без заголовка CDN
+    info.textContent = [
+      server.info,
+      `${server.currentPlayers}/${server.maxPlayers}`,
+      knownRegion(server.region),
+    ]
+      .filter(Boolean)
+      .join(' · ');
 
     const latencyEl = document.createElement('span');
 
@@ -310,27 +316,61 @@ export default class LobbyView {
       server.latency === null ? '…' : `${server.latency} ms`;
 
     card.appendChild(name);
+
+    // прямая ссылка на комнату (host-migration, этап 3); без gameId (хост до
+    // Этапа 6.4) ссылку не собрать
+    if (server.gameId) {
+      card.appendChild(this._copyLinkButton(server));
+    }
+
     card.appendChild(info);
-    card.appendChild(ratingEl);
     card.appendChild(latencyEl);
 
-    card.onclick = () => this.publisher.emit('join', server.hostId);
+    card.onclick = () => this.publisher.emit('join', server.roomId);
 
     this._list.appendChild(card);
     this._observer.observe(card);
 
-    this._cards.set(server.hostId, {
+    this._cards.set(server.roomId, {
       card,
       latencyEl,
       latency: server.latency === null ? UNKNOWN_LATENCY : server.latency,
-      rating: server.rating,
     });
   }
 
-  // вставляет карточку перед первым соседом с большей задержкой; при равном
-  // пинге тай-брейк по rating (убыв.) — lobby-page-plan
-  _reorderCard(hostId) {
-    const entry = this._cards.get(hostId);
+  // вставляет карточку перед первым соседом с большей задержкой
+  // «Copy link» карточки: клик не должен всплыть до карточки (вход в комнату)
+  _copyLinkButton(server) {
+    const btn = document.createElement('input');
+    const label = 'Copy link';
+
+    btn.type = 'button';
+    btn.className = 'lobby-card-copy';
+    btn.value = label;
+    btn.onclick = event => {
+      event.stopPropagation();
+
+      const link = absoluteLink(formatRoomLink(server.gameId, server.roomId));
+      const feedback = text => {
+        btn.value = text;
+        setTimeout(() => {
+          btn.value = label;
+        }, 1500);
+      };
+
+      Promise.resolve()
+        .then(() => navigator.clipboard.writeText(link))
+        .then(
+          () => feedback('Copied'),
+          () => feedback('Copy failed'),
+        );
+    };
+
+    return btn;
+  }
+
+  _reorderCard(roomId) {
+    const entry = this._cards.get(roomId);
     const { card } = entry;
 
     let before = null;
@@ -340,13 +380,9 @@ export default class LobbyView {
         continue;
       }
 
-      const other = this._cards.get(sibling.dataset.hostId);
+      const other = this._cards.get(sibling.dataset.roomId);
 
-      if (
-        other &&
-        (other.latency > entry.latency ||
-          (other.latency === entry.latency && other.rating < entry.rating))
-      ) {
+      if (other && other.latency > entry.latency) {
         before = sibling;
         break;
       }

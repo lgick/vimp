@@ -31,9 +31,6 @@ div#lobby(style='display:none')
           div.form-row
             label.form-label(for='lobby-game')= 'Select game'
             select#lobby-game.field-select
-          div.form-row
-            label.form-label(for='lobby-name')= 'Server name'
-            input#lobby-name.field-text(type='text', maxlength='30', autocomplete='off')
           //- поля настроек комнаты генерируются по явной схеме roomForm
           //- манифеста активной игры (docs/en/plugin-api.md "Form schema")
           div#lobby-fields

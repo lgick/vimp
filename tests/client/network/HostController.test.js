@@ -264,3 +264,276 @@ describe("HostController: журнал ошибок Worker'а", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('HostController: комната у мастера', () => {
+  it("setRoom шлёт Worker'у set_room и сохраняет поля для эстафеты", () => {
+    const { controller, workers } = createController();
+    const room = { roomId: 'abcd1234', roomSecret: 's', epoch: 1 };
+
+    controller.setRoom(room);
+
+    expect(workers[0].posted).toContainEqual({ type: 'set_room', ...room });
+    expect(controller._room).toMatchObject(room);
+  });
+});
+
+describe('HostController: переподключение гостя (host-migration этап 4)', () => {
+  const delivery = { onMessage: () => {}, onClose: () => {} };
+
+  it("resume доезжает до Worker'а флагом connect", () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+    controller.open('c1', { ...delivery, resume: true });
+    controller.open('c2', delivery);
+
+    expect(workers[0].posted).toContainEqual({
+      type: 'connect',
+      socketId: 'c1',
+      resume: true,
+    });
+    // обычный connect — то же сообщение, что понимал Worker до этапа 4
+    expect(workers[0].posted).toContainEqual({
+      type: 'connect',
+      socketId: 'c2',
+    });
+  });
+
+  it('resume не теряется, пока Worker не готов', () => {
+    const { controller, workers } = createController();
+
+    controller.open('c1', { ...delivery, resume: true });
+    workers[0].emit({ type: 'ready' });
+
+    expect(workers[0].posted).toContainEqual({
+      type: 'connect',
+      socketId: 'c1',
+      resume: true,
+    });
+  });
+});
+
+describe('HostController: контрольные точки (host-migration этап 5)', () => {
+  it("обёртки шлют Worker'у сообщения протокола", () => {
+    const { controller, workers } = createController();
+
+    controller.startCheckpoints(500);
+    controller.stopCheckpoints();
+    controller.requestCheckpoint({ final: true });
+    controller.freeze();
+    controller.unfreeze();
+    controller.startAfterRestore();
+
+    expect(workers[0].posted.slice(1)).toEqual([
+      { type: 'checkpoint_start', intervalMs: 500 },
+      { type: 'checkpoint_stop' },
+      { type: 'checkpoint_request', final: true },
+      { type: 'freeze' },
+      { type: 'unfreeze' },
+      { type: 'start_after_restore' },
+    ]);
+  });
+
+  it('awaitRoundBoundary: колбэк на round_boundary один раз; cancel — сообщение Worker’у', () => {
+    const { controller, workers } = createController();
+    const cb = vi.fn();
+
+    controller.cancelRoundBoundary(); // ожидания нет — Worker'у нечего слать
+    controller.awaitRoundBoundary(cb);
+    workers[0].emit({ type: 'round_boundary' });
+    workers[0].emit({ type: 'round_boundary' });
+    controller.awaitRoundBoundary(cb);
+    controller.cancelRoundBoundary();
+
+    expect(cb).toHaveBeenCalledOnce();
+    expect(workers[0].posted.slice(1)).toEqual([
+      { type: 'round_boundary_wait' },
+      { type: 'round_boundary_wait' },
+      { type: 'round_boundary_cancel' },
+    ]);
+  });
+
+  it('готовая точка уходит подписчикам onCheckpoint, отписка работает', () => {
+    const { controller, workers } = createController();
+    const cb = vi.fn();
+    const off = controller.onCheckpoint(cb);
+    const bytes = new Uint8Array([1]);
+
+    workers[0].emit({ type: 'checkpoint', checkpointId: 'c', seq: 1, bytes });
+
+    expect(cb).toHaveBeenCalledWith({ checkpointId: 'c', seq: 1, bytes });
+
+    off();
+    workers[0].emit({ type: 'checkpoint', checkpointId: 'd', seq: 2, bytes });
+
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it('метрики здоровья уходят подписчикам onHealth, отписка работает', () => {
+    const { controller, workers } = createController();
+    const cb = vi.fn();
+    const off = controller.onHealth(cb);
+    const health = { tickRate: 120, maxGapMs: 9, lostMs: 0 };
+
+    workers[0].emit({ type: 'health', health });
+
+    expect(cb).toHaveBeenCalledWith(health);
+
+    off();
+    workers[0].emit({ type: 'health', health });
+
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("init с точкой передаёт её Worker'у списком переноса и seqFloor", () => {
+    const transfers = [];
+    const checkpoint = new Uint8Array([1, 2, 3]);
+    const worker = createFakeWorker();
+
+    worker.postMessage = (msg, transfer) => {
+      worker.posted.push(msg);
+      transfers.push(transfer);
+    };
+
+    new HostController(
+      { name: 'room' },
+      { workerFactory: () => worker, checkpoint, seqFloor: 77 },
+    );
+
+    expect(worker.posted[0]).toMatchObject({
+      type: 'init',
+      checkpoint,
+      seqFloor: 77,
+    });
+    expect(transfers[0]).toEqual([checkpoint.buffer]);
+  });
+});
+
+describe('HostController: режим preload (host-migration этап 6)', () => {
+  it('Worker получает preload вместо init, готовность — onPreloaded', () => {
+    const onPreloaded = vi.fn();
+    const { controller, workers } = createController({
+      preload: true,
+      onPreloaded,
+    });
+
+    expect(workers[0].posted).toEqual([
+      { type: 'preload', room: { name: 'room' } },
+    ]);
+    expect(controller.preloaded).toBe(false);
+
+    workers[0].emit({
+      type: 'preloaded',
+      gameId: 'tanks',
+      gameVersion: '1.0.0',
+      wasmCompiled: true,
+    });
+
+    expect(controller.preloaded).toBe(true);
+    expect(onPreloaded).toHaveBeenCalledWith(
+      expect.objectContaining({ gameId: 'tanks', wasmCompiled: true }),
+    );
+  });
+
+  it('сбой прогрева — onError и запись в журнал', () => {
+    const onError = vi.fn();
+    const { workers, diagnostics } = createController({
+      preload: true,
+      onError,
+    });
+
+    workers[0].emit({ type: 'error', message: 'no wasm' });
+
+    expect(onError).toHaveBeenCalled();
+    expect(diagnostics.capture).toHaveBeenCalled();
+  });
+
+  it('без preload — обычный init', () => {
+    const { workers } = createController();
+
+    expect(workers[0].posted[0]).toMatchObject({ type: 'init' });
+  });
+});
+
+describe('HostController: периодические точки и эстафета (host-migration этап 6)', () => {
+  const swapTo = async (controller, workers, finish = 'ready') => {
+    const swap = controller.swapWorker('/worker-2.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+    workers[1].emit(
+      finish === 'ready' ? { type: 'ready' } : { type: 'error', message: 'x' },
+    );
+
+    await swap.catch(() => {});
+  };
+
+  it('включённые точки переезжают в новый Worker эстафеты', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+    controller.startCheckpoints(500);
+    await swapTo(controller, workers);
+
+    expect(workers[1].posted).toContainEqual({
+      type: 'checkpoint_start',
+      intervalMs: 500,
+    });
+  });
+
+  it('выключенные точки новому Worker-у не включаются', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+    await swapTo(controller, workers);
+
+    expect(workers[1].posted.some(msg => msg.type === 'checkpoint_start')).toBe(
+      false,
+    );
+  });
+
+  it('включение во время паузы эстафеты доходит до нового Worker-а', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+    controller.startCheckpoints(500);
+    controller.requestCheckpoint({ final: true });
+
+    expect(workers[0].posted.some(msg => msg.type === 'checkpoint_start')).toBe(
+      false,
+    );
+
+    workers[1].emit({ type: 'ready' });
+    await swap;
+
+    expect(workers[1].posted).toContainEqual({
+      type: 'checkpoint_start',
+      intervalMs: 500,
+    });
+    expect(workers[1].posted).toContainEqual({
+      type: 'checkpoint_request',
+      final: true,
+    });
+  });
+
+  it('откат эстафеты: старому Worker-у — состояние на конец паузы', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+    controller.startCheckpoints(250);
+    workers[1].emit({ type: 'error', message: 'boom' });
+    await swap.catch(() => {});
+
+    expect(workers[0].posted.at(-1)).toEqual({
+      type: 'checkpoint_start',
+      intervalMs: 250,
+    });
+  });
+});

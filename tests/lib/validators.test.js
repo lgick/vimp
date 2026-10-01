@@ -5,6 +5,7 @@ import {
   validateAuth,
   resolveValidator,
   clampLimit,
+  readWriteSeq,
 } from '../../packages/engine/src/lib/validators.js';
 
 describe('isValidName', () => {
@@ -548,5 +549,20 @@ describe('validateAuth: паритет с формой', () => {
 
   it('контрол по умолчанию (его нет вовсе) остаётся текстовым', () => {
     expect(validateAuth({ x: 'abc' }, [{ name: 'x' }])).toBeUndefined();
+  });
+});
+
+// host-migration 7.7: мусорный номер не отклоняет запись — она просто
+// проксируется без защиты от повтора
+describe('readWriteSeq', () => {
+  it('пропускает положительное безопасное целое', () => {
+    expect(readWriteSeq(1)).toBe(1);
+    expect(readWriteSeq(2 ** 48)).toBe(2 ** 48);
+  });
+
+  it('всё остальное — null', () => {
+    for (const value of [undefined, null, 0, -1, 1.5, '7', 2 ** 53, NaN, {}]) {
+      expect(readWriteSeq(value)).toBeNull();
+    }
   });
 });

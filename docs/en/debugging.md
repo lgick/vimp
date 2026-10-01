@@ -123,15 +123,16 @@ npm run sim:check                 # verdict to stdout only, no files written
 CLI options (`packages/engine/bin/vimp-sim.js`, also installed as the
 `vimp-sim` bin of the `vimp-engine` package):
 
-| Option              | Meaning                                                                                                                                                              |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--scenario <path>` | scenario JSON; without it a built-in smoke scenario runs (see the note below)                                                                                        |
-| `--game <path>`     | game package directory, or a `dist/manifest.json` directly                                                                                                           |
-| `--core <path>`     | Node build of the game core, overriding `entries.wasmNode`; only meaningful with `--game` (the fixture's core is plain JS, so `--core` alone is a no-op and says so) |
-| `--out <dir>`       | report root (default `.debug`)                                                                                                                                       |
-| `--no-write`        | print the report to stdout instead of writing files                                                                                                                  |
-| `--determinism`     | run the scenario twice and compare the frame streams (invariant 12)                                                                                                  |
-| `--help`            | usage                                                                                                                                                                |
+| Option                    | Meaning                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--scenario <path>`       | scenario JSON; without it a built-in smoke scenario runs (see the note below)                                                                                        |
+| `--game <path>`           | game package directory, or a `dist/manifest.json` directly                                                                                                           |
+| `--core <path>`           | Node build of the game core, overriding `entries.wasmNode`; only meaningful with `--game` (the fixture's core is plain JS, so `--core` alone is a no-op and says so) |
+| `--out <dir>`             | report root (default `.debug`)                                                                                                                                       |
+| `--no-write`              | print the report to stdout instead of writing files                                                                                                                  |
+| `--determinism`           | run the scenario twice and compare the frame streams (invariant 12)                                                                                                  |
+| `--checkpoint-every <ms>` | every `<ms>` of match time swap the host through a checkpoint (see `checkpointRestore` below); overrides the scenario's `checkpointEvery`                            |
+| `--help`                  | usage                                                                                                                                                                |
 
 **The built-in scenario is a smoke test, not an audit.** One participant
 joins, holds a key, releases it. The identifiers it drives — model, playable
@@ -217,17 +218,34 @@ dependencies, or install the package.
 | `divergence`         | thresholds for the prediction detector (and `angles`, the components compared on the circle); `{}` = core defaults, `null` = detector off, which makes invariant 9 skip                                                                |
 | `ticks`              | how many ticks to run (default `600`)                                                                                                                                                                                                  |
 | `dumpTicks`          | ticks at which a scene slice is dumped (default: the last tick)                                                                                                                                                                        |
+| `checkpointEvery`    | ms of match time between host swaps through a checkpoint (default `null` — none); the timed form of the `checkpointRestore` op                                                                                                         |
 
 Ops:
 
-| `op`    | Fields                                 | Effect                                                                                                                           |
-| ------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `join`  | `who`, `team`                          | participant enters, a real `ClientCore` is created for them                                                                      |
-| `leave` | `who`                                  | participant leaves                                                                                                               |
-| `key`   | `who`, `action` (`down`/`up`), `name`  | `HostGame.updateKeys`, and the same input is applied to that participant's client core                                           |
-| `aim`   | `who`, `x`, `y`, `flags` (default `1`) | pointer input: `HostGame.updateKeys` with `'seq:aim:x:y:flags'`, and the same point is applied to that participant's client core |
-| `chat`  | `who`, `text`                          | `HostGame.pushMessage` (chat commands included)                                                                                  |
-| `vote`  | `who`, `data`                          | `HostGame.parseVote`                                                                                                             |
+| `op`                | Fields                                 | Effect                                                                                                                           |
+| ------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `join`              | `who`, `team`                          | participant enters, a real `ClientCore` is created for them                                                                      |
+| `leave`             | `who`                                  | participant leaves                                                                                                               |
+| `key`               | `who`, `action` (`down`/`up`), `name`  | `HostGame.updateKeys`, and the same input is applied to that participant's client core                                           |
+| `aim`               | `who`, `x`, `y`, `flags` (default `1`) | pointer input: `HostGame.updateKeys` with `'seq:aim:x:y:flags'`, and the same point is applied to that participant's client core |
+| `chat`              | `who`, `text`                          | `HostGame.pushMessage` (chat commands included)                                                                                  |
+| `vote`              | `who`, `data`                          | `HostGame.parseVote`                                                                                                             |
+| `checkpointRestore` | —                                      | host change: see below                                                                                                           |
+
+**`checkpointRestore` — does the game survive a host change?** The old host
+is frozen and gives its final [checkpoint](host.md#checkpoints); the
+checkpoint goes through the production codec (gzip and back), a **new**
+runtime (`createHostRuntime` with `checkpoint`) is raised from it on the same
+transport, and every virtual client returns to its place with `RESUME` (its
+`resumeKey` — the runner issues one on join, as the lobby's port state
+machine does), then the match continues. A client that cannot resume fails
+the run. Every invariant must stay green across the swap — this is the
+author's main tool to check `serialize`/`serializeState` of a game with
+`gameConfig.migration.midRound` (put `"migration": { "midRound": true }` in
+`config` to try it before flipping the flag in the game). The report gets a
+`## Host checkpoints` section — the tick, the mode (`midRound` / `soft`) and
+the compressed size of each swap; a game that opted in but shows `soft` lost
+its core dump (the reason is in the `[checkpoint]` warning).
 
 Two properties are worth knowing before writing a scenario by hand:
 
@@ -309,6 +327,8 @@ part and are read pointwise; `report.json` keeps only their tick numbers in
 - `## Clients` — per client: entities on canvas, decode errors, received
   ports;
 - `## Map changes`;
+- `## Host checkpoints` — host swaps through a checkpoint (tick, mode,
+  compressed size);
 - `## World (core dump)` — bodies, colliders, map, nav nodes, spatial
   entities, rng state, fixed-step accumulator of the last dumped tick;
 - `## Prediction drift` — reconciliations, violations, max |Δ| per
@@ -451,13 +471,14 @@ Available in a dev build; meant to be driven from DevTools or from Chrome
 MCP (`javascript_tool`, `read_console_messages`) without a human reading the
 output.
 
-| Call                                   | Does                                                                                   |
-| -------------------------------------- | -------------------------------------------------------------------------------------- |
-| `dump({ save, note })`                 | host meta + core dump (via the Worker) next to this client's scene; optionally uploads |
-| `startRecording()`                     | starts recording the live match; `false` means the room was created without dev mode   |
-| `stopRecording({ save = true, note })` | stops and (by default) uploads the recorded scenario, returns `{ scenario, file }`     |
-| `divergence()`                         | drains this client core's divergence detector                                          |
-| `save(kind, payload, note)`            | uploads an arbitrary payload (`scenario`/`dump`/`divergence`)                          |
+| Call                                   | Does                                                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `dump({ save, note })`                 | host meta + core dump (via the Worker) next to this client's scene; optionally uploads                                     |
+| `startRecording()`                     | starts recording the live match; `false` means the room was created without dev mode                                       |
+| `stopRecording({ save = true, note })` | stops and (by default) uploads the recorded scenario, returns `{ scenario, file }`                                         |
+| `divergence()`                         | drains this client core's divergence detector                                                                              |
+| `handoff({ reason, stay })`            | a planned host handoff to the successor (default `handover`, `stay: true`); `false` — not started (host migration stage 8) |
+| `save(kind, payload, note)`            | uploads an arbitrary payload (`scenario`/`dump`/`divergence`)                                                              |
 
 The API never fails silently: a tab that is not hosting a room throws an
 error saying so, rather than returning `null`.
@@ -495,6 +516,19 @@ prints them as `[vimp:debug][host] …`. Everything the debug API logs carries
 the same `[vimp:debug]` prefix, so Chrome MCP can filter the console by
 pattern instead of reading the whole stream.
 
+### Host health metrics
+
+The host Worker reports `health { tickRate, maxGapMs, lostMs,
+peerRttMedian, peerCount }` about once a second (not while the match is
+frozen or paused; see _Host health_ in [host.md](host.md)). They feed the
+automatic handoff and are visible in production without a dev build: a
+host tab that was hidden leaves one client-report warning per episode,
+`engine.host.hiddenHealth` ([client.md](client.md)) — the lowest tick
+rate, the longest gap and the lost time show how far the browser throttled
+the match. To reproduce an overload handoff locally, throttle the host's
+CPU in DevTools (Performance → 6×); `__vimpDebug.handoff({ reason:
+'overload' })` starts the same handoff by hand.
+
 ### From browser to headless
 
 ```
@@ -513,8 +547,8 @@ the replay runs on a fixed `timeStep` while the live match ran on a floating
 `dt`. So "a bug caught in the browser is reproduced by `sim:replay`" holds
 for bugs reproducible **from the start of the match**. Start recording at
 minute five and the replay will not contain the situation you saw. Lifting
-this needs an `initialState` snapshot in the recording (the engine already
-has `serialize_state()` for the Worker handoff) and is a separate task.
+this needs an `initialState` snapshot in the recording (the engine's host
+checkpoint is the natural candidate) and is a separate task.
 
 ## Suggested workflow for a new plugin
 

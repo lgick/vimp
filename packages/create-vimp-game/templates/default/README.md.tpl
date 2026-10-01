@@ -24,7 +24,7 @@ npm run core:test       # cargo test --workspace
 npm run build           # dist/: both bundles, maps, sounds, manifest.json
 npm run check:contract  # static engine<->game contract check (vimp-contract)
 npm test                # vitest
-npm run sim             # headless match on the real core
+npm run sim             # headless match on the real core, host swapped every 0.5 s
 npm run dev             # a match against bots in the tab
 npm run audio:process   # ffmpeg: assets/audio-raw/ -> build/sounds/ (optional)
 ```

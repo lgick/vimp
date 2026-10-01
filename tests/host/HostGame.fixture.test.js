@@ -6,6 +6,7 @@ import {
   tick,
   pressKey,
   sendAim,
+  takeHandoff,
 } from './fixtureHarness.js';
 
 // Движковые тесты HostGame поверх фикстурной миниигры (Этап 7 плана
@@ -162,15 +163,12 @@ describe('HostGame (фикстура — без Rust-артефактов игр
     joinTeam(host, gameId, 'team1');
     tick(host, 1);
 
-    let handoffMeta;
-
-    host.requestHandoff(meta => {
-      handoffMeta = meta;
-    });
-    host._roundManager.initiateNewRound();
+    const handoffMeta = await takeHandoff(host);
 
     expect(handoffMeta.gameId).toBe('miniGame');
-    expect(handoffMeta.humans).toHaveLength(1);
+    expect(handoffMeta.version).toBe(4);
+    expect(handoffMeta.kind).toBe('boundary');
+    expect(handoffMeta.participants.humans).toHaveLength(1);
 
     const { createFixtureHost: createNext } =
       await import('./fixtureHarness.js');
@@ -412,5 +410,99 @@ describe('HostGame: noSpectators', () => {
     await connectPlayer(host, { socketId: 's1' });
 
     expect(reset).not.toHaveBeenCalled();
+  });
+});
+
+// строка карточки комнаты в лобби (host-migration, этап 2): её задаёт игра —
+// gameConfig.lobbyInfo: 'map' или модуль через deps.lobby.setInfo; без них
+// карточка пуста
+describe('HostGame: lobbyInfo', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it('без gameConfig.lobbyInfo строки нет, смена карты её не создаёт', async () => {
+    const onLobbyInfoChange = vi.fn();
+    const { host } = await createFixtureHost({ opts: { onLobbyInfoChange } });
+
+    expect(host.lobbyInfo).toBeNull();
+
+    host._roundManager.forceChangeMap('other');
+    tick(host, 1);
+
+    expect(onLobbyInfoChange).not.toHaveBeenCalled();
+  });
+
+  it("lobbyInfo: 'map' — имя текущей карты и её смена", async () => {
+    const onLobbyInfoChange = vi.fn();
+    const { host } = await createFixtureHost({
+      game: { lobbyInfo: 'map' },
+      opts: { onLobbyInfoChange },
+    });
+
+    expect(host.lobbyInfo).toBe(host.currentMap);
+
+    host._roundManager.forceChangeMap('other');
+    tick(host, 1);
+
+    expect(onLobbyInfoChange).toHaveBeenCalledWith('other');
+  });
+
+  it('lobby.setInfo модуля перекрывает карту, null снимает', async () => {
+    const hostPlugin = (
+      await import('../../packages/engine/tests/fixtures/miniGame/host/index.js')
+    ).default;
+    const createModules = vi.spyOn(hostPlugin, 'createModules');
+    const onLobbyInfoChange = vi.fn();
+    const { host } = await createFixtureHost({
+      game: { lobbyInfo: 'map' },
+      opts: { onLobbyInfoChange },
+    });
+    const { lobby } = createModules.mock.calls[0][0];
+
+    lobby.setInfo('  Hardcore  ');
+    tick(host, 1);
+
+    expect(host.lobbyInfo).toBe('Hardcore');
+    expect(onLobbyInfoChange).toHaveBeenLastCalledWith('Hardcore');
+
+    lobby.setInfo(null);
+    tick(host, 1);
+
+    expect(onLobbyInfoChange).toHaveBeenLastCalledWith(host.currentMap);
+
+    createModules.mockRestore();
+  });
+
+  // модули нового Worker'а создаются с нуля и сами текст не повторят
+  it('текст lobby.setInfo переживает эстафету Worker’ов', async () => {
+    const { host } = await createFixtureHost();
+
+    host.setLobbyInfo('Hardcore');
+
+    const handoffMeta = await takeHandoff(host);
+
+    expect(handoffMeta.lobbyInfo).toBe('Hardcore');
+
+    const { host: nextHost } = await createFixtureHost({
+      opts: { handoff: handoffMeta },
+    });
+
+    expect(nextHost.lobbyInfo).toBe('Hardcore');
+  });
+
+  it('мета без lobbyInfo (старый Worker) текста не создаёт', async () => {
+    const { host } = await createFixtureHost();
+
+    const handoffMeta = await takeHandoff(host);
+
+    delete handoffMeta.lobbyInfo;
+
+    const { host: nextHost } = await createFixtureHost({
+      opts: { handoff: handoffMeta },
+    });
+
+    expect(nextHost.lobbyInfo).toBeNull();
   });
 });

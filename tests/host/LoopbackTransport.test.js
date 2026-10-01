@@ -149,6 +149,20 @@ describe('HostController', () => {
     expect(onMapChange).toHaveBeenCalledWith('garden');
   });
 
+  it('lobby_info из Worker уходит в onLobbyInfoChange', () => {
+    const onLobbyInfoChange = vi.fn();
+
+    controller = new HostController(
+      { name: 'Room' },
+      { workerFactory: () => worker, onLobbyInfoChange },
+    );
+
+    worker.emit({ type: 'lobby_info', info: 'garden' });
+    worker.emit({ type: 'lobby_info', info: null });
+
+    expect(onLobbyInfoChange.mock.calls).toEqual([['garden'], [null]]);
+  });
+
   it('updateMaps пересылает каталог карт в Worker', () => {
     const maps = { garden: { step: 32 } };
 
@@ -242,6 +256,48 @@ describe("HostController: эстафета Worker'ов (5.2)", () => {
     // ни старому (пауза), ни новому (ещё не ready)
     expect(sentOf(workers[0], 'message')).toHaveLength(0);
     expect(sentOf(workers[1], 'message')).toHaveLength(0);
+  });
+
+  // новый Worker начальное значение отдельным lobby_info не шлёт — карточка
+  // у мастера обязана получить его из ready
+  it('ready нового Worker’а отдаёт его lobbyInfo в onLobbyInfoChange', async () => {
+    const onLobbyInfoChange = vi.fn();
+
+    controller.destroy();
+    workers = [];
+    controller = new HostController(
+      { name: 'Room' },
+      { workerFactory: factory, onReady, onLobbyInfoChange },
+    );
+    workers[0].emit({ type: 'ready', lobbyInfo: 'old' });
+
+    const swap = controller.swapWorker('/new.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+    workers[1].emit({ type: 'ready', lobbyInfo: 'downtown' });
+    await swap;
+
+    expect(onLobbyInfoChange).toHaveBeenCalledWith('downtown');
+  });
+
+  it('ready нового Worker’а без поля lobbyInfo карточку не трогает', async () => {
+    const onLobbyInfoChange = vi.fn();
+
+    controller.destroy();
+    workers = [];
+    controller = new HostController(
+      { name: 'Room' },
+      { workerFactory: factory, onReady, onLobbyInfoChange },
+    );
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/new.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+    workers[1].emit({ type: 'ready' });
+    await swap;
+
+    expect(onLobbyInfoChange).not.toHaveBeenCalled();
   });
 
   it('ready нового: connect всех клиентов, flush очереди, handoff_complete, старый погашен', async () => {
@@ -418,5 +474,119 @@ describe('LoopbackTransport', () => {
     worker.emit({ type: 'close_client', socketId: 'local', code: 4005 });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LoopbackTransport: возобновление (host-migration этап 7.4)', () => {
+  it("resume: connect с флагом, 'open' — следующей микрозадачей", async () => {
+    const worker = makeFakeWorker();
+    const controller = new HostController(
+      { name: 'Room' },
+      { workerFactory: () => worker },
+    );
+
+    worker.emit({ type: 'ready' });
+
+    const transport = new LoopbackTransport(controller, 'local', {
+      resume: true,
+    });
+    const onOpen = vi.fn();
+
+    transport.connect();
+    transport.publisher.on('open', onOpen);
+
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'connect',
+      socketId: 'local',
+      resume: true,
+    });
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("закрытый до микрозадачи 'open' не эмитит", async () => {
+    const worker = makeFakeWorker();
+    const controller = new HostController(
+      { name: 'Room' },
+      { workerFactory: () => worker },
+    );
+    const transport = new LoopbackTransport(controller, 'local', {
+      resume: true,
+    });
+    const onOpen = vi.fn();
+
+    transport.publisher.on('open', onOpen);
+    transport.connect();
+    transport.close();
+
+    await Promise.resolve();
+
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe('HostController: промоушен (host-migration этап 7.4)', () => {
+  it('startAfterRestore с waitForResume — флаг в сообщении, без него — как раньше', () => {
+    const worker = makeFakeWorker();
+    const controller = new HostController(
+      { name: 'Room' },
+      { workerFactory: () => worker },
+    );
+
+    controller.startAfterRestore();
+    controller.startAfterRestore({ waitForResume: true });
+    controller.startAfterRestore({ waitForResume: true, reason: 'overload' });
+
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'start_after_restore',
+    });
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'start_after_restore',
+      waitForResume: true,
+    });
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'start_after_restore',
+      waitForResume: true,
+      reason: 'overload',
+    });
+  });
+
+  it('прогретый Worker поднимает матч из точки с новыми колбэками', () => {
+    const worker = makeFakeWorker();
+    const onPreloaded = vi.fn();
+    const controller = new HostController(
+      { game: { id: 'g' } },
+      { workerFactory: () => worker, preload: true, onPreloaded },
+    );
+
+    worker.emit({ type: 'preloaded' });
+    expect(controller.preloaded).toBe(true);
+
+    const onReady = vi.fn();
+    const onLobbyInfoChange = vi.fn();
+    const checkpoint = new Uint8Array([1, 2, 3]);
+    const room = { game: { id: 'g' }, roomId: 'r1', epoch: 2 };
+
+    controller.initFromCheckpoint(room, checkpoint, {
+      seqFloor: 40,
+      onReady,
+      onLobbyInfoChange,
+    });
+
+    expect(worker.postMessage).toHaveBeenLastCalledWith(
+      { type: 'init', room, checkpoint, seqFloor: 40 },
+      [checkpoint.buffer],
+    );
+
+    worker.emit({ type: 'ready', lobbyInfo: 'arena' });
+    worker.emit({ type: 'lobby_info', info: 'dust' });
+
+    expect(onReady).toHaveBeenCalledWith(
+      expect.objectContaining({ lobbyInfo: 'arena' }),
+    );
+    expect(onLobbyInfoChange).toHaveBeenCalledWith('dust');
   });
 });

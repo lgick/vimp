@@ -215,6 +215,54 @@ from auth and keeps the reports in its buffer (up to `maxPending`), logging
 (see [Viewing logs on the VPS](#viewing-logs-on-the-vps)) — a line per new
 fingerprint, dropped-report counts, forwarding failures.
 
+## Room secret key (`ROOM_SECRET_KEY`)
+
+A lobby master signs room secrets with one key
+([master.md](master.md#room-lifecycle)): with it a host proves its room after
+a master restart (`reclaim_host`), so the key must survive deploys and be the
+same before and after a restart.
+
+1. Generate it: `openssl rand -hex 32`.
+2. Store it in **Settings → Secrets and variables → Actions → Secrets** as
+   `ROOM_SECRET_KEY`.
+3. Push to `main`. `deploy.yml` writes it as `VIMP_ROOM_SECRET_KEY` into the
+   `.env` of every lobby box (a dedicated box doesn't need it).
+
+Without the secret the deploy of a lobby box fails before the container is
+recreated: a production master refuses to start without the key.
+
+**Rotation:** change the secret and push to `main`. Open rooms then cannot be
+reclaimed after the restart — their hosts register them anew under a new
+`roomId`.
+
+## Rolling out host migration (one-time order)
+
+The release that brings host migration (rooms without names, direct links,
+`/changehost`) and removes `/like`·`/unlike` must reach production in this
+order:
+
+0. **Before the deploy**: create the `ROOM_SECRET_KEY` secret (see the
+   previous section, ≥ 32 random bytes). Without it a production lobby
+   master does not start. Do not rotate it without a reason: a new key makes
+   `reclaim_host` of the live rooms impossible after the next master
+   restart.
+1. **Masters and the client first.** The new master stops calling
+   `/host-rating` and still understands the old fields (`hostId`,
+   `hostSecret`, `name`) from pages loaded before the deploy. One push to
+   `main` deploys the masters **and** the auth service in parallel, so for
+   this push temporarily clear the `AUTH_SERVER_IP` variable (**Settings →
+   Secrets and variables → Actions → Variables**) — `deploy_auth` is then
+   skipped.
+2. **Then the auth service** with the migrations
+   `015_drop_host_rating.sql` and `016_rank_write_idempotency.sql`: once
+   every master is deployed, restore `AUTH_SERVER_IP` and push to `main`
+   again (an empty commit will do) — the auth deploy runs the migrations
+   itself. The reverse order breaks the old masters: they still call the
+   removed routes.
+3. **Games**: `@vimp-games/tanks` and `@vimp-games/snakes` with
+   `migration.midRound: true` are published after the engine; until they
+   are, rooms of those games migrate in the soft mode (the round restarts).
+
 ## Dedicated game box (`dedicatedGame`)
 
 The same image also runs the [dedicated server](dedicated.md) — one 24/7
@@ -600,7 +648,7 @@ there. Instead:
 2. Re-run the `Build & Deploy` workflow (one run redeploys every master) —
    otherwise they
    keep the old `VIMP_AUTH_SERVICE_URL` baked into their containers and
-   JWKS/`/rank`/`/state`/`/host-rating` fetches start failing. See
+   JWKS/`/rank`/`/state` fetches start failing. See
    "Wiring masters to it" under
    [Central auth service](#central-auth-service-packagesauth) above.
 3. Each master's Nginx `connect-src` has the auth origin baked in at

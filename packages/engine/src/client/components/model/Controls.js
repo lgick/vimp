@@ -20,6 +20,10 @@ export default class ControlsModel {
     this._currentKeySet = this._keySetList[0]; // текущий набор клавиш
     this._currentModes = {}; // статусы режимов
     this._pressedKeys = {}; // объект для хранения состояния зажатых клавиш
+    // физически зажатые клавиши (keyCode) — независимо от набора и запрета
+    // ввода: _pressedKeys сбрасывает смена набора, а resendHeld() после
+    // возобновления сессии должен знать, что игрок держит на самом деле
+    this._heldCodes = new Set();
     this._areKeysEnabled = false; // статус возможности нажатия клавиш
 
     // канал указателя: игра, не объявившая modules.controls.pointer, его не
@@ -50,6 +54,8 @@ export default class ControlsModel {
     const keyCode = event.keyCode;
     const mode = this._modes[keyCode];
     const cmd = this._cmds[keyCode];
+
+    this._heldCodes.add(keyCode);
 
     // если запрет на ввод клавиш,
     // то доступны только stat и chat
@@ -102,6 +108,8 @@ export default class ControlsModel {
   removeKey(event) {
     const keyCode = event.keyCode;
     const mode = this._modes[keyCode];
+
+    this._heldCodes.delete(keyCode);
 
     // если клавиша была зажата
     if (this._pressedKeys[keyCode]) {
@@ -224,6 +232,25 @@ export default class ControlsModel {
     this._currentKeySet = this._keySetList[key];
     this._pressedKeys = {};
     this._releasePointer(this._lastTapX, this._lastTapY);
+  }
+
+  // снова отправляет нажатия удерживаемых команд (host-migration этап 4):
+  // при обрыве транспорта хост отпустил все клавиши игрока, а тот их так и
+  // держит. Зовётся после пакета входа — смена набора в нём уже сбросила
+  // _pressedKeys, поэтому источник — физически зажатые клавиши
+  resendHeld() {
+    if (this._areKeysEnabled === false || this._currentModes.chat) {
+      return;
+    }
+
+    for (const keyCode of this._heldCodes) {
+      const name = this._currentKeySet[keyCode];
+
+      if (name && !this._pressedKeys[keyCode]) {
+        this._pressedKeys[keyCode] = true;
+        this.publisher.emit('socket', `down:${name}`);
+      }
+    }
   }
 
   // задаёт возможность нажатия клавиш

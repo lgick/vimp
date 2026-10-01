@@ -468,7 +468,12 @@ modules: {
 - Template = `[title, values?, timeOff?]`. `values` is an array of option
   labels, or the string `'teams'` / `'maps'` for engine-substituted lists.
 - `timeOff: true` hides the countdown (used for the initial team choice).
-- `menu` is the player-initiated vote list.
+- `menu` is the player-initiated vote list. The engine adds nothing to it:
+  the "Change host" vote (lobby mode) is started with the `/changehost` chat
+  command, and its "Change host?" window is an engine vote named
+  `@changeHost` — names starting with `@` are reserved, never use one for a
+  template or a menu entry. That window and a host vote never overwrite
+  each other; the second one waits until the first closes.
 - `params.time` is injected by the engine from `timers.voteTime`.
 - The whole `modules.vote` block is **optional**. A game with nothing to vote
   on (`gameConfig.noSpectators`, one eternal map) may omit it: the engine's

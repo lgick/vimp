@@ -73,7 +73,7 @@ for the shell and canvases), `manifest`, `clientPlugin`, `hostPlugin`,
 `gameId` (dedicated).
 
 `main.js` branches on the mode in exactly five places: the manifest/plugin
-source, signaling + lobby + the `/like`·`/unlike` interception, the
+source, signaling + lobby, the
 transport, auto-authentication with autostart, and the canvas mount point.
 Everything else — the dispatcher, MVC modules, ClientCore, the render loop —
 is identical in all three modes.
@@ -152,6 +152,65 @@ only way out of the spectators is answering the initial vote
 before commands. The host has no chat rate limit (only a length limit,
 `chatMaxLength`), so the commands do not need to be spread over frames.
 
+### Direct links (`lobby` mode, `client/lib/roomLink.js`)
+
+The lobby mode has three kinds of URL; the route lives in the hash (one page,
+the server knows nothing about routes):
+
+| URL                   | Opens                                                             |
+| --------------------- | ----------------------------------------------------------------- |
+| no hash               | the lobby (all games)                                             |
+| `#/<gameId>`          | quick play: the fullest non-full room of the game, else a new one |
+| `#/<gameId>/<roomId>` | that room directly — the lobby is never shown                     |
+
+The route is read once, after `welcome` and login (`bootRoute` in `main.js`;
+the decision is the pure `decideRouteAction`). A room link asks
+`GET /rooms/:roomId` first: a live room is joined (the room's own `gameId`
+wins over the link's), a missing or full room falls back to quick play of the
+same game, a game missing from the tab's catalog shows the lobby with a
+dismissible `#tech-informer`. A room that is changing its host
+(`status: 'migrating'`, host migration stage 7, or `'handing_off'` — a
+planned handoff, stage 8) is alive but has nobody to
+connect to: `#tech-informer` shows "Switching host…" and the tab re-asks
+`GET /rooms/:roomId` every `session.migrationPollMs` (1 s) for up to
+`session.migrationWaitMs` (40 s) — `online` again → join, `404` (the room
+is gone) or still migrating at the deadline → quick play; a network error or
+`5xx` counts as "still migrating" and is asked again (`classifyRoomPoll`); a
+hash change abandons the wait and the new route is read. Quick play picks a room from
+`GET /servers?search=<gameId>` (`pickQuickPlayRoom`: exact `gameId`, not
+full, most players, first on a tie) and otherwise creates one with the
+creation form's defaults (`lobbyConfig.quickPlay.autoCreate`). Before
+creating it waits a random `quickPlay.createDelayMinMs` …
+`createDelayMaxMs` (0.5–2 s, `quickPlayCreateDelay`) and asks
+`GET /servers` once more: the guests of a closed room arrive together, and
+without the pause each would create a room of its own. Other hashes
+(`#auth`, garbage) are left alone.
+
+While the tab is in a room the address bar shows its link (`setRoute`,
+`history.replaceState` — no history entry): a guest right after connecting, a
+host after `host_registered`. The lobby's address has no hash, so F5 never
+repeats a route. `hashchange` outside a room runs the bootstrap again; inside
+a room a link to the same room is ignored and anything else reloads. Only one route runs at a time: a hash changed while a route still waits
+for the network is handled after it, unless the tab has entered a room by
+then. A game that fails to load from a route shows the reason in a
+dismissible `#tech-informer` over the lobby.
+
+**Login.** A signed-out player gets the login window over the page (it has no
+URL of its own); `LobbyAuthModel.loginUrl` puts the hash into `returnUrl`, and
+after the OAuth (or `/dev/login`) redirect `main.js` strips only the query
+(`?token=`), so the player lands where the link pointed.
+
+**Leaving a room** (`decideExitRoute`, lobby mode only):
+
+| Cause                                                                                                                                                                                                                                                       | What happens                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| kick — idle, latency, missed pings (TECH_INFORM key 3–5 over P2P, close code 4003–4005; `policyClose.isKickClose`) the room's Worker failed to start, or `hostLimit` (another room is hosted from this network — quick play would only hit the limit again) | no reload: the address becomes the lobby's, the reason stays in `#tech-informer`; a click on it (or F5) opens the lobby |
+| the room closed (host left, `room_closed`, `unknownRoom`)                                                                                                                                                                                                   | reload into `#/<gameId>` — quick play of the same game                                                                  |
+| policy refusals (`policyClose.js`)                                                                                                                                                                                                                          | no reload, as before                                                                                                    |
+
+`solo` and `dedicated` ignore routes; `dedicated` still reloads after a
+reloadable close.
+
 ## main.js — bootstrap, dispatcher, and render loop
 
 - **Bootstrap**: before anything else, fetches the master's game catalog
@@ -179,24 +238,31 @@ before commands. The host has no chat rate limit (only a length limit,
   fired — `#lobby` stays hidden until the player is signed in. Picking a
   server activates that room's game (the `join` payload carries its
   `gameId`; hosts older than 6.4 send none, and the join proceeds on the
-  active game) and then `connectToHost` creates a `WebRtcManager`,
-  establishes P2P, and remembers `currentHostId` (for `/like`·`/unlike`). A
+  active game) and then `connectToRoom` creates a `WebRtcManager`,
+  and establishes P2P. A
   plugin that fails to load is reported inline in `#lobby-error` and leaves
   the lobby usable — `#tech-informer` covers the whole tab and is reserved
   for terminal causes.
-- **Server rating (`/like`·`/unlike`)**: outgoing chat goes through
-  `handleChatSend` — it intercepts `/like <reason>`/`/unlike <reason>` and,
-  instead of sending it to the host (port `CHAT_DATA`), sends the vote
-  straight to the master (`signaling.likeHost`/`unlikeHost(currentHostId,
-reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
-  bypassing the cheating host. A reason is required, available only to
-  signed-in guests (`currentHostId` is set); for the host player or a signed-
-  out player the command shows a local hint; a dropped signaling WS shows a
-  plain error message (the vote wasn't sent). The master additionally only
-  accepts votes from a session that actually connected to the room and
-  verifies the identity-token — see
-  [master.md](master.md#server-rating-likeunlike). The rest of chat goes to
-  the host as usual.
+- **Chat**: outgoing chat goes through `handleChatSend` — the interception
+  point for commands addressed to the master rather than the host. In lobby
+  mode `/changehost` (host-migration stage 10, `client/lib/hostVoteCommand.js`
+  → `parseChangeHost(text, bootMode)`) never reaches the host: a guest sends
+  `host_vote_start` to the master (its `host_vote_started` prints "Voting
+  has started", `v:1`, as for a host vote), the host tab gets a hint to use "Hand
+  over host", no signaling — "No connection to the master server", extra
+  arguments — "Usage: /changehost"; the master's refusals (`voteRejected`,
+  `noSuccessor`) and the vote's result are local chat notices (codes
+  `v:6`…`v:15`). In `solo`/`dedicated` the command goes to the host as plain
+  text. Everything else goes to the host (port `CHAT_DATA`).
+- **"Change host?" window** (lobby, guests): `host_vote` →
+  `VoteCtrl.openEngineVote` with the engine vote `@changeHost`, title
+  "Change host? (started by <nick>)", `Yes`/`No`, open for the rest of the
+  vote (`durationMs` from arrival). The answer is caught in
+  `handleVoteSend` before `VOTE_DATA` and goes to the master as
+  `host_vote_answer` (its `host_vote_accepted` prints "Your vote has been
+  accepted", `v:2`, as for a host vote); `host_vote_result` closes the window (or takes it off
+  the queue) and prints the result. See
+  [master.md](master.md#change-host-vote).
 - Branches incoming host packets (`handleMessage`) by data type: a string →
   the JSON dispatcher `[portId, payload]` → `socketMethods[portId]`; an
   `ArrayBuffer` → `clientCore.push_frame` (decoding, seq insertion into the
@@ -268,8 +334,14 @@ reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
   `CanvasManagerModel`: it would drive the scale to `0` and the renderer to
   `0x0`, and neither recovers until the next real resize; emitted sizes are
   clamped to at least `1`.
-- **P2P drop** (`handleDisconnect`): the host leaving kills the room (no
-  host migration) — removes the render tick (not `app.stop()`: with a shared
+- **Transport drop** (`SessionSupervisor`, host migration stage 4): in
+  lobby mode a guest's dropped WebRTC connection mid-match is not terminal —
+  the supervisor reconnects and resumes the participant's place (see
+  [Network layer](#network-layer-packagesengineclientnetwork)).
+  The same supervisor carries the session through a host change (stage 7).
+  `handleDisconnect` runs only on a **terminal** close.
+- **Terminal close** (`handleDisconnect`): the room closed, a kick or a
+  policy close, the reconnect window ran out — removes the render tick (not `app.stop()`: with a shared
   ticker that stops it globally, and `autoStart` revives it on the next
   `add()` from any part — without `renderTick`), drops the context
   listeners and the cached render contexts (a context restored after the
@@ -294,20 +366,45 @@ reason, token)`, `token` — the voter's identity-token from `LobbyAuth`),
   text wins). See [dedicated.md](dedicated.md#game-websocket).
 - **WebRTC unavailable** (`ensureWebRtcAvailable`): if `RTCPeerConnection`
   is unavailable (Firefox with `media.peerconnection.enabled = false`,
-  resist fingerprinting, etc.), `connectToHost`/`connectAsHost` show a
+  resist fingerprinting, etc.), `connectToRoom`/`connectAsHost` show a
   plain message and stay in the lobby instead of failing with a black
   screen.
 - **The host role**: before starting the Worker, `connectAsHost` fetches
   the master's map catalog (falls back to the bundle), registers the room
   and starts a heartbeat once `ready` fires; the host's signaling WS
   reconnects with backoff on a drop
-  (`lobbyConfig.reconnect`) and re-registers the room (a fresh `welcome`
-  doesn't recreate the lobby — a guard in `initLobby`). A Worker init
-  failure (`error`) tears down the room with a message and returns to the
-  lobby.
+  (`lobbyConfig.reconnect`) and reclaims the same room with `reclaim_host`
+  (a fresh `welcome` doesn't recreate the lobby — a guard in `initLobby`). A
+  Worker init failure (`error`) tears down the room with a message and
+  returns to the lobby.
+- **Room membership** (lobby mode): the tab gets a `memberId`
+  (`crypto.randomUUID()` at page load, kept in memory — two tabs of one
+  profile are two members); the WebRTC offer carries it, and once the
+  match is entered (`AUTH_RESULT` without an error) a guest sends
+  `join_room { roomId, memberId, token }` so the master knows who is in the
+  room ([master.md](master.md#room-lifecycle)). The signaling reconnect with
+  backoff is common to the whole lobby mode: after a fresh `welcome` the host
+  sends `reclaim_host`, a guest in a room repeats `join_room` with the same
+  `memberId`. Signaling `error`s are handled: `unknownRoom` while waiting for
+  the answer to an offer — "Room no longer exists" and back to the lobby;
+  `invalidToken` — sign-out (sign in again); `hostLimit` — the room is closed
+  with a message; `roomTaken`/`invalidRoomSecret` — the host registers a new
+  room; `staleEpoch` — the host tab was replaced while it was away: it
+  becomes a guest of the new epoch
+  ([host.md](host.md#successor-promotion)); a successor whose
+  `register_host` came too late (`staleEpoch`, `invalidPromotion`,
+  `unknownRoom`) drops the role and reports `promote_failed`. `room_closed` for the
+  current room shows "The host left — the room is closed." and goes through
+  the `handleDisconnect` path — sooner than waiting for WebRTC to fail.
+  `unknownRoom` during a reconnect attempt ends the session the same way.
+- **Protocol errors**: a second `CONFIG_DATA`, or a second successful
+  `AUTH_RESULT`, inside a live session (e.g. a host that did not understand
+  `resume`) is logged to the error journal
+  (`engine.session.protocol`) and, in lobby mode, reloads into the same room
+  link — the client never builds a second core or `Application`.
 - **Debug API (dev build only)**: `window.__vimpDebug`
   (`packages/engine/src/client/debug.js`) — `dump()`, `startRecording()`,
-  `stopRecording()`, `divergence()`, `save()`. The branch is guarded by
+  `stopRecording()`, `divergence()`, `handoff()`, `save()`. The branch is guarded by
   `import.meta.env.DEV`, so the production bundle drops it; the same flag
   goes into `room.isDevMode` and switches on the host recorder. Port 12
   (`CONSOLE`) carries the host's debug log into this tab's console as
@@ -346,6 +443,14 @@ central journal — see [master.md](master.md#post-client-reports-client-error-r
   `applyCamera` applies such a frame neither to the canvas nor to the sound
   listener, and reports it as a `warn` with code `engine.camera.non-finite`,
   `source: 'client'`, `details: { x, y }` as strings.
+- a host tab that was hidden (host-migration stage 9a): while hidden, the
+  host's `health` metrics (see [host.md](host.md)) are aggregated, and once
+  the tab is visible again, stops being the host or is closed (`pagehide`,
+  sent at once), one `warn` with code
+  `engine.host.hiddenHealth`, `source: 'client'`,
+  `details: { hiddenMs, samples, minTickRate, maxGapMs, lostMs }` is written
+  — how far the browser throttled the match. An episode without a single
+  metric (a frozen match, a hide shorter than the ~1 s window) is skipped.
 
 **Not caught, on purpose:** `console.error` / `console.warn` calls (noise
 and arbitrary data in their arguments; the console is never wrapped),
@@ -424,7 +529,7 @@ The game transport is WebRTC, not WebSocket (channel details —
 - **`SignalingClient`** — a thin wrapper around the master's signaling
   WebSocket: `connect()`, caching `id`/`iceServers` from `welcome`,
   relaying incoming messages to subscribers by `type` (via `Publisher`),
-  methods `sendOffer`/`sendIceCandidate`/`pingHost`/`likeHost`/`unlikeHost`.
+  methods `sendOffer`/`sendIceCandidate`/`pingHost`.
   The transport is injected by a factory for tests.
 - **`WebRtcManager`** — the P2P connection to the host: `RTCPeerConnection`
   - the `meta` (reliable-ordered) and `state` (unreliable-unordered)
@@ -432,10 +537,167 @@ The game transport is WebRTC, not WebSocket (channel details —
     exchanges SDP/ICE through `SignalingClient`. `Publisher` events: `open`
     (both channels open), `message` (data from either channel in a single
     stream), `close` (a drop). `RTCPeerConnection` is injected by a factory
-    for tests.
+    for tests. Options for host migration: `resume` (the offer carries
+    `resume: true`), `minEpoch` (answers/candidates of an older host epoch
+    are ignored; the epoch of the first answer is pinned), and
+    `connectTimeoutMs` (`lobbyConfig.webrtc`, 10 s — the channels did not
+    open in time → `close`). An `error { code: 'migrating' }` from the
+    master before the host answered (the room is in a planned handoff,
+    stage 8) re-sends the same offer and the candidates gathered so far
+    after `offerRetryMs` (`lobbyConfig.webrtc`, 1 s), restarting the
+    connect window — the guest reaches whichever host the room has by then.
+    `destroy()` unsubscribes from signaling and
+    closes the peer without emitting `close`, so an abandoned attempt never
+    eats the answers of the next one. Host migration stage 6: after the
+    channels open (and every `iceStatsIntervalMs`, 30 s) it reads
+    `pc.getStats()` and emits `iceType` — the type of its own local
+    candidate in the selected pair (`selectedLocalCandidateType`: by
+    `transport.selectedCandidatePairId`, else the `nominated && succeeded`
+    pair; none → `null`); a `standby` channel opened by the host is emitted
+    as `standby`.
+- **`StandbyReceiver`** (host-migration stage 6) — the successor's side of
+  the `standby` channel: assembles the chunks of a checkpoint
+  (`standbyChunks.js`), drops an unfinished one as soon as a newer one
+  starts, and keeps the **latest full** one: `latest()` →
+  `{ bytes, checkpointId, wireId, seq, createdAt, final, mode, receivedAt }`,
+  the `checkpoint` event, `waitForFinal(minWireId, timeoutMs)` for a planned
+  handover (a periodic checkpoint not newer than a received final one does
+  not replace it; `discardFinal()` on `promote_cancelled` keeps an aborted
+  handover's final checkpoint — even one arriving after the cancel — from
+  completing the next one). `noteFrame` remembers the `seq` of the last host frame this
+  client saw (the restored match's `seqFloor`). **`HostPrewarm`** — on the
+  first full checkpoint it prepares the room the way creating one does
+  (`prepareHostRoom(settings, gameRef)` in `main.js`: the game manifest of
+  the version in the checkpoint — `lobbyConfig.game.versionManifestUrl` when
+  it differs from the active one —, the master's maps, the worker bundle
+  URL) and brings up a `HostController` with `preload: true`
+  ([host.md](host.md#standby-successor)); a new game version in a checkpoint
+  warms up again, a failed version is not retried. In the lobby, `main.js`
+  sends `caps` (`lib/hostCaps.js`: `canHost`, `mobile`, `hidden`,
+  `iceType`) in `join_room`/`register_host` and `member_update` on
+  `visibilitychange` and on an `iceType` change; on `standby_assigned` it
+  reports `standby_status` on the first checkpoint and every
+  `migration.standbyStatusIntervalMs` (5 s); `standby_released`, leaving
+  the room or a new epoch terminates the pre-warmed Worker and drops the
+  checkpoints.
+- **`SessionSupervisor`** — owns the current transport (`attach`), forwards
+  its messages to the dispatcher and decides what a `close` means. States:
+  `connecting` → `handshake` → `inGame` → `reconnecting` → `inGame` |
+  `closed`; any live state → `migrating` → `reconnecting` | `closed`.
+  Terminal (`closed` → `handleDisconnect`): a close before the
+  match, no resume secret yet (`SESSION_DATA`), a kick/policy close, the
+  user leaving (`stopGame`, `leaveRoomWith`), and every close in `solo`,
+  `dedicated` and on the host tab's loopback (no `reconnect` factory — the
+  supervisor is pass-through there). Otherwise → `reconnecting`: the
+  "Reconnecting…" overlay (`#session-overlay`), keys disabled, sound muted;
+  a new `WebRtcManager` with `resume: true` to the same room, and once its
+  channels open — `RESUME_REQUEST { v, gameId, resumeKey, token }`.
+  Failed attempts repeat with backoff (`session.reconnectBaseDelayMs` …
+  `reconnectMaxDelayMs`) inside `session.reconnectWindowMs` (15 s), then
+  the session is terminal. `RESUME_RESULT ok` → `clientCore.reset()`, the
+  host's votes are dropped (`removeHostVotes`; a "Change host?" window
+  stays — the master runs it), keys and sound come back, `inGame`; the host then
+  sends the entry packet, during which `FIRST_SHOT_DATA` is applied without
+  `FIRST_SHOT_READY`/autostart (`supervisor.resuming`), and the closing
+  `SESSION_DATA` triggers `Controls.resendHeld()`. `RESUME_RESULT !ok` →
+  `reloadTo(#/<gameId>/<roomId>)` — a clean entry into the same room.
+  **Silence watchdog**: in `inGame`, outside a map load (`MAP_DATA` …
+  `FIRST_SHOT_DATA`), no message from the host for
+  `session.hostSilenceMs` (3 s) closes the transport and starts the
+  reconnect. Messages from an abandoned transport are dropped. A drop the
+  client noticed itself (closed transport or silence) is first reported to
+  the master — `host_unreachable { roomId, epoch }` (`onHostLost`), its
+  evidence for a probe or a host change
+  ([master.md](master.md#host-migration)).
+  **Host change** (host migration stage 7, lobby guests only; the host tab
+  gets `host_revoked` instead): `host_migrating` with a newer epoch →
+  `migrate()` → `migrating`: the transport to the old host is destroyed at
+  once (`WebRtcManager.destroy()` → `pc.close()`, no ICE timeouts), so a
+  "zombie" host of epoch N that still runs its Worker can never feed this
+  client frames next to the new host of N+1; the "Switching host…" overlay,
+  keys disabled, sound muted, the silence watchdog stopped. Rendering keeps
+  running — the frame stands, snapshot-independent animations go on.
+  `host_changed { epoch, mode }` → `hostChanged()`: the tab adopts the epoch
+  (`minEpoch` of the next offers — older answers are ignored);
+  `checkpoint`/`planned`/`reclaimed` (the old host came back before a
+  successor registered) → the reconnect path above with no report to the
+  master (the overlay stays "Switching host…"), `RESUME_RESULT !ok` → a
+  clean entry into the room; `cold` (the new host started the match afresh)
+  → `reloadTo(#/<gameId>/<roomId>)`. `reclaimed` while not waiting is
+  ignored — the transport to that host is still good. No secret yet
+  (`SESSION_DATA`) → a clean entry as well. Nothing within
+  `session.migrationWaitMs` (40 s), or `room_closed` → terminal: the room
+  is closed, `reloadTo(#/<gameId>)` (quick play of the same game).
+  **Role change** — `resumeWith(transport, { reconnect, getToken })`: the
+  tab resumes its place through the given transport — a successor through
+  the loopback to the Worker it raised (`reconnect: null`: no other
+  attempts, no silence watchdog, a close is terminal), a former host
+  through WebRTC to the new host (with the guest attempt factory). The
+  migration wait ends; the window and `RESUME_REQUEST` are the usual ones.
+  With `onFailed` a failed return (no secret, `RESUME_RESULT !ok`, a close
+  without a factory, the window) closes the session but calls `onFailed`
+  instead of `onResumeRejected`/`onTerminal` — a successor is already the
+  room's host and must not tear it down; `hasSession` tells whether there
+  is a secret to return with.
+- **`Promotion`** (host migration stage 7) — raises the match of a
+  `promote { mode: 'checkpoint' }` from the latest checkpoint of
+  `StandbyReceiver` (`mode: 'planned'` first waits up to
+  `migration.finalWaitMs` for the final one; a repeated `promote` of the
+  same epoch and token with `mode: 'checkpoint'` → `degrade()` drops the
+  wait): in the pre-warmed Worker (`HostPrewarm.take()`) when
+  its game version matches the checkpoint, otherwise in a new
+  `HostController`; `onReady` → `main.js` adopts the host role and
+  registers with `promotionToken`, `onFailed` → `promote_failed`;
+  `cancel()` on `promote_cancelled`; without a resume secret of the own
+  player (`hasSession`) it fails before touching a Worker. `savePendingPromotion`/
+  `takePendingPromotion` keep a `cold` promotion in `sessionStorage`
+  (`vimp.promotion`, `try/catch`, removed on read) across the reload into
+  the room. `LoopbackTransport(controller, socketId, { resume: true })`
+  connects with `resume` and emits `open` on the next microtask, so the
+  supervisor sends `RESUME_REQUEST` to the tab's own Worker. The whole
+  flow — [host.md](host.md#successor-promotion).
+- **`PlannedHandoff`** (host migration stage 8) — the host's side of a
+  planned handoff; `main.js` enters it through
+  `startPlannedHandoff({ reason, stay, defer })` (refused while a Worker handoff
+  or a promotion owns the Worker; a repeated call while one is running is
+  ignored). `defer` (the default for `stay`) first waits for the round
+  boundary — `HostController.awaitRoundBoundary`, answered at once by a game
+  with `migration.midRound`, otherwise when the next round starts, at most
+  `migration.deferMaxMs` (30 s); the handoff counts as started meanwhile
+  (the menu shows "Handing over…", a Worker handoff waits), and its deadline
+  and `onSlow` run from `handoff_begin`. A leaving host does not wait. `start` sends `handoff_begin { roomId, epoch, reason, stay }`;
+  `handoff_go` → `HostController.freeze()` then
+  `requestCheckpoint({ final: true })` and `onFrozen` (the own player gets
+  the "Switching host…" overlay, keys and sound off); `host_released` →
+  `onReleased { stay, epoch }`. `stay` — the role is dropped like on
+  `host_revoked` (without the chat notice) and the own player resumes as a
+  guest of the new epoch over WebRTC under its `gameId`/`resumeKey`;
+  `!stay` — `leave_room` and `reloadTo('')` (the lobby, not quick play: it
+  would lead back into the room). The handoff has one outcome, announced once, and one deadline: `migration.handoffDeadlineMs` (10 s) from `handoff_begin`, above the master's `handoffTimeoutMs` with room for its answer to travel back — normally the master announces a cancel (`handoff_aborted`), the deadline is a safety net. No `handoff_go` within `migration.handoffSlowMs` (3 s) is not a failure: `onSlow` (the room menu's "Slow connection…" status), and a late `handoff_go` before the deadline still freezes the match and sends the final checkpoint instead of the successor rolling everyone back to a periodic one. A final cancel — `handoff_unavailable` (nothing was frozen), `handoff_aborted`, a signaling drop or the deadline — unfreezes a frozen match (the Worker resyncs the guests), the overlay goes away and the tab stays the host (after a signaling drop the reconnect's `reclaim_host` tells whether the successor took over — `staleEpoch` demotes the tab). A
+  leaving host (`stay: false`) leaves anyway: `host_leaving` to the master
+  (an emergency migration from the latest periodic checkpoint) and the
+  lobby; a `host_released` that arrives after the deadline still demotes the tab. `abort()` (role teardown) cancels silently.
+- **`HostUnloadGuard`** (`client/lib/hostUnloadGuard.js`, host migration
+  stage 8.4, lobby mode) — `beforeunload` is registered only while the tab
+  is the current host and the room has other people (`update({ role,
+othersPresent })` from `main.js`: role changes, `HostConnectionManager`
+  peer count): Ctrl+W/F5 shows the browser's "Leave site?" dialog. No final
+  checkpoint is promised while it is open — the main thread, which relays
+  Worker → DataChannel, stands still, so the guests see a frozen match.
+  `pagehide` (after "Leave" and on a close without the dialog; the only
+  hook on mobile, where `beforeunload` is unreliable): the host sends
+  `host_leaving` (the master starts an emergency migration at once), a
+  guest sends `LEAVE` to the host and `leave_room` to the master (its seat
+  is freed at once, not after `resumeGraceMs`) — best-effort, a dropped
+  connection covers what does not arrive. `exit()` ("Leave server", any
+  move to the lobby) drops both: the leave is already announced. `pagehide`
+  fires on a programmatic reload too, so every reload in `main.js` goes
+  through `reloadPage(hashPart?)`, which calls `exit()` first — otherwise a
+  guest reloading back into the same room (a successor's cold promotion,
+  `reloadToRoom`) would announce a leave and lose its seat.
 
 The client's role is picked in the lobby (`packages/engine/src/client/main.js`): **joining**
-(`connectToHost` → `WebRtcManager`, offerer) or **hosting** (`connectAsHost`
+(`connectToRoom` → `WebRtcManager`, offerer) or **hosting** (`connectAsHost`
 → a browser host in the same tab). For a host, the game transport is
 **`LoopbackTransport`**: the same interface as `WebRtcManager` (`publisher`
 with `message`/`close`, `send`/`close`), but data travels through
@@ -470,7 +732,10 @@ listens for `webrtc_offer` via `SignalingClient`, creates a
 `ondatachannel`, sends `webrtc_answer`+ICE, registers the room with the
 master (`register_host`/heartbeat), and answers the lobby ping
 (`ping_host`). Remote clients' data flows into the same Worker as the host
-player's loopback. Details — [host.md](host.md).
+player's loopback. `HostController` also wraps the Worker's host checkpoints
+(`startCheckpoints`/`stopCheckpoints`/`requestCheckpoint`/`onCheckpoint`,
+`freeze`/`unfreeze`, `startAfterRestore`; a constructor `checkpoint` raises
+the match from one). Details — [host.md](host.md#checkpoints).
 
 There's no classic-Worker fallback (it would forbid ESM and require an
 inlined WASM binary — see PLAN.md risk #5), so "Create server" first feature-
@@ -589,15 +854,16 @@ so a crate version on the lobby screen would be a claim the page cannot back.
   both the list and the placement row; nicks are globally unique, so
   membership is unambiguous). **Smart pinging** through `IntersectionObserver`:
   a card entering the visible area → `visible` → the controller sends
-  `ping_host`; `pong` updates latency and re-sorts cards ascending,
-  tied-latency cards breaking by `rating` descending (lobby page plan).
+  `ping_host`; `pong` updates latency and re-sorts cards ascending.
   `IntersectionObserver` is injected for tests. Each card's name is
-  `"<gameId>/<name>"` (lobby page plan — matches the `gameId/name` search
-  syntax on `GET /servers`, see [master.md](master.md#get-servers)) and also
-  shows the hoster's cached rating (server-rating stage 3 —
-  `.lobby-card-rating`, straight from the server object's `rating` field,
-  signed for positive values (`+7`/`-3`/`0`); this is engine-level lobby UI,
-  not something a game plugin renders.
+  `"<gameId>/<roomId>"` (a room has no name; matches the `gameId/roomId`
+  search syntax on `GET /servers`, see [master.md](master.md#get-servers)); the
+  model keys servers by `roomId`, falling back to `hostId` from an older
+  master. The info line is `<lobbyInfo> · players/max · region`, and an empty
+  segment is left out: no text when the game sets no `lobbyInfo`
+  ([plugin-api.md](plugin-api.md#gameconfig-fields-and-their-defaults)), no
+  region when the master doesn't know it (`'unknown'` is never shown); this is
+  engine-level lobby UI, not something a game plugin renders.
 - **controller** — proxies view events to the model; ping throttling lives
   in the model (`pingHost` returns `false` if the server was pinged
   recently, interval `pingInterval`). It does no fetching itself (lobby page
@@ -764,7 +1030,13 @@ What each component does:
   arbitrary number of teams) inside the `#stat` container; team
   colors/labels are the game's CSS.
 - **Vote** — vote windows built from templates, pagination, a lifetime
-  timer.
+  timer. Engine votes (a name starting with `@`, reserved — today only
+  `@changeHost`) come from the master, not the host: `createEngineVote`
+  shows one for the rest of its `deadline`, and an engine vote and a host
+  vote never overwrite each other — whichever comes second waits in a queue
+  until the open window closes (an engine vote whose time ran out in the
+  queue is skipped). The `M` menu opens over an engine vote, which comes
+  back after it; `closeEngineVote` removes it on the master's result.
 
 ## Client Core (ClientCore)
 
@@ -1151,10 +1423,37 @@ game key set.
 
 ## UI hierarchy (z-index)
 
-`vimp` (1) → `radar` (2) → `chat` (3) → `panel` (4) → `vote` (5) →
-`game-informer` (6) → `stat` (7) → `lobby`/`auth` (8) → `tech-informer` (9).
-The lobby (`#lobby`, z-index 8) is the starting server-selection screen,
-shown before connecting to a host and hidden once the game starts.
+`vimp` (1) → `radar` (2) → `chat` (3) → `vote` (5) →
+`game-informer` (6) → `panel`/`stat` (7) →
+`lobby`/`auth`/`session-overlay` (8) → `tech-informer` (9). The session
+overlay ("Reconnecting…", host migration stage 4; "Switching host…",
+stage 7) is never shown together
+with the lobby or the auth screen; a terminal reason in `#tech-informer`
+stays above it. The lobby (`#lobby`, z-index 8) is the starting
+server-selection screen, shown by `main.js` only when the route leads to
+it (a direct link or quick play never shows it — the lobby login only
+reveals the user badge) and hidden once the game starts. The room menu
+(`#room-menu`, `RoomMenu` MVC, `views/includes/roomMenu.pug`) is a button
+inside the panel, right of its table (once the session starts, `main.js`
+calls `RoomMenuCtrl.setInPanel` and the view moves the node into `#panel`:
+the panel markup is shared with the standalone SDK, which has no room menu;
+a game without `panel` in `initIdList` keeps the button in the corner; its
+list is `position: fixed`, past the panel's `overflow:
+hidden`), lobby mode only, visible while the tab is in a room
+(the room link itself sits in the address bar). Items (host migration
+stage 8d): **Leave server** — everyone; a guest sends `LEAVE` to the host
+and `leave_room` to the master and reloads into the lobby, the host with
+other people hands the role over (`reason: 'leave', stay: false`) and goes
+to the lobby, a host alone closes the room (`host_leaving` — no people, the
+master closes it at once). **Hand over host** — only the current host,
+when the room has other people and the master assigned a successor
+(`successor_assigned` with a non-null `successorMemberId`):
+`startPlannedHandoff({ reason: 'handover', stay: true })`, no confirmation
+(the role can be handed back). While a handoff runs both are disabled and a
+status takes their place ("Handing over…", "Slow connection…"); a failed one
+shows "Host handover failed" until the menu is closed. The panel sits above
+the transparent `#game-informer`, which would otherwise swallow the menu's
+clicks, and under the game's auth screen.
 
 ---
 

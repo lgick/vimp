@@ -12,6 +12,7 @@ class HumanParticipant extends Participant {
     socketId,
     watchedGameId,
     token = null,
+    identityName = null,
   }) {
     super({ gameId, name, model, team, teamId });
 
@@ -27,6 +28,15 @@ class HumanParticipant extends Participant {
     this.pendingShake = null;
     this.lastActionTime = clock.now();
     this.lastInputSeq = 0; // номер последнего обработанного ввода (предикшен)
+
+    // возобновление сессии (host-migration этап 4). identityName — ник от
+    // стратегии идентичности до разведения дублей (#2): с ним сверяется
+    // токен RESUME_REQUEST. resumeKey — секрет места (выдаётся на входе в
+    // матч, не логируется). detachedAt — транспорт оборвался, место ждёт
+    // возврата (null — подключён)
+    this.identityName = identityName ?? name;
+    this.resumeKey = null;
+    this.detachedAt = null;
   }
 
   get isNetworked() {

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  isKickClose,
+  KICK_TECH_KEYS,
   POLICY_CLOSE_INFORMS,
   shouldReloadAfterClose,
 } from '../../../packages/engine/src/client/network/policyClose.js';
@@ -34,7 +36,6 @@ describe('shouldReloadAfterClose', () => {
     const decided = new Set([
       // перезагрузка уместна: обрыв, кик, протухший хост
       closeCodes.staleHost,
-      closeCodes.blocked,
       closeCodes.kickForMaxLatency,
       closeCodes.kickForMissedPings,
       closeCodes.kickIdle,
@@ -46,6 +47,11 @@ describe('shouldReloadAfterClose', () => {
     ]);
 
     expect(new Set(Object.values(closeCodes))).toEqual(decided);
+  });
+
+  // выведенный код не возвращается в карту: номер не переиспользуется
+  it('4002 выведен из оборота (рейтинг серверов удалён)', () => {
+    expect(Object.values(closeCodes)).not.toContain(4002);
   });
 });
 
@@ -64,5 +70,38 @@ describe('POLICY_CLOSE_INFORMS', () => {
     for (const code of Object.keys(POLICY_CLOSE_INFORMS)) {
       expect(shouldReloadAfterClose(Number(code)), code).toBe(false);
     }
+  });
+});
+
+// лобби-режим уводит кикнутого на главную, а не в быструю игру (этап 3
+// host-migration): в P2P кик виден только по TECH_INFORM-ключу
+describe('isKickClose', () => {
+  it('коды киков dedicated', () => {
+    for (const code of [4003, 4004, 4005]) {
+      expect(isKickClose(code, null), String(code)).toBe(true);
+    }
+  });
+
+  it('tech-ключи киков P2P (TECH_CODES хоста)', () => {
+    for (const key of [3, 4, 5]) {
+      expect(isKickClose(undefined, key), String(key)).toBe(true);
+    }
+  });
+
+  it('прочее — не кик', () => {
+    expect(isKickClose(undefined, null)).toBe(false);
+    expect(isKickClose(1006, null)).toBe(false);
+    expect(isKickClose(4006, 6)).toBe(false); // roomFull
+    expect(isKickClose(undefined, 1)).toBe(false); // anotherDevice
+  });
+
+  it('ключи совпадают с текстами киков techInformList', async () => {
+    const { default: clientDefaults } =
+      await import('../../../packages/engine/src/config/clientDefaults.js');
+    const texts = [...KICK_TECH_KEYS].map(
+      key => clientDefaults.techInformList[key],
+    );
+
+    expect(texts.join(' ')).toMatch(/inactivity.*latency.*pings/s);
   });
 });

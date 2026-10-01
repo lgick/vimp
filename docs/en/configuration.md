@@ -32,16 +32,17 @@ from `packages/engine/src/config/master.js` apply instead. The
 [dedicated server](dedicated.md) applies them **always** — the game, port and
 room settings have no other source.
 
-| Variable                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                         | Default                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `NODE_ENV`                  | `production` / `development`                                                                                                                                                                                                                                                                                                                                                                                                                    | —                       |
-| `VIMP_DOMAIN`               | The master's domain. **Required** in production (the process exits with an error otherwise)                                                                                                                                                                                                                                                                                                                                                     | `localhost`             |
-| `VIMP_MASTER_PORT`          | The master server's port                                                                                                                                                                                                                                                                                                                                                                                                                        | `3002`                  |
-| `VIMP_AUTH_SERVICE_URL`     | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth))                                                                                                                                                                                                 | `http://localhost:3010` |
-| `VIMP_DEDICATED_GAME`       | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master. A scoped package name is fetched straight from npm, so `VIMP_AUTH_SERVICE_URL` is not needed; only a game id has to be resolved through the registry                                            | —                       |
-| `VIMP_DEDICATED_ROOM`       | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure. In production it is filled from the `settings` field of `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-game-box-dedicatedgame))                                                                                                                                          | `{}`                    |
-| `VIMP_GAMES_DIR`            | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate                                                                                                                                                                                                                                                          | `<repoRoot>/.games`     |
-| `VIMP_CLIENT_REPORTS_TOKEN` | Shared secret between the boxes and the auth service (`master:clientReports:token`): the box forwards client error reports to the auth service with it ([master.md](master.md#post-client-reports-client-error-reports)). Empty — forwarding is off, the box only logs new fingerprints. In production it comes from the `CLIENT_REPORTS_TOKEN` GitHub secret ([deployment.md](deployment.md#client-error-reports-secret-client_reports_token)) | —                       |
+| Variable                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Default                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `NODE_ENV`                  | `production` / `development`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | —                       |
+| `VIMP_DOMAIN`               | The master's domain. **Required** in production (the process exits with an error otherwise)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `localhost`             |
+| `VIMP_MASTER_PORT`          | The master server's port                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `3002`                  |
+| `VIMP_AUTH_SERVICE_URL`     | The central auth service's origin (`packages/auth`), overrides `security.authServiceUrl` — used for the CSP `connect-src` and the `/auth/*` proxy routes ([auth.md](auth.md), [deployment.md](deployment.md#central-auth-service-packagesauth))                                                                                                                                                                                                                                                                                                                                                     | `http://localhost:3010` |
+| `VIMP_DEDICATED_GAME`       | The dedicated server's game — a game id (`tanks`) or an npm package name (`@vimp-games/tanks`), either of them with a `@<version>` pin; when set, `src/master/main.js` starts the [dedicated server](dedicated.md) instead of the lobby master. A scoped package name is fetched straight from npm, so `VIMP_AUTH_SERVICE_URL` is not needed; only a game id has to be resolved through the registry                                                                                                                                                                                                | —                       |
+| `VIMP_DEDICATED_ROOM`       | JSON object with the dedicated room's overrides (`map`, `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`, `seed`); malformed JSON is a startup failure. In production it is filled from the `settings` field of `SERVERS_MATRIX` ([deployment.md](deployment.md#dedicated-game-box-dedicatedgame))                                                                                                                                                                                                                                                                                              | `{}`                    |
+| `VIMP_GAMES_DIR`            | Root of the game package store the master downloads approved games into (`master:gameStore:dir`). In production this is a mounted volume, so the packages survive a container recreate                                                                                                                                                                                                                                                                                                                                                                                                              | `<repoRoot>/.games`     |
+| `VIMP_CLIENT_REPORTS_TOKEN` | Shared secret between the boxes and the auth service (`master:clientReports:token`): the box forwards client error reports to the auth service with it ([master.md](master.md#post-client-reports-client-error-reports)). Empty — forwarding is off, the box only logs new fingerprints. In production it comes from the `CLIENT_REPORTS_TOKEN` GitHub secret ([deployment.md](deployment.md#client-error-reports-secret-client_reports_token))                                                                                                                                                     | —                       |
+| `VIMP_ROOM_SECRET_KEY`      | Key of the room secret (≥ 32 bytes): `roomSecret = HMAC-SHA256(key, roomId:epoch:hostUserId)` proves to the master that a tab hosts the room — for `PUT /auth/rank`·`/state` attribution and for `reclaim_host` after a master restart ([master.md](master.md#room-lifecycle)). **Required** for the lobby master in production (the process exits otherwise); in development a random key is generated per process, so rooms do not survive a dev master restart. In production it comes from the `ROOM_SECRET_KEY` GitHub secret ([deployment.md](deployment.md#room-secret-key-room_secret_key)) | — (dev: random)         |
 
 **There is no environment variable for the game catalog.** The lobby master's
 catalog comes from the game registry of the central auth service and from
@@ -133,6 +134,34 @@ the room's settings on top.
 - `idleKickTimeout.player: 120000` — kicks an idle player (2 minutes);
 - `idleKickTimeout.spectator: null` — `null` disables the kick (spectators
   are never kicked).
+
+### Session resume (host migration stage 4)
+
+- `resumeGraceMs: 20000` — how long the host keeps the place of a
+  participant whose connection dropped without `LEAVE` (slot taken, actor
+  in the world, commands released, no RTT/idle kicks). Only the lobby
+  Worker passes it to `PortMachine`; the dedicated server and the
+  standalone SDK do not, and remove a participant at once;
+- `resumeRequestTimeoutMs: 5000` — how long a resume connection may stay
+  silent before `RESUME_REQUEST`; then it is closed with `4008`.
+
+Details — [network.md](network.md#session-resume).
+
+### Host checkpoints (host migration stage 5)
+
+- `maxCheckpointBytes: 8388608` (8 MB) — the most a checkpoint may unpack
+  to (`lib/checkpointCodec.js`); a bigger one is refused as a "zip bomb"
+  from someone else's host. A raw tanks core dump is ~420 KB;
+- `handoffFlushTimeoutMs: 3000` — how long the Worker handoff waits for the
+  final profile sync (`PlayerDataSync.flushAll`) before handing its state to
+  the new Worker; past it, whatever is unsent travels in the state;
+- `resumeWaitMs: 3000` — how long a match a successor raised from a
+  checkpoint stays paused waiting for the checkpoint's people to resume
+  before it starts without them (their places are then kept for
+  `resumeGraceMs`; host migration stage 7).
+
+Details — [host.md](host.md#checkpoints),
+[successor promotion](host.md#successor-promotion).
 
 ## The game half of the host config
 
@@ -381,18 +410,54 @@ The master server's config (see [master.md](master.md)); read by
   game that declares no `maxGameScore` of its own. The minimum interval
   between writes is held on the host side (`lobbyConfig.playerData`); this
   block is what stops a broken or malicious server that ignored it;
-- `host` — room constraints: `maxNameLength: 30`, `maxPlayersLimit: 8`,
-  `heartbeatTimeout: 30000` (a room without a heartbeat for longer is
-  removed), `sweepInterval: 10000`;
-- `rating` — server-rating defaults (`/like`·`/unlike`, replacing the old
-  `/ban`, see [master.md](master.md#server-rating-likeunlike)): `min: -10`,
-  `max: 10`, `blockAt: -10` (a hoster whose rating hits this score can't
-  create rooms); `refreshInterval: 30000` — how often `main.js` calls
-  `SignalingServer.refreshRatings()` to re-poll every active room's cached
-  `rating` from the auth service (stage 3 — catches a score changed on a
-  different master or after a restart). Mirrored in
-  `packages/auth/src/config/auth.js` (`rating`) — the auth service is the
-  one that actually clamps/decides `blocked`;
+- `host` — room constraints: `maxPlayersLimit: 8`, `heartbeatTimeout: 30000`
+  (a host without a heartbeat for longer is lost and its room migrates),
+  `sweepInterval: 10000` (the room registry sweep period);
+- `room` — room lifetime ([master.md](master.md#room-lifecycle)):
+  `memberGraceMs: 15000` (a member whose signaling closed still counts as in
+  the room — a reconnect window), `hostReclaimGraceMs: 10000` (the host's WS
+  closing starts a migration at once; when nobody can be promoted the room
+  waits this long for `reclaim_host`, then the sweep migrates or closes it), `maxInfoLength: 48` (the cap of the lobby card
+  text a game sets through `gameConfig.lobbyInfo`/`lobby.setInfo`),
+  `lookupRateLimit: { limit: 20, windowMs: 1000 }` (`GET /rooms/:roomId` per
+  IP — against `roomId` enumeration); member RTT and the successor
+  ([master.md](master.md#member-rtt-and-successor), host migration stage 6):
+  `rttProbeIntervalMs: 5000` (`ws.ping()` of every session),
+  `wsDeadAfterMs: 12000` (no `pong` for longer — the session is terminated),
+  `minMemberAgeMs: 10000` (how long a member must be in the room to become
+  the successor), `successorReviewMs: 15000` (the periodic re-pick),
+  `successorSwitchSustainMs: 30000` and `successorSwitchRatio: 0.65` (the
+  successor is replaced only by a candidate whose score is ≤ ratio × the
+  current one's — or whose connectivity tier is better — for this long);
+  emergency host migration ([master.md](master.md#host-migration), stage 7):
+  `checkpointMaxAgeMs: 12000` (the successor is promoted with its checkpoint
+  only if its `standby_status` arrived no longer ago — more than two status
+  periods; otherwise a cold promotion), `promotionTimeoutMs: 10000` and
+  `coldPromotionTimeoutMs: 25000` (how long a promoted candidate has to take
+  the room before the next one is tried; a cold one reloads its page),
+  `probeTimeoutMs: 2000` (no `probe_ack` for longer — the host is lost),
+  `reportWindowMs: 5000` (the window for the guest-report quorum),
+  `forcedMigrationCooldownMs: 30000` (at most one migration by reports/probe
+  per room within it); planned host handoff ([master.md](master.md#planned-handoff),
+  stage 8): `handoffTimeoutMs: 8000` (the successor did not take the room
+  within it — the handoff is aborted and the host unfreezes the match);
+  automatic triggers ([master.md](master.md#host-network-lag), stage 9c):
+  `lagRttThresholdMs: 250` and `lagSustainMs: 10000` (the host's median RTT
+  to its guests from `host_health` above the threshold for this long counts
+  as lag), `lagImprovementRatio: 0.35` (the successor's score must be at
+  least this much better than the host's), `autoMigrationCooldownMs: 90000`
+  (since the room's last automatic host change — `overload`, `hidden`,
+  `network` — and since the current host took the role), `minSuccessorFps:
+30` (a member reporting a lower `caps.fps` is not picked as the successor;
+  an unknown FPS does not exclude, an emergency promotion ignores it);
+  `vote` — the "Change host" vote (stage 10, see
+  [master.md](master.md#change-host-vote)): `hostVoteDurationMs: 15000`
+  (how long a vote runs; silence is "no"), `roomVoteCooldownMs: 120000`
+  (between vote starts in a room), `userStartCooldownMs: 60000` (between
+  one user's starts in a room), `voteForceAfterMs: 5000` (a passed vote: the
+  host has not started its handoff by then — or it failed — and is replaced
+  by force), `demotedCooldownMs: 600000` (a voted-out host is neither
+  successor nor host of the room meanwhile, unless nobody else can take it);
 - `regionHeader: 'x-region'` — the header carrying a host's region from
   Nginx/CDN;
 - `pingRateLimit` — the limit on signaling `ping_host` requests per IP
@@ -424,6 +489,16 @@ The client lobby's config (see
 host: the lobby happens before connecting to a host.
 
 - `serversUrl: '/servers'` — the master's server-list REST endpoint;
+- `roomUrl: roomId => '/rooms/<roomId>'` — the room behind a direct link
+  (`#/<gameId>/<roomId>`, [client.md](client.md));
+- `quickPlay.autoCreate: true` — quick play (`#/<gameId>`) with no suitable
+  room creates one with the creation form's defaults (`false` — show the
+  lobby with that game selected); `quickPlay.createDelayMinMs: 500` …
+  `createDelayMaxMs: 2000` — a random pause before creating, then
+  `GET /servers` once more (host migration stage 7: the guests of a closed
+  room arrive together and would each create a room);
+- `roomMenu` — the in-match room menu: `elems` (`panelId` — the panel the menu button is moved into, `menuId`, `toggleId`,
+  `listId`, `leaveId`, `handoverId`, `statusId`);
 - `gamesManifestUrl: '/games/manifest.json'` — the master's game catalog
   (`GameCatalog`): the room-creation form's `roomDefaults` and the
   ClientPlugin come from here;
@@ -434,6 +509,9 @@ host: the lobby happens before connecting to a host.
 - `game` — a specific game's manifest:
   `manifestUrl: gameId => '/games/<id>/manifest.json'` — the Worker handoff
   re-reads it before a swap so the new Worker gets fresh `entries.host/wasm`;
+  `versionManifestUrl: (gameId, version) => '/games/<id>/<version>/manifest.json'`
+  — the successor's pre-warm brings up the game version running in the
+  room (host migration stage 6);
 - `worker` — the master's worker bundle manifest:
   `manifestUrl: '/worker/manifest.json'` — the room's Worker is created
   from the `url` in the manifest, a `codeVersion` mismatch on re-register
@@ -489,6 +567,33 @@ host: the lobby happens before connecting to a host.
   list heading. `elems.periodBtnIds` maps each id to its button;
 - `reconnect` — the host's signaling WS reconnect: exponential backoff
   from `baseDelay: 1000` to `maxDelay: 30000` (ms);
+- `webrtc.connectTimeoutMs: 10000` — a guest's WebRTC attempt whose
+  channels did not open in this time is closed (`WebRtcManager`);
+  `webrtc.offerRetryMs: 1000` — the pause before re-sending an offer the
+  master refused with `error { code: 'migrating' }` (a planned host
+  handoff, stage 8);
+- `migration` — host migration (stage 6; values from the stage 0
+  measurements): `checkpointIntervalMs: 500` (the host's checkpoints for
+  the successor), `standbyChunkBytes: 65536` (a chunk on the `standby`
+  channel, header included — under the smallest `maxMessageSize` with a
+  margin), `standbyHighWaterBytes: 1048576` (`bufferedAmount` above which a
+  periodic checkpoint is skipped), `standbyStatusIntervalMs: 5000` (how
+  often the successor reports its latest checkpoint to the master),
+  `finalWaitMs: 3000` (how long the successor of a planned handover, stage
+  8, waits for the frozen host's final checkpoint before taking the latest
+  periodic one), `handoffSlowMs: 3000` (no `handoff_go` in this time — the host reports a slow connection, the handoff goes on), `handoffDeadlineMs: 10000` (the planned handoff's single deadline from `handoff_begin` — `master:room:handoffTimeoutMs` plus room for the master's answer to travel back), `deferMaxMs: 30000` (the longest a planned handoff in a game without `migration.midRound` waits for the round boundary before it goes anyway, stage 8d); `auto` — automatic handoff triggers (stage 9b, `HostHealthPolicy`, one sample = one Worker `health` message, ~1 s; see [host.md](host.md#automatic-triggers)): `enabled: true` (master switch), `overloadTickRate: 100` / `overloadWindowMs: 5000` (soft overload by the mean — the handoff waits for the round boundary), `criticalTickRate: 60` / `criticalWindowMs: 3000` and `lostWindows: 3` (hard overload by the mean or by `lostMs > 0` in a row — at once), `recoverTickRate: 110` / `recoverWindowMs: 5000` (every sample above — the deferred automatic handoff is cancelled), `hiddenHandoffMs: 1500` (hidden host tab — at once), `autoHandoffCooldownMs: 90000` (between this tab's automatic handoffs), `minHostTenureMs: 30000` (not right after taking the role), `hostHealthIntervalMs: 2000` (stage 9c: how often the host sends `host_health` to the master, from the latest sample; nothing while the match is frozen), `fpsReportIntervalMs: 10000` (how often a guest sends `member_update` with its mean render FPS over the interval in `caps.fps`); `enabled: false` also makes the host ignore the master's `request_handoff`;
+- `session` — the guest's session supervisor (host migration stage 4,
+  `SessionSupervisor`): `reconnectWindowMs: 15000` (how long after a drop
+  to keep trying to get back into the match), `reconnectBaseDelayMs: 500` …
+  `reconnectMaxDelayMs: 4000` (backoff between attempts),
+  `hostSilenceMs: 3000` (no message from the host in a match, outside a map
+  load — the transport is treated as dead); host migration stage 7:
+  `migrationWaitMs: 40000` (how long after `host_migrating` to wait for
+  `host_changed` — then the room counts as closed and the tab goes to quick
+  play; longer than the master's search for a successor,
+  `promotionTimeoutMs` + `coldPromotionTimeoutMs` = 35 s; also the cap of waiting on a room link whose room is migrating),
+  `migrationPollMs: 1000` (how often a room link re-asks
+  `GET /rooms/:roomId` while the room is migrating);
 - `pageSize: 10` — the page size for "Load more" (`offset`/`limit`);
 - `debugReportUrl: '/debug/report'` — the upload endpoint of the debugging
   loop (`window.__vimpDebug`); the master registers the route in dev only,
@@ -496,16 +601,16 @@ host: the lobby happens before connecting to a host.
 - `pingInterval: 5000` — the minimum interval between repeated
   `ping_host` calls for one server (anti-spam while scrolling/redrawing);
 - `elems` — lobby DOM element ids (from `lobby.pug`), including
-  `nameId`/`hostBtnId` — the name field and the "create server" button
-  (the browser host, [host.md](host.md)) — `gameId` (the game picker,
+  `hostBtnId` — the "create server" button (the browser host,
+  [host.md](host.md)) — `gameId` (the game picker,
   populated from the master's catalog) and `fieldsId` (the room-field
   container, generated from the active game's `roomDefaults` keys — the
   engine doesn't know the game's fields), and, since the lobby page plan,
   the tab/leaderboard ids (`tabServersBtnId`, `tabLeaderboardBtnId`,
   `serversContentId`, `leaderboardContentId`, `leaderboardListId`,
   `leaderboardTitleId`, `leaderboardTotalId`, `myPlacementId`);
-- `create` — room creation settings: `defaultName`,
-  `heartbeatInterval: 10000` (the master's `update_host` period; must be
+- `create` — room creation settings (a room has no name — the master gives
+  it a `roomId`): `heartbeatInterval: 10000` (the master's `update_host` period; must be
   below `master.host.heartbeatTimeout`, 30 s, or the room gets swept),
   `hostSocketId: 'local'` — the loopback socketId of the host player (the
   Worker uses it to exclude the host from kick policies). The player limit,

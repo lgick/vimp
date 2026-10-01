@@ -55,6 +55,7 @@ import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import { buildSnapshotKeysById } from '../lib/reconstructHot.js';
 import Factory from '../lib/factory.js';
 import { formatMessage } from '../lib/formatters.js';
+import { sanitizeRoomSettings } from '../lib/roomSettings.js';
 import { sanitizeMessage } from '../lib/sanitizers.js';
 import { validateAuth } from '../lib/validators.js';
 import SoundManager from './SoundManager.js';
@@ -62,11 +63,31 @@ import SignalingClient from './network/SignalingClient.js';
 import WebRtcManager from './network/WebRtcManager.js';
 import HostController from './network/HostController.js';
 import HostConnectionManager from './network/HostConnectionManager.js';
+import HostPrewarm from './network/HostPrewarm.js';
+import HiddenHostHealthLog from './network/HiddenHostHealthLog.js';
+import HostHealthPolicy from './network/HostHealthPolicy.js';
+import HostHealthReporter from './network/HostHealthReporter.js';
+import Promotion, {
+  savePendingPromotion,
+  takePendingPromotion,
+} from './network/Promotion.js';
+import StandbyReceiver from './network/StandbyReceiver.js';
+import StandbySender from './network/StandbySender.js';
+import PlannedHandoff, {
+  controlsAfterAbort,
+} from './network/PlannedHandoff.js';
 import LoopbackTransport from './network/LoopbackTransport.js';
 import WebSocketTransport from './network/WebSocketTransport.js';
 import InlineHostBridge from './network/InlineHostBridge.js';
+import SessionSupervisor, {
+  SESSION_STATES,
+} from './network/SessionSupervisor.js';
 import { supportsModuleWorker } from './network/workerSupport.js';
+import { buildHostCaps, canHostIn } from './lib/hostCaps.js';
+import FpsMeter from './lib/FpsMeter.js';
+import HostUnloadGuard from './lib/hostUnloadGuard.js';
 import {
+  isKickClose,
   POLICY_CLOSE_INFORMS,
   shouldReloadAfterClose,
 } from './network/policyClose.js';
@@ -82,10 +103,36 @@ import GamesCtrl from './components/controller/Games.js';
 import ClientReportsModel from './components/model/ClientReports.js';
 import ClientReportsView from './components/view/ClientReports.js';
 import ClientReportsCtrl from './components/controller/ClientReports.js';
+import RoomMenuModel from './components/model/RoomMenu.js';
+import RoomMenuView from './components/view/RoomMenu.js';
+import RoomMenuCtrl from './components/controller/RoomMenu.js';
+import {
+  absoluteLink,
+  decideExitRoute,
+  decideRouteAction,
+  formatGameLink,
+  formatRoomLink,
+  classifyRoomPoll,
+  parseRoute,
+  pickQuickPlayRoom,
+  quickPlayCreateDelay,
+  reloadTo,
+  setRoute,
+} from './lib/roomLink.js';
+import {
+  CHANGE_HOST_VALUES,
+  CHANGE_HOST_VOTE,
+  answerValue,
+  changeHostTitle,
+  parseChangeHost,
+  rejectionMessageKey,
+  resultMessage,
+} from './lib/hostVoteCommand.js';
 import BakingProvider from './providers/BakingProvider.js';
 import DependencyProvider from './providers/DependencyProvider.js';
 import wsports from '../config/wsports.js';
 import GAME_CODES from '../config/gameCodes.js';
+import { buildSystemMessage } from '../host/meta/modules/chat/systemMessages.js';
 import {
   fetchGamesManifest,
   fetchGameManifest as fetchGamePluginManifest,
@@ -255,6 +302,8 @@ const PS_CHAT_DATA = wsports.server.CHAT_DATA;
 const PS_VOTE_DATA = wsports.server.VOTE_DATA;
 const PS_KEYSET_DATA = wsports.server.KEYSET_DATA;
 const PS_ACCOLADES_DATA = wsports.server.ACCOLADES_DATA;
+const PS_SESSION_DATA = wsports.server.SESSION_DATA;
+const PS_RESUME_RESULT = wsports.server.RESUME_RESULT;
 
 // PC (client ports): порты получения данных от клиента
 const PC_CONFIG_READY = wsports.client.CONFIG_READY;
@@ -266,6 +315,7 @@ const PC_KEYS_DATA = wsports.client.KEYS_DATA;
 const PC_CHAT_DATA = wsports.client.CHAT_DATA;
 const PC_VOTE_DATA = wsports.client.VOTE_DATA;
 const PC_PONG = wsports.client.PONG;
+const PC_LEAVE = wsports.client.LEAVE;
 
 // сигнальный WebSocket мастера (лобби + установка P2P); игровой трафик идёт
 // по WebRTC (transport), не через мастер
@@ -275,12 +325,14 @@ const signaling = isLobbyMode
   ? new SignalingClient(`${wsProtocol}//${location.host}/`)
   : null;
 
-// активное P2P-соединение с хостом (создаётся при выборе сервера в лобби)
-let transport = null;
+// супервизор сессии (host-migration этап 4): держит текущий транспорт к
+// хосту и переживает его обрыв — переподключается и возвращает место в
+// матче. Создаётся при входе в комнату (или в solo/dedicated-матч)
+let supervisor = null;
 
-// hostId комнаты, к которой подключён гость (для /like·/unlike напрямую
-// мастеру). У хоста-игрока (своя вкладка) остаётся null — за себя не проголосовать
-let currentHostId = null;
+// оверлей «Reconnecting…» на время переподключения (только лобби-режим)
+const sessionOverlay = document.getElementById('session-overlay');
+const sessionOverlayText = document.getElementById('session-overlay-text');
 
 const modules = {};
 
@@ -334,6 +386,9 @@ const GAME_ROUND_START_CODE = GAME_CODES.roundStart[0];
 // показан ли терминальный tech-код (кик, полная комната): причина закрытия
 // соединения важнее общего сообщения handleDisconnect
 let terminalInformShown = false;
+// ключ последнего терминального tech-кода: по нему лобби-режим отличает кик
+// (policyClose.isKickClose) от закрытия комнаты — в P2P кода закрытия нет
+let terminalTechKey = null;
 // снятие предыдущего animationend-листенера логотипа при повторном
 // playLogoRoundStart — иначе листенеры копятся при частых стартах раунда
 let logoAnimationEndHandler = null;
@@ -343,6 +398,10 @@ let gameSets = {}; // наборы конструкторов (id: [наборы
 let entitiesOnCanvas = {}; // сущности, отображаемые на полотнах
 let currentMapSetId; // текущий id набора конструкторов для карт
 const socketMethods = []; // методы для обработки сокет-данных
+
+// модули матча запущены (AUTH_RESULT без ошибки): повторный успешный
+// AUTH_RESULT в живой сессии — ошибка протокола
+let sessionStarted = false;
 
 // клиентское ядро (WASM, срез 2.6): интерполяция снапшотов, предикт своего
 // танка, визуальный спавн выстрелов и распаковка кадров v3 — создаётся при
@@ -373,6 +432,13 @@ let snapshotKeysById = null;
 
 // config data
 socketMethods[PS_CONFIG_DATA] = async data => {
+  // повторное рукопожатие в живой сессии (например, хост не понял resume)
+  // построило бы второе ядро и второй Application поверх первых
+  if (clientCore) {
+    handleProtocolError('CONFIG_DATA');
+    return;
+  }
+
   gameSets = data.parts.gameSets;
   entitiesOnCanvas = data.parts.entitiesOnCanvas;
 
@@ -589,6 +655,12 @@ socketMethods[PS_AUTH_RESULT] = async err => {
   }
 
   if (!err) {
+    if (sessionStarted) {
+      handleProtocolError('AUTH_RESULT');
+      return;
+    }
+
+    sessionStarted = true;
     await soundManager.init(soundData);
     runModules(modulesConfig);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -601,13 +673,38 @@ socketMethods[PS_AUTH_RESULT] = async err => {
       }
     }
 
+    roomMenu?.setInPanel(initIdList.includes('panel'));
+
     sending(PC_MODULES_READY);
+
+    // вход в комнату состоялся — мастер узнаёт состав комнаты от участника
+    // (хост — участник своей комнаты с register_host)
+    if (currentRoomId && !hostController) {
+      signaling.joinRoom({
+        roomId: currentRoomId,
+        memberId,
+        token: lobbyAuthModel.getToken(),
+        caps: memberCaps(),
+      });
+    }
   }
 };
 
 // map data
 socketMethods[PS_MAP_DATA] = data => {
   lastMapData = data;
+
+  // карта пакета возобновления (host-migration): участник уже в матче —
+  // это не загрузка (setLoading закончил бы пакет), MAP_READY хост не ждёт.
+  // Признак — метка хоста, не supervisor.resuming: неготовому участнику
+  // (карта сменилась за паузу) хост в том же окне шлёт обычную загрузку
+  if (data?.resume === true) {
+    applyMapData(data, { notifyHost: false });
+    return;
+  }
+
+  // хост законно молчит до первого кадра новой карты (сторожок тишины)
+  supervisor?.setLoading(true);
   applyMapData(data);
 };
 
@@ -753,9 +850,17 @@ socketMethods[PS_FIRST_SHOT_DATA] = data => {
   const [game, camera] = data;
 
   applyShot(game, camera);
+  supervisor?.setLoading(false);
+
+  // кадр пакета возобновления (host-migration этап 4): участник уже в
+  // матче — подтверждать нечего, разовый автостарт уже отработал
+  if (supervisor?.resuming) {
+    return;
+  }
 
   // подтверждение получения первого шота
   sending(PC_FIRST_SHOT_READY);
+  supervisor?.enterGame();
 
   // solo: выход из наблюдателей и чат-команды игры (боты) — см. autostart.js
   runAutostart();
@@ -879,6 +984,7 @@ socketMethods[PS_TECH_INFORM_DATA] = data => {
       // терминальные коды (кик, полная комната) — причина закрытия соединения,
       // последующий handleDisconnect не должен затирать её общим сообщением
       terminalInformShown = key !== TECH_LOADING_CODE;
+      terminalTechKey = terminalInformShown ? key : null;
     } else {
       message = data;
     }
@@ -889,6 +995,7 @@ socketMethods[PS_TECH_INFORM_DATA] = data => {
   } else {
     modules.controls?.enableKeys();
     terminalInformShown = false;
+    terminalTechKey = null;
     techInformer.textContent = '';
     techInformer.style.display = 'none';
   }
@@ -929,6 +1036,21 @@ socketMethods[PS_CLEAR] = function (setIdList) {
 
   clientCore?.reset();
   soundManager.reset();
+};
+
+// session data: секрет места в матче (host-migration этап 4) — с ним
+// супервизор вернётся после обрыва. Последнее сообщение пакета
+// возобновления: набор клавиш в пакете уже пришёл, и удерживаемые клавиши,
+// которые хост отпустил на время паузы, можно нажать снова
+socketMethods[PS_SESSION_DATA] = data => {
+  if (supervisor?.setSession(data ?? {})) {
+    modules.controls?.resendHeld();
+  }
+};
+
+// resume result: ответ хоста на RESUME_REQUEST
+socketMethods[PS_RESUME_RESULT] = data => {
+  supervisor?.resumeResult(data);
 };
 
 // console: логи авторитетной половины (Worker изолирован от DevTools вкладки —
@@ -1185,7 +1307,7 @@ function runModules(data) {
     sending(PC_KEYS_DATA, `${inputSeq}:aim:${wx}:${wy}:${flags}`);
   });
   chatModel.publisher.on('socket', handleChatSend);
-  voteModel.publisher.on('socket', data => sending(PC_VOTE_DATA, data));
+  voteModel.publisher.on('socket', handleVoteSend);
 
   //==========================================//
   // Рендер-цикл интерполяции
@@ -1214,44 +1336,47 @@ function openMode(mode) {
 // reliable=false — по ненадёжному state-каналу (только pong: замер RTT
 // должен отражать сетевой путь, а не reliable-поток с ретрансмиссиями)
 function sending(name, data, reliable = true) {
-  transport?.send(JSON.stringify([name, data]), reliable);
+  supervisor?.send(JSON.stringify([name, data]), reliable);
 }
 
-// перехватывает /like·/unlike <причина> и шлёт голос напрямую мастеру по
-// сигнальному WS, минуя хоста: его CommandProcessor мог бы отфильтровать
-// голос против самого себя (server-rating этап 2, замена /ban). Причина
-// обязательна (публично не отображается). Остальной чат уходит хосту
+// отправка сообщения чата хосту (точка перехвата команд, адресованных
+// мастеру, а не хосту)
 function handleChatSend(message) {
-  const likeMatch = message === '/like' || message.startsWith('/like ');
-  const unlikeMatch = message === '/unlike' || message.startsWith('/unlike ');
+  const changeHost = parseChangeHost(message, bootMode);
 
-  // вне лобби мастера нет — голосовать некому, команда уходит хосту как
-  // обычное сообщение чата
-  if (isLobbyMode && (likeMatch || unlikeMatch)) {
-    const command = likeMatch ? '/like' : '/unlike';
-    const reason = message.slice(command.length).trim();
-    const token = lobbyAuthModel.getToken();
+  if (changeHost === null) {
+    sending(PC_CHAT_DATA, message);
+    return;
+  }
 
-    if (!currentHostId) {
-      modules.chat.add([`${command} is available to room guests only`]);
-    } else if (!token) {
-      modules.chat.add([`${command} requires signing in`]);
-    } else if (!reason) {
-      modules.chat.add([`${command} requires a reason: ${command} <reason>`]);
-    } else if (!signaling.connected) {
-      modules.chat.add(['No connection to the master server — vote not sent']);
-    } else if (likeMatch) {
-      signaling.likeHost(currentHostId, reason, token);
-      modules.chat.add(['Vote sent to the master server']);
-    } else {
-      signaling.unlikeHost(currentHostId, reason, token);
-      modules.chat.add(['Vote sent to the master server']);
+  // голосование «Change host» считает мастер (этап 10): хост не должен
+  // видеть и не может заблокировать голосование против себя
+  const notice = key => modules.chat?.add(buildSystemMessage(key));
+
+  if (changeHost === 'usage') {
+    notice('HOST_VOTE_USAGE');
+  } else if (hostController) {
+    notice('HOST_VOTE_IS_HOST');
+  } else if (!signaling?.connected || !currentRoomId) {
+    notice('HOST_VOTE_OFFLINE');
+  } else {
+    signaling.hostVoteStart(currentRoomId);
+  }
+}
+
+// ответ в окне голосования: «Change host?» — мастеру, остальное — хосту
+function handleVoteSend(data) {
+  if (Array.isArray(data) && data[0] === CHANGE_HOST_VOTE) {
+    const value = answerValue(data[1]);
+
+    if (hostVote && value && signaling?.connected) {
+      signaling.hostVoteAnswer({ ...hostVote, value });
     }
 
     return;
   }
 
-  sending(PC_CHAT_DATA, message);
+  sending(PC_VOTE_DATA, data);
 }
 
 // распаковывает данные
@@ -1275,9 +1400,12 @@ function handleVisibilityChange() {
   if (document.visibilityState === 'hidden') {
     hiddenAt = performance.now();
     soundManager.mute();
-    // иначе включение звука при возвращении
+    // иначе включение звука при возвращении (кроме паузы переподключения и
+    // смены хоста — его включит возобновление сессии)
   } else {
-    soundManager.unmute();
+    if (!isSessionPaused()) {
+      soundManager.unmute();
+    }
 
     const hiddenMs = hiddenAt === null ? 0 : performance.now() - hiddenAt;
 
@@ -1424,6 +1552,9 @@ function handleMessage(data) {
   // бинарный кадр (snapshot, порт SHOT_DATA) — в ядро: распаковка, вставка
   // в буфер по seq, reconciliation предикта по player-блоку
   if (data instanceof ArrayBuffer) {
+    // бета помнит seq последнего кадра хоста (seqFloor, этап 6) — до
+    // push_frame: ядро может забрать буфер
+    standbyReceiver?.noteFrame(data);
     clientCore?.push_frame(new Uint8Array(data), performance.now());
 
     return;
@@ -1434,11 +1565,14 @@ function handleMessage(data) {
   dispatchSocketMessage(socketMethods, unpacking(data));
 }
 
-// разрыв P2P: выход хоста = смерть комнаты (host-migration нет). Останавливаем
-// рендер, показываем заглушку и возвращаемся в лобби перезагрузкой. closeCode
-// приходит только от WebSocket-транспорта (dedicated), остальные транспорты
-// эмитят close без него
+// терминальное закрытие сессии (супервизор: возвращаться некуда — кик,
+// политика, уход хоста, окно переподключения истекло). Останавливаем
+// рендер, показываем заглушку и возвращаемся в лобби перезагрузкой.
+// closeCode приходит только от WebSocket-транспорта (dedicated), остальные
+// транспорты эмитят close без него
 function handleDisconnect(closeCode) {
+  showSessionOverlay(null);
+
   // app.stop() здесь не зовём: при sharedTicker это Ticker.shared.stop()
   // глобально, а autoStart вернёт тикер к жизни при первом add() из любого
   // part'а — уже без renderTick. Рендер снят строкой выше, страницу и так
@@ -1464,17 +1598,12 @@ function handleDisconnect(closeCode) {
   modules.controls?.disableKeys();
 
   // если мы были хостом — гасим комнату: heartbeat, WebRTC-пиры, Worker
-  if (hostHeartbeat) {
-    clearInterval(hostHeartbeat);
-    hostHeartbeat = null;
-  }
-
-  hostConnections?.destroy();
-  hostController?.destroy();
-  hostConnections = null;
-  hostController = null; // останавливает и reconnect-петлю сигналинга
-  diagnostics.setContext({ role: 'client' });
-  hostRegistration = null;
+  cancelPromotion();
+  teardownHostRole();
+  teardownStandby();
+  currentRoomId = null;
+  awaitingAnswer = false;
+  refreshRoomControls();
 
   // solo: хост крутится в этом же потоке — его таймеры переживут матч
   inlineHost?.destroy();
@@ -1490,7 +1619,7 @@ function handleDisconnect(closeCode) {
     socketMethods[PS_TECH_INFORM_DATA](
       policyInform ??
         (isLobbyMode
-          ? 'Host left — the room is closed. Returning to lobby…'
+          ? 'Host left — the room is closed. Finding another room…'
           : 'The match is over — connection to the host is closed.'),
     );
   }
@@ -1498,9 +1627,36 @@ function handleDisconnect(closeCode) {
   // в solo перезагружаться некуда: лобби нет, а матч поднимается с нуля.
   // В dedicated сервер жив — переподключение перезагрузкой уместно, но не
   // тогда, когда он сам нас и отбил по политике (network/policyClose.js)
-  if (bootMode !== 'solo' && shouldReloadAfterClose(closeCode)) {
-    setTimeout(() => location.reload(), 3000);
+  if (bootMode === 'solo' || !shouldReloadAfterClose(closeCode)) {
+    return;
   }
+
+  if (!isLobbyMode) {
+    setTimeout(() => reloadPage(), 3000);
+
+    return;
+  }
+
+  roomMenu?.setLink(null);
+
+  // лобби-режим (host-migration, этап 3): кик и несостоявшийся старт комнаты
+  // — на главную без перезагрузки (причина остаётся в #tech-informer, клик
+  // по нему открывает лобби); закрытие комнаты — в быструю игру той же игры
+  const exit = decideExitRoute({
+    kicked: isKickClose(closeCode, terminalTechKey) || roomStartFailed,
+    gameId: activeGameManifest?.id,
+  });
+
+  if (exit.reload === undefined) {
+    setRoute(exit.route);
+    techInformer.addEventListener('click', () => reloadPage(), {
+      once: true,
+    });
+
+    return;
+  }
+
+  setTimeout(() => reloadPage(exit.reload), 3000);
 }
 
 /**
@@ -1510,7 +1666,154 @@ function handleDisconnect(closeCode) {
  * teardown у SDK нет специально — путь останова один на все режимы.
  */
 export function stopGame() {
-  transport?.close();
+  supervisor?.close();
+}
+
+// ***** супервизор сессии (host-migration этап 4) ***** //
+
+// берёт транспорт под надзор. reconnect — фабрика попыток переподключения
+// (только гость в лобби); без неё любое закрытие терминально, как раньше
+function startSession(transport, reconnect = null) {
+  supervisor = new SessionSupervisor({
+    onMessage: handleMessage,
+    onTerminal: handleDisconnect,
+    onStateChange: handleSessionState,
+    onResumed: handleSessionResumed,
+    onResumeRejected: handleResumeRejected,
+    onHostLost: reportHostUnreachable,
+    onColdRestart: handleColdRestart,
+    // кик (TECH_INFORM перед закрытием) и отказы политики не лечатся
+    // переподключением
+    isTerminalClose: closeCode =>
+      terminalInformShown || !shouldReloadAfterClose(closeCode),
+    reconnect,
+    timing: lobbyConfig.session,
+  });
+
+  supervisor.attach(transport);
+}
+
+// оверлей сессии: text — показать с текстом, null — скрыть
+function showSessionOverlay(text) {
+  if (!sessionOverlay) {
+    return;
+  }
+
+  if (text) {
+    sessionOverlayText.textContent = text;
+    sessionOverlay.style.display = 'flex';
+  } else {
+    sessionOverlayText.textContent = '';
+    sessionOverlay.style.display = 'none';
+  }
+}
+
+// сессия на паузе: транспорта к хосту нет, мир стоит
+function isSessionPaused() {
+  return (
+    supervisor?.state === SESSION_STATES.reconnecting ||
+    supervisor?.state === SESSION_STATES.migrating
+  );
+}
+
+// пауза переподключения или смены хоста: мир стоит, ввод и звук выключены
+// (зацикленные звуки не должны гудеть одной нотой всю паузу). Рендер не
+// останавливается — кадр стоит, независимые от снапшотов анимации идут
+function handleSessionState(state, prev) {
+  if (state === SESSION_STATES.migrating) {
+    showSessionOverlay('Switching host…');
+    modules.controls?.disableKeys();
+    soundManager.mute();
+  } else if (state === SESSION_STATES.reconnecting) {
+    // после смены хоста оверлей тот же до конца возобновления
+    if (prev !== SESSION_STATES.migrating) {
+      showSessionOverlay('Reconnecting…');
+    }
+
+    modules.controls?.disableKeys();
+    soundManager.mute();
+  } else if (state === SESSION_STATES.inGame) {
+    showSessionOverlay(null);
+  }
+}
+
+// транспорт к хосту оборвался в матче: мастер узнаёт об этом от гостя
+// раньше, чем сам (host-migration этап 7.2) — проба хоста или его смена.
+// Эпоха — хоста, к которому был транспорт: чужую мастер отбросит
+function reportHostUnreachable() {
+  if (isLobbyMode && currentRoomId && roomEpoch !== null && !hostController) {
+    signaling.hostUnreachable(currentRoomId, roomEpoch);
+  }
+}
+
+// новый хост поднял матч заново (cold): возобновлять нечего — чистый вход в
+// ту же комнату с полным рукопожатием
+function handleColdRestart() {
+  reloadToRoom();
+}
+
+// место возвращено: предсказание начинается с чистого листа (вводы,
+// ушедшие в оборванный транспорт, хост не получит никогда — переигрывать
+// их нельзя), голосование хоста паузу не пережило. Дальше хост шлёт пакет
+// входа: CLEAR, полный кадр, набор клавиш, SESSION_DATA
+function handleSessionResumed() {
+  clientCore?.reset();
+  // «Change host?» ведёт мастер — оно паузу переживает
+  modules.vote?.removeHostVotes();
+  modules.controls?.enableKeys();
+
+  if (document.visibilityState !== 'hidden') {
+    soundManager.unmute();
+  }
+}
+
+// место потеряно (ожидание истекло, ключ не принят): чистый вход в ту же
+// комнату с полным рукопожатием
+function handleResumeRejected(reason) {
+  console.warn(`[session] resume rejected: ${reason}`);
+  showSessionOverlay(null);
+  reloadToRoom();
+}
+
+// любая программная перезагрузка страницы — только через эту обёртку:
+// pagehide иначе принял бы её за закрытие вкладки, и гость (бета перед
+// холодным промоушеном, возврат в ту же комнату) объявил бы уход и потерял
+// место. hashPart не задан — перезагрузка с тем же адресом
+function reloadPage(hashPart) {
+  unloadGuard?.exit();
+
+  if (hashPart === undefined) {
+    location.reload();
+  } else {
+    reloadTo(hashPart);
+  }
+}
+
+// ссылка на текущую комнату (иначе — на быструю игру той же игры)
+function reloadToRoom() {
+  const gameId = activeGameManifest?.id;
+
+  if (!gameId) {
+    reloadPage('');
+    return;
+  }
+
+  reloadPage(
+    currentRoomId
+      ? formatRoomLink(gameId, currentRoomId)
+      : formatGameLink(gameId),
+  );
+}
+
+// хост начал рукопожатие заново посреди живой сессии (порт — какой
+// именно). Второе ядро/Application не строим: в лобби — чистый вход в ту же
+// комнату, в остальных режимах только журнал
+function handleProtocolError(port) {
+  diagnostics.warn('engine.session.protocol', { port }, { source: 'client' });
+
+  if (isLobbyMode) {
+    reloadToRoom();
+  }
 }
 
 // БУТСТРАП: лобби и установка P2P через мастер-сервер
@@ -1521,6 +1824,281 @@ let lobby = null;
 let hostController = null;
 let hostConnections = null;
 let hostHeartbeat = null;
+// { roomId, epoch, roomSecret } из host_registered — с ними реконнект
+// сигналинга возвращает ту же комнату (reclaim_host)
+let hostRoom = null;
+
+// id вкладки — ключ участника комнаты на мастере; живёт в памяти (не в
+// storage): две вкладки одного профиля — два участника
+const memberId = isLobbyMode ? crypto.randomUUID() : null;
+
+// комната, в которой вкладка гость или хост (лобби-режим)
+let currentRoomId = null;
+// вкладка ушла из лобби в комнату (по ссылке или из лобби). Не сбрасывается:
+// после разрыва страница — остатки матча, и новый маршрут из hashchange
+// поднимается перезагрузкой, а не бутстрапом поверх них
+let roomEntered = false;
+// Worker комнаты не поднялся: та же быстрая игра создала бы её снова и
+// снова — поэтому уход на главную, как при кике
+let roomStartFailed = false;
+
+// меню комнаты внутри матча (этапы 3 и 8d) и защита вкладки хоста от
+// случайного закрытия (этап 8.4): только лобби-режим
+let roomMenu = null;
+let unloadGuard = null;
+// бета, назначенная мастером комнате этой вкладки-хоста (successor_assigned)
+let hostSuccessorMemberId = null;
+
+if (isLobbyMode) {
+  const roomMenuModel = new RoomMenuModel();
+
+  roomMenu = new RoomMenuCtrl(
+    roomMenuModel,
+    new RoomMenuView(roomMenuModel, lobbyConfig.roomMenu),
+    {
+      onLeave: () => leaveServerByUser(),
+      onHandover: () => startPlannedHandoff({ reason: 'handover', stay: true }),
+    },
+  );
+
+  unloadGuard = new HostUnloadGuard({
+    // мастер начинает аварийную миграцию сразу, не дожидаясь обрыва WS
+    onHostLeave: () => {
+      if (hostRoom) {
+        signaling.hostLeaving(hostRoom.roomId, hostRoom.epoch);
+      }
+    },
+    // место освобождается сразу, а не через resumeGraceMs
+    onGuestLeave: () => announceGuestLeave(),
+  });
+}
+
+// роль вкладки в комнате для меню и защиты закрытия: хост — пока у неё
+// Worker комнаты (и во время промоушена), гость — пока она в комнате
+function refreshRoomControls() {
+  const role = !currentRoomId ? null : hostController ? 'host' : 'guest';
+  const othersPresent =
+    role === 'host' && (hostConnections?.peerCount ?? 0) > 0;
+
+  roomMenu?.setRole({
+    role,
+    othersPresent,
+    hasSuccessor: role === 'host' && hostSuccessorMemberId !== null,
+  });
+  unloadGuard?.update({ role, othersPresent });
+}
+
+// адресная строка показывает ссылку на комнату, пока вкладка в ней: её
+// можно скопировать прямо оттуда, как и пунктом меню комнаты
+function showRoomLink(gameId, roomId) {
+  if (!gameId) {
+    return;
+  }
+
+  const link = formatRoomLink(gameId, roomId);
+
+  setRoute(link);
+  roomMenu?.setLink(absoluteLink(link));
+  refreshRoomControls();
+}
+// оффер ушёл, WebRTC ещё не открыт: unknownRoom в этот момент — комнаты нет
+let awaitingAnswer = false;
+
+// ***** преемник хоста (host-migration этап 6) ***** //
+
+// может ли вкладка вообще хостить: проба модульного Worker'а не бесплатна —
+// считается один раз, лениво
+let canHostCached = null;
+// тип своего ICE-кандидата в выбранной паре с хостом комнаты
+let roomIceType = null;
+
+// хост: канал standby к бете и поток контрольных точек
+let standbySender = null;
+
+// хост: сводка здоровья матча за эпизод скрытой вкладки (этап 9a)
+let hiddenHealthLog = null;
+// host_health мастеру (этап 9c; лобби-режим): правило сетевого лага
+let hostHealthReporter = null;
+// средний FPS рендера гостя за интервал отчёта (этап 9c); null — неизвестен
+const fpsMeter = new FpsMeter();
+let guestFps = null;
+
+document.addEventListener('visibilitychange', () => {
+  const hidden = document.visibilityState === 'hidden';
+
+  hiddenHealthLog?.setHidden(hidden);
+  hostHealthPolicy?.setHidden(hidden);
+
+  // кадры скрытой вкладки (их нет) не тянут средний FPS вниз
+  if (!hidden) {
+    fpsMeter.reset();
+  }
+});
+
+// закрытие скрытой вкладки: эпизод закрывается сводкой сейчас — журнал свой
+// pagehide уже отработал (подписан раньше), поэтому отправка явная
+window.addEventListener('pagehide', () => {
+  if (hiddenHealthLog) {
+    hiddenHealthLog.flush();
+    diagnostics.flush();
+  }
+});
+
+// бета: назначение мастера ({ roomId, epoch }), приём точек, прогретый
+// Worker и периодический standby_status
+let standbyRole = null;
+let standbyReceiver = null;
+let hostPrewarm = null;
+let standbyStatusTimer = null;
+let standbyReceived = 0;
+
+// возможности вкладки для мастера (выбор беты, master/successor.js); у
+// хоста iceType не про него — он сам конец всех пар
+function memberCaps() {
+  canHostCached ??= canHostIn();
+
+  return buildHostCaps({
+    canHost: canHostCached,
+    iceType: hostController ? null : roomIceType,
+    // средний FPS рендера гостя (этап 9c): мастер не назначает бетой
+    // слабую вкладку
+    fps: hostController ? null : guestFps,
+  });
+}
+
+// возможности изменились (вкладка спрятана, сменился тип кандидата) —
+// мастер пересматривает бету
+function sendMemberUpdate() {
+  if (isLobbyMode && currentRoomId) {
+    signaling.memberUpdate(currentRoomId, memberCaps());
+  }
+}
+
+function ensureStandbyReceiver() {
+  if (!standbyReceiver) {
+    standbyReceiver = new StandbyReceiver();
+    standbyReceiver.publisher.on('checkpoint', onStandbyCheckpoint);
+  }
+
+  return standbyReceiver;
+}
+
+// полная точка собрана: мастеру — что она есть, Worker'у — прогрев
+function onStandbyCheckpoint(checkpoint) {
+  standbyReceived += 1;
+
+  if (isDevBuild) {
+    debugLog('standby received', {
+      count: standbyReceived,
+      bytes: checkpoint.bytes.byteLength,
+      checkpointId: checkpoint.checkpointId,
+    });
+  }
+
+  startStandbyDuties();
+}
+
+// канал мог открыться раньше, чем пришло standby_assigned: обязанности
+// беты начинаются, когда есть и назначение, и точка
+function startStandbyDuties() {
+  const latest = standbyReceiver?.latest();
+
+  if (!standbyRole || !latest) {
+    return;
+  }
+
+  if (standbyStatusTimer === null) {
+    reportStandbyStatus();
+    standbyStatusTimer = setInterval(
+      reportStandbyStatus,
+      lobbyConfig.migration.standbyStatusIntervalMs,
+    );
+  }
+
+  hostPrewarm ??= new HostPrewarm({
+    prepareRoom: prepareHostRoom,
+    diagnostics,
+    onReady: prepared => {
+      if (isDevBuild) {
+        debugLog('standby worker prewarmed', prepared.gameRef);
+      }
+    },
+    onError: error => console.warn('[standby] prewarm failed:', error),
+  });
+  hostPrewarm.warm(latest.bytes);
+}
+
+function reportStandbyStatus() {
+  const latest = standbyReceiver?.latest();
+
+  if (standbyRole && latest) {
+    signaling.standbyStatus({
+      roomId: standbyRole.roomId,
+      epoch: standbyRole.epoch,
+      checkpointId: latest.checkpointId,
+      createdAt: latest.createdAt,
+    });
+  }
+}
+
+// standby_released, уход из комнаты, смена эпохи: прогретый Worker
+// гасится, точки выбрасываются
+function teardownStandby() {
+  clearInterval(standbyStatusTimer);
+  standbyStatusTimer = null;
+  standbyReceiver?.destroy();
+  standbyReceiver = null;
+  hostPrewarm?.destroy();
+  hostPrewarm = null;
+  standbyRole = null;
+  standbyReceived = 0;
+}
+
+// подписки сигналинга роли преемника (лобби-режим)
+function bindStandbySignaling() {
+  // хост: к кому открыть канал standby
+  signaling.publisher.on('successor_assigned', msg => {
+    if (standbySender && msg.roomId === hostRoom?.roomId) {
+      hostSuccessorMemberId = msg.successorMemberId ?? null;
+      standbySender.setSuccessor(hostSuccessorMemberId);
+      hostHealthPolicy?.setSuccessor(hostSuccessorMemberId !== null);
+      refreshRoomControls();
+    }
+  });
+
+  // гость: мастер назначил его бетой
+  signaling.publisher.on('standby_assigned', msg => {
+    if (hostController || msg.roomId !== currentRoomId) {
+      return;
+    }
+
+    if (standbyRole && standbyRole.epoch !== msg.epoch) {
+      teardownStandby();
+    }
+
+    standbyRole = { roomId: msg.roomId, epoch: msg.epoch };
+    ensureStandbyReceiver();
+    startStandbyDuties();
+  });
+
+  signaling.publisher.on('standby_released', msg => {
+    if (msg.roomId === currentRoomId) {
+      teardownStandby();
+    }
+  });
+
+  document.addEventListener('visibilitychange', sendMemberUpdate);
+
+  // свежий средний FPS гостя мастеру (этап 9c); хост его не шлёт
+  Ticker.shared.add(() => fpsMeter.frame());
+  setInterval(() => {
+    guestFps = fpsMeter.sample();
+
+    if (!hostController) {
+      sendMemberUpdate();
+    }
+  }, lobbyConfig.migration.auto.fpsReportIntervalMs);
+}
 
 // solo: авторитетный хост в главном потоке (без Worker'а)
 let inlineHost = null;
@@ -1530,6 +2108,7 @@ if (isDevBuild) {
     getHostController: () => hostController,
     getClientCore: () => clientCore,
     reportUrl: lobbyConfig.debugReportUrl,
+    startHandoff: startPlannedHandoff,
   });
 
   debugLog(
@@ -1553,29 +2132,148 @@ function ensureWebRtcAvailable() {
   return false;
 }
 
-// устанавливает P2P-соединение с выбранным хостом и уходит из лобби
-function connectToHost(hostId) {
+// устанавливает P2P-соединение с текущим хостом комнаты и уходит из лобби
+function connectToRoom(roomId) {
   if (!ensureWebRtcAvailable()) {
     return;
   }
 
-  currentHostId = hostId;
+  currentRoomId = roomId;
+  roomEntered = true;
+  showRoomLink(activeGameManifest?.id, roomId);
 
-  transport = new WebRtcManager(signaling, {
-    iceServers: signaling.iceServers,
-  });
-
-  transport.publisher.on('message', handleMessage);
-  transport.publisher.on('close', handleDisconnect);
-  transport.connect(hostId);
+  // первая попытка — обычный вход с рукопожатием, следующие (после обрыва
+  // в матче) — переподключение с resume к текущему хосту той же комнаты
+  startSession(openRoomTransport(roomId), guestReconnect());
 
   lobby?.close();
 }
 
+// попытки переподключения гостя: resume к текущему хосту комнаты
+function guestReconnect() {
+  return {
+    createTransport: () => openRoomTransport(currentRoomId, { resume: true }),
+    getToken: () => lobbyAuthModel.getToken(),
+  };
+}
+
+// эпоха хоста комнаты, ответившего последним: ответы прежних эпох чужие
+let roomEpoch = null;
+
+// WebRTC-попытка к текущему хосту комнаты (мастер резолвит roomId)
+function openRoomTransport(roomId, { resume = false } = {}) {
+  const transport = new WebRtcManager(signaling, {
+    iceServers: signaling.iceServers,
+    memberId,
+    resume,
+    minEpoch: roomEpoch,
+    connectTimeoutMs: lobbyConfig.webrtc.connectTimeoutMs,
+    offerRetryMs: lobbyConfig.webrtc.offerRetryMs,
+  });
+
+  // оффер ушёл, каналы не открыты: unknownRoom в этот момент — комнаты нет
+  awaitingAnswer = true;
+
+  transport.publisher.on('open', () => {
+    awaitingAnswer = false;
+    roomEpoch = transport.epoch ?? roomEpoch;
+  });
+  // тип ICE-кандидата — мастеру: по нему он выбирает бету (этап 6)
+  transport.publisher.on('iceType', type => {
+    roomIceType = type;
+    sendMemberUpdate();
+  });
+  // канал standby открывает хост только назначенной бете
+  transport.publisher.on('standby', channel =>
+    ensureStandbyReceiver().attach(channel),
+  );
+  transport.connect(roomId).catch(() => transport.close());
+
+  return transport;
+}
+
+// подготовка комнаты к Worker'у хоста: room.game по манифесту игры, карты
+// мастера, URL worker-бандла. Общая для создания комнаты и прогрева
+// преемника (host-migration этап 6, HostPrewarm). gameRef — манифест игры
+// или { id, version } из контрольной точки: бета обязана поднять ту версию
+// игры, что крутится в комнате (версионные URL мастера)
+async function prepareHostRoom(room, gameRef = activeGameManifest) {
+  const gameManifest = await resolveGameManifest(gameRef);
+
+  // отладочный контур (этап 6): рекордер живого матча и хостовый CONSOLE-лог
+  // поднимаются только в dev-сборке
+  room.isDevMode = isDevBuild;
+
+  // Этап 6.4: Worker грузит HostPlugin динамически по entries.host/entries.wasm
+  // активной игры — движок больше не знает игру статически
+  room.game = {
+    id: gameManifest.id,
+    version: gameManifest.version,
+    hostEntryUrl: gameManifest.entries.host,
+    wasmUrl: gameManifest.entries.wasm,
+  };
+
+  // Этап 5.1: комната стартует на актуальных картах мастера;
+  // недоступность каталога некритична — Worker возьмёт карты из бандла
+  let mapsVersion = null;
+
+  try {
+    const catalog = await fetchMasterMaps(gameManifest);
+
+    room.maps = catalog.maps;
+    mapsVersion = catalog.version;
+  } catch (e) {
+    console.warn('[maps] master catalog unavailable, using bundled maps:', e);
+  }
+
+  // Этап 5.2: Worker создаётся по манифесту мастера — бандл страницы после
+  // деплоя исчезает из раздачи; без манифеста (dev) — бандловый URL,
+  // обновления кода отключены
+  let workerUrl = null;
+  let codeVersion = null;
+
+  try {
+    const manifest = await fetchWorkerManifest();
+
+    // составной codeVersion (Этап 6.5): движок (worker-бандл) + игра
+    // (id/version манифеста, с которым комната стартует)
+    codeVersion = {
+      engine: manifest.version,
+      game: { id: gameManifest.id, version: gameManifest.version },
+    };
+    workerUrl = manifest.url;
+  } catch (e) {
+    console.warn('[worker] master manifest unavailable, using bundled:', e);
+  }
+
+  return { room, workerUrl, mapsVersion, codeVersion };
+}
+
+// манифест игры по ссылке на неё: уже загруженный активный — как есть,
+// другая версия — версионный манифест мастера
+async function resolveGameManifest(gameRef) {
+  if (gameRef?.entries) {
+    return gameRef;
+  }
+
+  if (
+    activeGameManifest &&
+    gameRef.id === activeGameManifest.id &&
+    gameRef.version === activeGameManifest.version
+  ) {
+    return activeGameManifest;
+  }
+
+  return fetchGamePluginManifest(
+    lobbyConfig.game.versionManifestUrl(gameRef.id, gameRef.version),
+  );
+}
+
 // поднимает комнату в этой же вкладке (Worker хоста): хост-игрок играет через
 // loopback, удалённые клиенты — по WebRTC (answerer). Клиентский код одинаков,
-// отличается лишь транспорт. Выход хоста = смерть комнаты — как у клиента
-async function connectAsHost(room) {
+// отличается лишь транспорт. promotion — отложенный холодный промоушен
+// (host-migration этап 7.4): вместо новой комнаты — занять существующую
+async function connectAsHost(room, { promotion = null } = {}) {
   // фича-детект вместо classic-фолбэка (запретил бы ESM/инлайн WASM,
   // см. PLAN.md риск №5): честная ошибка, join остаётся доступен
   if (!supportsModuleWorker()) {
@@ -1591,158 +2289,249 @@ async function connectAsHost(room) {
     return;
   }
 
-  // фактическая карта комнаты (из 'ready'; далее актуализируется map_changed)
-  let currentMapName = null;
+  roomEntered = true;
 
-  // отладочный контур (этап 6): рекордер живого матча и хостовый CONSOLE-лог
-  // поднимаются только в dev-сборке
-  room.isDevMode = isDevBuild;
+  const prepared = await prepareHostRoom(room);
 
-  // Этап 6.4: Worker грузит HostPlugin динамически по entries.host/entries.wasm
-  // активной игры — движок больше не знает игру статически
-  room.game = {
-    id: activeGameManifest.id,
-    version: activeGameManifest.version,
-    hostEntryUrl: activeGameManifest.entries.host,
-    wasmUrl: activeGameManifest.entries.wasm,
-  };
-
-  // Этап 5.1: комната стартует на актуальных картах мастера;
-  // недоступность каталога некритична — Worker возьмёт карты из бандла
-  try {
-    const catalog = await fetchMasterMaps();
-
-    room.maps = catalog.maps;
-    hostMapsVersion = catalog.version;
-  } catch (e) {
-    console.warn('[maps] master catalog unavailable, using bundled maps:', e);
-  }
-
-  // Этап 5.2: Worker создаётся по манифесту мастера — бандл страницы после
-  // деплоя исчезает из раздачи; без манифеста (dev) — бандловый URL,
-  // обновления кода отключены
-  let workerUrl = null;
-
-  try {
-    const manifest = await fetchWorkerManifest();
-
-    // составной codeVersion (Этап 6.5): движок (worker-бандл) + игра
-    // (id/version активного манифеста, с которым комната стартует)
-    hostCodeVersion = {
-      engine: manifest.version,
-      game: { id: activeGameManifest.id, version: activeGameManifest.version },
-    };
-    workerUrl = manifest.url;
-  } catch (e) {
-    console.warn('[worker] master manifest unavailable, using bundled:', e);
-  }
-
-  diagnostics.setContext({ role: 'host' });
-
-  hostController = new HostController(room, {
-    workerUrl,
+  const controller = new HostController(room, {
+    workerUrl: prepared.workerUrl,
     diagnostics,
     onReady: readyMsg => {
-      currentMapName = readyMsg?.mapName;
-
       // seed мира приезжает в 'ready' (этап 1): без него запись матча
       // невоспроизводима, поэтому он виден в консоли сразу
       if (isDevBuild) {
         debugLog('room ready', {
-          map: currentMapName,
+          map: readyMsg?.mapName,
           seed: readyMsg?.seed,
         });
       }
 
-      // периодический heartbeat/актуализация комнаты у мастера
-      const update = () =>
-        signaling.updateHost({
-          currentPlayers: 1 + (hostConnections?.peerCount || 0),
-          mapName: currentMapName,
-        });
-
-      // регистрация комнаты; повторно вызывается при reconnect сигналинга
-      hostRegistration = () => {
-        signaling.registerHost({
-          name: room.name,
-          maxPlayers: room.maxPlayers,
-          mapName: currentMapName,
-          gameId: room.game.id,
-          gameVersion: room.game.version,
-          token: lobbyAuthModel.getToken(),
-        });
-
-        clearInterval(hostHeartbeat);
-        hostHeartbeat = setInterval(
-          update,
-          lobbyConfig.create.heartbeatInterval,
-        );
-      };
-
-      hostRegistration();
+      startHostRegistration(readyMsg?.lobbyInfo ?? null);
     },
 
-    // смена карты голосованием/таймером — сразу отразить в лобби мастера
-    onMapChange: mapName => {
-      currentMapName = mapName;
-      signaling.updateHost({ mapName });
-    },
+    onLobbyInfoChange: handleHostLobbyInfo,
 
     // Worker не поднялся (WASM/конфиг): гасим комнату и возвращаемся в лобби
     onError: msg => {
+      // холодный преемник не справился — мастер возьмёт следующего
+      if (hostPromotion) {
+        signaling.promoteFailed(hostPromotion.promotion);
+        hostPromotion = null;
+      }
+
+      roomStartFailed = true;
       handleDisconnect();
       socketMethods[PS_TECH_INFORM_DATA](
-        `Failed to start the room: ${msg.message || 'unknown error'}. Returning to lobby…`,
+        `Failed to start the room: ${msg.message || 'unknown error'}. Click to return to the lobby.`,
       );
     },
   });
 
-  // удалённые клиенты по WebRTC; актуализация currentPlayers при их вход/выходе
-  hostConnections = new HostConnectionManager(signaling, hostController, {
-    iceServers: signaling.iceServers,
-    onPeersChange: count => signaling.updateHost({ currentPlayers: 1 + count }),
+  adoptHostRole(controller, room, prepared, {
+    promotion: promotion ? { mode: 'cold', promotion } : null,
   });
 
   // хост-игрок в этой же вкладке (socketId согласован с kick-исключением)
-  transport = new LoopbackTransport(
-    hostController,
+  // свой клиент хоста на loopback не рвётся: супервизор для него сквозной
+  const transport = new LoopbackTransport(
+    controller,
     lobbyConfig.create.hostSocketId,
   );
 
-  transport.publisher.on('message', handleMessage);
-  transport.publisher.on('close', handleDisconnect);
+  startSession(transport);
   transport.connect();
 
-  // сигнальный WS хоста должен жить постоянно (офферы, heartbeat, выдача) —
-  // при разрыве переподключаемся с бэкоффом; welcome вызовет re-register
-  let reconnectAttempt = 0;
+  lobby?.close();
+}
 
-  signaling.publisher.on('close', () => {
-    if (!hostController) {
-      return; // комната уже погашена
+// ***** роль хоста (общая для создания комнаты и промоушена, этап 7.4) ***** //
+
+// настройки комнаты, которую хостит вкладка (поля register_host)
+let hostRoomConfig = null;
+// строка карточки комнаты в лобби (из 'ready'; далее — lobby_info Worker'а):
+// её задаёт игра (gameConfig.lobbyInfo), null — показывать нечего
+let hostLobbyInfo = null;
+// промоушен, ждущий host_registered: { mode: 'checkpoint'|'cold',
+// promotion: { roomId, epoch, promotionToken } }
+let hostPromotion = null;
+// промоушен из контрольной точки, Worker которого ещё поднимается
+let promotionInFlight = null;
+
+/**
+ * Вкладка становится хостом для готового (или поднимающегося) Worker'а:
+ * приём офферов, поток контрольных точек бете, регистрация у мастера.
+ * Обработчики сигналинга роли — в bindHostSignaling (подписаны один раз).
+ * @param {HostController} controller
+ * @param {Object} room - настройки комнаты (room.game — манифест игры).
+ * @param {Object} prepared - prepareHostRoom: { mapsVersion, codeVersion }.
+ * @param {Object} [options]
+ * @param {Object|null} [options.promotion] - { mode, promotion, reason } —
+ *   занять комнату преемником (reason — причина передачи из promote).
+ */
+function adoptHostRole(controller, room, prepared, { promotion = null } = {}) {
+  hostMapsVersion = prepared.mapsVersion;
+  hostCodeVersion = prepared.codeVersion;
+  hostController = controller;
+  hostRoomConfig = room;
+  hostLobbyInfo = null;
+  hostPromotion = promotion;
+  hostRoom = null;
+
+  diagnostics.setContext({ role: 'host' });
+
+  // удалённые клиенты по WebRTC
+  hostConnections = new HostConnectionManager(signaling, controller, {
+    iceServers: signaling.iceServers,
+    // бета могла подключиться позже назначения или переподключиться; число
+    // людей в комнате — меню и защите закрытия
+    onPeersChange: () => {
+      standbySender?.refresh();
+      refreshRoomControls();
+    },
+  });
+
+  // преемник (host-migration этап 6): канал standby к бете, назначенной
+  // мастером, и поток контрольных точек по нему
+  standbySender = new StandbySender({
+    controller,
+    connections: hostConnections,
+    intervalMs: lobbyConfig.migration.checkpointIntervalMs,
+    chunkBytes: lobbyConfig.migration.standbyChunkBytes,
+    highWaterBytes: lobbyConfig.migration.standbyHighWaterBytes,
+    diagnostics,
+    onStats: isDevBuild ? stats => debugLog('standby sent', stats) : null,
+  });
+
+  // метрики здоровья Worker'а (этап 9a): скрытая вкладка троттлит цикл —
+  // насколько, уходит в журнал одной сводкой за эпизод
+  hiddenHealthLog = new HiddenHostHealthLog({
+    warn: (code, summary) =>
+      diagnostics.warn(code, summary, { source: 'client' }),
+    hidden: document.visibilityState === 'hidden',
+  });
+  hostHealthReporter = isLobbyMode
+    ? new HostHealthReporter({
+        send: report => signaling.hostHealth(report),
+        getRoom: () => hostRoom,
+        intervalMs: lobbyConfig.migration.auto.hostHealthIntervalMs,
+      })
+    : null;
+  controller.onHealth(health => {
+    hiddenHealthLog?.add(health);
+    hostHealthPolicy?.addHealth(health);
+    hostHealthReporter?.add(health);
+  });
+  hostHealthPolicy?.setHost(true);
+}
+
+// Worker готов: регистрация комнаты у мастера и heartbeat
+function startHostRegistration(lobbyInfo) {
+  hostLobbyInfo = lobbyInfo;
+
+  // периодический heartbeat/актуализация карточки у мастера; число
+  // игроков мастер считает по участникам комнаты сам
+  const update = () => signaling.updateHost({ info: hostLobbyInfo });
+
+  // регистрация комнаты; при reconnect сигналинга — возврат той же
+  // комнаты (reclaim_host), а fresh=true — новая комната, когда вернуть
+  // прежнюю нельзя (её id занят или секрет не принят). Преемник до
+  // host_registered занимает комнату promotionToken'ом
+  hostRegistration = ({ fresh = false } = {}) => {
+    const room = hostRoomConfig;
+    const fields = {
+      gameId: room.game.id,
+      gameVersion: room.game.version,
+      maxPlayers: room.maxPlayers,
+      info: hostLobbyInfo,
+      token: lobbyAuthModel.getToken(),
+      memberId,
+      caps: memberCaps(),
+      // для холодного перезапуска комнаты преемником (этап 7.6)
+      settings: sanitizeRoomSettings(room),
+    };
+
+    if (hostPromotion) {
+      signaling.registerHost({ ...fields, promotion: hostPromotion.promotion });
+    } else if (hostRoom && !fresh) {
+      signaling.reclaimHost({ ...fields, ...hostRoom });
+    } else {
+      hostRoom = null;
+      signaling.registerHost(fields);
     }
 
-    const { baseDelay, maxDelay } = lobbyConfig.reconnect;
-    const delay = Math.min(maxDelay, baseDelay * 2 ** reconnectAttempt);
+    clearInterval(hostHeartbeat);
+    hostHeartbeat = setInterval(update, lobbyConfig.create.heartbeatInterval);
+  };
 
-    reconnectAttempt += 1;
-    setTimeout(() => signaling.connect(), delay);
-  });
+  hostRegistration();
+}
 
-  signaling.publisher.on('welcome', () => {
-    reconnectAttempt = 0;
-    hostRegistration?.();
-  });
+// строка карточки сменилась (карта, опция игры) — сразу отразить в лобби
+// мастера
+function handleHostLobbyInfo(info) {
+  hostLobbyInfo = info;
 
+  if (hostRegistration) {
+    signaling.updateHost({ info });
+  }
+}
+
+// снимает роль хоста: heartbeat, WebRTC-пиры, поток точек, Worker
+function teardownHostRole() {
+  plannedHandoff?.abort();
+  clearInterval(hostHeartbeat);
+  hostHeartbeat = null;
+  standbySender?.destroy();
+  standbySender = null;
+  hiddenHealthLog?.flush();
+  hiddenHealthLog = null;
+  hostHealthReporter = null;
+  hostHealthPolicy?.setHost(false);
+  hostConnections?.destroy();
+  hostConnections = null;
+  hostController?.destroy();
+  hostController = null;
+  diagnostics.setContext({ role: 'client' });
+  hostRegistration = null;
+  hostRoom = null;
+  hostRoomConfig = null;
+  hostPromotion = null;
+  hostSuccessorMemberId = null;
+  roomMenu?.setHandoff(null);
+  refreshRoomControls();
+}
+
+// подписки сигналинга роли хоста (лобби-режим, один раз на страницу: роль
+// может прийти и уйти несколько раз — создание, промоушен, host_revoked)
+function bindHostSignaling() {
   // мастер отвечает актуальными версиями каталога карт и worker-бандла:
   // расхождение (деплой, пока комната жила) — подтянуть каталог к следующей
   // смене карты / заменить Worker эстафетой на границе раунда (Этап 5.2)
   signaling.publisher.on('host_registered', msg => {
-    // кодревью №1 (plan/server-rating/review.md): hostId + per-room секрет не
-    // известны Worker'у до этого момента — прокидываем их, чтобы PlayerDataSync
-    // атрибутировал последующие rank/state-flush к этой комнате (секрет
-    // доказывает мастеру владение hostId)
-    hostController?.setHostId(msg.hostId, msg.hostSecret);
+    if (!hostController) {
+      return; // комната уже погашена
+    }
+
+    hostRoom = {
+      roomId: msg.roomId,
+      epoch: msg.epoch,
+      roomSecret: msg.roomSecret,
+    };
+    currentRoomId = msg.roomId;
+    roomEpoch = msg.epoch;
+    showRoomLink(hostRoomConfig.game.id, msg.roomId);
+
+    // roomId + секрет эпохи не известны Worker'у до этого момента —
+    // прокидываем их, чтобы PlayerDataSync атрибутировал последующие
+    // rank/state-flush к этой комнате (секрет доказывает мастеру владение)
+    hostController.setRoom(hostRoom);
+
+    if (hostPromotion) {
+      const promotion = hostPromotion;
+
+      hostPromotion = null;
+      finishPromotion(promotion);
+    }
 
     if (msg.mapsVersion && msg.mapsVersion !== hostMapsVersion) {
       refreshHostMaps();
@@ -1757,8 +2546,21 @@ async function connectAsHost(room) {
     }
   });
 
+  // проба мастера (host-migration этап 7.3): гости жалуются, что хост
+  // недоступен — главный поток подтверждает, что жив. Отвечает сразу, без
+  // Worker'а: проба проверяет вкладку и её сигналинг, не матч
+  signaling.publisher.on('probe', msg => {
+    if (hostController && msg.roomId === hostRoom?.roomId) {
+      signaling.probeAck(msg.nonce);
+    }
+  });
+
   // сигнал мастера об обновлении каталога карт/кода (hot-reload в будущем)
   signaling.publisher.on('update_available', msg => {
+    if (!hostController) {
+      return;
+    }
+
     if (!msg.mapsVersion || msg.mapsVersion !== hostMapsVersion) {
       refreshHostMaps();
     }
@@ -1772,7 +2574,449 @@ async function connectAsHost(room) {
     }
   });
 
-  lobby?.close();
+  // мастер повысил эту вкладку до хоста комнаты (host-migration этап 7.4)
+  signaling.publisher.on('promote', handlePromote);
+
+  // промоушен отменён (опоздали к дедлайну): матч гасится, вкладка снова
+  // гость и ждёт нового хоста
+  signaling.publisher.on('promote_cancelled', msg => {
+    if (msg.roomId !== currentRoomId) {
+      return;
+    }
+
+    cancelPromotion();
+    // сорвавшаяся плановая передача: её финальная точка следующую не завершит
+    standbyReceiver?.discardFinal();
+
+    if (hostPromotion) {
+      abandonPromotion();
+    }
+  });
+
+  // хоста сменили, пока эта вкладка была без связи (host-migration этап 7.5)
+  signaling.publisher.on('host_revoked', msg => {
+    if (hostController && msg.roomId === hostRoom?.roomId) {
+      demoteHost(msg.epoch);
+    }
+  });
+
+  plannedHandoff = new PlannedHandoff({
+    signaling,
+    getRoom: () => hostRoom,
+    getController: () => hostController,
+    slowAfterMs: lobbyConfig.migration.handoffSlowMs,
+    deadlineMs: lobbyConfig.migration.handoffDeadlineMs,
+    deferMaxMs: lobbyConfig.migration.deferMaxMs,
+    onSlow: () => roomMenu?.setHandoff('slow'),
+    onFrozen: handleHandoffFrozen,
+    onReleased: handleHostReleased,
+    onAborted: handleHandoffAborted,
+    onLeave: () => leaveServer(),
+  });
+
+  // автотриггеры передачи (этап 9b): перегрузка и скрытая вкладка
+  hostHealthPolicy = new HostHealthPolicy({
+    config: lobbyConfig.migration.auto,
+    handoff: {
+      start: ({ reason, defer }) =>
+        startPlannedHandoff({ reason, stay: true, defer }),
+      hurry: reason => plannedHandoff.hurry(reason),
+      // нагрузка нормализовалась до границы раунда — передача не нужна
+      cancelDeferred: () => {
+        const cancelled = plannedHandoff.cancelDeferred();
+
+        if (cancelled) {
+          roomMenu?.setHandoff(null);
+        }
+
+        return cancelled;
+      },
+      deferredReason: () =>
+        plannedHandoff.deferred ? plannedHandoff.reason : null,
+    },
+  });
+  hostHealthPolicy.setHidden(document.visibilityState === 'hidden');
+
+  // мастер просит отдать роль: сеть хоста заметно хуже, чем у беты (этап
+  // 9c). Передача ждёт границы раунда; выключенные автотриггеры — отказ
+  signaling.publisher.on('request_handoff', msg => {
+    // хоста сняли голосованием (этап 10): передача сразу, при любых
+    // настройках автотриггеров — иначе мастер снимет его аварийно
+    if (
+      msg.reason === 'vote' &&
+      hostController &&
+      msg.roomId === hostRoom?.roomId &&
+      msg.epoch === hostRoom.epoch
+    ) {
+      // передача уже ждёт границы раунда — сразу, с причиной vote; уже
+      // идущая — её исход решит мастер
+      if (!plannedHandoff?.hurry('vote')) {
+        startPlannedHandoff({ reason: 'vote', stay: true, defer: false });
+      }
+
+      return;
+    }
+
+    if (
+      msg.reason === 'network' &&
+      lobbyConfig.migration.auto.enabled !== false &&
+      hostController &&
+      msg.roomId === hostRoom?.roomId &&
+      msg.epoch === hostRoom.epoch
+    ) {
+      startPlannedHandoff({
+        reason: 'network',
+        stay: true,
+        defer: msg.defer !== false,
+      });
+    }
+  });
+
+  // роль отдана, а передачи эта вкладка уже не ждёт (ответ мастера опоздал
+  // к дедлайну): бета заняла комнату — свой игрок возвращается к ней гостем
+  signaling.publisher.on('host_released', msg => {
+    if (
+      !plannedHandoff.active &&
+      hostController &&
+      msg.roomId === hostRoom?.roomId
+    ) {
+      handleHostReleased({ stay: true, epoch: msg.epoch });
+    }
+  });
+}
+
+// ***** плановая передача хоста (host-migration этап 8.2) ***** //
+
+let plannedHandoff = null;
+// автотриггеры передачи (этап 9b; лобби-режим)
+let hostHealthPolicy = null;
+
+/**
+ * Отдать роль хоста бете без отката: «Leave server» (stay: false — затем в
+ * лобби), «Hand over host» (stay: true — дальше гостем). Повторный вызов во
+ * время идущей передачи игнорируется.
+ *
+ * defer (по умолчанию — для stay): передача ждёт границы раунда, если игра
+ * не умеет продолжать посреди него (без migration.midRound мягкая точка
+ * начала бы раунд у беты заново); решает Worker, потолок —
+ * lobby.migration.deferMaxMs. Уходящий хост не ждёт.
+ * @param {Object} options
+ * @param {string} options.reason - 'leave' | 'handover' | 'overload' |
+ *   'hidden' | 'network' | 'vote'.
+ * @param {boolean} [options.stay]
+ * @param {boolean} [options.defer]
+ * @returns {boolean} передача началась.
+ */
+function startPlannedHandoff({ reason, stay = true, defer = stay }) {
+  // эстафета Worker'ов и промоушен сами владеют Worker'ом
+  if (
+    !plannedHandoff ||
+    !hostController ||
+    hostPromotion ||
+    workerSwapInProgress
+  ) {
+    return false;
+  }
+
+  const started = plannedHandoff.start({ reason, stay, defer });
+
+  if (started) {
+    roomMenu?.setHandoff('pending');
+  }
+
+  return started;
+}
+
+// матч заморожен до прихода нового хоста — у своего игрока та же пауза,
+// что у гостей
+function handleHandoffFrozen() {
+  showSessionOverlay('Switching host…');
+  modules.controls?.disableKeys();
+  soundManager.mute();
+}
+
+// передача не состоялась, вкладка осталась хостом: замороженный матч
+// продолжается (Worker разморожен, гостям ушла полная синхронизация)
+function handleHandoffAborted({ reason, frozen }) {
+  console.warn(`[handoff] not completed: ${reason}`);
+  roomMenu?.setHandoff('failed');
+
+  const { hideOverlay, restoreInput } = controlsAfterAbort({
+    frozen,
+    sessionState: supervisor?.state ?? null,
+  });
+
+  if (hideOverlay) {
+    showSessionOverlay(null);
+  }
+
+  if (!restoreInput) {
+    return;
+  }
+
+  modules.controls?.enableKeys();
+
+  if (document.visibilityState !== 'hidden') {
+    soundManager.unmute();
+  }
+}
+
+// бета заняла комнату с того же тика: Worker этой вкладки больше не нужен
+function handleHostReleased({ stay, epoch }) {
+  if (!stay) {
+    leaveServer();
+    return;
+  }
+
+  demoteHost(epoch, { notice: false });
+
+  // возобновление идёт под тем же оверлеем, что и пауза передачи
+  if (supervisor?.state === SESSION_STATES.reconnecting) {
+    showSessionOverlay('Switching host…');
+  }
+}
+
+// «Leave server» из меню комнаты (этап 8.3). Хост при других людях отдаёт
+// роль бете без отката и уходит; один в комнате — закрывает её
+// (host_leaving: людей нет — мастер закрывает комнату сразу). Гость
+// снимается у хоста сразу (LEAVE), а не через resumeGraceMs
+function leaveServerByUser() {
+  if (hostController) {
+    if (
+      (hostConnections?.peerCount ?? 0) > 0 &&
+      startPlannedHandoff({ reason: 'leave', stay: false })
+    ) {
+      return;
+    }
+
+    // передача уже идёт (эстафета Worker'ов, промоушен) или передавать
+    // некому: уход по аварийному пути мастера
+    if (hostRoom) {
+      signaling.hostLeaving(hostRoom.roomId, hostRoom.epoch);
+    }
+  } else {
+    sending(PC_LEAVE);
+  }
+
+  leaveServer();
+}
+
+// гость уходит: LEAVE хосту и leave_room мастеру (best-effort — страница
+// может закрыться раньше, чем пакеты уйдут)
+function announceGuestLeave() {
+  sending(PC_LEAVE);
+
+  if (currentRoomId) {
+    signaling.leaveRoom(currentRoomId);
+  }
+}
+
+// уход из комнаты в лобби (не быструю игру — она вернула бы в эту же
+// комнату). Мастер освобождает место сразу; бывшему хосту leave_room
+// принимается после host_released (сессия уже не хост). Уход объявлен —
+// диалог закрытия и pagehide снимает reloadPage
+function leaveServer() {
+  if (currentRoomId) {
+    signaling.leaveRoom(currentRoomId);
+  }
+
+  teardownHostRole();
+  teardownStandby();
+  reloadPage('');
+}
+
+// ***** промоушен преемника (host-migration этап 7.4) ***** //
+
+function handlePromote(msg) {
+  // повтор promote нашей плановой передачи режимом checkpoint: хост пропал
+  // посреди неё — финальную точку больше не ждём
+  if (
+    promotionInFlight &&
+    msg.mode === 'checkpoint' &&
+    promotionInFlight.degrade(msg)
+  ) {
+    return;
+  }
+
+  if (
+    !currentRoomId ||
+    msg.roomId !== currentRoomId ||
+    hostController ||
+    promotionInFlight
+  ) {
+    return;
+  }
+
+  const gameId = activeGameManifest?.id;
+
+  // cold: точки нет — свежий матч той же комнаты после перезагрузки (бутстрап
+  // видит отложенный промоушен и занимает комнату вместо создания новой)
+  if (msg.mode === 'cold') {
+    let storage = null;
+
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = null;
+    }
+
+    if (!gameId || !savePendingPromotion(storage, msg, gameId)) {
+      signaling.promoteFailed(msg);
+      return;
+    }
+
+    reloadPage(formatRoomLink(gameId, msg.roomId));
+
+    return;
+  }
+
+  const promotion = new Promotion({
+    promote: msg,
+    receiver: standbyReceiver,
+    finalWaitMs: lobbyConfig.migration.finalWaitMs,
+    prewarm: hostPrewarm,
+    prepareRoom: prepareHostRoom,
+    hostSocketId: lobbyConfig.create.hostSocketId,
+    diagnostics,
+    hostCallbacks: { onLobbyInfoChange: handleHostLobbyInfo },
+    hasSession: () => supervisor?.hasSession === true,
+    onReady: ({ controller, room, prepared, lobbyInfo }) => {
+      promotionInFlight = null;
+      adoptHostRole(controller, room, prepared, {
+        promotion: {
+          mode: 'checkpoint',
+          promotion: promotion.promotion,
+          reason: msg.reason ?? null,
+        },
+      });
+      startHostRegistration(lobbyInfo);
+    },
+    onFailed: error => {
+      promotionInFlight = null;
+      console.warn('[promotion] failed:', error);
+      signaling.promoteFailed(promotion.promotion);
+    },
+  });
+
+  promotionInFlight = promotion;
+  promotion.start();
+}
+
+// промоушен из точки ещё поднимает Worker — бросить его
+function cancelPromotion() {
+  promotionInFlight?.cancel();
+  promotionInFlight = null;
+}
+
+// занять комнату не вышло (мастер отверг регистрацию или отменил
+// промоушен): роль снимается. report — сообщить мастеру, чтобы он взял
+// следующего кандидата, не дожидаясь дедлайна
+function abandonPromotion({ code = null, report = false } = {}) {
+  const { mode, promotion } = hostPromotion;
+
+  if (code) {
+    console.warn(`[promotion] register rejected: ${code}`);
+  }
+
+  if (report) {
+    signaling.promoteFailed(promotion);
+  }
+
+  teardownHostRole();
+
+  // cold: страница — свежий хост без матча; гостем — чистым входом в ту же
+  // комнату (отложенный промоушен уже снят). checkpoint: супервизор так и
+  // ждёт нового хоста (migrating)
+  if (mode === 'cold') {
+    reloadToRoom();
+  }
+}
+
+// комната занята: матч стартует, когда вернутся люди точки (или по
+// resumeWaitMs), свой игрок возвращается в него через loopback
+function finishPromotion({ mode, reason = null }) {
+  teardownStandby();
+
+  if (mode !== 'checkpoint') {
+    return;
+  }
+
+  hostController.startAfterRestore({ waitForResume: true, reason });
+
+  const transport = new LoopbackTransport(
+    hostController,
+    lobbyConfig.create.hostSocketId,
+    { resume: true },
+  );
+
+  transport.connect();
+
+  // свой Worker: другой попытки, кроме loopback, нет — как у хоста
+  // комнаты с создания. Комната уже занята этой вкладкой и гости
+  // переключены на неё: сбой своего игрока её не гасит
+  supervisor?.resumeWith(transport, {
+    reconnect: null,
+    getToken: () => lobbyAuthModel.getToken(),
+    onFailed: handleOwnPlayerLost,
+  });
+}
+
+// свой игрок преемника не вернулся в поднятый им матч (секрета нет, отказ
+// RESUME, loopback закрыт): роль хоста остаётся — Worker, пиры, heartbeat
+// и поток точек живут, гости играют. Перезагрузка убила бы матч всех
+function handleOwnPlayerLost(reason) {
+  console.warn(`[promotion] own player not restored: ${reason}`);
+  showSessionOverlay(null);
+  modules.controls?.disableKeys();
+  soundManager.mute();
+  socketMethods[PS_TECH_INFORM_DATA](
+    'Your player could not be restored — the room keeps running for the others.',
+  );
+}
+
+// ***** бывший хост (host-migration этап 7.5) ***** //
+
+// хоста сменили (host_revoked или staleEpoch на reclaim) или он отдал роль
+// сам (host_released, notice: false): матч этой вкладки гасится, свой игрок
+// возвращается гостем к новому хосту под своим gameId (его место есть в
+// точке беты). minEpoch — эпоха нового хоста или нижняя граница
+function demoteHost(minEpoch, { notice = true } = {}) {
+  // хост уходил из комнаты, а роль сменилась без него — уходит всё равно
+  if (plannedHandoff?.leaving) {
+    leaveServer();
+    return;
+  }
+
+  teardownHostRole();
+  teardownStandby();
+  roomEpoch = minEpoch;
+
+  if (notice) {
+    modules.chat?.add(buildSystemMessage('HOST_REVOKED'));
+  }
+
+  if (!currentRoomId) {
+    reloadPage('');
+    return;
+  }
+
+  signaling.joinRoom({
+    roomId: currentRoomId,
+    memberId,
+    token: lobbyAuthModel.getToken(),
+    caps: memberCaps(),
+  });
+
+  const reconnect = guestReconnect();
+
+  if (
+    !supervisor?.resumeWith(
+      openRoomTransport(currentRoomId, { resume: true }),
+      { reconnect },
+    )
+  ) {
+    reloadToRoom();
+  }
 }
 
 // solo-режим: авторитетный матч в этом же потоке (standalone SDK). Ни
@@ -1798,19 +3042,17 @@ async function connectSolo() {
   // хендшейк начинается в connect() — хост к этому моменту обязан быть готов
   await inlineHost.ready;
 
-  transport = new LoopbackTransport(inlineHost, socketId);
+  const transport = new LoopbackTransport(inlineHost, socketId);
 
-  transport.publisher.on('message', handleMessage);
-  transport.publisher.on('close', handleDisconnect);
+  startSession(transport);
   transport.connect();
 }
 
 // dedicated-режим: прямой WebSocket к Node-серверу игры
 function connectDedicated() {
-  transport = new WebSocketTransport(boot.wsUrl);
+  const transport = new WebSocketTransport(boot.wsUrl);
 
-  transport.publisher.on('message', handleMessage);
-  transport.publisher.on('close', handleDisconnect);
+  startSession(transport);
   transport.connect();
 }
 
@@ -1844,10 +3086,8 @@ let hostRegistration = null;
 
 // Этап 5.1/6.4: скачивает каталог карт мастера активной игры (манифест +
 // все карты)
-async function fetchMasterMaps() {
-  const manifestRes = await fetch(
-    lobbyConfig.maps.manifestUrl(activeGameManifest),
-  );
+async function fetchMasterMaps(gameManifest = activeGameManifest) {
+  const manifestRes = await fetch(lobbyConfig.maps.manifestUrl(gameManifest));
 
   if (!manifestRes.ok) {
     throw new Error(`maps manifest: HTTP ${manifestRes.status}`);
@@ -1857,7 +3097,7 @@ async function fetchMasterMaps() {
 
   const entries = await Promise.all(
     manifest.maps.map(async name => {
-      const url = `${lobbyConfig.maps.baseUrl(activeGameManifest)}/${encodeURIComponent(name)}`;
+      const url = `${lobbyConfig.maps.baseUrl(gameManifest)}/${encodeURIComponent(name)}`;
       const res = await fetch(url);
 
       if (!res.ok) {
@@ -1906,7 +3146,7 @@ async function fetchGameManifest(gameId) {
 // мастера. Worker заменяется на границе раунда без разрыва P2P; сбой свопа
 // не смертелен — комната продолжает жить на прежней версии
 async function refreshHostWorker() {
-  if (workerSwapInProgress || !hostController) {
+  if (workerSwapInProgress || !hostController || plannedHandoff?.active) {
     return;
   }
 
@@ -2106,8 +3346,9 @@ function clearLobbyError() {
 }
 
 // активирует игру и перепривязывает манифест/плагин/CSS; false — отказ уже
-// показан игроку, лобби остаётся рабочим
-async function selectActiveGame(gameId) {
+// показан игроку (report, по умолчанию строкой формы лобби), лобби остаётся
+// рабочим
+async function selectActiveGame(gameId, { report = showLobbyError } = {}) {
   // сверка идёт с самим манифестом, а не с его id: каталог вкладки может
   // пополниться застейдженной версией той же игры (registerGameManifest), и
   // сравнение по id оставило бы активной одобренную версию
@@ -2129,7 +3370,7 @@ async function selectActiveGame(gameId) {
     return true;
   } catch (e) {
     console.error(`[game] failed to activate "${gameId}":`, e);
-    showLobbyError(
+    report(
       `Failed to load ${gamesById.get(gameId)?.title ?? gameId}: ${e.message}`,
     );
 
@@ -2255,8 +3496,8 @@ function initLobby() {
   });
 
   // умный пинг видимого сервера — сигнальным путём (замер приблизительный)
-  lobbyModel.publisher.on('ping-request', ({ hostId, pingId }) => {
-    signaling.pingHost(hostId, pingId);
+  lobbyModel.publisher.on('ping-request', ({ roomId, pingId }) => {
+    signaling.pingHost(roomId, pingId);
   });
 
   signaling.publisher.on('pong_host', msg => {
@@ -2266,7 +3507,7 @@ function initLobby() {
   // выбор сервера → активация игры комнаты и установка P2P. gameId нет у
   // хостов старше 6.4 — тогда заходим на активной игре, как раньше: неизвестная
   // версия не повод запретить вход
-  lobbyModel.publisher.on('join', async ({ hostId, gameId }) => {
+  lobbyModel.publisher.on('join', async ({ roomId, gameId }) => {
     if (gameId && gamesById.has(gameId)) {
       if (!(await selectActiveGame(gameId))) {
         return;
@@ -2279,7 +3520,7 @@ function initLobby() {
       return;
     }
 
-    connectToHost(hostId);
+    connectToRoom(roomId);
   });
 
   // Leaderboard (lobby-page-plan): контроллер сигнализирует, для какой игры
@@ -2417,8 +3658,6 @@ function initLobby() {
     liveErrors.disarm();
   });
 
-  const nameInput = document.getElementById(lobbyConfig.elems.nameId);
-
   hostBtn?.addEventListener('click', async () => {
     // валидация (pattern/required/min/max) — единственная граница
     // room-формы: она едет клиенту как JSON манифеста, JS-валидаторы
@@ -2434,8 +3673,6 @@ function initLobby() {
     }
 
     const manifest = gamesById.get(gameSelect?.value) ?? activeGameManifest;
-    const name =
-      (nameInput?.value || '').trim() || lobbyConfig.create.defaultName;
 
     // значения формы снимаем до await: активация асинхронна, а roomFormFields
     // пересобираются при смене игры — в комнату должно уехать то, что игрок
@@ -2457,7 +3694,6 @@ function initLobby() {
     }
 
     connectAsHost({
-      name,
       hostSocketId: lobbyConfig.create.hostSocketId,
       ...overrides,
     });
@@ -2476,9 +3712,552 @@ let lobbyAuthView = null;
 let welcomeReceived = false;
 let authenticated = false;
 
+// маршрут разбирается один раз: повторный welcome (реконнект сигналинга)
+// бутстрап не повторяет
+let routeBooted = false;
+
 function maybeInitLobby() {
-  if (welcomeReceived && authenticated) {
-    initLobby();
+  if (welcomeReceived && authenticated && !routeBooted) {
+    routeBooted = true;
+    runRoute();
+  }
+}
+
+// ПРЯМЫЕ ССЫЛКИ (host-migration, этап 3): без hash — лобби, #/<gameId> —
+// быстрая игра, #/<gameId>/<roomId> — вход в комнату (client/lib/roomLink.js)
+
+// комната по прямому id; null — её нет или мастер не ответил (тогда — быстрая
+// игра той же игры, как для мёртвой ссылки)
+async function fetchRoom(roomId) {
+  return (await pollRoom(roomId)).info;
+}
+
+// GET /rooms/:roomId со статусом: ожиданию миграции важно отличить «комнаты
+// нет» (404) от сбоя запроса. status null — запрос не дошёл
+async function pollRoom(roomId) {
+  try {
+    const res = await fetch(lobbyConfig.roomUrl(roomId));
+
+    return { status: res.status, info: res.ok ? await res.json() : null };
+  } catch {
+    return { status: null, info: null };
+  }
+}
+
+// #tech-informer, который игрок закрывает кликом: причина отказа маршрута
+// видна поверх лобби, но лобби остаётся рабочим
+function showDismissibleInformer(text) {
+  if (text) {
+    socketMethods[PS_TECH_INFORM_DATA](text);
+  }
+
+  techInformer.addEventListener(
+    'click',
+    () => socketMethods[PS_TECH_INFORM_DATA](),
+    { once: true },
+  );
+}
+
+// лобби вместо маршрута: адрес — без hash (иначе F5 повторил бы маршрут),
+// игра маршрута — выбрана в селекторе
+function showLobby({ gameId, informer } = {}) {
+  setRoute('');
+  initLobby();
+
+  const gameSelect = document.getElementById(lobbyConfig.elems.gameId);
+
+  if (gameSelect && gameId && gamesById.has(gameId)) {
+    gameSelect.value = gameId;
+    gameSelect.dispatchEvent(new Event('change'));
+  }
+
+  if (informer) {
+    showDismissibleInformer(informer);
+  }
+}
+
+// дефолты формы создания комнаты — то, что ушло бы в комнату по Create без
+// правки полей: roomDefaults манифеста + default'ы самой схемы формы
+function roomDefaultsOf(manifest) {
+  const defaults = { ...manifest.roomDefaults };
+
+  if (Array.isArray(manifest.roomForm)) {
+    for (const field of mergeRoomDefaults(
+      manifest.roomForm,
+      manifest.roomDefaults ?? {},
+    )) {
+      if (field.default !== undefined) {
+        defaults[field.name] = field.default;
+      }
+    }
+  }
+
+  return defaults;
+}
+
+// активация игры маршрута: лобби ещё нет (строку формы, куда пишет
+// selectActiveGame по умолчанию, initLobby тут же перетёр бы), поэтому
+// отказ показывается поверх лобби в #tech-informer
+async function activateRouteGame(gameId) {
+  let failure = null;
+
+  if (await selectActiveGame(gameId, { report: text => (failure = text) })) {
+    return true;
+  }
+
+  showLobby({ gameId, informer: failure });
+
+  return false;
+}
+
+// вход по маршруту — лобби не показывается вовсе: игрок сразу видит экран
+// авторизации игры (AUTH_DATA → #auth)
+async function joinFromRoute(gameId, roomId) {
+  if (await activateRouteGame(gameId)) {
+    connectToRoom(roomId);
+  }
+}
+
+// самая наполненная неполная комната игры из списка мастера
+async function findQuickPlayRoom(gameId) {
+  const list = await fetchServers({ search: gameId });
+
+  return pickQuickPlayRoom(list?.servers, gameId);
+}
+
+// быстрая игра: самая наполненная неполная комната игры, иначе своя
+async function quickPlay(gameId) {
+  let room = await findQuickPlayRoom(gameId);
+
+  // гости закрытой комнаты приходят сюда разом: случайная пауза и второй
+  // взгляд на список — комнату создаст первый, остальные в неё войдут
+  if (!room && lobbyConfig.quickPlay.autoCreate) {
+    await wait(quickPlayCreateDelay(lobbyConfig.quickPlay));
+    room = await findQuickPlayRoom(gameId);
+  }
+
+  if (room) {
+    await joinFromRoute(gameId, room.roomId);
+
+    return;
+  }
+
+  if (!lobbyConfig.quickPlay.autoCreate) {
+    showLobby({ gameId });
+
+    return;
+  }
+
+  const manifest = gamesById.get(gameId);
+
+  if (!(await activateRouteGame(gameId))) {
+    return;
+  }
+
+  await connectAsHost({
+    hostSocketId: lobbyConfig.create.hostSocketId,
+    ...roomDefaultsOf(manifest),
+  });
+
+  // браузер не может быть хостом (connectAsHost уже показал причину): лобби
+  // под ней, войти в чужую комнату он всё ещё может
+  if (!roomEntered) {
+    showLobby({ gameId });
+    showDismissibleInformer();
+  }
+}
+
+// маршрут в работе (ждёт /rooms или /servers): hashchange в это время не
+// запускает второй бутстрап — тот дошёл бы до connectToRoom/connectAsHost
+// параллельно первому (два транспорта в одной вкладке). Новый hash
+// разбирается после текущего, если вкладка так и не вошла в комнату
+let routeRunning = false;
+let routeRerun = false;
+
+async function runRoute() {
+  if (routeRunning) {
+    routeRerun = true;
+
+    return;
+  }
+
+  routeRunning = true;
+
+  try {
+    do {
+      routeRerun = false;
+      await bootRoute();
+    } while (routeRerun && !roomEntered);
+  } finally {
+    routeRunning = false;
+  }
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ожидание брошено: hash сменился, маршрут разбирается заново
+const ROUTE_ABANDONED = Symbol('routeAbandoned');
+
+// комната по ссылке меняет хоста: ждём, пока она снова станет online.
+// null — комната пропала или так и не дождались (тогда — быстрая игра);
+// ROUTE_ABANDONED — игрок ушёл по другой ссылке (runRoute повторит разбор)
+async function waitRoomOnline(roomId) {
+  const { migrationWaitMs, migrationPollMs } = lobbyConfig.session;
+  const deadline = performance.now() + migrationWaitMs;
+
+  socketMethods[PS_TECH_INFORM_DATA]('Switching host…');
+
+  try {
+    while (performance.now() < deadline) {
+      await wait(migrationPollMs);
+
+      if (routeRerun) {
+        return ROUTE_ABANDONED;
+      }
+
+      const poll = await pollRoom(roomId);
+
+      if (routeRerun) {
+        return ROUTE_ABANDONED;
+      }
+
+      switch (classifyRoomPoll(poll)) {
+        case 'online':
+          return poll.info;
+        case 'gone':
+          return null;
+      }
+    }
+
+    return null;
+  } finally {
+    socketMethods[PS_TECH_INFORM_DATA]();
+  }
+}
+
+// холодный промоушен (host-migration этап 7.4): страница перезагружена в
+// комнату, чтобы поднять её матч заново. Запись снимается при любом исходе
+function takeRoutePromotion(route) {
+  let storage = null;
+
+  try {
+    storage = window.sessionStorage;
+  } catch {
+    return null;
+  }
+
+  const pending = takePendingPromotion(storage);
+
+  return pending &&
+    route.kind === 'room' &&
+    route.gameId === pending.gameId &&
+    route.roomId === pending.roomId
+    ? pending
+    : null;
+}
+
+// занимает комнату холодным промоушеном. false — вкладка хостить не может,
+// маршрут разбирается как обычный вход гостем
+async function promoteCold(pending) {
+  if (!(await activateRouteGame(pending.gameId))) {
+    signaling.promoteFailed(pending);
+
+    return true;
+  }
+
+  currentRoomId = pending.roomId;
+
+  await connectAsHost(
+    {
+      hostSocketId: lobbyConfig.create.hostSocketId,
+      ...roomDefaultsOf(gamesById.get(pending.gameId)),
+      ...pending.settings,
+    },
+    { promotion: pending },
+  );
+
+  if (roomEntered) {
+    return true;
+  }
+
+  currentRoomId = null;
+  signaling.promoteFailed(pending);
+
+  return false;
+}
+
+// разбор маршрута после логина и welcome (только лобби-режим)
+async function bootRoute() {
+  const route = parseRoute(location.hash);
+  const pending = takeRoutePromotion(route);
+
+  if (pending && (await promoteCold(pending))) {
+    return;
+  }
+
+  let roomInfo = route.kind === 'room' ? await fetchRoom(route.roomId) : null;
+  let decision = decideRouteAction(route, roomInfo, gamesById);
+
+  if (decision.action === 'wait') {
+    roomInfo = await waitRoomOnline(decision.roomId);
+
+    if (roomInfo === ROUTE_ABANDONED) {
+      return;
+    }
+
+    decision = decideRouteAction(route, roomInfo, gamesById);
+  }
+
+  switch (decision.action) {
+    case 'join':
+      await joinFromRoute(decision.gameId, decision.roomId);
+      break;
+
+    case 'quickPlay':
+      await quickPlay(decision.gameId);
+      break;
+
+    default:
+      if (route.kind === 'none') {
+        initLobby();
+      } else {
+        showLobby({ informer: decision.informer });
+      }
+  }
+}
+
+// hashchange: вне комнаты — новый маршрут бутстрапом; в комнате — ссылка на
+// неё же ничего не меняет, любой другой маршрут — перезагрузкой (матч не
+// разбирается без неё). replaceState (setRoute) это событие не порождает
+function handleHashChange() {
+  if (!routeBooted) {
+    return; // бутстрап ещё впереди и сам прочитает hash
+  }
+
+  if (!roomEntered) {
+    runRoute();
+
+    return;
+  }
+
+  const route = parseRoute(location.hash);
+
+  if (route.kind === 'room' && route.roomId === currentRoomId) {
+    return;
+  }
+
+  reloadPage(location.hash);
+}
+
+// сигнальный WS живёт постоянно и у хоста (офферы, heartbeat), и у гостя
+// (членство в комнате): при разрыве переподключаемся с бэкоффом, а welcome
+// возвращает комнату — хост reclaim_host'ом, гость повторным join_room с тем
+// же memberId
+function bindSignalingSession() {
+  let reconnectAttempt = 0;
+
+  signaling.publisher.on('close', () => {
+    const { baseDelay, maxDelay } = lobbyConfig.reconnect;
+    const delay = Math.min(maxDelay, baseDelay * 2 ** reconnectAttempt);
+
+    reconnectAttempt += 1;
+    setTimeout(() => signaling.connect(), delay);
+  });
+
+  signaling.publisher.on('welcome', () => {
+    reconnectAttempt = 0;
+
+    if (hostController) {
+      hostRegistration?.();
+    } else if (currentRoomId && !awaitingAnswer) {
+      signaling.joinRoom({
+        roomId: currentRoomId,
+        memberId,
+        token: lobbyAuthModel.getToken(),
+        caps: memberCaps(),
+      });
+    }
+  });
+
+  // смена хоста комнаты (host-migration этап 7.2): старый транспорт
+  // закрывается сразу, ждём host_changed. Хост этой вкладки сообщения не
+  // получает (его ждёт host_revoked)
+  signaling.publisher.on('host_migrating', msg => {
+    if (
+      !currentRoomId ||
+      msg.roomId !== currentRoomId ||
+      hostController ||
+      (roomEpoch !== null && msg.epoch <= roomEpoch)
+    ) {
+      return;
+    }
+
+    supervisor?.migrate();
+  });
+
+  // у комнаты новый хост (или прежний вернулся — reclaimed, та же эпоха):
+  // возобновление у него, cold — перезагрузка в комнату
+  signaling.publisher.on('host_changed', msg => {
+    if (
+      !currentRoomId ||
+      msg.roomId !== currentRoomId ||
+      hostController ||
+      (roomEpoch !== null && msg.epoch < roomEpoch)
+    ) {
+      return;
+    }
+
+    // ответы прежних эпох попыткам возобновления чужие
+    roomEpoch = msg.epoch;
+    supervisor?.hostChanged({ mode: msg.mode });
+  });
+
+  signaling.publisher.on('room_closed', msg => {
+    if (!currentRoomId || msg.roomId !== currentRoomId) {
+      return;
+    }
+
+    // быстрее, чем ждать падения WebRTC; причина важнее общего текста
+    // handleDisconnect
+    leaveRoomWith('The host left — the room is closed. Finding another room…');
+  });
+
+  signaling.publisher.on('error', handleSignalingError);
+
+  // голосование «Change host» (этап 10): окно у гостей, кроме инициатора;
+  // хосту мастер его не шлёт
+  signaling.publisher.on('host_vote', msg => {
+    if (!currentRoomId || msg.roomId !== currentRoomId || hostController) {
+      return;
+    }
+
+    hostVote = { roomId: msg.roomId, voteId: msg.voteId };
+    modules.vote?.openEngineVote({
+      name: CHANGE_HOST_VOTE,
+      title: changeHostTitle(msg.initiatorNick),
+      values: CHANGE_HOST_VALUES,
+      // часы мастера и вкладки расходятся — окно считается от прихода
+      deadline: Date.now() + msg.durationMs,
+    });
+  });
+
+  // своё голосование началось — как у голосований хоста
+  signaling.publisher.on('host_vote_started', msg => {
+    if (currentRoomId && msg.roomId === currentRoomId) {
+      modules.chat?.add(buildSystemMessage('VOTE_STARTED'));
+    }
+  });
+
+  // свой ответ в окне «Change host?» засчитан — как у голосований хоста
+  signaling.publisher.on('host_vote_accepted', msg => {
+    if (currentRoomId && msg.roomId === currentRoomId) {
+      modules.chat?.add(buildSystemMessage('VOTE_ACCEPTED'));
+    }
+  });
+
+  signaling.publisher.on('host_vote_result', msg => {
+    if (!currentRoomId || msg.roomId !== currentRoomId) {
+      return;
+    }
+
+    if (hostVote?.voteId === msg.voteId) {
+      hostVote = null;
+      modules.vote?.closeEngineVote(CHANGE_HOST_VOTE);
+    }
+
+    const { key, params } = resultMessage(msg);
+
+    modules.chat?.add(buildSystemMessage(key, params));
+  });
+}
+
+// открытое у гостя голосование «Change host» ({ roomId, voteId }) — ответ
+// окна уходит мастеру с этим voteId
+let hostVote = null;
+
+// показывает терминальную причину и возвращает в лобби (путь
+// handleDisconnect: закрытие транспорта → перезагрузка)
+function leaveRoomWith(message) {
+  socketMethods[PS_TECH_INFORM_DATA](message);
+  terminalInformShown = true;
+
+  if (supervisor) {
+    supervisor.close();
+  } else {
+    handleDisconnect();
+  }
+}
+
+// отказы мастера на сигнальные сообщения
+function handleSignalingError({ code, reason } = {}) {
+  switch (code) {
+    // мастер не начал голосование «Change host» (этап 10)
+    case 'voteRejected':
+    case 'noSuccessor':
+      modules.chat?.add(
+        buildSystemMessage(rejectionMessageKey({ code, reason })),
+      );
+      break;
+
+    // оффер ушёл в комнату, которой уже нет
+    case 'unknownRoom':
+      if (hostPromotion) {
+        abandonPromotion({ code, report: true });
+      } else if (awaitingAnswer) {
+        leaveRoomWith('Room no longer exists. Finding another room…');
+      }
+      break;
+
+    // токен истёк или отозван: вход заново
+    case 'invalidToken':
+      lobbyAuthModel.logout();
+
+      if (currentRoomId) {
+        leaveRoomWith('Your session has expired — please sign in again.');
+      }
+      break;
+
+    // с этого адреса уже хостится другая комната
+    case 'hostLimit':
+      if (hostController) {
+        // быстрая игра подняла бы комнату снова и упёрлась бы в тот же
+        // лимит — уход на главную, как при несостоявшемся старте
+        roomStartFailed = true;
+        leaveRoomWith(
+          'Another room is already hosted from your network — this room is ' +
+            'closed. Click to return to the lobby.',
+        );
+      }
+      break;
+
+    // прежнюю комнату вернуть нельзя (id занят или секрет не принят — dev-
+    // мастер без VIMP_ROOM_SECRET_KEY после рестарта): новая регистрация
+    case 'roomTaken':
+    case 'invalidRoomSecret':
+      if (hostController) {
+        hostRegistration?.({ fresh: true });
+      }
+      break;
+
+    // хоста комнаты уже сменили (host-migration этап 7.5): преемник
+    // опоздал — роль снимается; бывший хост вернулся после смены — он
+    // гость новой эпохи
+    case 'staleEpoch':
+      if (hostPromotion) {
+        abandonPromotion({ code, report: true });
+      } else if (hostController && hostRoom) {
+        demoteHost(hostRoom.epoch + 1);
+      }
+      break;
+
+    // promotionToken не принят (промоушен отменён, кандидат сменился)
+    case 'invalidPromotion':
+      if (hostPromotion) {
+        abandonPromotion({ code, report: true });
+      }
+      break;
   }
 }
 
@@ -2495,14 +4274,32 @@ if (isLobbyMode) {
     maybeInitLobby();
   });
 
+  bindSignalingSession();
+  bindStandbySignaling();
+  bindHostSignaling();
+
   lobbyAuthModel.publisher.on('authenticated', () => {
     authenticated = true;
     maybeInitLobby();
+
+    // повторный вход после logout: маршрут уже разобран, а логин-гейт
+    // спрятал лобби — вернуть его, если вкладка не в комнате
+    if (routeBooted && !roomEntered) {
+      lobby?.open();
+    }
   });
 
+  // OAuth-возврат: токены из query прочитаны — чистим только query, hash
+  // (маршрут #/<gameId>[/<roomId>]) остаётся
   if (lobbyAuthCtrl.init(window.location.search)) {
-    window.history.replaceState(null, '', window.location.pathname);
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + window.location.hash,
+    );
   }
+
+  window.addEventListener('hashchange', handleHashChange);
 
   signaling.connect();
 } else if (bootMode === 'solo') {

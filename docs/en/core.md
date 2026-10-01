@@ -412,8 +412,10 @@ must not drift from them.
   `players_json`, `on_fixed_step(ctx, dt)`, `on_contacts(ctx, pairs)`,
   `on_before_destroy`, `on_ai_tick(ctx, dt)`, `refresh_cached`,
   `build_snapshot_blocks(&mut self) -> (Vec<(String, Block)>, has_events)`,
-  `remove_players_and_shots`, `clear`, `serialize/deserialize` (mid-round
-  handoff — kept as groundwork), `rebuild_spatial_grid`; `on_map_loaded(ctx)`
+  `remove_players_and_shots`, `clear`, `serialize/deserialize` (the host
+  checkpoint: with `gameConfig.migration.midRound` the `serialize_state` dump
+  carries the match to a new host mid-round, see
+  [host.md](host.md#checkpoints)), `rebuild_spatial_grid`; `on_map_loaded(ctx)`
   (default `Ok(())`, see [Map bodies](#map-bodies)).
 - `SimCtx<'a>` — the game's access to engine facilities inside the tick
   callbacks; **not** generic over the game: `world` (Rapier), `cfg`

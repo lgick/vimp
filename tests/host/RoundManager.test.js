@@ -1083,3 +1083,110 @@ describe('RoundManager.createMap', () => {
     );
   });
 });
+
+// контрольная точка (host-migration этап 5): JS-сторона раунда и карты
+describe('RoundManager: контрольная точка', () => {
+  const MAP = {
+    setId: 'c1',
+    step: 10,
+    respawns: { red: [[1, 2, 0]] },
+  };
+
+  it('serialize/restoreRound переносят флаги раунда', () => {
+    const rm = makeRm();
+
+    rm.restoreRound({
+      isRoundEnding: true,
+      wipedTeamIds: [2],
+      removedPlayers: [{ gameId: '5', model: 'm' }],
+      startMapNumber: 3,
+    });
+
+    expect(rm.serialize()).toMatchObject({
+      isRoundEnding: true,
+      wipedTeamIds: [2],
+      removedPlayers: [{ gameId: '5', model: 'm' }],
+      startMapNumber: 3,
+    });
+  });
+
+  it('restoreMap берёт JSON карты из точки и не трогает ядро', () => {
+    const game = { createMap: vi.fn(), clear: vi.fn() };
+    const scripted = { createMap: vi.fn() };
+    const rm = makeRm({ game, scripted, maps: {} });
+
+    rm.restoreMap('gone', { mapData: MAP });
+
+    expect(rm.currentMap).toBe('gone');
+    expect(rm.baseMapData).toBe(MAP);
+    expect(rm.currentMapData.respawns).toEqual(MAP.respawns);
+    expect(scripted.createMap).toHaveBeenCalledTimes(1);
+    expect(game.createMap).not.toHaveBeenCalled();
+    expect(game.clear).not.toHaveBeenCalled();
+  });
+
+  it('подмена карты игрой (override) переносится и применяется', () => {
+    const scripted = { createMap: vi.fn() };
+    const override = { ...MAP, scale: 1, respawns: { red: [[9, 9, 0]] } };
+    const rm = makeRm({ scripted, maps: { m1: MAP } });
+
+    rm.overrideMapData(override);
+    expect(rm.serialize().override).toBe(override);
+
+    const next = makeRm({ scripted, maps: { m1: MAP } });
+
+    next.restoreMap('m1', { mapData: MAP, override });
+
+    expect(next.currentMapData).toBe(override);
+    expect(scripted.createMap).toHaveBeenLastCalledWith(
+      expect.objectContaining({ respawns: { red: [[9, 9, 0]] } }),
+    );
+  });
+
+  it('отложенная смена карты объявляет цель таймеру', () => {
+    const timerManager = { startMapChangeDelay: vi.fn() };
+    const rm = makeRm({ timerManager });
+
+    rm.scheduleMapChange('dust', 700);
+
+    expect(timerManager.startMapChangeDelay).toHaveBeenCalledWith(
+      expect.any(Function),
+      { targetMap: 'dust', duration: 700 },
+    );
+  });
+});
+
+describe('RoundManager.onRoundBoundary (host-migration этап 8d)', () => {
+  const makeBoundaryRm = () => {
+    const rm = makeRm({
+      timerManager: { stopRoundTimer: vi.fn(), startRoundTimer: vi.fn() },
+    });
+
+    rm._startRound = vi.fn();
+
+    return rm;
+  };
+
+  it('колбэк срабатывает после старта раунда, один раз; раунд не придерживается', () => {
+    const rm = makeBoundaryRm();
+    const order = [];
+
+    rm._startRound.mockImplementation(() => order.push('start'));
+    rm.onRoundBoundary(() => order.push('boundary'));
+    rm.initiateNewRound();
+    rm.initiateNewRound();
+
+    expect(order).toEqual(['start', 'boundary', 'start']);
+  });
+
+  it('cancelRoundBoundary снимает колбэк', () => {
+    const rm = makeBoundaryRm();
+    const cb = vi.fn();
+
+    rm.onRoundBoundary(cb);
+    rm.cancelRoundBoundary();
+    rm.initiateNewRound();
+
+    expect(cb).not.toHaveBeenCalled();
+  });
+});

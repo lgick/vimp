@@ -6,14 +6,18 @@
 // сюда приходят уже разобранные пакеты клиентов, обратно уходят wire-кадры
 // (JSON-строки и бинарные ArrayBuffer'ы через Transferable).
 //
-// Сам хендшейк клиента (порты 0–8) живёт в изоморфной ./PortMachine.js —
+// Сам хендшейк клиента (порты 0–10) живёт в изоморфной ./PortMachine.js —
 // этот файл только адаптер: postMessage-транспорт, лобби-стратегия
 // идентичности и свитч сообщений главного потока.
 
 import authClientConfig from '../config/authClient.js';
 import lobbyConfig from '../config/lobby.js';
 import wsports from '../config/wsports.js';
-import { createHostRuntime } from '../lib/createHostRuntime.js';
+import { encodeCheckpoint, decodeCheckpoint } from '../lib/checkpointCodec.js';
+import {
+  createHostRuntime,
+  preloadHostRuntime,
+} from '../lib/createHostRuntime.js';
 import PortMachine from './PortMachine.js';
 import { createTokenIdentity } from './identity.js';
 
@@ -68,22 +72,76 @@ function makeWorkerSocket(socketId) {
   };
 }
 
+// участники эстафеты внутри вкладки: v3 — плоский humans, v4 — формат
+// контрольной точки (participants.humans)
+function handoffHumans(handoff) {
+  return handoff.participants?.humans ?? handoff.humans ?? [];
+}
+
+// готовая контрольная точка уходит главному потоку списком переноса — без
+// копии: 2 точки в секунду не должны стоить сборщику мусора лишних буферов.
+// Буфер кодека принадлежит результату целиком (не view на память wasm)
+function postCheckpoint({ meta, core, final }) {
+  encodeCheckpoint(meta, core)
+    .then(bytes => {
+      const owned =
+        bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+          ? bytes
+          : bytes.slice();
+
+      self.postMessage(
+        {
+          type: 'checkpoint',
+          checkpointId: meta.checkpointId,
+          seq: meta.seq,
+          createdAt: meta.createdAt,
+          final,
+          mode: meta.mode,
+          bytes: owned,
+        },
+        [owned.buffer],
+      );
+    })
+    .catch(e => {
+      self.postMessage({
+        type: 'diagnostic',
+        kind: 'checkpoint',
+        message: e && e.message ? e.message : String(e),
+        stack: e && typeof e.stack === 'string' ? e.stack : null,
+      });
+    });
+}
+
 // инициализация хоста: HostPlugin игры (динамический import по
 // GameManifest, Этап 6.4), ядро, мета, игровой цикл. handoff — состояние
 // эстафеты Worker'ов (Этап 5.2): комната восстанавливается вместо
-// холодного старта, порт-машины клиентов поднимутся минуя хендшейк
-async function onInit(room, handoff = null) {
+// холодного старта, порт-машины клиентов поднимутся минуя хендшейк.
+// checkpoint — сжатая контрольная точка (host-migration этап 5): матч
+// поднимается на паузе, люди ждут RESUME, старт — start_after_restore
+async function onInit(room, handoff = null, checkpointBytes = null, seqFloor) {
+  const checkpoint = checkpointBytes
+    ? await decodeCheckpoint(checkpointBytes)
+    : null;
+
   // общая с headless-runner'ом сборка (lib/createHostRuntime.js) — чтобы
   // отладочный прогон крутил ровно тот код, что и прод
   const runtime = await createHostRuntime(room, {
     hostOptions: {
+      // map_changed остаётся для главного потока до host-migration этапа 2
       onMapChange: mapName =>
         self.postMessage({ type: 'map_changed', mapName }),
-      handoff,
+      onLobbyInfoChange: info => self.postMessage({ type: 'lobby_info', info }),
+      handoff: checkpoint ? null : handoff,
+      checkpoint,
+      seqFloor: Number(seqFloor) || 0,
     },
   });
 
   host = runtime.host;
+  host.setCheckpointSink(postCheckpoint);
+  // здоровье хоста (host-migration этап 9a): главный поток решает, не пора
+  // ли отдать роль
+  host.setHealthSink(health => self.postMessage({ type: 'health', health }));
 
   // в лобби личность игрока — claim identity-токена, проверенного по JWKS
   // мастера (Этап B3); свободного ввода имени в форме игры нет
@@ -97,21 +155,34 @@ async function onInit(room, handoff = null) {
       jwksUrl: lobbyConfig.auth.jwksUrl,
       issuer: authClientConfig.issuer,
     }),
+    // возобновление сессии (host-migration этап 4) — только в лобби:
+    // оборвавшийся гость держит место resumeGraceMs и возвращается в него
+    resumeGraceMs: runtime.game.resumeGraceMs,
+    resumeRequestTimeoutMs: runtime.game.resumeRequestTimeoutMs,
   });
 
   const seed = runtime.seed;
 
-  if (handoff) {
-    handoffClients = new Map(handoff.humans.map(h => [h.socketId, h.gameId]));
+  if (handoff && !checkpoint) {
+    handoffClients = new Map(
+      handoffHumans(handoff).map(h => [h.socketId, h.gameId]),
+    );
   }
 
   // мастеру нужна фактическая карта комнаты (после эстафеты — восстановленная)
-  self.postMessage({ type: 'ready', mapName: host.currentMap, seed });
+  self.postMessage({
+    type: 'ready',
+    mapName: host.currentMap,
+    lobbyInfo: host.lobbyInfo,
+    seed,
+  });
 }
 
 // новое подключение клиента: участник из handoff-меты уже восстановлен в
 // HostGame — его порт-машина поднимается сразу в игровом состоянии
-function onConnect(socketId) {
+// resume — переподключение гостя (host-migration этап 4): порт-машина ждёт
+// RESUME_REQUEST вместо хендшейка
+function onConnect(socketId, resume = false) {
   if (!portMachine) {
     return;
   }
@@ -124,7 +195,7 @@ function onConnect(socketId) {
     return;
   }
 
-  portMachine.connect(socketId);
+  portMachine.connect(socketId, { resume });
 }
 
 // отладочные действия хоста (этап 6): запись живого матча в формат сценария
@@ -172,7 +243,7 @@ self.onmessage = async event => {
   switch (msg.type) {
     case 'init':
       try {
-        await onInit(msg.room, msg.handoff);
+        await onInit(msg.room, msg.handoff, msg.checkpoint, msg.seqFloor);
       } catch (e) {
         // сбой загрузки WASM/конфига/handoff-меты — сообщить главному
         // потоку, не виснуть (при эстафете тот возобновит старый Worker)
@@ -186,8 +257,29 @@ self.onmessage = async event => {
       }
       break;
 
+    // прогрев Worker'а преемника (host-migration этап 6): плагин и wasm
+    // готовы, матча нет — его поднимет init с контрольной точкой (этап 7)
+    case 'preload':
+      try {
+        const { wasmCompiled } = await preloadHostRuntime(msg.room);
+
+        self.postMessage({
+          type: 'preloaded',
+          gameId: msg.room?.game?.id ?? null,
+          gameVersion: msg.room?.game?.version ?? null,
+          wasmCompiled,
+        });
+      } catch (e) {
+        self.postMessage({
+          type: 'error',
+          message: e && e.message ? e.message : String(e),
+          stack: e && typeof e.stack === 'string' ? e.stack : null,
+        });
+      }
+      break;
+
     case 'connect':
-      onConnect(msg.socketId);
+      onConnect(msg.socketId, msg.resume === true);
       break;
 
     case 'message':
@@ -202,10 +294,20 @@ self.onmessage = async event => {
       host?.updateMaps(msg.maps);
       break;
 
-    // мастер подтвердил регистрацию комнаты (кодревью №1) — hostId+секрет
-    // нужны PlayerDataSync для атрибуции последующих rank/state-flush
+    // мастер подтвердил регистрацию комнаты — roomId+секрет эпохи нужны
+    // PlayerDataSync для атрибуции последующих rank/state-flush
+    case 'set_room':
+      host?.setRoom({
+        roomId: msg.roomId,
+        roomSecret: msg.roomSecret,
+        epoch: msg.epoch,
+      });
+      break;
+
+    // имя того же сообщения у главного потока до host-migration этапа 2:
+    // страница, загруженная до деплоя, поднимает Worker по свежему манифесту
     case 'set_host_id':
-      host?.setHostId(msg.hostId, msg.hostSecret);
+      host?.setRoom({ roomId: msg.hostId, roomSecret: msg.hostSecret });
       break;
 
     // отладочный контур (этап 6 плана plan/done/ai-debug): единственный вход в
@@ -233,6 +335,58 @@ self.onmessage = async event => {
     case 'handoff_complete':
       handoffClients = null;
       host?.completeHandoff(new Set(portMachine ? portMachine.socketIds : []));
+      break;
+
+    // контрольные точки (host-migration этап 5)
+
+    // периодические точки: снимаются на границе кадра не чаще intervalMs
+    case 'checkpoint_start':
+      host?.startCheckpoints(msg.intervalMs);
+      break;
+
+    case 'checkpoint_stop':
+      host?.stopCheckpoints();
+      break;
+
+    // одна точка на ближайшей границе кадра (final — финальная перед
+    // плановой передачей)
+    case 'checkpoint_request':
+      host?.requestCheckpoint({ final: msg.final === true });
+      break;
+
+    // матч поднят из точки: запустить цикл и таймеры. waitForResume —
+    // промоушен преемника (этап 7.4): старт, когда вернулись все люди точки
+    // или истёк resumeWaitMs; не вернувшимся — ожидание resumeGraceMs.
+    // reason (этап 9) — причина передачи для сообщения игрокам; старый
+    // главный поток её не шлёт
+    case 'start_after_restore':
+      if (msg.waitForResume === true) {
+        host?.startAfterResume(ids => portMachine?.startGraceFor(ids), {
+          reason: typeof msg.reason === 'string' ? msg.reason : null,
+        });
+      } else {
+        host?.startAfterRestore();
+      }
+      break;
+
+    // плановая передача хоста (этап 8d): дождаться границы раунда (у игры
+    // с migration.midRound — ответ сразу)
+    case 'round_boundary_wait':
+      host?.awaitRoundBoundary(() =>
+        self.postMessage({ type: 'round_boundary' }),
+      );
+      break;
+
+    case 'round_boundary_cancel':
+      host?.cancelRoundBoundary();
+      break;
+
+    case 'freeze':
+      host?.freeze();
+      break;
+
+    case 'unfreeze':
+      host?.unfreeze();
       break;
   }
 };

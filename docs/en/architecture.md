@@ -2,10 +2,13 @@
 
 VIMP is a **P2P** engine for real-time multiplayer 2D games. **The host is
 authoritative**: all physics (Rapier 2D in the Rust core, WASM) and game
-rules are computed in the Web Worker of the room creator's tab; clients
-render the world (PixiJS) and mask network latency with interpolation and
-prediction. The master server (Node.js) carries no game logic: lobby, WebRTC
-signaling, map catalog, server rating (social anti-cheat, `/like`·`/unlike`).
+rules are computed in a Web Worker of the current host's tab; clients render
+the world (PixiJS) and mask network latency with interpolation and
+prediction. The host is **dynamic**: the room belongs to its players, not to
+the creator's tab — the host role migrates to another member (planned or
+after a crash) under the same `roomId`. The master server (Node.js) carries
+no game logic: lobby, WebRTC signaling, map catalog, the room registry and
+migration arbitration.
 
 ```
 ┌──────────────────┐  signaling WS (SDP/ICE, ping, vote)   ┌──────────────────┐
@@ -16,7 +19,7 @@ signaling, map catalog, server rating (social anti-cheat, `/like`·`/unlike`).
 └──────────────────┘             │ heartbeat               │ prediction       │
                                  │                         └────────┬─────────┘
                         ┌────────┴─────────┐   WebRTC DataChannels  │
-                        │    Host tab      │  meta (reliable): JSON │
+                        │ Host, epoch N    │  meta (reliable): JSON │
                         │ Worker: core+meta│  [port, payload] + ev- │
                         │ simulation ~120Hz│  ent frames             │
                         │ snapshots 30/sec │ ◄──────────────────────┘
@@ -98,6 +101,12 @@ lets the Worker be replaced without dropping P2P connections — the basis for
 round boundary, carrying its participants and score along.
 See [host.md](host.md), the "Worker handoff" section, for details.
 
+The room does not belong to the host tab either: in the lobby mode the host
+streams **checkpoints** (core dump + meta, ~2/s) to a successor the master
+picks, and when the host is lost the successor restores the match and takes
+the room over under the same `roomId` with the next **epoch** — **host
+migration**. See [host.md](host.md#host-migration).
+
 ```
 Host tab
 ├─ Main thread (client + router)
@@ -158,8 +167,17 @@ lobby → room selection → signaling (offer/answer/ICE) → meta+state channel
   → removeUser on disconnect (or a kick: idle / RTT; the host player is never kicked)
 ```
 
-The host leaving kills the room (no host migration): clients return to the
-lobby. Protocol and port details — [network.md](network.md).
+The host leaving does not kill the room (lobby mode). Two paths lead to the
+same switch — the successor takes the room with the next epoch, the guests
+reconnect to it and resume their places (`RESUME`) after a 1–3 s pause:
+
+| Path      | Starts with                                                                                                    | The successor restores                                                                                              |
+| --------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| emergency | the master detects the host lost (WS closed, no heartbeat, `host_unreachable`, `host_leaving` from `pagehide`) | the latest periodic checkpoint — the world rolls back ≤ ~0.5 s; none fresh → a cold restart on another member       |
+| planned   | the host's `handoff_begin` ("Leave server", "Hand over host", an auto-trigger, a passed `/changehost` vote)    | the frozen host's final checkpoint — the same tick, no rollback; an aborted one unfreezes the match on the old host |
+
+Protocol and port details — [network.md](network.md#host-migration); the
+master's side — [master.md](master.md#host-migration).
 
 ## The client side
 
@@ -220,6 +238,12 @@ diverged independently.
 - **Motion replica parity**: authoritative motion and the client prediction replica must share the tick formulas — this is a game-repository concern (e.g. `vimp-tanks`'s `core/src/motion.rs` + its cargo `client::predictor::parity` tests); the engine only provides the generic `Predictor<G>`/interpolation machinery.
 - **A single numeric id space** for humans and scripted participants (bots); distinguished via `isScripted`/`isNetworked`. The core operates on numeric ids, meta keys by string — the conversion happens at the `GameCoreAdapter` boundary.
 - Every send to a client goes only through `SocketManager`.
+- **A room lives while it has people** (lobby mode): a host change keeps the
+  `roomId` and bumps the `epoch`; every migration message carries the
+  epoch, and a stale one is dropped. The master never holds game data — the
+  checkpoints travel host → successor over P2P. The `/changehost` vote is
+  counted by the master, so the host cannot block it. The dedicated server
+  and the standalone SDK have one host and no migration.
 
 ---
 

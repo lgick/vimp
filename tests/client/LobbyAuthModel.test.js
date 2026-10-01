@@ -259,6 +259,18 @@ describe('LobbyAuthModel: loginUrl', () => {
       )}`,
     );
   });
+
+  // host-migration, этап 3: ссылка на комнату переживает OAuth-логин
+  it('сохраняет hash маршрута в returnUrl', () => {
+    window.history.replaceState(null, '', '/#/tanks/k7m2qx3a');
+
+    const url = new URL(model.loginUrl('github'));
+
+    expect(url.searchParams.get('returnUrl')).toBe(
+      `${window.location.origin}/#/tanks/k7m2qx3a`,
+    );
+    window.history.replaceState(null, '', '/');
+  });
 });
 
 // роль из payload (master-game-registry, этап 4): подсказка интерфейсу —

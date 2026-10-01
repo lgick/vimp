@@ -151,3 +151,73 @@ describe('AbstractTimer', () => {
     });
   });
 });
+
+// контрольная точка хоста (host-migration этап 5): остаток и пауза
+class PausableTimer extends TestTimer {
+  left(key) {
+    return this._timeLeft(key);
+  }
+  pause(filter) {
+    this._pauseTimers(filter);
+  }
+  resume(filter) {
+    this._resumeTimers(filter);
+  }
+}
+
+describe('AbstractTimer: остаток и пауза', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('_timeLeft отдаёт остаток setTimeout и null для интервала', () => {
+    const t = new PausableTimer();
+
+    t.start('a', () => {}, 1000);
+    t.start('i', () => {}, 1000, true);
+    vi.advanceTimersByTime(300);
+
+    expect(t.left('a')).toBe(700);
+    expect(t.left('i')).toBeNull();
+    expect(t.left('none')).toBeNull();
+  });
+
+  it('на паузе таймер не срабатывает, остаток замирает, ключ живёт', () => {
+    const t = new PausableTimer();
+    const cb = vi.fn();
+
+    t.start('a', cb, 1000);
+    vi.advanceTimersByTime(400);
+    t.pause();
+    vi.advanceTimersByTime(5000);
+
+    expect(cb).not.toHaveBeenCalled();
+    expect(t.has('a')).toBe(true);
+    expect(t.left('a')).toBe(600);
+
+    t.resume();
+    vi.advanceTimersByTime(599);
+    expect(cb).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(t.has('a')).toBe(false);
+  });
+
+  it('фильтр паузы оставляет остальные таймеры идти', () => {
+    const t = new PausableTimer();
+    const a = vi.fn();
+    const b = vi.fn();
+
+    t.start('a', a, 100);
+    t.start('b', b, 100);
+    t.pause(key => key === 'a');
+    vi.advanceTimersByTime(100);
+
+    expect(a).not.toHaveBeenCalled();
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+});

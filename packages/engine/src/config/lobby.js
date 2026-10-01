@@ -5,6 +5,35 @@ export default {
   // REST-эндпоинт мастера со списком серверов (GET /servers)
   serversUrl: '/servers',
 
+  // комната по прямому id (GET /rooms/:roomId, host-migration этап 3):
+  // прямая ссылка #/<gameId>/<roomId> проверяется до входа
+  roomUrl: roomId => `/rooms/${encodeURIComponent(roomId)}`,
+
+  // быстрая игра по ссылке #/<gameId>: подходящей комнаты нет — создать
+  // свою с настройками формы по умолчанию (false — показать лобби этой игры);
+  // createDelayMinMs…createDelayMaxMs — случайная пауза перед созданием и
+  // повторный GET /servers (host-migration этап 7): гости закрытой комнаты
+  // уходят в быструю игру разом, и без паузы каждый создал бы свою
+  quickPlay: {
+    autoCreate: true,
+    createDelayMinMs: 500,
+    createDelayMaxMs: 2000,
+  },
+
+  // меню комнаты внутри матча (только лобби-режим, roomMenu.pug)
+  roomMenu: {
+    elems: {
+      // кнопка меню живёт в панели, справа от таблицы
+      panelId: 'panel',
+      menuId: 'room-menu',
+      toggleId: 'room-menu-toggle',
+      listId: 'room-menu-list',
+      leaveId: 'room-menu-leave',
+      handoverId: 'room-menu-handover',
+      statusId: 'room-menu-status',
+    },
+  },
+
   // каталог игр мастера (Этап 6.3, GameCatalog): roomDefaults формы создания
   // комнаты и ClientPlugin берутся отсюда вместо статической композиции
   gamesManifestUrl: '/games/manifest.json',
@@ -31,6 +60,10 @@ export default {
   // (деплой игры мог обновиться независимо от деплоя движка)
   game: {
     manifestUrl: gameId => `/games/${gameId}/manifest.json`,
+    // манифест конкретной версии: прогрев преемника (host-migration этап 6)
+    // поднимает ту версию игры, что крутится в комнате
+    versionManifestUrl: (gameId, version) =>
+      `/games/${gameId}/${encodeURIComponent(version)}/manifest.json`,
   },
 
   // манифест worker-бандла мастера (Этап 5.2): Worker комнаты создаётся по
@@ -141,6 +174,86 @@ export default {
     maxDelay: 30000,
   },
 
+  // установка P2P-соединения с хостом (host-migration этап 4): каналы не
+  // открылись за connectTimeoutMs — попытка считается провалившейся;
+  // offerRetryMs — пауза перед повтором оффера, отклонённого мастером на
+  // время плановой передачи хоста (error migrating, этап 8)
+  webrtc: {
+    connectTimeoutMs: 10000,
+    offerRetryMs: 1000,
+  },
+
+  // миграция хоста (host-migration этап 6; значения — замеры этапа 0):
+  // checkpointIntervalMs — период контрольных точек хоста для беты (поток
+  // ≤ ~150 КБ/с, serialize ≤ 25 % бюджета тика); standbyChunkBytes — кусок
+  // точки в канале standby (≤ минимального maxMessageSize с запасом);
+  // standbyHighWaterBytes — bufferedAmount, выше которого периодическая
+  // точка пропускается; standbyStatusIntervalMs — как часто бета сообщает
+  // мастеру свою последнюю точку; finalWaitMs — сколько бета при плановой
+  // передаче (этап 8) ждёт финальную точку замороженного хоста, прежде чем
+  // взять последнюю периодическую; handoffSlowMs — нет handoff_go за это
+  // время — «медленная связь» (передача продолжается); handoffDeadlineMs —
+  // общий дедлайн плановой передачи от handoff_begin (master:room:
+  // handoffTimeoutMs + запас на дорогу ответа мастера); deferMaxMs — потолок
+  // ожидания границы раунда передачей в игре без migration.midRound (этап 8d)
+  migration: {
+    checkpointIntervalMs: 500,
+    standbyChunkBytes: 65536,
+    standbyHighWaterBytes: 1024 * 1024,
+    standbyStatusIntervalMs: 5000,
+    finalWaitMs: 3000,
+    handoffSlowMs: 3000,
+    handoffDeadlineMs: 10000,
+    deferMaxMs: 30000,
+
+    // автотриггеры передачи (этап 9b, HostHealthPolicy; сэмпл — сообщение
+    // health Worker'а раз в ~1 с): мягкая перегрузка — среднее tickRate за
+    // overloadWindowMs ниже overloadTickRate (передача ждёт границы раунда);
+    // жёсткая — среднее за criticalWindowMs ниже criticalTickRate или
+    // lostMs > 0 у lostWindows сэмплов подряд (сразу); отложенная
+    // отменяется, когда все сэмплы за recoverWindowMs выше recoverTickRate
+    // (гистерезис); hiddenHandoffMs — скрытая вкладка хоста (этап 0:
+    // троттлинг Worker'а за 1–3 с); autoHandoffCooldownMs — между
+    // авто-передачами вкладки; minHostTenureMs — не отдавать роль, только
+    // что её получив; enabled — общий выключатель
+    auto: {
+      enabled: true,
+      overloadTickRate: 100,
+      overloadWindowMs: 5000,
+      criticalTickRate: 60,
+      criticalWindowMs: 3000,
+      lostWindows: 3,
+      recoverTickRate: 110,
+      recoverWindowMs: 5000,
+      hiddenHandoffMs: 1500,
+      autoHandoffCooldownMs: 90000,
+      minHostTenureMs: 30000,
+      // этап 9c: host_health мастеру (правило сетевого лага) не чаще
+      // hostHealthIntervalMs; гость шлёт свой FPS рендера (caps.fps) раз в
+      // fpsReportIntervalMs. Просьбу мастера request_handoff хост
+      // выполняет, только если enabled
+      hostHealthIntervalMs: 2000,
+      fpsReportIntervalMs: 10000,
+    },
+  },
+
+  // супервизор сессии гостя (host-migration этап 4, SessionSupervisor):
+  // reconnectWindowMs — сколько после обрыва транспорта пытаться вернуться в
+  // матч (повторы с бэкоффом reconnectBaseDelayMs…reconnectMaxDelayMs);
+  // hostSilenceMs — молчание хоста в игре, после которого транспорт
+  // считается мёртвым (кадры идут ~30/с, PING — раз в 3 с);
+  // migrationWaitMs — сколько после host_migrating ждать host_changed, затем
+  // комната считается закрытой (быструю игру); migrationPollMs — период
+  // повторного GET /rooms/:roomId, пока комната по ссылке в 'migrating'
+  session: {
+    reconnectWindowMs: 15000,
+    reconnectBaseDelayMs: 500,
+    reconnectMaxDelayMs: 4000,
+    hostSilenceMs: 3000,
+    migrationWaitMs: 40000,
+    migrationPollMs: 1000,
+  },
+
   // приёмник выгрузок отладочного контура (этап 6 плана plan/done/ai-debug):
   // маршрут поднимается мастером только в dev, в проде вернёт 404
   debugReportUrl: '/debug/report',
@@ -163,7 +276,6 @@ export default {
     searchId: 'lobby-search',
     moreId: 'lobby-more',
     emptyId: 'lobby-empty',
-    nameId: 'lobby-name',
     hostBtnId: 'lobby-host',
     // строка отказа под кнопкой: загрузка ClientPlugin выбранной игры может
     // не удаться, и лобби обязано остаться рабочим
@@ -327,8 +439,6 @@ export default {
   // раунда-карты/огонь по своим/карта по умолчанию — из roomDefaults
   // манифеста активной игры (Этап 6.3), не бандлятся здесь
   create: {
-    defaultName: 'My Server',
-
     // каталог платформы пуст: реестр ещё ничего не одобрил либо модератор
     // снял с раздачи последнюю игру. Комнату создавать не на чем, но лобби
     // живо — и текст называет то единственное, что выводит его из этого

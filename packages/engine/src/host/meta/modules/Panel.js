@@ -172,6 +172,36 @@ class Panel {
     return panelData;
   }
 
+  // значения панели участников для контрольной точки (host-migration
+  // этап 5): { [gameId]: values }. Несостоявшиеся изменения не переносятся —
+  // возобновлённый клиент получает панель целиком
+  serialize() {
+    return Object.fromEntries(
+      Object.entries(this._data).map(([gameId, user]) => [
+        gameId,
+        { ...user.values },
+      ]),
+    );
+  }
+
+  // применяет значения из точки к уже заведённым (addUser) участникам;
+  // поля вне схемы панели отбрасываются
+  restore(state = {}) {
+    for (const [gameId, values] of Object.entries(state)) {
+      const user = this._data[gameId];
+
+      if (!user) {
+        continue;
+      }
+
+      for (const [param, value] of Object.entries(values ?? {})) {
+        if (Object.hasOwn(this._fields, param)) {
+          user.values[param] = value;
+        }
+      }
+    }
+  }
+
   // возвращает пустые данные (ключи без значений)
   getEmptyPanel() {
     return [`t:${this._lastSentRoundTime}`].concat(this._emptyPanel);

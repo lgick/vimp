@@ -160,3 +160,22 @@ describe('gameConfigView: согласованность объявленног�
     ).toThrow(/noSpectators requires exactly one team, got 2 \(red, blue\)/);
   });
 });
+
+// host-migration этап 5: игра без поля мигрирует мягко
+describe('gameConfigView: migration', () => {
+  it('без поля midRound выключен', () => {
+    expect(createGameConfigView(minimal, 'mini').migration).toEqual({
+      midRound: false,
+    });
+  });
+
+  it('объявленное игрой значение не перетирается', () => {
+    const view = createGameConfigView(
+      { ...minimal, migration: { midRound: true } },
+      'mini',
+    );
+
+    expect(view.migration.midRound).toBe(true);
+    expect(KNOWN_GAME_CONFIG_PATHS).toContain('migration.midRound');
+  });
+});

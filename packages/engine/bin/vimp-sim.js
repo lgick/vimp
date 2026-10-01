@@ -26,6 +26,11 @@ const USAGE = `Usage: vimp-sim [options]
   --out <dir>        report root (default: .debug)
   --no-write         print the report to stdout instead of writing files
   --determinism      run the scenario twice and compare the frame streams
+  --checkpoint-every <ms>
+                     every <ms> of match time take a host checkpoint, raise a
+                     NEW host from it and resume every client (RESUME) —
+                     checks the game survives a host change; overrides the
+                     scenario's checkpointEvery
   --help
 `;
 
@@ -70,6 +75,18 @@ async function main(argv) {
   const scenario = args.scenario
     ? JSON.parse(await readFile(args.scenario, 'utf8'))
     : builtinScenario(plugin);
+
+  if (args['checkpoint-every'] !== undefined) {
+    const every = Number(args['checkpoint-every']);
+
+    if (!Number.isFinite(every) || every <= 0) {
+      throw new UsageError(
+        `option '--checkpoint-every' needs a positive number of ms\n\n${USAGE}`,
+      );
+    }
+
+    scenario.checkpointEvery = every;
+  }
   // хеши потока кадров собираются только под --determinism: их единственный
   // потребитель — сравнение двух прогонов, а объём линеен по длине матча
   const captureFrames = args.determinism === true;
@@ -132,6 +149,7 @@ function parseArgs(argv) {
       case '--game':
       case '--core':
       case '--out':
+      case '--checkpoint-every':
         i += 1;
 
         // «--game» последним аргументом (или перед следующим флагом) тихо

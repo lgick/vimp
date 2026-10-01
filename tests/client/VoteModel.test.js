@@ -223,3 +223,162 @@ describe('VoteModel.createMenu', () => {
     expect(vote.data.list).toEqual(['Сменить карту', 'Кикнуть']);
   });
 });
+
+// голосование движка «Change host?» (host-migration этап 10): ведёт мастер,
+// окно живёт до deadline и не затирает чужое голосование
+describe('VoteModel: голосование движка @changeHost', () => {
+  let now;
+
+  const makeTimedModel = () => {
+    now = 1000;
+
+    const model = makeModel();
+
+    model._now = () => now;
+
+    return model;
+  };
+
+  const changeHost = (deadline = 16000) => ({
+    name: '@changeHost',
+    title: 'Change host? (started by user3)',
+    values: ['Yes', 'No'],
+    deadline,
+  });
+
+  const votes = events => events.filter(e => e.type === 'vote');
+
+  it('открывается сразу на остаток времени; ответ уходит с именем @changeHost', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    expect(model.createEngineVote(changeHost())).toBe(true);
+    expect(events).toContainEqual({
+      type: 'mode',
+      data: { name: 'vote', status: 'opened' },
+    });
+    expect(votes(events)[0].data).toMatchObject({
+      title: 'Change host? (started by user3)',
+      list: ['Yes', 'No'],
+      time: 15000,
+    });
+
+    model.update(digit(1));
+
+    expect(events.at(-1)).toEqual({
+      type: 'socket',
+      data: ['@changeHost', 'Yes'],
+    });
+  });
+
+  it('открыто голосование хоста — ждёт в очереди и открывается на остаток', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createWithTemplate({ name: 'kick', params: ['p1'] });
+    expect(model.createEngineVote(changeHost())).toBe(false);
+    expect(votes(events)).toHaveLength(1);
+
+    now = 5000;
+    model.update(digit(1)); // ответ хосту
+
+    const sent = events.filter(e => e.type === 'socket');
+
+    expect(sent).toEqual([{ type: 'socket', data: ['kick', 'yes'] }]);
+    expect(votes(events).at(-1).data).toMatchObject({
+      title: 'Change host? (started by user3)',
+      time: 11000,
+    });
+  });
+
+  it('время в очереди вышло — окно не открывается', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createWithTemplate({ name: 'kick', params: ['p1'] });
+    model.createEngineVote(changeHost());
+
+    now = 16000;
+    model.complete();
+
+    expect(votes(events)).toHaveLength(1);
+  });
+
+  it('голосование хоста ждёт закрытия «Change host?»', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createEngineVote(changeHost());
+    expect(model.createWithTemplate({ name: 'kick', params: ['p1'] })).toBe(
+      false,
+    );
+    expect(votes(events)).toHaveLength(1);
+
+    model.update(digit(2)); // 'No'
+
+    expect(votes(events).at(-1).data).toMatchObject({
+      title: 'Кикнуть p1?',
+      time: 10000,
+    });
+  });
+
+  it('closeEngineVote закрывает открытое окно и снимает ждущее', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createEngineVote(changeHost());
+    model.closeEngineVote('@changeHost');
+    expect(events.at(-1)).toEqual({
+      type: 'mode',
+      data: { name: 'vote', status: 'closed' },
+    });
+
+    model.createWithTemplate({ name: 'kick', params: ['p1'] });
+    model.createEngineVote(changeHost());
+    model.closeEngineVote('@changeHost');
+    model.complete();
+
+    expect(votes(events)).toHaveLength(2);
+  });
+
+  it('меню по M открывается поверх и возвращает «Change host?» следом', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createEngineVote(changeHost());
+    model.createMenu();
+    expect(votes(events).at(-1).data.title).toBe('Menu');
+
+    now = 6000;
+    model.update(digit(0)); // выход из меню
+
+    expect(votes(events).at(-1).data).toMatchObject({
+      title: 'Change host? (started by user3)',
+      time: 10000,
+    });
+  });
+
+  it('removeHostVotes: голосования хоста сняты, «Change host?» осталось', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createEngineVote(changeHost());
+    model.createWithTemplate({ name: 'kick', params: ['p1'] });
+    model.removeHostVotes();
+
+    expect(events.filter(e => e.type === 'mode')).toHaveLength(1);
+
+    model.update(digit(0));
+
+    expect(votes(events)).toHaveLength(1);
+  });
+
+  it('меню голосований не получает пункта смены хоста', () => {
+    const model = makeTimedModel();
+    const events = collect(model);
+
+    model.createMenu();
+
+    expect(votes(events)[0].data.list).toEqual(['Сменить карту', 'Кикнуть']);
+  });
+});

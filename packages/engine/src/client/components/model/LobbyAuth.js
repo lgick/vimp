@@ -60,9 +60,12 @@ export default class LobbyAuthModel {
   }
 
   // URL редиректа на старт OAuth-потока auth-сервиса; вызывающий должен сам
-  // сделать переход (window.location.href) — модель не трогает location
+  // сделать переход (window.location.href) — модель не трогает location.
+  // hash (#/<gameId>[/<roomId>]) едет в returnUrl: после логина игрок
+  // попадает туда, куда вёл открытый URL, а не в общее лобби
   loginUrl(provider) {
-    const returnUrl = `${window.location.origin}${window.location.pathname}`;
+    const { origin, pathname, hash } = window.location;
+    const returnUrl = `${origin}${pathname}${hash}`;
 
     return `${this._config.serviceUrl}/oauth/${provider}/start?returnUrl=${encodeURIComponent(returnUrl)}`;
   }

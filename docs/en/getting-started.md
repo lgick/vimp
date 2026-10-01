@@ -152,6 +152,13 @@ Keep one such URL bookmarked per browser profile (the identity token lives in
 several real players on one machine. Repeating a nick reuses the same user
 row, so rank and state accumulate as they would for a real account.
 
+Direct links work in dev too: `https://localhost:3002/#/tanks` is quick play,
+`https://localhost:3002/#/tanks/<roomId>` opens a room (copy it from the
+address bar of a tab inside the room or with the lobby card's "Copy
+link"). A signed-out profile keeps the link through the login — for the
+dev login put the hash into `returnUrl` URL-encoded
+(`returnUrl=https%3A%2F%2Flocalhost%3A3002%2F%23%2Ftanks%2F<roomId>`).
+
 The route is registered only when `NODE_ENV !== 'production'` (`404` in
 production), and the URL is printed in the service's startup banner. It is a
 shortcut, not a replacement: walk the real GitHub flow at least once before

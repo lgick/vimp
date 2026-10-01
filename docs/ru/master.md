@@ -18,37 +18,39 @@ npm start         # production: HTTP за Nginx, читает .env
 
 ## Модули
 
-| Модуль                                              | Ответственность                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/engine/src/master/main.js`                | точка входа: развилка между лобби-мастером и [dedicated-сервером](dedicated.md) (`VIMP_DEDICATED_GAME`)                                                                                                                                                                                                                                                                                                                                                                                     |
-| `packages/engine/src/master/lobby.js`               | сам лобби-мастер: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат                                                                                                                                                                                                                                                                                                                                                                    |
-| `packages/engine/src/master/httpSecurity.js`        | базовые security-заголовки (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP в проде), общие с dedicated-сервером                                                                                                                                                                                                                                                                                                                                                                       |
-| `packages/engine/src/config/env.js`                 | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated                                                                                                                                                                                                                                                                                                        |
-| `packages/engine/src/master/HostRegistry.js`        | реестр комнат `Map<hostId, HostSession>`: регистрация (не более 1 комнаты с IP), heartbeat/`lastSeen`, закэшированный `rating`, выборка для `GET /servers`                                                                                                                                                                                                                                                                                                                                  |
-| `packages/engine/src/master/SignalingServer.js`     | сигнальный WebSocket: жизненный цикл соединений, маршрутизация WebRTC-сообщений, rate limiting пингов                                                                                                                                                                                                                                                                                                                                                                                       |
-| `packages/engine/src/master/MapCatalog.js`          | каталог карт: JSON-представление `src/data/maps` игры-плагина (например, в `vimp-tanks`) в памяти + версия-хеш содержимого; раздача хостам без пересборки                                                                                                                                                                                                                                                                                                                                   |
-| `packages/engine/src/master/WorkerCatalog.js`       | каталог worker-бандла: версия-хеш содержимого `dist/assets/host.worker-*.js` + его URL; по нему хосты обнаруживают новую версию кода и меняют Worker эстафетой                                                                                                                                                                                                                                                                                                                              |
-| `packages/engine/src/master/GameCatalog.js`         | каталог игр-плагинов, **изменяемый**: `upsert`/`setActive`/`remove` — единственный вход для обоих источников: списка `master:games` (`{id, package}[]`, резолвится в `node_modules/`) и `GameSync`. Запись адресуется парой `id` + npm-версия, поэтому две версии одной игры живут в каталоге одновременно (игроки — на одобренной, админ тестирует другую); в dev `entries.client/host/wasm` подменяются на исходники Vite `/@fs/` (HMR) — см. [plugin-api.md](plugin-api.md#gamemanifest) |
-| `packages/engine/src/master/gameRefs.js`            | формы ссылки на игру — id, npm-версия, имя пакета — и id, занятые роутами реестра (`mine`, `submit`, `manifest`). Значения намеренно дублируют `config.games` auth-сервиса: общей рантайм-зависимости между пакетами нет, а id — это одновременно сегмент URL и имя каталога на диске                                                                                                                                                                                                       |
-| `packages/engine/src/master/GameRegistryProxy.js`   | клиент реестра игр auth-сервиса (`/games`, `/games/mine`, `/admin/games`) — как `PlayerDataProxy`, ничего не кэширует и не интерпретирует, отдаёт `{status, json}`                                                                                                                                                                                                                                                                                                                          |
-| `packages/engine/src/master/GameStore.js`           | хранилище игровых пакетов на диске (`VIMP_GAMES_DIR`, `<dir>/<id>/<npmVersion>/`): качает одобренную версию из npm registry, проверяет `integrity`, распаковывает `package/dist` и валидирует структурно. `ensure`/`inspect` не бросают никогда — сетевой отказ, 404, битый архив и проваленная проверка одинаково возвращают `{ok: false, errors}`                                                                                                                                         |
-| `packages/engine/src/master/npmRegistry.js`         | npm-половина хранилища: скачивание пакумента, резолв версии, загрузка тарболла с проверкой `integrity`/`shasum`, распаковка `tar` с потолками по размеру и числу файлов                                                                                                                                                                                                                                                                                                                     |
-| `packages/engine/src/master/gamePackageCheck.js`    | структурная проверка скачанного пакета **без исполнения его кода** (форма манифеста, совпадение `id`, entries под `assetsBase`, карты): мастер не импортирует ни одну половину плагина — полный `vimp-contract` остаётся инструментом разработчика, см. [publishing.md](publishing.md)                                                                                                                                                                                                      |
-| `packages/engine/src/master/rebaseManifest.js`      | переписывает `assetsBase`/`entries` отдаваемого манифеста на версионную базу `/games/<id>/<version>/` и добавляет `mapsBase`; `entries.wasmNode` намеренно не трогается (это путь в ФС, а не URL)                                                                                                                                                                                                                                                                                           |
-| `packages/engine/src/master/GameSync.js`            | держит каталог в согласии с реестром: один проход спрашивает реестр, докачивает недостающее, обновляет каталог и подметает диск; опрашивается по таймеру (`master:gameStore:refreshInterval`). Отказ реестра каталог не опустошает — протухший каталог лучше пустого                                                                                                                                                                                                                        |
-| `packages/engine/src/master/adminAuth.js`           | авторизация REST-роутов мастера: та же проверка подписи по JWKS и та же политика issuer, что на сигнальном пути, плюс клейм `role` для `/admin/*`                                                                                                                                                                                                                                                                                                                                           |
-| `packages/engine/src/master/ClientReportsProxy.js`  | клиент админского API журнала клиентских ошибок auth-сервиса (`GET`/`PATCH /admin/client-reports`) — перекладывает Bearer админа, ничего не кэширует, отдаёт `{status, json}`                                                                                                                                                                                                                                                                                                               |
-| `packages/engine/src/master/clientReportsRoutes.js` | обработчики админских роутов журнала — см. [GET/PATCH /admin/client-reports](#getpatch-adminclient-reports-журнал-клиентских-ошибок)                                                                                                                                                                                                                                                                                                                                                        |
-| `packages/engine/src/master/gameRoutes.js`          | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Test» версии в каталоге                                                                                                                                                                                                                                                                                                                                                                                     |
-| `packages/engine/src/master/gameStatic.js`          | раздача `dist/` игр по `/games/<id>[/<version>]/…`: кэш инстансов `express.static` по директории версии (снятая с диска версия уносит свой маунт через `GameSync.onPruned`), 404 на промахе версионного пути и `next()` на неверсионном. Отдельный модуль, потому что `lobby.js` поднимает сервер и из тестов не импортируется                                                                                                                                                              |
-| `packages/engine/src/master/JwksProxy.js`           | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks)                                                                                                                                                                                                                                                                                                                                                        |
-| `packages/engine/src/master/PlayerDataProxy.js`     | проксирует per-user `GET`/`PUT /rank` и `/state` центрального auth-сервиса, **без кэша** (Этап B4) — см. [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); также публичный `GET /leaderboard` и per-user `GET /placement` (lobby-page-plan) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement)                                                                                                                          |
-| `packages/engine/src/master/LeaderboardCache.js`    | keyed-TTL кэш (`game:limit:period`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement)                                                                                                                                                                                                                                                                                                         |
-| `packages/engine/src/master/PlacementCache.js`      | keyed-TTL кэш (`master:placement:cacheTtl`, по умолчанию 30с) перед `PlayerDataProxy.getPlacement`, per-user — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement)                                                                                                                                                                                                                                                                                     |
-| `packages/engine/src/master/HostRatingProxy.js`     | проксирует эндпоинты рейтинга хостера центрального auth-сервиса: `getRating` (собственный рейтинг, Bearer) для проверки блокировки в `register_host`, `vote` (Bearer) для `like_host`/`unlike_host`, `getPublic` (без токена — `GET /host-rating/:hosterUserId` не требует авторизации, значение публично) для периодического опроса в `refreshRatings`                                                                                                                                     |
-| `packages/engine/src/lib/rateLimiter.js`            | общий rate limiter с фиксированным окном (лимит событий на ключ за интервал)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Модуль                                               | Ответственность                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/engine/src/master/main.js`                 | точка входа: развилка между лобби-мастером и [dedicated-сервером](dedicated.md) (`VIMP_DEDICATED_GAME`)                                                                                                                                                                                                                                                                                                                                                                                     |
+| `packages/engine/src/master/lobby.js`                | сам лобби-мастер: Express + REST, HTTPS/HTTP-сервер, сигнальный `WebSocketServer`, периодическая уборка протухших комнат                                                                                                                                                                                                                                                                                                                                                                    |
+| `packages/engine/src/master/httpSecurity.js`         | базовые security-заголовки (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, CSP в проде), общие с dedicated-сервером                                                                                                                                                                                                                                                                                                                                                                       |
+| `packages/engine/src/config/env.js`                  | env-переопределения серверного конфига (`VIMP_DOMAIN`, `VIMP_MASTER_PORT`, `VIMP_AUTH_SERVICE_URL`, `VIMP_GAMES_DIR`) и разбор `VIMP_DEDICATED_ROOM`; применяют и лобби, и dedicated                                                                                                                                                                                                                                                                                                        |
+| `packages/engine/src/master/RoomRegistry.js`         | реестр комнат `Map<roomId, Room>`: комнаты со стабильным `roomId`, эпохой хоста и участниками (join/detach/leave с grace), не более 1 хостящейся комнаты с IP, heartbeat, `sweep` (потерянный хост, просроченные участники, пустые комнаты), выборка для `GET /servers`, атрибуция по секрету комнаты                                                                                                                                                                                       |
+| `packages/engine/src/master/roomSecret.js`           | `deriveRoomSecret`/`verifyRoomSecret`: `HMAC-SHA256(VIMP_ROOM_SECRET_KEY, roomId:epoch:hostUserId)` в base64url, сравнение за постоянное время                                                                                                                                                                                                                                                                                                                                              |
+| `packages/engine/src/master/SignalingServer.js`      | сигнальный WebSocket: жизненный цикл соединений, регистрация/возврат комнаты, членство в комнате (`join_room`/`leave_room`), маршрутизация WebRTC-сообщений текущему хосту комнаты, `room_closed`, rate limiting пингов                                                                                                                                                                                                                                                                     |
+| `packages/engine/src/master/MigrationCoordinator.js` | аварийная миграция хоста (host-migration этап 7): машина состояний комнаты `online → migrating → online`, выбор повышаемого преемника (`checkpoint`/`cold`), дедлайны промоушена, отчёты `host_unreachable`, проба хоста и кворум; его зовёт `SignalingServer`, таймеры внедряемые                                                                                                                                                                                                          |
+| `packages/engine/src/master/HostVoteManager.js`      | голосование «Change host» (host-migration этап 10): проверки старта и кулдауны, участники с правом голоса, подсчёт, исход, `demotedUntil` и принудительная смена хоста, если хост не отдал роль; его зовёт `SignalingServer`, таймеры внедряемые — см. [Голосование «Change host»](#голосование-change-host)                                                                                                                                                                                |
+| `packages/engine/src/master/MapCatalog.js`           | каталог карт: JSON-представление `src/data/maps` игры-плагина (например, в `vimp-tanks`) в памяти + версия-хеш содержимого; раздача хостам без пересборки                                                                                                                                                                                                                                                                                                                                   |
+| `packages/engine/src/master/WorkerCatalog.js`        | каталог worker-бандла: версия-хеш содержимого `dist/assets/host.worker-*.js` + его URL; по нему хосты обнаруживают новую версию кода и меняют Worker эстафетой                                                                                                                                                                                                                                                                                                                              |
+| `packages/engine/src/master/GameCatalog.js`          | каталог игр-плагинов, **изменяемый**: `upsert`/`setActive`/`remove` — единственный вход для обоих источников: списка `master:games` (`{id, package}[]`, резолвится в `node_modules/`) и `GameSync`. Запись адресуется парой `id` + npm-версия, поэтому две версии одной игры живут в каталоге одновременно (игроки — на одобренной, админ тестирует другую); в dev `entries.client/host/wasm` подменяются на исходники Vite `/@fs/` (HMR) — см. [plugin-api.md](plugin-api.md#gamemanifest) |
+| `packages/engine/src/master/gameRefs.js`             | формы ссылки на игру — id, npm-версия, имя пакета — и id, занятые роутами реестра (`mine`, `submit`, `manifest`). Значения намеренно дублируют `config.games` auth-сервиса: общей рантайм-зависимости между пакетами нет, а id — это одновременно сегмент URL и имя каталога на диске                                                                                                                                                                                                       |
+| `packages/engine/src/master/GameRegistryProxy.js`    | клиент реестра игр auth-сервиса (`/games`, `/games/mine`, `/admin/games`) — как `PlayerDataProxy`, ничего не кэширует и не интерпретирует, отдаёт `{status, json}`                                                                                                                                                                                                                                                                                                                          |
+| `packages/engine/src/master/GameStore.js`            | хранилище игровых пакетов на диске (`VIMP_GAMES_DIR`, `<dir>/<id>/<npmVersion>/`): качает одобренную версию из npm registry, проверяет `integrity`, распаковывает `package/dist` и валидирует структурно. `ensure`/`inspect` не бросают никогда — сетевой отказ, 404, битый архив и проваленная проверка одинаково возвращают `{ok: false, errors}`                                                                                                                                         |
+| `packages/engine/src/master/npmRegistry.js`          | npm-половина хранилища: скачивание пакумента, резолв версии, загрузка тарболла с проверкой `integrity`/`shasum`, распаковка `tar` с потолками по размеру и числу файлов                                                                                                                                                                                                                                                                                                                     |
+| `packages/engine/src/master/gamePackageCheck.js`     | структурная проверка скачанного пакета **без исполнения его кода** (форма манифеста, совпадение `id`, entries под `assetsBase`, карты): мастер не импортирует ни одну половину плагина — полный `vimp-contract` остаётся инструментом разработчика, см. [publishing.md](publishing.md)                                                                                                                                                                                                      |
+| `packages/engine/src/master/rebaseManifest.js`       | переписывает `assetsBase`/`entries` отдаваемого манифеста на версионную базу `/games/<id>/<version>/` и добавляет `mapsBase`; `entries.wasmNode` намеренно не трогается (это путь в ФС, а не URL)                                                                                                                                                                                                                                                                                           |
+| `packages/engine/src/master/GameSync.js`             | держит каталог в согласии с реестром: один проход спрашивает реестр, докачивает недостающее, обновляет каталог и подметает диск; опрашивается по таймеру (`master:gameStore:refreshInterval`). Отказ реестра каталог не опустошает — протухший каталог лучше пустого                                                                                                                                                                                                                        |
+| `packages/engine/src/master/adminAuth.js`            | авторизация REST-роутов мастера: та же проверка подписи по JWKS и та же политика issuer, что на сигнальном пути, плюс клейм `role` для `/admin/*`                                                                                                                                                                                                                                                                                                                                           |
+| `packages/engine/src/master/ClientReportsProxy.js`   | клиент админского API журнала клиентских ошибок auth-сервиса (`GET`/`PATCH /admin/client-reports`) — перекладывает Bearer админа, ничего не кэширует, отдаёт `{status, json}`                                                                                                                                                                                                                                                                                                               |
+| `packages/engine/src/master/clientReportsRoutes.js`  | обработчики админских роутов журнала — см. [GET/PATCH /admin/client-reports](#getpatch-adminclient-reports-журнал-клиентских-ошибок)                                                                                                                                                                                                                                                                                                                                                        |
+| `packages/engine/src/master/gameRoutes.js`           | обработчики роутов реестра: заявка разработчика и её статус, панель модерации, «Test» версии в каталоге                                                                                                                                                                                                                                                                                                                                                                                     |
+| `packages/engine/src/master/gameStatic.js`           | раздача `dist/` игр по `/games/<id>[/<version>]/…`: кэш инстансов `express.static` по директории версии (снятая с диска версия уносит свой маунт через `GameSync.onPruned`), 404 на промахе версионного пути и `next()` на неверсионном. Отдельный модуль, потому что `lobby.js` поднимает сервер и из тестов не импортируется                                                                                                                                                              |
+| `packages/engine/src/master/JwksProxy.js`            | проксирует `GET /jwks` центрального auth-сервиса под собственным origin мастера, с кэшем (TTL) — см. [GET /auth/jwks](#get-authjwks)                                                                                                                                                                                                                                                                                                                                                        |
+| `packages/engine/src/master/PlayerDataProxy.js`      | проксирует per-user `GET`/`PUT /rank` и `/state` центрального auth-сервиса, **без кэша** (Этап B4) — см. [GET/PUT /auth/rank, GET/PUT /auth/state](#getput-authrank-getput-authstate); также публичный `GET /leaderboard` и per-user `GET /placement` (lobby-page-plan) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement)                                                                                                                          |
+| `packages/engine/src/master/LeaderboardCache.js`     | keyed-TTL кэш (`game:limit:period`) перед `PlayerDataProxy.getLeaderboard` (кодревью L2) — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement)                                                                                                                                                                                                                                                                                                         |
+| `packages/engine/src/master/PlacementCache.js`       | keyed-TTL кэш (`master:placement:cacheTtl`, по умолчанию 30с) перед `PlayerDataProxy.getPlacement`, per-user — см. [GET /auth/leaderboard, GET /auth/placement](#get-authleaderboard-get-authplacement)                                                                                                                                                                                                                                                                                     |
+| `packages/engine/src/lib/rateLimiter.js`             | общий rate limiter с фиксированным окном (лимит событий на ключ за интервал)                                                                                                                                                                                                                                                                                                                                                                                                                |
 
-`HostSession`: `hostId` (uuid), `name`, `maxPlayers` (clamp к `host.maxPlayersLimit`, целевой размер комнаты — 8), `currentPlayers`, `mapName`, `region`, `ip`, `gameId`/`gameVersion` (какую игру-плагин и версию манифеста объявил хост в `register_host` — каждый хост с Этапа 6.4), `hosterUserId` (идентичность хостера из его Bearer-токена в `register_host` — server-rating этап 2), `secret` (per-room возможность, генерируется при регистрации, возвращается только регистрирующей сессии, доказывает владение комнатой при атрибуции rank/state — не попадает в `GET /servers`), `rating` (закэшированный рейтинг хостера, server-rating этап 3 — см. ниже), `status` (`online`), `lastSeen`.
+`Room`: `roomId` (8 символов crockford-base32 в нижнем регистре, `packages/engine/src/lib/roomId.js`; стабилен всю жизнь комнаты — переживает реконнект сигналинга хоста и рестарт мастера), `epoch` (номер «правления» хоста, с 1), `status` (`online`, `migrating` — идёт миграция хоста, см. [Миграция хоста](#миграция-хоста); `handing_off` — плановая передача, см. [Плановая передача](#плановая-передача)), `pendingEpoch`/`migration` (эпоха, которую займёт преемник, и текущая попытка промоушена), `settings` (настройки комнаты для холодного перезапуска, `lib/roomSettings.js`; наружу не отдаются), `maxPlayers` (clamp к `roomDefaults.maxPlayers` игры, а для неизвестной игры — к `host.maxPlayersLimit`, 8), `info` (строка карточки лобби, которую задаёт игра, — `gameConfig.lobbyInfo`; `null`, если её нет, санирована и обрезана до `room.maxInfoLength`), `region`, `gameId`/`gameVersion` (какую игру-плагин и версию манифеста объявил хост), `hidden` (комната на застейдженной версии игры), `createdAt`, `lastSeen` (heartbeat хоста), `host { sessionId, memberId, userId, ip, detachedAt }` (`userId` — проверенная идентичность хоста из его Bearer-токена), `members: Map<memberId, { memberId, userId, nick, sessionId, joinedAt, detachedAt, caps }>`. Секрет комнаты **не хранится**: он вычисляется из `roomId`, `epoch` и `host.userId` (см. [Жизнь комнаты](#жизнь-комнаты)). Имени у комнаты нет.
 
 Регион определяется по заголовку от Nginx/CDN (`regionHeader`, по умолчанию `x-region`; например, `CF-IPCountry`) — выбран вместо `geoip-lite` как бесплатный по памяти. Без заголовка регион — `unknown`.
 
@@ -70,43 +72,56 @@ npm start         # production: HTTP за Nginx, читает .env
 
 Query-параметры: `offset`, `limit`, `region`, `search`. Логика (в порядке приоритета):
 
-1. `search` — поиск по подстроке без учёта регистра; остальные параметры
-   игнорируются. Обычный текст ищется в имени комнаты. Формат `gameId/name`
-   (lobby-page-plan — тот же вид, что показывает карточка сервера в лобби)
-   разбивается по первому `/`: игровая часть матчится против `gameId`,
-   остаток — против `name`; пустая часть имени (`"tanks/"`) матчит только по игре.
+1. `search` — без учёта регистра; остальные параметры игнорируются. Обычный
+   текст матчит префикс `roomId`, подстроку `gameId` или подстроку `info`.
+   Формат `gameId/<префикс roomId>` — тот вид, что показывает карточка
+   сервера в лобби, — разбивается по первому `/`: игровая часть матчится
+   против `gameId`, остаток — как префикс `roomId`; пустой остаток
+   (`"tanks/"`) матчит только по игре.
 2. Если всего комнат ≤ `servers.regionThreshold` (15) — возвращается весь список без фильтров и пагинации.
 3. Иначе — фильтр по `region` (если передан) и срез `offset`/`limit` (`limit` по умолчанию 10, максимум 50).
 
-Забаненные комнаты (`status !== 'online'`) в выдачу не попадают. Ответ:
+Скрыты только комнаты на застейдженной версии игры (их видит токен админа).
+Комната не в статусе `online` (миграция хоста) или с отсоединённым хостом в
+список не попадает: вход в неё кончился бы `unknownRoom`, а быстрая игра
+выбирала бы её снова и снова. Ответ:
 
 ```json
 {
   "total": 1,
   "servers": [
     {
-      "hostId": "3b86e7a7-…",
-      "name": "My Room",
+      "roomId": "k3v9q2ma",
+      "hostId": "k3v9q2ma",
+      "gameId": "tanks",
+      "info": "arena",
       "mapName": "arena",
       "currentPlayers": 3,
       "maxPlayers": 8,
-      "region": "DE",
-      "gameId": "tanks",
-      "rating": 7
+      "region": "DE"
     }
   ]
 }
 ```
 
-IP хоста и служебные поля наружу не отдаются. `gameId` — задел под будущий
-фильтр по игре в лобби; каждый хост теперь объявляет свою игру в
-`register_host` (Этап 6.4), поэтому `null` бывает только у хостов на
-клиентском коде до 6.4. `rating` — закэшированный рейтинг хостера
-(server-rating этап 3, см. [ниже](#рейтинг-сервера-likeunlike)) — `0` для
-только что зарегистрированной комнаты, пока не отработает первый цикл
-`register_host`/голоса/периодического опроса; заблокированный хостер вообще
-не может зарегистрировать комнату, поэтому флага `blocked` в этом ответе
-нет.
+`hostId` повторяет `roomId`, а `mapName` — `info` (`''` при `null`) для
+страниц лобби, загруженных до деплоя. `info` — строка, которую игра
+выводит на своей карточке: текущая карта при `gameConfig.lobbyInfo: 'map'`,
+любой текст, заданный модулем, или `null` — заглушку мастер не подставляет
+никогда. IP
+хоста, участники и служебные поля наружу не отдаются. `currentPlayers`
+мастер считает сам по участникам комнаты (подключённым или отсоединённым
+меньше `room.memberGraceMs`) — хост его больше не сообщает. `gameId` равен
+`null` только у хостов на клиентском коде до 6.4.
+
+### GET /rooms/:roomId
+
+Комната за прямой ссылкой `#/<gameId>/<roomId>` ([client.md](client.md)):
+невалидный id — `400`, неизвестный — `404 {"error": "unknownRoom"}`, иначе
+публичная форма `GET /servers` плюс `status` (`online`, `migrating`, …).
+Скрытые комнаты тоже отдаются — вход в такую по id и так возможен. Лимит на IP
+(`room.lookupRateLimit`, сверх него — `429`) против перебора `roomId`.
+Обработчик — `master/roomRoutes.js` (`RoomRegistry.getPublic`).
 
 ### GET /games/manifest.json, GET /games/:id/…, GET /games/:id/:version/…
 
@@ -349,36 +364,45 @@ origin мастера (Этап B4): `PlayerDataProxy`
 - `502 authServiceUnavailable` при сбое запроса к апстриму.
 
 **Атрибуцию проставляет мастер, а не тело запроса хоста** (фикс кодревью):
-недоверенный браузер хоста иначе мог бы приписать собственные rank/state
-записи себе же (уходя от аннулирования этапа 4) или чужому
-хостеру-жертве (подставляя его под будущий откат при бане). Тела `PUT`
-несут `hostId` **и его per-room `hostSecret`** (оба хост узнаёт после
-подтверждения `register_host`, см. ниже); `registry.verifiedAttribution(hostId,
-hostSecret)` в `main.js` ищет комнату в `HostRegistry` и возвращает уже
-проверенный по JWT `hosterUserId` плюс `sessionId: hostId`, **только если
-секрет совпал** — иначе `{}`. Секрет доказывает владение комнатой: `hostId`
-публичны (видны в `GET /servers`), поэтому без секрета читер-хост мог бы
-приписать записи любой чужой активной комнате; секрет это закрывает. Он
-генерируется на комнату в `HostRegistry.add`, возвращается **только
-регистрирующей сессии** в `host_registered`, не попадает в `GET /servers`
-(`_toPublic` перечисляет поля явным whitelist'ом) и не пробрасывается в auth
-(мастер его срезает — до `PlayerDataProxy.putRank`/`putState` доходит только
-`{ hosterUserId, sessionId }`). Неизвестный `hostId` либо отсутствующий/неверный
-секрет (комната ещё не зарегистрирована, Worker подменён эстафетой или это
-попытка подделки) дают запись без атрибуции — не ошибку.
+недоверенный браузер хоста иначе мог бы приписать свои rank/state записи
+чужой комнате (и тратить её per-room потолок записи). Тела `PUT` несут
+`roomId` **и секрет комнаты `roomSecret`** (оба хост узнаёт из
+`host_registered`, см. ниже; Worker старше этапа 2 host-migration шлёт те же
+значения как `hostId`/`hostSecret`, мастер их по-прежнему принимает);
+`registry.verifiedAttribution(roomId, roomSecret)` в `lobby.js` ищет комнату
+в `RoomRegistry` и возвращает `{ sessionId: roomId }`, **только если секрет —
+секрет текущей эпохи** — иначе `{}`. Проверенный `sessionId` — ключ per-room
+потолка записи (`master:playerData:writesPerMinute`) и `session_id` в леджере
+auth; запись без атрибуции считается по IP. Секрет доказывает, что
+вызывающий хостит комнату: `roomId` публичны (они в `GET /servers` и в
+ссылках), и без секрета читер-хост мог бы направить атрибуцию на любую
+другую живую комнату. Секрет — `HMAC-SHA256(VIMP_ROOM_SECRET_KEY,
+roomId:epoch:hostUserId)`, уходит **только сессии хоста** в
+`host_registered`, не попадает в `GET /servers` и не пересылается в
+auth-сервис (до `PlayerDataProxy.putRank`/`putState` доходит только
+`{ sessionId }`). Неизвестный `roomId` либо отсутствующий/неверный секрет
+(комната ещё не зарегистрирована или попытка подмены) — запись без
+атрибуции, а не ошибка.
+
+`PUT /auth/rank` ещё и пробрасывает в auth `writeSeq` хоста как есть
+(host-migration 7.7; значение, не являющееся положительным безопасным целым,
+отбрасывается, а не отклоняется): это номер записи, по которому auth узнаёт
+повтор после отката к контрольной точке и отвечает на него `{ ok: true,
+duplicate: true }`, не засчитывая второй раз — см. [auth.md](auth.md)
+(«Идемпотентная запись»). Повтор несёт то же тело, поэтому и кламп
+`maxGameScore` даёт для него тот же результат.
 
 Браузерный хост в лице `PlayerDataSync`
 (`packages/engine/src/host/meta/modules/PlayerDataSync.js`) вызывает эти
-роуты, чтобы загрузить rank/state участника на join и слить их обратно на
-границах конец-раунда/смены-карты/выхода — см.
-[host.md](host.md#синхронизация-rank-и-state-игрока-этап-b4). Свои `hostId`/
-`hostSecret` он узнаёт из `host_registered` (`HostController.setHostId`,
-передаётся в Worker сообщением `set_host_id` и переживает эстафету Worker'ов
-через `room.hostId`/`room.hostSecret`) и с этого момента несёт их в каждом
-теле `PUT`. `express.json()` подключён в `main.js`, чтобы разбирать тела `PUT`
-(`{ delta, hostId, hostSecret }`/`{ state, hostId, hostSecret }` — `/rank`
-принимает дельту матча, не абсолютное значение, с server-rating этапа 1; см.
-[auth.md](auth.md#rest-api)).
+роуты, чтобы загрузить rank/state участника на входе и сбросить их обратно
+на границах конца раунда/смены карты/выхода — см.
+[host.md](host.md#синхронизация-rank-и-state-игрока-этап-b4). Свои
+`roomId`/`roomSecret` он узнаёт из `host_registered`
+(`HostController.setRoom`, ретранслируется в Worker как `set_room` и
+переносится эстафетой Worker'а через `room.roomId`/`room.roomSecret`) и с
+этого момента несёт их в каждом `PUT`. `express.json()` подключён в
+`lobby.js` для разбора тел `PUT` (`{ points, best, roomId, roomSecret }`/
+`{ state, roomId, roomSecret }`; см. [auth.md](auth.md#rest-api)).
 
 ### GET /auth/leaderboard, GET /auth/placement
 
@@ -409,8 +433,7 @@ hostSecret)` в `main.js` ищет комнату в `HostRegistry` и возв�
   по каждому срезу.
 
 `PlayerDataProxy._request` опускает заголовок `Authorization`, если вызван с
-`token === null` (так же, как `HostRatingProxy.getPublic` уже делает для
-`GET /host-rating/:hosterUserId`) — `getLeaderboard` пользуется этим, чтобы
+`token === null` — `getLeaderboard` пользуется этим, чтобы
 оставаться без авторизации, пока `getRank`/`getState`/`getPlacement`
 по-прежнему пробрасывают Bearer-токен вызывающего как есть.
 
@@ -652,78 +675,396 @@ auth-сервису ([auth.md](auth.md#журнал-клиентских-оши�
 
 `iceServers` — ICE-конфигурация для `RTCPeerConnection` (STUN обязателен; TURN — опциональный релей).
 
-Клиентская сторона сигналинга — [packages/engine/src/client/network/SignalingClient.js](../../packages/engine/src/client/network/SignalingClient.js): подключается к этому WS, потребляет `welcome`/`iceServers`, шлёт `webrtc_offer`/`ice_candidate`/`ping_host`/`like_host`/`unlike_host` и ретранслирует входящие сообщения по `type`. Игровой трафик после установки P2P идёт по WebRTC (`WebRtcManager`), минуя мастер — см. [client.md](client.md#сетевой-слой-packagesenginesrcclientnetwork) и [network.md](network.md#транспорт-webrtc).
+Клиентская сторона сигналинга — [packages/engine/src/client/network/SignalingClient.js](../../packages/engine/src/client/network/SignalingClient.js): подключается к этому WS, потребляет `welcome`/`iceServers`, шлёт `webrtc_offer`/`ice_candidate`/`ping_host` и ретранслирует входящие сообщения по `type`. Игровой трафик после установки P2P идёт по WebRTC (`WebRtcManager`), минуя мастер — см. [client.md](client.md#сетевой-слой-packagesenginesrcclientnetwork) и [network.md](network.md#транспорт-webrtc).
 
 ### Сообщения хоста
 
-| → мастеру                                                                 | Ответ / эффект                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `register_host { name, maxPlayers, mapName, gameId, gameVersion, token }` | `host_registered { hostId, hostSecret, gameId, mapsVersion, codeVersion }` (`hostSecret` — per-room возможность для атрибуции rank/state, см. выше); регион — из заголовка, IP — из соединения; `token` — Bearer identity-токен хостера (server-rating этап 2), проверяется по JWKS central auth-сервиса (`JwksProxy`) — его `sub` становится `hosterUserId`, сохраняется в сессии для атрибуции рейтинга; отсутствие/неверная подпись → ошибка `invalidToken`. Перед созданием комнаты мастер также запрашивает у auth-сервиса собственный рейтинг хостера (`HostRatingProxy.getRating`) — `blocked: true` → ошибка `blocked` (хостер с рейтингом на `rating.blockAt` не может поднять комнату); сбой самого запроса (auth недоступен) шлёт ошибку `authServiceUnavailable` вместо того, чтобы оставить клиента без ответа навсегда (фикс кодревью); `gameId`/`gameVersion` — какую игру-плагин и версию манифеста запустил хост (сохраняются в сессии, эхо в ответе; с Этапа 6.4 их шлёт каждый хост — `connectAsHost` собирает `room.game` из активного `GameManifest`); `mapsVersion` — `GameManifest.maps.version` объявленной игры через `GameCatalog` (`null`, если `gameId` неизвестен каталогу); `codeVersion` — составной `{ engine, game: { id, version } }` (Этап 6.5, см. выше; `engine` — версия worker-бандла) — при re-register после разрыва (деплой рестартует мастер) хост сверяет их со своими: расхождение карт → перечитывание каталога, расхождение любой половины `codeVersion` → эстафета Worker'ов. Ошибки: `alreadyRegistered`, `gameUnavailable` (`gameId` называет игру, помеченную каталогом несовместимой — `compat.ok === false`), `hostLimit` (уже есть комната с этого IP) |
-| `update_host { currentPlayers, mapName }`                                 | актуализация данных комнаты (одновременно heartbeat)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `heartbeat {}`                                                            | обновление `lastSeen`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `webrtc_answer { clientId, sdp }`                                         | пересылается клиенту как `webrtc_answer { hostId, sdp }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `pong_host { clientId, pingId }`                                          | пересылается клиенту как `pong_host { hostId, pingId }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| → мастеру                                                                                                  | Ответ / эффект                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `register_host { gameId, gameVersion, maxPlayers, info, token, memberId, caps, settings }`                 | создаёт комнату: `host_registered { roomId, epoch, roomSecret, gameId, mapsVersion, codeVersion }`; `info` — строка карточки лобби (`gameConfig.lobbyInfo`), необязательна (`mapName` от старых страниц берётся как она) (плюс `hostId`/`hostSecret` — те же значения под старыми именами для страниц, загруженных до деплоя); `name` от таких страниц игнорируется. Регион — из заголовка, IP — из соединения; `token` — Bearer identity-токен хоста, проверяется по JWKS central auth-сервиса (`JwksProxy`): его `sub` становится `host.userId`, `nick` — ником участника; нет/невалиден → ошибка `invalidToken`. `memberId` — id вкладки; хост — участник своей комнаты (без `memberId` берётся id соединения); `caps` — возможности вкладки (см. [Преемник](#rtt-участников-и-преемник)). `mapsVersion` — `GameManifest.maps.version` объявленной игры через `GameCatalog`; `codeVersion` — составной `{ engine, game: { id, version } }` (см. выше) — при возврате комнаты после разрыва (деплой рестартует мастер) хост сравнивает их со своими: расхождение карт — перечитать каталог, расхождение любой половины `codeVersion` — эстафета Worker'а. `settings` — настройки комнаты (`maxPlayers`, `map`, `roundTime`, `mapTime`, `friendlyFire`; санирует `lib/roomSettings.js`, ≤ 4 КБ, наружу не отдаются) для холодного преемника. Ошибки: `alreadyRegistered`, `gameUnavailable` (`compat.ok === false` в каталоге), `hostLimit` (с этого IP уже хостится комната) |
+| `register_host { roomId, epoch, promotionToken, memberId, token, gameVersion, caps, settings }`            | повышенный преемник занимает комнату в миграции (см. [Миграция хоста](#миграция-хоста)): пользователь токена — пользователь кандидата, `epoch` — `pendingEpoch` комнаты, `promotionToken` — из `promote`. Ответ `host_registered` с новой эпохой и её секретом; лимит по IP не действует. Ошибки: `staleEpoch` (комната больше не мигрирует к этой эпохе), `invalidPromotion` (не тот токен, пользователь или эпоха), `unknownRoom`, `invalidToken`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `reclaim_host { roomId, epoch, roomSecret, memberId, token, gameId, gameVersion, maxPlayers, info, caps }` | та же комната после реконнекта сигналинга или рестарта мастера. Проверяется токен (`invalidToken`), затем `verifyRoomSecret(roomSecret, roomId, epoch, userId-из-токена)` — неверный секрет, в том числе верный секрет от чужого пользователя, → `invalidRoomSecret` (это и есть защита от угона: видимого `roomId` мало). Комната есть с той же эпохой → сессия хоста перепривязывается, ответ `host_registered` (те же `roomId`/`epoch`/`roomSecret`). Комнаты нет (мастер перезапускался — реестр в памяти) → она создаётся заново с этим `roomId`/`epoch` из полей комнаты в сообщении. Эпоха комнаты новее → `staleEpoch` (хоста сменили). Комната мигрирует от этой эпохи: миграция из-за закрытия сигналинга хоста отменяется (reclaim продолжается, см. [Миграция хоста](#миграция-хоста)), любая другая (`timeout`, `unresponsive`, `unreachable`) → `staleEpoch`. `settings` обновляют сохранённые. Id занят другой комнатой → `roomTaken` (клиент регистрируется заново через `register_host`). Вернувшийся хост снова получает `successor_assigned`, если у комнаты есть преемник. Также `hostLimit`, `gameUnavailable`, `alreadyRegistered`                                                                                                                                                                                                                                                                                                                       |
+| `update_host { info }`                                                                                     | актуализирует строку карточки комнаты в лобби (`info: null` очищает, отсутствие поля не трогает; `mapName` от старых страниц берётся как `info`); заодно heartbeat. Принимается только от текущего хоста комнаты; поле `currentPlayers` игнорируется                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `heartbeat {}`                                                                                             | обновление `lastSeen`; только от текущего хоста комнаты                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `webrtc_answer { clientId, sdp }`                                                                          | пересылается клиенту как `webrtc_answer { roomId, hostId, epoch, sdp }` (`hostId` — алиас `roomId`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `pong_host { clientId, pingId }`                                                                           | пересылается клиенту как `pong_host { roomId, hostId, pingId }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `probe_ack { nonce }`                                                                                      | главный поток хоста отвечает на `probe` сразу; принимается только от текущего хоста комнаты с nonce пробы в полёте                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `handoff_begin { roomId, epoch, reason, stay }`                                                            | плановая передача (host-migration этап 8, см. [Плановая передача](#плановая-передача)): только от текущего хоста комнаты; ответ `handoff_go { roomId, epoch }` (ожидаемая эпоха) или `handoff_unavailable { roomId, epoch, reason }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `host_leaving { roomId, epoch }`                                                                           | вкладка хоста закрывается (`pagehide`): миграция начинается сразу (`reason: 'leaving'`), без ожидания закрытия WS; только от текущего хоста комнаты с его эпохой                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `host_health { roomId, epoch, tickRate, peerRttMedian, peerCount }`                                        | здоровье матча хоста (host-migration этап 9c, раз в ~2 с по последнему сэмплу `health` Worker'а, пока матч заморожен — не шлётся): правило сетевого лага мастера, см. [Сетевой лаг хоста](#сетевой-лаг-хоста); только от текущего хоста комнаты с её эпохой                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-Хост держит сигнальный WS постоянно. Комната без heartbeat дольше `host.heartbeatTimeout` (30 с) удаляется из реестра, её соединение закрывается кодом `4000` (проверка каждые `host.sweepInterval`). Разрыв WS хоста также удаляет комнату.
+| ← от мастера                                                                 | Значение                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `successor_assigned { roomId, epoch, successorMemberId, successorClientId }` | преемник комнаты сменился (`null` — стать им некому): открыть канал `standby` пиру с этим `memberId` и слать ему контрольные точки ([host.md](host.md#преемник-standby))                                                                                                                                                                                                                                                                                                      |
+| `probe { roomId, nonce }`                                                    | гости жалуются, что хост недоступен — ответить `probe_ack { nonce }`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `host_revoked { roomId, epoch }`                                             | комнату с этой эпохой занял другой участник: перестать хостить и вернуться гостем                                                                                                                                                                                                                                                                                                                                                                                             |
+| `handoff_go { roomId, epoch }`                                               | плановая передача началась, преемник повышен до `epoch`: заморозить матч и отправить ему финальную точку                                                                                                                                                                                                                                                                                                                                                                      |
+| `handoff_unavailable { roomId, epoch, reason }`                              | передачу начать нельзя: `noSuccessor` (нет преемника с живым потоком точек), `busy` (комната не `online`), `staleEpoch`                                                                                                                                                                                                                                                                                                                                                       |
+| `host_released { roomId, epoch }`                                            | преемник занял комнату после плановой передачи: перестать хостить (роль отдана, а не отнята)                                                                                                                                                                                                                                                                                                                                                                                  |
+| `handoff_aborted { roomId, epoch }`                                          | плановая передача сорвалась (преемник не уложился в `room.handoffTimeoutMs`, отказал или ушёл); комната остаётся за тобой с той же `epoch` — разморозить матч                                                                                                                                                                                                                                                                                                                 |
+| `request_handoff { roomId, epoch, reason, defer }`                           | мастер просит отдать роль преемнику (`reason: 'network'`, `defer: true` — на границе раунда, см. [Сетевой лаг хоста](#сетевой-лаг-хоста); `reason: 'vote'`, `defer: false` — игроки сняли хоста голосованием, см. [Голосование «Change host»](#голосование-change-host), страница передаёт роль сразу при любых настройках автотриггеров): начать плановую передачу со `stay: true`; хост с выключенными автотриггерами (или старая страница) её игнорирует и не наказывается |
+
+Хост держит сигнальный WS постоянно; жизнь комнаты — в
+[Жизни комнаты](#жизнь-комнаты).
 
 ### Сообщения клиента
 
-| → мастеру                                                                       | Ответ / эффект                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webrtc_offer { hostId, sdp }`                                                  | пересылается хосту как `webrtc_offer { clientId, sdp }`; ошибка `unknownHost`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `ping_host { hostId, pingId }`                                                  | пересылается хосту; ограничен rate limiter'ом по IP (`pingRateLimit`, ошибка `rateLimited`). Замер **приблизительный** (клиент→мастер→хост, не P2P RTT)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `like_host { hostId, reason, token }` / `unlike_host { hostId, reason, token }` | голос рейтинга сервера (+1 / -1), заменяет прежнюю жалобу `/ban`: принимается **только от сессии, слававшей `webrtc_offer` этой комнате** (иначе ошибка `voteRejected`); `token` — Bearer identity-токен голосующего, проверяется так же, как у `register_host` (ошибка `invalidToken` при отсутствии/невалидности); причина обязательна (голос без неё не отправляется). Голос проксируется в central auth-сервис (`HostRatingProxy.vote`, цель — `hosterUserId` комнаты) — `voteHost` перезаписывает одну строку на пару `(hoster, voter)` (мнение меняемо, `like`↔`unlike`, а не копится) и пересчитывает `score = clamp(SUM(value), rating.min, rating.max)`; `blocked: true` в ответе эвакуирует хостера (`_evacuateHoster`, см. ниже). Сбой запроса к апстриму (auth недоступен) шлёт ошибку `authServiceUnavailable` вместо того, чтобы молча проглотить голос (фикс кодревью) |
+| → мастеру                                                   | Ответ / эффект                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `join_room { roomId, memberId, token, caps }`               | клиент вошёл в матч комнаты (шлётся после `AUTH_RESULT`, повторяется с тем же `memberId` после реконнекта сигналинга): участник добавлен или перепривязан; ответ `room_joined { roomId, epoch }` (и снова `standby_assigned`, если этот участник — преемник). `caps` — возможности вкладки; страница без них преемником не становится. Ошибки `unknownRoom`, `invalidToken`. Вкладка — участник одной комнаты: вход в другую покидает прежнюю |
+| `leave_room { roomId }`                                     | участник удаляется сразу (без grace); от хоста комнаты игнорируется                                                                                                                                                                                                                                                                                                                                                                           |
+| `member_update { roomId, caps }`                            | возможности участника изменились (вкладка спрятана/показана, тип ICE-кандидата); преемник пересчитывается сразу. Вне своей комнаты игнорируется                                                                                                                                                                                                                                                                                               |
+| `standby_status { roomId, epoch, checkpointId, createdAt }` | у преемника есть полная контрольная точка (шлётся на первой, далее раз в `migration.standbyStatusIntervalMs`); принимается только от текущего преемника текущей эпохи, хранится как `room.standby` (этап 7 выбирает по нему режим промоушена)                                                                                                                                                                                                 |
+| `webrtc_offer { roomId, sdp, memberId, resume? }`           | маршрутизируется текущему хосту комнаты как `webrtc_offer { clientId, sdp, memberId, resume, epoch }`; `hostId` принимается как алиас `roomId`. Ошибка `{ code: 'unknownRoom', alias: 'unknownHost' }` (старый код оставлен на переходный период); во время плановой передачи — `{ code: 'migrating' }`, клиент повторяет через 1 с                                                                                                           |
+| `host_unreachable { roomId, epoch }`                        | WebRTC-связь участника с хостом оборвалась; принимается от участника комнаты с её текущей эпохой, не чаще раза в 2 с на участника (см. [Миграция хоста](#миграция-хоста))                                                                                                                                                                                                                                                                     |
+| `promote_failed { roomId, epoch, promotionToken }`          | повышенный преемник не смог поднять матч; узнаётся по `memberId` или, после холодной перезагрузки, по токену — повышается следующий кандидат                                                                                                                                                                                                                                                                                                  |
+| `host_vote_start { roomId }`                                | участник (не хост) начинает голосование «Change host» — чат-команда `/changehost`, только лобби-режим (см. [Голосование «Change host»](#голосование-change-host)). Ошибки: `{ code: 'voteRejected', reason }` (`host`, `active`, `roomCooldown`, `userCooldown`, `migrating`), `{ code: 'noSuccessor' }` (принять комнату некому). Вне комнаты отправителя игнорируется                                                                       |
+| `host_vote_answer { roomId, voteId, value }`                | ответ участника, `value` — `yes`/`no`; только от участника с правом голоса в этом голосовании, повтор меняет ответ                                                                                                                                                                                                                                                                                                                            |
+| `ping_host { roomId, pingId }`                              | пересылается хосту комнаты (`hostId` — алиас); ограничен rate limiter'ом по IP (`pingRateLimit`, ошибка `rateLimited`). Замер **приблизительный** (клиент→мастер→хост, не P2P RTT)                                                                                                                                                                                                                                                            |
+
+| ← от мастера                                                                      | Смысл                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `room_closed { roomId, reason }`                                                  | комната закрыта (`reason: 'noHost'` — хост потерян, и заменить его некому); уходит всем подключённым участникам, кроме хоста                                                                                                                                                                 |
+| `host_migrating { roomId, epoch, reason }`                                        | хост потерян, комната мигрирует к `epoch`; `reason` — `disconnected`, `timeout`, `unresponsive`, `unreachable`, `leaving` (вкладка хоста закрылась), `vote` (хоста сняли голосованием, а роль он не отдал); плановая передача — `leave`, `handover`, `overload`, `hidden`, `network`, `vote` |
+| `promote { roomId, epoch, promotionToken, mode, reason, settings }`               | этот участник повышен: `mode: 'checkpoint'` — поднять матч из последней точки, `'cold'` — начать матч заново с `settings`, `'planned'` — ждать финальную точку хоста (или взять последнюю периодическую); занять комнату `register_host { roomId, epoch, promotionToken, … }`                |
+| `promote_cancelled { roomId, epoch }`                                             | промоушен отозван (дедлайн пропущен, `promote_failed`, старый хост вернулся)                                                                                                                                                                                                                 |
+| `host_changed { roomId, epoch, mode, reason }`                                    | у комнаты хост эпохи `epoch`: `checkpoint`/`planned` — возобновиться к нему, `cold` — перезагрузиться в комнату, `reclaimed` — вернулся старый хост (та же эпоха), возобновиться к нему; `reason` — причина миграции (`disconnected`, `handover`, `overload`, …), справочно                  |
+| `standby_assigned { roomId, epoch }`                                              | этот участник теперь преемник комнаты: ждать канал `standby` от хоста                                                                                                                                                                                                                        |
+| `standby_released { roomId }`                                                     | этот участник больше не преемник: выбросить точки и прогретый Worker                                                                                                                                                                                                                         |
+| `host_vote { roomId, voteId, initiatorNick, endsAt, durationMs, eligibleCount }`  | началось голосование «Change host»: показать окно «Change host?» на `durationMs` (от прихода — часы расходятся); шлётся участникам с правом голоса, кроме инициатора, хосту — никогда                                                                                                        |
+| `host_vote_started { roomId, voteId, endsAt, durationMs, eligibleCount }`         | только инициатору: его голосование началось — в чате «Voting has started» (`v:1`), как у голосований хоста                                                                                                                                                                                   |
+| `host_vote_accepted { roomId, voteId }`                                           | участнику, чей `host_vote_answer` засчитан (и при смене ответа): в чате «Your vote has been accepted» (`v:2`), как у голосований хоста                                                                                                                                                       |
+| `host_vote_result { roomId, voteId, passed, yes, no, eligibleCount, cancelled? }` | голосование закончилось (всем участникам, и хосту): `no` считает молчание «против»; `cancelled: true` — хост начал меняться или все с правом голоса ушли                                                                                                                                     |
 
 ### Общие сообщения
 
-| → мастеру                               | Эффект                                                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `ice_candidate { targetId, candidate }` | пересылается адресату (`targetId` — `hostId` или `clientId`) как `ice_candidate { fromId, candidate }` |
+| → мастеру                               | Эффект                                                                                                                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ice_candidate { targetId, candidate }` | пересылается адресату — `clientId` или `roomId`, который резолвится в текущего хоста комнаты, — как `ice_candidate { fromId, epoch?, candidate }`; от хоста `fromId` — это `roomId`, и проставлен `epoch` |
 
-Ошибки приходят как `{ "type": "error", "code": "<код>" }`. Невалидный JSON и неизвестные `type` молча игнорируются.
+Ошибки приходят как `{ "type": "error", "code": "<код>" }` (`voteRejected` несёт ещё `reason`). Невалидный JSON и неизвестные `type` молча игнорируются — в том числе `like_host`/`unlike_host` от клиентов, собранных до удаления рейтинга серверов.
 
-## Рейтинг сервера (`/like`·`/unlike`)
+### Жизнь комнаты
 
-Единственная анти-чит-мера проекта. Браузерный хост физически исполняет
-симуляцию у себя в процессе — WASM-память доступна ему из JS, и модифицированный
-клиент может читерить в обход логики ядра. Техническая защита против этого
-невозможна без переноса авторитетности обратно на доверенный сервер (что
-противоречит цели P2P), поэтому единственная мера — социальная.
+Комната — не вкладка хоста: она живёт, пока в ней есть участник. Мастер
+ведёт участников сам (`join_room`, хост — через `register_host`); участник,
+чей сигналинг закрылся, отсоединяется и ещё считается в комнате
+`room.memberGraceMs` (15 с) — реконнект с тем же `memberId` его
+перепривязывает. `RoomRegistry.sweep` (каждые `host.sweepInterval`, 10 с)
+удаляет просроченных участников и пустые комнаты — кроме мигрирующей: её
+единственный кандидат может перезагружать страницу дольше
+`room.memberGraceMs`, и закроет её дедлайн промоушена.
 
-Голос перехватывается **на клиенте** (`packages/engine/src/client/main.js`, команды `/like <причина>`/`/unlike <причина>`) и уходит **напрямую мастеру** по сигнальному WS, минуя хоста: его `CommandProcessor` мог бы отфильтровать голос против самого себя. Причина обязательна (гейт на стороне клиента), публично не отображается.
+**Хост потерян.** Хост, чей сигналинг закрылся, отсоединяется, и комната
+сразу уходит в миграцию; хост на связи, но молчащий дольше
+`host.heartbeatTimeout` (30 с), тоже потерян. Комната закрывается, только
+когда в ней не осталось людей — см. [Миграция хоста](#миграция-хоста). Пока
+у комнаты нет привязанного хоста, офферы в неё получают `unknownRoom`. Когда
+повысить некого, комната, у хоста которой закрылся сигналинг, остаётся
+`online` с отсоединённым хостом на `room.hostReclaimGraceMs` (10 с) — P2P-матч,
+возможно, цел, и хост может сделать `reclaim_host`; дальше уборка мигрирует
+её, если появился кандидат, или закрывает с `room_closed { reason: 'noHost' }`.
 
-Логика рейтинга (`SignalingServer` + central auth-сервис, [auth.md](auth.md#схема-бд)):
+**Секрет комнаты.** `roomSecret = HMAC-SHA256(VIMP_ROOM_SECRET_KEY,
+roomId:epoch:hostUserId)` в base64url — не хранится, вычисляется по
+требованию. Он переживает рестарт мастера (ключ из окружения): после
+рестарта реестр пуст, но `reclaim_host` всё равно отличает настоящего хоста
+от любого, кто видел `roomId`; секрет привязан к пользователю хоста (из
+проверенного токена) и сам меняется со сменой эпохи. Без
+`VIMP_ROOM_SECRET_KEY` в dev генерируется случайный ключ на время процесса,
+и комнаты рестарт dev-мастера не переживают (хост получает
+`invalidRoomSecret` и регистрирует новую комнату).
 
-- голос принимается только от сессии, реально подключавшейся к комнате (слала ей `webrtc_offer`) — проверка членства в `SignalingServer._vote` (`session.offeredHosts`); причина обязательна — голос без непустого `reason` не отправляется.
-- и `register_host`, и `like_host`/`unlike_host` несут Bearer identity-токен; `SignalingServer` проверяет его по JWKS auth-сервиса (тот же `verifyIdentityToken`, каким пользуется Worker хоста), чтобы получить доверенный `hosterUserId`/`voterUserId` — IP здесь для идентичности не годится: вся суть в блокировке именно _хостера_, а не IP, который тривиально меняется новой вкладкой.
-- фактическое хранение score/голосов централизовано в БД auth-сервиса (`host_ratings`/`host_votes`), не в памяти мастера: оно должно быть глобальным (заблокированный на одном мастере хостер остаётся заблокированным везде) и персистентным (нужно для аннулирования rank/skills, этап 4 плана). `HostRegistry` лишь кэширует текущий `rating` на каждую комнату (этап 3 — чтобы `GET /servers` не ходил в БД на каждый запрос) — источником истины он не является.
-- `HostRatingProxy.vote` возвращает `{ score, blocked, counted }`; при `blocked: true` `SignalingServer` закрывает сигнальный WS хоста кодом `4002` — новые WebRTC-офферы к нему больше не маршрутизируются (уже установленные P2P-пиры это не рвёт, host-migration нет: читер остаётся в комнате один). Возвращённый `score` тут же обновляет кэш `HostRegistry` для этой комнаты (`registry.setRating`), поэтому голос отражается в лобби, не дожидаясь очередного периодического опроса.
-- при `register_host` `HostRatingProxy.getRating` сначала проверяет собственный рейтинг хостера — `blocked: true` отклоняет комнату ошибкой `blocked` ещё до её создания; его `score` заодно сеет закэшированный `rating` новой комнаты.
-- `SignalingServer.refreshRatings()` (этап 3) периодически переопрашивает рейтинг каждой активной комнаты через `HostRatingProxy.getPublic` (`GET /host-rating/:hosterUserId`, без авторизации — Bearer-токен конкретного хостера между запросами не хранится) и записывает его в `HostRegistry` через `setRatingForHoster`, по ключу `hosterUserId` (не `hostId` — если хостер держит несколько комнат, обновляются все разом). Это единственный путь, который подхватывает изменение счёта голосом на _другом_ мастере или после рестарта этого; `main.js` запускает его самоперезапускающимся циклом на `setTimeout`, а не обычным `setInterval` (фикс кодревью — медленный auth с большим числом активных хостеров иначе мог бы наслаивать циклы друг на друга), выжидая `rating.refreshInterval` (по умолчанию 30 с) после завершения каждого цикла. Сбой опроса одного хостера логируется и не прерывает обход остальных. Если опрос вернул `blocked: true`, `refreshRatings` вызывает тот же хелпер `_evacuateHoster`, что и голос, пересёкший `blockAt` на этом мастере (фикс кодревью): закрывает сигнальный WS всех активных комнат этого хостера кодом `4002` и удаляет их из `HostRegistry` через `getHostIdsForHoster`. Без этого хостер, заблокированный на мастере A (или заблокированный до последнего рестарта этого мастера), держал бы присоединяемую комнату здесь до следующей попытки `register_host`.
+### RTT участников и преемник
 
-Осознанное ограничение принятой модели «минимум анти-чита»: базовая гигиена
-среды (см. «Защита» ниже) отсекает «уличных» злоумышленников, но не хоста,
-исполняющего оригинальный WASM и правящего его память из JS — более тяжёлые
-схемы (кросс-валидация состояний хоста через теневых валидаторов, серверные
-реплей-проверки, криптографические подписи снапшотов) были рассмотрены и
-отклонены: все они в итоге доверяют потоку вводов/данных, которым управляет
-сам проверяемый хост.
+Миграции хоста (этапы 6+) нужен **преемник** («бета») в каждой комнате, где
+двое и больше людей: участник, который держит свежую контрольную точку матча
+и заранее прогретый Worker хоста.
 
-**Наблюдаемость**: заблокированный хостер пишется в консоль мастера (`[rating] hoster ... blocked (score ...)`) — это единственное место, где это видно со стороны мастера (админ-панель лобби покрывает только модерацию игр; причины голосов наружу не отдаются, они существуют только как аудит в колонке `host_votes.reason` auth-сервиса).
+**RTT.** Раз в `room.rttProbeIntervalMs` (5 с) мастер зовёт `ws.ping()`
+каждой сессии; на `pong` обновляет EMA RTT (α = 0.2) и джиттера
+(`|rtt − ema|`). `score = rttEma + 2 × jitterEma` — единая линейка «насколько
+хорошо участник подключён к сети», одинаковая для хоста и кандидатов.
+Сессия, не ответившая `pong` дольше `room.wsDeadAfterMs` (12 с), обрывается —
+«тихо умерший» хост находится быстрее, чем по `host.heartbeatTimeout`.
+
+**Возможности** (`caps`, санируются до известных полей): `canHost` (модульный
+Worker, WebRTC, WebAssembly, не мобильное устройство), `mobile`, `hidden`
+(вкладка в фоне), `iceType` — тип своего локального ICE-кандидата в
+выбранной паре с текущим хостом (`host`, `srflx`, `prflx`, `relay` или
+`null`, пока неизвестно). `relay` значит, что участнику для связи с хостом
+понадобился ретранслятор; став хостом, он не дотянется до части игроков
+напрямую (TURN необязателен). `fps` — средний FPS рендера гостя за интервал отчёта (этап 9c, шлётся в
+`member_update` раз в `migration.auto.fpsReportIntervalMs`, 10 с;
+округляется, вне 0…1000 или не число → `null`).
+
+**Выбор** (`master/successor.js`, чистая функция). Кандидаты — все участники,
+кроме хоста, с живой сессией, `caps.canHost`, без `caps.hidden`, в комнате
+не меньше `room.minMemberAgeMs` (10 с), без `demotedUntil > now` (снят голосованием, этап 10 — холодный
+аварийный промоушен снимает это, если больше некому, см.
+[Голосование «Change host»](#голосование-change-host))
+и с `caps.fps` не ниже `room.minSuccessorFps` (30; неизвестный FPS — старая
+страница — не отсеивает, аварийный промоушен порог не применяет, как и
+`hidden`).
+Порядок: сначала ярус связности — `host`/`srflx`/`prflx`, затем неизвестный,
+затем `relay` (`relayPenalty` после неудачного промоушена, этап 7,
+считается как `relay`), — потом `score` по возрастанию, потом кто раньше
+вошёл. Участник с `relay` становится преемником, только если других нет.
+**Гистерезис:** текущий преемник остаётся, пока не перестал быть кандидатом
+или пока лучший кандидат не держит лучший ярус или
+`score ≤ room.successorSwitchRatio (0.65) × score(текущего)` дольше
+`room.successorSwitchSustainMs` (30 с) — новый преемник стоит повторного
+прогрева и трафика.
+
+Пересчёт — на `join_room`, `leave_room`, закрытие сигналинга участника,
+`member_update`, возврат хоста и раз в `room.successorReviewMs` (15 с; на
+этом таймере держится гистерезис). Комната хранит `successorMemberId`; смена
+шлёт `standby_released` прежнему преемнику, `standby_assigned` новому и
+`successor_assigned` хосту. Пока хост отсоединён, преемник остаётся
+назначенным.
+
+### Миграция хоста
+
+`master/MigrationCoordinator.js` (host-migration этап 7), его ведёт
+`SignalingServer`:
+
+```
+online(N) ──хост потерян──► migrating(N → N+1) ──register_host ok──► online(N+1)
+                                 │ дедлайн / promote_failed → следующий кандидат (cold)
+                                 └ кандидатов / людей нет → room_closed, удаление
+online(N) ──handoff_begin──► handing_off(N → N+1) ──register_host ok──► online(N+1)
+                                 │ дедлайн / promote_failed / преемник ушёл → online(N)
+                                 └ хост потерян → migrating (тот же кандидат)
+```
+
+**Хост потерян** — любое из: закрылся WS хоста (`disconnected`, сразу — без
+grace), нет heartbeat дольше `host.heartbeatTimeout` (`timeout`, из уборки),
+нет ответа на пробу (`unresponsive`), кворум отчётов гостей (`unreachable`).
+Дальше:
+
+- живых людей, кроме хоста, нет → комната удаляется (одинокий хост, у
+  которого оборвался только сигналинг, вернёт её `reclaim_host` — она
+  создастся заново);
+- повысить некого (тот же выбор, что ниже, — до любых изменений) → для
+  хоста, который ещё отвечает (`unresponsive`, `unreachable`) или потерял
+  только сигналинг (`disconnected`), ничего не происходит — хост сохраняет
+  комнату, отсоединённому даётся grace reclaim'а (см.
+  [Жизнь комнаты](#жизнь-комнаты)); после таймаута heartbeat или grace →
+  `room_closed { reason: 'noHost' }`;
+- `status = 'migrating'`, `pendingEpoch = epoch + 1`; сессия хоста, если
+  ещё на связи, сразу перестаёт быть хостом комнаты (её ответы,
+  ICE-кандидаты и heartbeat игнорируются; участником она остаётся); всем
+  участникам, кроме старого хоста, — `host_migrating`;
+- кандидат: назначенный преемник, чей `standby_status` пришёл не раньше
+  `room.checkpointMaxAgeMs` (12 с; статус идёт раз в 5 с, отсчёт по часам
+  мастера) назад → режим `checkpoint`; иначе `pickSuccessor` без фильтра
+  `hidden` (в аварии годится любой способный) → режим `cold`; кандидаты
+  кончились → `room_closed { reason: 'noHost' }`;
+- `promote { …, promotionToken }` (128 случайных бит, одноразовый)
+  кандидату; он должен занять комнату за `room.promotionTimeoutMs` (10 с;
+  `room.coldPromotionTimeoutMs`, 25 с, для `cold` — кандидат перезагружает
+  страницу). Пропущенный дедлайн, `promote_failed` или, у кандидата не
+  `cold`, закрытие его WS (хост и преемник ушли разом) → ему
+  `promote_cancelled` и следующий неопробованный кандидат в `cold`.
+
+**Промоушен.** `register_host { roomId, epoch, promotionToken, … }` с
+пользователем кандидата, ожидаемой эпохой и токеном → у комнаты новый хост и
+эпоха (`roomSecret` старого хоста перестаёт подходить сам), снова `online`,
+выбирается новый преемник; новому хосту — `host_registered`, старому (если
+его сессия жива) — `host_revoked`, всем остальным — `host_changed { epoch,
+mode }`. Холодный кандидат перезагружает страницу: `memberId` новой сессии
+другой, устаревшая запись участника удаляется.
+
+**Отмена reclaim'ом.** Миграцию из-за закрытия сигналинга хоста
+(`disconnected`) отменяет `reclaim_host` той же эпохи до регистрации
+кандидата: кандидату `promote_cancelled`, участникам `host_changed { epoch:
+N, mode: 'reclaimed' }`, хост сохраняет комнату. Отмена — только после всех
+остальных проверок reclaim'а (reclaim, отвергнутый `hostLimit`, миграцию не
+останавливает). Принудительную миграцию так не отменить (`staleEpoch`).
+
+**Отчёты гостей и проба.** `host_unreachable` с текущей эпохой (не чаще раза
+в 2 с на участника). Сигналинга хоста уже нет — хост потерян сразу. Иначе
+мастер шлёт хосту `probe { nonce }`; нет `probe_ack` за
+`room.probeTimeoutMs` (2 с) → потерян (`unresponsive`). Хост отвечает — и
+если за `room.reportWindowMs` (5 с) отчиталось не меньше `max(1, ceil(живые
+гости / 2))` гостей, его P2P-сторона сломана → принудительная миграция
+(`unreachable`). Принудительные миграции (по отчётам/пробе) — не чаще раза в
+`room.forcedMigrationCooldownMs` (30 с) на комнату; внутри кулдауна — только
+проба.
+
+#### Плановая передача
+
+Host-migration этап 8: хост отдаёт роль сам («Leave server», «Hand over
+host») — преемник продолжает с того же тика. `handoff_begin { roomId, epoch,
+reason, stay }` от текущего хоста:
+
+- комната должна быть `online` с этой `epoch` (иначе `handoff_unavailable` с
+  `busy`/`staleEpoch`), а её преемник — живым и со `standby_status` не
+  старше `room.checkpointMaxAgeMs`: финальная точка идёт по каналу
+  `standby` (иначе `noSuccessor`; при `leave` хост уходит всё равно, дальше
+  аварийный путь);
+- `status = 'handing_off'`, `pendingEpoch = epoch + 1`; в отличие от
+  миграции хост остаётся привязанным (heartbeat засчитывается, матч ещё у
+  него). Хост получает `handoff_go`, преемник — `promote { mode: 'planned'
+}`, остальные — `host_migrating { reason }` (`reason`: `leave`,
+  `handover` и автоматические `overload`, `hidden`, `network` этапа 9;
+  незнакомая считается `handover`);
+- офферы новых гостей получают `error { code: 'migrating' }` — клиент
+  повторяет через 1 с, уже к преемнику; в `GET /servers` комната не
+  выдаётся;
+- успех — `register_host` преемника, как при миграции; старый хост
+  получает `host_released` вместо `host_revoked`, участники — `host_changed
+{ mode: 'planned' }`;
+- сбой — преемник не уложился в `room.handoffTimeoutMs` (8 с), прислал
+  `promote_failed` или его WS закрылся → ему `promote_cancelled`, хосту
+  `handoff_aborted`, участникам `host_changed { epoch: N, mode: 'reclaimed'
+}` (по `host_migrating` они бросили транспорт и возобновляются к тому же
+  хосту), комната снова `online(N)`: эпоха растёт только при успешной
+  смене;
+- хост потерян посреди передачи (WS закрылся, нет heartbeat,
+  `host_leaving`) → комната становится `migrating` с тем же кандидатом: он
+  получает `promote` повторно с той же эпохой и токеном, но `mode:
+'checkpoint'` (финальной точки не будет — поднять последнюю периодическую
+  сразу) и обычный `room.promotionTimeoutMs`; его сбой теперь ведёт к
+  следующему кандидату (`cold`), а не к отмене. `reclaim_host` во время
+  передачи отклоняется `staleEpoch`;
+- пока хост сменяется (`handing_off`, `migrating`), преемник не
+  пересчитывается: повышенная бета и хост, шлющий финальную точку, должны
+  видеть одного и того же; выбор возобновляется, когда комната снова
+  `online`.
+
+**`host_leaving { roomId, epoch }`** — `pagehide` хоста: аварийная миграция
+сразу (`reason: 'leaving'`, `reclaim_host` её не отменяет), преемник
+поднимает последнюю периодическую точку; других людей в комнате нет —
+комната закрывается.
+
+#### Сетевой лаг хоста
+
+Host-migration этап 9c. Хост не может сравнить себя с преемником (преемник
+не видит других игроков), поэтому решает мастер — по единой для всех
+линейке `score` (см. [RTT участников и преемник](#rtt-участников-и-преемник)).
+На каждом `host_health` комнаты в `online` с текущей эпохой:
+
+- **лаг** — `peerRttMedian > room.lagRttThresholdMs` (250) при `peerCount
+≥ 1` непрерывно `room.lagSustainMs` (10 с). Сэмпл на пороге или ниже,
+  `peerCount: 0`, `peerRttMedian: null`, пауза между отчётами больше 5 с
+  (матч был заморожен или страница старая) или новая эпоха начинают окно
+  заново;
+- **гистерезис** — `score(преемника) ≤ (1 − room.lagImprovementRatio) ×
+score(хоста)` (0.35: лучше хотя бы на 35 %), оба измерены; преемник жив
+  и со свежим потоком точек (как для `handoff_begin`);
+- **кулдаун** — `room.autoMigrationCooldownMs` (90 с) с последней
+  автоматической смены хоста в комнате и с получения роли текущим хостом.
+
+Тогда хост получает `request_handoff { reason: 'network', defer: true }`, а
+окно начинается заново (хост, проигнорировавший просьбу, получит её снова не
+раньше чем через `lagSustainMs`). Сама передача — обычный `handoff_begin`
+(`reason: 'network'`). **`room.lastAutoMigrationAt`** ставит каждая успешная
+смена хоста с автоматической причиной — `overload`, `hidden` (собственные
+триггеры хоста) или `network`, в том числе когда передача деградировала в
+аварийную миграцию; сорванная передача её не ставит. Сорванная передача
+`network` (преемник не занял комнату, отказал или ушёл) ставит вместо неё
+`room.lastLagHandoffFailedAt`: правило лага молчит
+`room.autoMigrationCooldownMs` после неё, чтобы несправляющийся преемник не
+замораживал матч каждое окно лага. Кулдаун общий: хост,
+отдавший роль из-за перегрузки, не передаст комнату дальше преемнику с
+плохой сетью раньше 90 с. `handoff_begin` с `overload`/`hidden` этот
+кулдаун не отклоняет: матч страдает прямо сейчас, а их частоту держат срок
+роли и кулдаун самого хоста.
+
+**Ограждение эпохой.** `update_host`, `heartbeat`, `webrtc_answer` и
+ICE-кандидаты хоста засчитываются только от сессии, привязанной хостом
+комнаты; устаревшие `register_host`/`reclaim_host` получают `staleEpoch`;
+офферы и ответы несут `epoch`, и клиенты отбрасывают сигналинг чужой эпохи.
+
+## Читер-хост
+
+Браузерный хост физически исполняет симуляцию у себя в процессе —
+WASM-память доступна ему из JS, и модифицированный клиент может читерить в
+обход логики ядра. Техническая защита против этого невозможна без переноса
+авторитетности обратно на доверенный сервер (что противоречит цели P2P).
+Более тяжёлые схемы (кросс-валидация состояний хоста через теневых
+валидаторов, серверные реплей-проверки, криптографические подписи
+снапшотов) были рассмотрены и отклонены: все они в итоге доверяют потоку
+вводов/данных, которым управляет сам проверяемый хост.
+
+Социальный рейтинг серверов (`/like`·`/unlike`), стоявший здесь раньше,
+удалён: при динамическом хосте рейтинг «сервера» не имеет смысла. Плохого
+хоста — читера, тролля или просто слабую машину — вместо этого заменяют:
+автотриггеры (перегрузка, скрытая вкладка, сетевой лаг, см.
+[Миграция хоста](#миграция-хоста)) и
+[голосование «Change host»](#голосование-change-host) игроков. И то и
+другое — только в лобби-режиме.
+
+## Голосование «Change host»
+
+Host-migration этап 10, `master/HostVoteManager.js`. Голоса считает мастер,
+а не хост: хост исполняет матч и мог бы отфильтровать голосование против
+себя в своих модулях чата или голосований. Участник начинает его
+чат-командой `/changehost` (только лобби-режим — у dedicated-сервера и
+standalone SDK хост один по определению и считать голоса некому; там
+команда доходит до игры обычным текстом). Меню голосований игры не
+меняется.
+
+- **Старт** — `host_vote_start` от участника комнаты, не её хоста; комната
+  `online`, голосование не идёт и не ждёт принудительной смены хоста; с
+  начала прошлого голосования в комнате прошло `room.vote.roomVoteCooldownMs`
+  (120 с), а с прошлого старта этим пользователем в комнате —
+  `room.vote.userStartCooldownMs` (60 с); комнату прямо сейчас есть кому
+  принять (та же проверка кандидата, что у аварийной миграции) — иначе
+  `noSuccessor`.
+- **Право голоса** — живые участники комнаты (подключённые или в grace),
+  кроме хоста, на момент старта; инициатор сразу «за» и получает
+  `host_vote_started` (в его чате «Voting has started», как у голосований
+  хоста). `host_vote` уходит остальным из них.
+- **Исход** — «за» больше половины имеющих право голоса (строгое
+  большинство), досрочно — как только он определён, иначе по истечении
+  `room.vote.hostVoteDurationMs` (15 с) — молчание считается «против».
+  Участник, покинувший комнату (`leave_room` или истёк его grace), теряет и
+  право голоса, большинство считается от оставшихся; опустевший состав
+  отменяет голосование. Комнату из хоста и одного гостя решает этот гость —
+  это сдерживают кулдауны и `demotedUntil`.
+- **Отмена** — хост начал меняться (началась миграция или плановая
+  передача): `host_vote_result { cancelled: true }`.
+- **Прошло** — **пользователю** бывшего хоста запрещено до `now +
+room.vote.demotedCooldownMs` (10 мин; `room.demotedUsers`, поэтому
+  перезагрузка вкладки или повторный вход с новым `memberId` запрет не
+  снимают) быть преемником или хостом комнаты (`pickSuccessor`), если
+  только аварийная миграция не находит больше никого способного — комната
+  важнее. Мастер помнит снятие сам (`room.votedOutEpoch`): любая плановая
+  передача этого хоста записывается с `reason: 'vote'`, какую бы причину ни
+  прислала его страница. Хост получает `request_handoff { reason: 'vote',
+defer: false }` и передаёт роль обычным путём (сам остаётся гостем;
+  передача, уже ждущая границы раунда, ускоряется). Не начал за
+  `room.vote.voteForceAfterMs` (5 с) — старая страница, отказ — или
+  передача сорвалась — мастер меняет хоста **принудительно**: аварийный путь
+  с `reason: 'vote'` (хост сразу отвязывается, преемник повышается из своей
+  последней точки, бывший хост получает `host_revoked`). Кулдаун
+  принудительных миграций не действует: решили игроки, а не сетевые
+  отчёты. Если комнату принять некому (последний гость ушёл), хост
+  сохраняет роль и комната живёт.
 
 ## Защита
 
 - **Origin-allowlist** — паттерн `packages/engine/src/lib/security.js` (`createOriginValidator` с параметрами мастера).
-- **1 комната на IP** — проверка в `HostRegistry.add`; хостер с рейтингом на `blockAt` отклоняется независимо от IP (`HostRatingProxy.getRating`, см. выше).
+- **1 комната на IP** — `RoomRegistry.add`/`restore`: IP, который хостит комнату, другую хостить не может (`hostLimit`).
 - **Rate limiting пингов** — `RateLimiter` (фиксированное окно, по умолчанию 10 запросов/с с IP).
 - **Адрес для обоих ограничений** даёт `clientIp()` (`src/lib/clientIp.js`): адрес сокета, а за прокси — `X-Real-IP` (`trustProxy`, приходит из `lobby.js` как `isProduction`). `X-Forwarded-For` не используется намеренно: Nginx деплоя ставит его через `$proxy_add_x_forwarded_for`, то есть _дописывает_ реальный адрес к присланному клиентом, и первый адрес списка задаёт сам клиент — ключ по нему снимал бы оба ограничения одним заголовком и позволял занять чужой бакет, закрыв человеку возможность поднять комнату. `X-Real-IP` тот же Nginx ставит из `$remote_addr`, перезаписывая присланное клиентом. Прокси, который его не ставит, схлопывает всех клиентов на свой собственный адрес — один общий бакет, то есть на всём мастере смогла бы существовать ровно одна комната; `clientIp()` в этом случае один раз пишет предупреждение в лог, а обязательный `proxy_set_header` перечислен в [deployment.md](deployment.md#обязательный-заголовок-прокси-x-real-ip). Соединение, у которого адреса нет вовсе (сокет уже разорван), обрывается; слушатель `error` вешается до этого, поэтому поздний `ECONNRESET` на нём не станет `uncaughtException`.
 - **Security-заголовки** (гигиена среды) — мастер ставит `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` на все ответы; `Content-Security-Policy` — только в проде (в dev сломала бы Vite HMR). Прод-статику и `.wasm` с CSP отдаёт Nginx — см. [deployment.md](deployment.md); единый source of truth политики — `packages/engine/src/config/master.js` (`security.csp`, функция от `authServiceUrl` — см. [auth.md](auth.md#вход-в-лобби-клиент) — чтобы `connect-src` разрешал fetch `POST /nick` лобби к central auth-сервису; `security.authServiceUrl` переопределяется `VIMP_AUTH_SERVICE_URL` в проде).
 - **Заявки в реестр** — `POST /games/submit` и `POST /games/mine/:id/version` ограничены 5 запросами в минуту на пользователя (`429 { "error": "tooManyRequests" }`). Лимит стоит **до** похода в npm и распаковки тарболла — работы, которую мастер делает за свой счёт; собственный per-IP лимитер auth-сервиса видит только заявку, уже прошедшую проверку пакета. Id, имя пакета и версия сверяются с `gameRefs.js` ещё раньше, поэтому кривая ссылка не стоит ничего.
+- **Плохой хост** — автотриггеры передачи и
+  [голосование «Change host»](#голосование-change-host), только в
+  лобби-режиме; голосование считает мастер, мимо хоста.
 - Санитизация входных строк (`sanitizeMessage`), clamp числовых полей.
 
 ## Тесты
 
-`tests/master/` (node-проект Vitest): `HostRegistry.test.js` (регистрация и атрибуция `hosterUserId`, лимит по IP, heartbeat/уборка, вся логика выборки `GET /servers` включая поиск `gameId/name` — lobby-page-plan, хранение `gameId`/`gameVersion`, закэшированный `rating`/`setRating`/`setRatingForHoster`/`getHosterUserIds` — этап 3), `SignalingServer.test.js` (жизненный цикл соединений, маршрутизация всех сигнальных сообщений на фейковых ws, проверка identity-токена по настоящему RSA-подписанному JWKS, rate limiting, membership-проверка и блокировка голосов рейтинга, уборка протухших хостов, `mapsVersion`/`codeVersion` в `host_registered`, per-game `mapsVersion` через стаб `gameCatalog`, кэш `rating` при регистрации/голосе и периодический опрос `refreshRatings()` — этап 3), `MapCatalog.test.js` (манифест, выдача карт, стабильность версии), `WorkerCatalog.test.js` (версия-хеш и URL бандла, пустой каталог в dev, выбор новейшего из нескольких), `GameCatalog.test.js` (резолв сконфигурированных `{id, package}` в `node_modules/<package>/dist/manifest.json`, per-game каталоги карт, несобранная/неизвестная игра, подмена entries на `/@fs/` в dev), `JwksProxy.test.js` (проксирование, TTL-кэш и его истечение, сбой апстрима — инъекция `fetchImpl`), `PlayerDataProxy.test.js` (проксирование GET/PUT `/rank`+`/state`, публичный `getLeaderboard` (без заголовка `Authorization`, `limit` в query) и per-user `getPlacement` — lobby-page-plan, отсутствие кэша, сбой апстрима — инъекция `fetchImpl`), `LeaderboardCache.test.js` (промах зовёт proxy, хит в пределах TTL — нет, рефетч после истечения TTL, не-200 не кэшируется, `game`/`limit` — разные ключи кэша — инъекция `now`, кодревью L2), `HostRatingProxy.test.js` (проксирование GET `/host-rating` + PUT `/host-rating/:hosterUserId` с Bearer-токеном, `getPublic` без авторизации (`GET /host-rating/:hosterUserId`), отсутствие кэша, сбой апстрима — инъекция `fetchImpl`). Направление реестра добавляет `GameRegistryProxy.test.js` (все вызовы реестра, проброс токена), `npmRegistry.test.js` (пакумент, разрешение версии, несовпадение `integrity`/`shasum`, потолки размера и числа файлов), `gamePackageCheck.test.js` (структурные правила, код не исполняется), `GameStore.test.js` (скачивание, идемпотентный `ensure`, стейджинг, который физически не попадает в раздачу, `prune`), `GameSync.test.js` (проход, отказ реестра не трогает каталог, прилинкованная игра важнее, per-game `lastError`), `rebaseManifest.test.js` (версионная база, `wasmNode` не тронут), `adminAuth.test.js` (подпись, issuer, клейм `role`) и `lobbyGamesRoutes.test.js` (обработчики заявки и модерации на стабах зависимостей). Журнал клиентских ошибок добавляет `ClientReportsProxy.test.js` (URL, Bearer, query без незаданных полей, кодирование id) и `clientReportsRoutes.test.js` (фильтрация полей, проброс статуса auth, `502` при сбое сети). Rate limiter — `tests/lib/rateLimiter.test.js`.
+`tests/master/` (node-проект Vitest): `RoomRegistry.test.js` (создание комнаты, коллизия `roomId`, лимит по IP, участники join/detach/leave/grace, `currentPlayers`, `sweep` — потерянный хост, пустая комната — вся логика выборки `GET /servers` включая поиск по `roomId`/`gameId`/`gameId/roomId`, публичная форма без имени и рейтинга, атрибуция по секрету комнаты), `roomSecret.test.js` (детерминизм, зависимость от каждого поля и ключа, сравнение за постоянное время, мусорный ввод), `SignalingServer.test.js` (жизненный цикл соединений, маршрутизация всех сигнальных сообщений на фейковых ws, проверка identity-токена по настоящему RSA-подписанному JWKS, `reclaim_host` — живая комната, после рестарта мастера, попытка угона, устаревшая эпоха — `join_room`/`leave_room`, алиасы `hostId`, `room_closed`, когда заменить хоста некому, rate limiting, игнорирование `like_host`/`unlike_host`, `mapsVersion`/`codeVersion` в `host_registered`, per-game `mapsVersion` через стаб `gameCatalog`), `MapCatalog.test.js` (манифест, выдача карт, стабильность версии), `WorkerCatalog.test.js` (версия-хеш и URL бандла, пустой каталог в dev, выбор новейшего из нескольких), `GameCatalog.test.js` (резолв сконфигурированных `{id, package}` в `node_modules/<package>/dist/manifest.json`, per-game каталоги карт, несобранная/неизвестная игра, подмена entries на `/@fs/` в dev), `JwksProxy.test.js` (проксирование, TTL-кэш и его истечение, сбой апстрима — инъекция `fetchImpl`), `PlayerDataProxy.test.js` (проксирование GET/PUT `/rank`+`/state`, публичный `getLeaderboard` (без заголовка `Authorization`, `limit` в query) и per-user `getPlacement` — lobby-page-plan, отсутствие кэша, сбой апстрима — инъекция `fetchImpl`), `LeaderboardCache.test.js` (промах зовёт proxy, хит в пределах TTL — нет, рефетч после истечения TTL, не-200 не кэшируется, `game`/`limit` — разные ключи кэша — инъекция `now`, кодревью L2). Направление реестра добавляет `GameRegistryProxy.test.js` (все вызовы реестра, проброс токена), `npmRegistry.test.js` (пакумент, разрешение версии, несовпадение `integrity`/`shasum`, потолки размера и числа файлов), `gamePackageCheck.test.js` (структурные правила, код не исполняется), `GameStore.test.js` (скачивание, идемпотентный `ensure`, стейджинг, который физически не попадает в раздачу, `prune`), `GameSync.test.js` (проход, отказ реестра не трогает каталог, прилинкованная игра важнее, per-game `lastError`), `rebaseManifest.test.js` (версионная база, `wasmNode` не тронут), `adminAuth.test.js` (подпись, issuer, клейм `role`) и `lobbyGamesRoutes.test.js` (обработчики заявки и модерации на стабах зависимостей). Журнал клиентских ошибок добавляет `ClientReportsProxy.test.js` (URL, Bearer, query без незаданных полей, кодирование id) и `clientReportsRoutes.test.js` (фильтрация полей, проброс статуса auth, `502` при сбое сети). Прямые ссылки добавляют `roomRoutes.test.js` (`GET /rooms/:roomId`: `400`/`404`/`200`, скрытые комнаты, `429` по IP). Миграция хоста добавляет `MigrationCoordinator.test.js` (через `SignalingServer` на фейковых ws, фейковых часах и ручной очереди таймеров: промоушен с точкой и холодный, обход лимита по IP, холодная перезагрузка, проверки токена/пользователя/эпохи, дедлайны и `promote_failed`, нет кандидатов, отмена reclaim'ом, отчёты, проба, кворум и кулдаун, таймаут heartbeat, правило сетевого лага — порог, непрерывность, гистерезис 35 %, общий кулдаун авто-смен) и `tests/lib/roomSettings.test.js`. Голосование
+«Change host» добавляет `HostVoteManager.test.js` (та же обвязка: проверки
+старта и кулдауны, кому приходит окно, ответы и смена мнения, досрочный
+исход, таймаут, комната 1+1, ушедшие, отмена, `demotedUntil` в выборе
+преемника и его аварийное исключение, принудительная смена хоста после
+`voteForceAfterMs` и после сорванной передачи). Преемник добавляет `successor.test.js` (фильтры кандидатов, ярусы связности, штраф relay, гистерезис на фейковых часах) и блок `SignalingServer.test.js` (EMA ping/pong, обрыв мёртвой сессии, `member_update`, сообщения назначения, `standby_status`). Rate limiter — `tests/lib/rateLimiter.test.js`.
 
 ---
 

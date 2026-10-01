@@ -2,6 +2,10 @@ import Publisher from '../../../lib/Publisher.js';
 
 // Singleton VoteModel
 
+// имя с '@' — голосование движка (host-migration этап 10: '@changeHost'):
+// его ведёт мастер, а не хост, и игра таких имён не объявляет
+const isEngineVote = name => typeof name === 'string' && name.startsWith('@');
+
 let voteModel;
 
 export default class VoteModel {
@@ -13,6 +17,7 @@ export default class VoteModel {
     voteModel = this;
 
     this._formatMessage = data.formatMessage;
+    this._now = data.now ?? (() => Date.now());
 
     // игра может не объявлять голосований вовсе (noSpectators): меню по 'm'
     // тогда пустое, а не падение на длине undefined
@@ -28,6 +33,12 @@ export default class VoteModel {
     this._timeOff = false; // флаг отключения времени жизни голосования
 
     this._voteName = ''; // название голосования
+    this._deadline = null; // конец голосования движка (окно — на остаток)
+    this._showing = false; // окно (голосование или меню) открыто
+
+    // голосования, ждущие закрытия открытого окна: голосование движка не
+    // затирает чужое и не затирается им (этап 10)
+    this._queue = [];
 
     this._title = null; // заголовок голосования
     this._values = []; // все значения голосования
@@ -45,7 +56,18 @@ export default class VoteModel {
     this.publisher.emit('mode', { name: 'vote', status: 'opened' });
   }
 
+  // голосование хоста по шаблону; false — встало в очередь за открытым
+  // голосованием движка
   createWithTemplate({ name, params, values }) {
+    if (
+      this._showing &&
+      this._type === 'vote' &&
+      isEngineVote(this._voteName)
+    ) {
+      this._queue.push({ template: { name, params, values } });
+      return false;
+    }
+
     const templateArr = this._templates[name];
 
     if (templateArr) {
@@ -59,13 +81,62 @@ export default class VoteModel {
 
       this.createVote(name, title, values, timeOff);
     }
+
+    return true;
   }
 
-  // создает голосование
-  createVote(name, title, values, timeOff) {
+  /**
+   * Голосование движка (имя с '@'): окно живёт до deadline; открыто другое
+   * окно — ждёт в очереди.
+   * @param {Object} vote - { name, title, values, deadline }.
+   * @returns {boolean} окно открыто сразу.
+   */
+  createEngineVote(vote) {
+    if (this._showing || this._waitingValues) {
+      this._queue.push({ engine: { ...vote } });
+      return false;
+    }
+
+    this._startEngineVote(vote);
+
+    return true;
+  }
+
+  /**
+   * Голосование движка завершилось (итог от мастера): окно закрывается или
+   * снимается из очереди.
+   * @param {string} name
+   */
+  closeEngineVote(name) {
+    this._queue = this._queue.filter(item => item.engine?.name !== name);
+
+    if (this._showing && this._type === 'vote' && this._voteName === name) {
+      this.complete();
+    }
+  }
+
+  // голосования хоста не пережили переподключение: открытое закрывается,
+  // ждущие отбрасываются; голосование движка (его ведёт мастер) остаётся
+  removeHostVotes() {
+    this._queue = this._queue.filter(item => item.engine);
+
+    if (!(this._type === 'vote' && isEngineVote(this._voteName))) {
+      this.complete();
+    }
+  }
+
+  _startEngineVote({ name, title, values, deadline }) {
+    this.createVote(name, title, values, false, deadline);
+    this.open();
+  }
+
+  // создает голосование; deadline — только у голосований движка
+  createVote(name, title, values, timeOff, deadline = null) {
     if (this._waitingValues) {
       return;
     }
+
+    this._deadline = deadline;
 
     this._type = 'vote';
     this._back = false;
@@ -91,7 +162,24 @@ export default class VoteModel {
       return;
     }
 
+    // меню открывается поверх голосования движка — оно вернётся следом
+    if (
+      this._showing &&
+      this._type === 'vote' &&
+      isEngineVote(this._voteName)
+    ) {
+      this._queue.unshift({
+        engine: {
+          name: this._voteName,
+          title: this._title,
+          values: this._values,
+          deadline: this._deadline,
+        },
+      });
+    }
+
     this._timeOff = false;
+    this._deadline = null;
 
     this._type = 'menu';
     this._back = false;
@@ -204,6 +292,7 @@ export default class VoteModel {
       currentValues = this._currentValues;
     }
 
+    this._showing = true;
     this.publisher.emit('clear', this._timerId);
 
     this.publisher.emit('vote', {
@@ -211,15 +300,44 @@ export default class VoteModel {
       list: currentValues,
       back: this._back,
       more: this._more,
-      time: this._timeOff === true ? null : this._time,
+      time: this._timeOff === true ? null : this._windowTime(),
     });
   }
 
-  // завершает голосование
+  // время окна: у голосования движка — остаток до его конца
+  _windowTime() {
+    return this._deadline === null
+      ? this._time
+      : Math.max(0, this._deadline - this._now());
+  }
+
+  // завершает голосование; следом открывается ждущее в очереди
   complete() {
     this._waitingValues = false;
+    this._showing = false;
+    this._deadline = null;
     this.publisher.emit('clear', this._timerId);
     this.publisher.emit('mode', { name: 'vote', status: 'closed' });
+    this._openNext();
+  }
+
+  // первое ждущее голосование; голосование движка, чьё время вышло, —
+  // пропускается
+  _openNext() {
+    while (this._queue.length > 0) {
+      const { engine, template } = this._queue.shift();
+
+      if (engine) {
+        if (engine.deadline - this._now() > 0) {
+          this._startEngineVote(engine);
+          return;
+        }
+      } else {
+        this.createWithTemplate(template);
+        this.open();
+        return;
+      }
+    }
   }
 
   // добавляет id таймера голосования

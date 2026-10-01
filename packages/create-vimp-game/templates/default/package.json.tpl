@@ -26,7 +26,7 @@
     "core:build:node": "wasm-pack build core --release --target nodejs --out-dir pkg-node",
     "core:test": "cargo test --workspace",
     "check:contract": "vimp-contract --game .",
-    "sim": "vimp-sim --game .",
+    "sim": "vimp-sim --game . --checkpoint-every 500",
     "test": "vitest run",
     "test:watch": "vitest",
     "predev": "node ./scripts/copy-game-images.js && node ./scripts/copy-game-sounds.js",

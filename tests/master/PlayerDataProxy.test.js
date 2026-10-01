@@ -46,6 +46,34 @@ describe('PlayerDataProxy', () => {
     );
   });
 
+  // host-migration 7.7: номер записи едет в auth для отсева повтора
+  it('putRank несёт writeSeq в теле', async () => {
+    const fetchImpl = makeFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, duplicate: true }),
+    }));
+    const proxy = new PlayerDataProxy('http://auth.local', { fetchImpl });
+
+    const { json } = await proxy.putRank(
+      'tok',
+      'tanks',
+      { points: 10, best: 6, writeSeq: 42 },
+      { sessionId: 'room-1' },
+    );
+
+    const [, opts] = fetchImpl.mock.calls[0];
+
+    expect(JSON.parse(opts.body)).toEqual({
+      points: 10,
+      best: 6,
+      writeSeq: 42,
+      sessionId: 'room-1',
+    });
+    // ответ auth про дубль проксируется как есть
+    expect(json).toEqual({ ok: true, duplicate: true });
+  });
+
   it('запрашивает и обновляет state', async () => {
     const fetchImpl = makeFetch(async () => ({
       ok: true,
@@ -71,10 +99,9 @@ describe('PlayerDataProxy', () => {
     );
   });
 
-  // кодревью №1 (plan/server-rating/review.md): атрибуция проставляется
-  // мастером (из проверенного register_host), не телом хоста — putRank/
-  // putState просто сливают её в тело запроса к auth
-  it('putRank/putState несут атрибуцию hosterUserId/sessionId в теле', async () => {
+  // атрибуция проставляется мастером (по секрету комнаты), не телом хоста —
+  // putRank/putState просто сливают её в тело запроса к auth
+  it('putRank/putState несут sessionId комнаты в теле', async () => {
     const fetchImpl = makeFetch(async () => ({
       ok: true,
       status: 200,
@@ -86,7 +113,7 @@ describe('PlayerDataProxy', () => {
       'tok',
       'tanks',
       { points: 10, best: 6 },
-      { hosterUserId: 7, sessionId: 'host-1' },
+      { sessionId: 'host-1' },
     );
 
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -100,18 +127,12 @@ describe('PlayerDataProxy', () => {
         body: JSON.stringify({
           points: 10,
           best: 6,
-          hosterUserId: 7,
           sessionId: 'host-1',
         }),
       },
     );
 
-    await proxy.putState(
-      'tok',
-      'tanks',
-      { skill: 2 },
-      { hosterUserId: 7, sessionId: 'host-1' },
-    );
+    await proxy.putState('tok', 'tanks', { skill: 2 }, { sessionId: 'host-1' });
 
     expect(fetchImpl).toHaveBeenLastCalledWith(
       'http://auth.local/state?game=tanks',
@@ -123,7 +144,6 @@ describe('PlayerDataProxy', () => {
         },
         body: JSON.stringify({
           state: { skill: 2 },
-          hosterUserId: 7,
           sessionId: 'host-1',
         }),
       },
@@ -144,7 +164,7 @@ describe('PlayerDataProxy', () => {
   });
 
   // lobby-page-plan: getLeaderboard — публичный эндпоинт, без Bearer-токена
-  // (как HostRatingProxy.getPublic), несёт limit доп. query-параметром
+  // несёт limit доп. query-параметром
   it('getLeaderboard запрашивает без authorization-заголовка и с limit в URL', async () => {
     const fetchImpl = makeFetch(async () => ({
       ok: true,

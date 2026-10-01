@@ -18,16 +18,16 @@ export default class LobbyModel {
     this._pageSize = params.pageSize;
     this._pingInterval = params.pingInterval;
 
-    this._servers = new Map(); // hostId -> { ...server, latency }
-    this._order = []; // hostId в порядке выдачи мастером
+    this._servers = new Map(); // roomId -> { ...server, latency }
+    this._order = []; // roomId в порядке выдачи мастером
     this._total = 0; // всего серверов у мастера (для «Загрузить ещё»)
     this._offset = 0;
     this._search = '';
 
     this._pingCounter = 0;
-    this._pending = new Map(); // pingId -> { hostId, time }
-    this._lastPing = new Map(); // hostId -> time последнего пинга
-    this._latencies = new Map(); // hostId -> latency (переживает refresh)
+    this._pending = new Map(); // pingId -> { roomId, time }
+    this._lastPing = new Map(); // roomId -> time последнего пинга
+    this._latencies = new Map(); // roomId -> latency (переживает refresh)
 
     // Leaderboard выбранной игры (lobby-page-plan) — сетевого I/O не делает,
     // как и остальная модель; fetch живёт в main.js (fetchLeaderboard/fetchPlacement)
@@ -49,7 +49,7 @@ export default class LobbyModel {
     this._emitFetch();
   }
 
-  // задаёт поиск по имени и запрашивает список заново
+  // задаёт поиск (roomId, игра, карта) и запрашивает список заново
   setSearch(text) {
     this._search = typeof text === 'string' ? text.trim() : '';
     this._offset = 0;
@@ -72,14 +72,18 @@ export default class LobbyModel {
     this._total = total || 0;
 
     (servers || []).forEach(server => {
-      if (!this._servers.has(server.hostId)) {
-        this._order.push(server.hostId);
+      // hostId — имя roomId у мастера до host-migration этапа 2
+      const roomId = server.roomId ?? server.hostId;
+
+      if (!this._servers.has(roomId)) {
+        this._order.push(roomId);
       }
 
       // latency живёт в _latencies и переживает refresh/пагинацию
-      this._servers.set(server.hostId, {
+      this._servers.set(roomId, {
         ...server,
-        latency: this._latencies.get(server.hostId) ?? null,
+        roomId,
+        latency: this._latencies.get(roomId) ?? null,
       });
     });
 
@@ -87,35 +91,35 @@ export default class LobbyModel {
   }
 
   // пользователь выбрал сервер — во внешнего подписчика (P2P-подключение).
-  // gameId едет вместе с hostId: комната может быть по другой игре, и клиент
+  // gameId едет вместе с roomId: комната может быть по другой игре, и клиент
   // обязан активировать её ClientPlugin до подключения
-  join(hostId) {
-    const server = this._servers.get(hostId);
+  join(roomId) {
+    const server = this._servers.get(roomId);
 
     if (server) {
-      this.publisher.emit('join', { hostId, gameId: server.gameId });
+      this.publisher.emit('join', { roomId, gameId: server.gameId });
     }
   }
 
   // готовит пинг видимого сервера; false — если пинговали недавно/сервер ушёл
-  pingHost(hostId, now) {
-    const last = this._lastPing.get(hostId);
+  pingHost(roomId, now) {
+    const last = this._lastPing.get(roomId);
 
     if (last !== undefined && now - last < this._pingInterval) {
       return false;
     }
 
-    if (!this._servers.has(hostId)) {
+    if (!this._servers.has(roomId)) {
       return false;
     }
 
-    this._lastPing.set(hostId, now);
+    this._lastPing.set(roomId, now);
     this._pingCounter = (this._pingCounter + 1) >>> 0;
 
     const pingId = this._pingCounter;
 
-    this._pending.set(pingId, { hostId, time: now });
-    this.publisher.emit('ping-request', { hostId, pingId });
+    this._pending.set(pingId, { roomId, time: now });
+    this.publisher.emit('ping-request', { roomId, pingId });
 
     return true;
   }
@@ -130,17 +134,17 @@ export default class LobbyModel {
 
     this._pending.delete(pingId);
 
-    const server = this._servers.get(pending.hostId);
+    const server = this._servers.get(pending.roomId);
 
     if (!server) {
       return;
     }
 
     server.latency = Math.round(now - pending.time);
-    this._latencies.set(pending.hostId, server.latency);
+    this._latencies.set(pending.roomId, server.latency);
 
     this.publisher.emit('ping-update', {
-      hostId: pending.hostId,
+      roomId: pending.roomId,
       latency: server.latency,
     });
   }

@@ -24,8 +24,15 @@
 
 import closeCodes from '../../config/closeCodes.js';
 
-const { invalidOrigin, roomFull, handshakeTimeout, tooManyConnections } =
-  closeCodes;
+const {
+  invalidOrigin,
+  roomFull,
+  handshakeTimeout,
+  tooManyConnections,
+  kickIdle,
+  kickForMaxLatency,
+  kickForMissedPings,
+} = closeCodes;
 
 const NO_RELOAD_CLOSE_CODES = new Set([
   invalidOrigin,
@@ -51,4 +58,27 @@ export const POLICY_CLOSE_INFORMS = {
  */
 export function shouldReloadAfterClose(closeCode) {
   return !NO_RELOAD_CLOSE_CODES.has(closeCode);
+}
+
+// Кики хоста (host/HostGame.js). В P2P кода закрытия нет вовсе — причина
+// приезжает только TECH_INFORM-ключом перед закрытием (индексы
+// TECH_CODES из host/meta/SocketManager.js = индексы techInformList);
+// в dedicated есть и код. Лобби-режим уводит кикнутого на главную без
+// перезагрузки (client/lib/roomLink.js decideExitRoute): быстрая игра по
+// hash вернула бы его в ту же комнату
+const KICK_CLOSE_CODES = new Set([
+  kickIdle,
+  kickForMaxLatency,
+  kickForMissedPings,
+]);
+
+export const KICK_TECH_KEYS = new Set([3, 4, 5]);
+
+/**
+ * @param {number} [closeCode] - Код закрытия транспорта (только WebSocket).
+ * @param {number|null} [techKey] - Последний терминальный TECH_INFORM-ключ.
+ * @returns {boolean} Закрыто ли соединение киком хоста.
+ */
+export function isKickClose(closeCode, techKey) {
+  return KICK_CLOSE_CODES.has(closeCode) || KICK_TECH_KEYS.has(techKey);
 }

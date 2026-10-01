@@ -91,7 +91,7 @@ npm run check:contract  # vimp-contract: статическая проверка
 npm run core:test       # cargo test --workspace (включая parity-тест)
 npm test && npx eslint .
 npm run build           # dist/: оба бандла, карты, звуки, manifest.json
-npm run sim             # headless-матч на настоящем ядре
+npm run sim             # headless-матч на настоящем ядре, смена хоста каждые 0.5 с
 npm run dev             # тот же матч в браузере, против ботов
 ```
 

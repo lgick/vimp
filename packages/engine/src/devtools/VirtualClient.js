@@ -98,6 +98,10 @@ class VirtualClient {
     this.frameCount = 0;
     this.decodeErrors = [];
 
+    // секрет места (SESSION_DATA): с ним клиент возвращается к новому хосту
+    // после смены (RESUME, host-migration этапы 4–5)
+    this.resumeKey = null;
+
     // материал проверок инвариантов (devtools/invariants.js): что реально
     // доехало до сцены за весь прогон, а не только к финальному тику —
     // сущность могла появиться и исчезнуть между дампами
@@ -114,6 +118,22 @@ class VirtualClient {
     // нарушение обычно повторяется каждый тик: в отчёте нужны первые
     // экземпляры и счётчик, а не сотня одинаковых строк
     this.truncated = { nonFinite: 0, hotLayoutErrors: 0, divergence: 0 };
+  }
+
+  // SESSION_DATA { resumeKey, gameId }: хост выдал (или ротировал) секрет
+  noteSession(data) {
+    if (data && typeof data.resumeKey === 'string') {
+      this.resumeKey = data.resumeKey;
+    }
+
+    if (data && data.gameId !== undefined) {
+      this.gameId = data.gameId;
+    }
+  }
+
+  // тело RESUME_REQUEST — то же, что шлёт браузерный клиент
+  resumeRequest() {
+    return { v: 1, gameId: this.gameId, resumeKey: this.resumeKey };
   }
 
   // байты кадра из sendShot — ровно то, что ушло бы в data channel

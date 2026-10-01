@@ -49,6 +49,11 @@ export default class ControlsCtrl {
     this._model.setKeysEnabled(false);
   }
 
+  // повторяет нажатия удерживаемых клавиш (возобновление сессии)
+  resendHeld() {
+    this._model.resendHeld();
+  }
+
   // скрывает курсор
   resetCursorHideTimer() {
     this._view.resetCursorHideTimer();

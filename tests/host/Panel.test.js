@@ -173,3 +173,21 @@ describe('Panel.reset', () => {
     expect(panel.getCurrentValue('g1', 'health')).toBe(100);
   });
 });
+
+describe('Panel: контрольная точка (host-migration этап 5)', () => {
+  it('serialize/restore переносят значения, поля вне схемы отбрасываются', () => {
+    const panel = new Panel(panelConfig);
+
+    panel.addUser('g1');
+    panel.updateUser('g1', 'health', 40);
+
+    const state = panel.serialize();
+
+    panel.removeUser('g1');
+    panel.addUser('g1');
+    panel.restore({ g1: { ...state.g1, bogus: 1 }, ghost: { health: 1 } });
+
+    expect(panel.getCurrentValue('g1', 'health')).toBe(60);
+    expect(panel.getCurrentValue('g1', 'bogus')).toBeUndefined();
+  });
+});

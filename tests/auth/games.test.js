@@ -210,13 +210,7 @@ describe('назначение автора игры', () => {
 // FK на games у этих таблиц нет, и осиротевшие строки «воскресли» бы при
 // повторной заявке под тем же id
 describe('удаление игры', () => {
-  const DATA_TABLES = [
-    'rank_periods',
-    'rank_events',
-    'state_snapshots',
-    'states',
-    'ratings',
-  ];
+  const DATA_TABLES = ['rank_periods', 'rank_events', 'states', 'ratings'];
 
   // стаб, отвечающий одной строкой games на SELECT/UPDATE и пустотой на DELETE
   function createDeleteStub(row) {

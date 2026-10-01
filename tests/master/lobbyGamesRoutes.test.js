@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { createAdminAuth } from '../../packages/engine/src/master/adminAuth.js';
 import { createGameRoutes } from '../../packages/engine/src/master/gameRoutes.js';
 import { createGameStatic } from '../../packages/engine/src/master/gameStatic.js';
-import HostRegistry from '../../packages/engine/src/master/HostRegistry.js';
+import RoomRegistry from '../../packages/engine/src/master/RoomRegistry.js';
 
 // Роуты реестра игр мастера (master-game-registry, этап 4). lobby.js
 // поднимает сервер и из теста не импортируется, поэтому проверяются
@@ -675,20 +675,23 @@ describe('GET /servers', () => {
   const adminAuth = createAdminAuth({ get: async () => jwks }, ISSUER);
 
   const list = async token => {
-    const hosts = new HostRegistry({ maxPlayersLimit: 8 });
+    const hosts = new RoomRegistry({ maxPlayersLimit: 8 });
+    const host = sessionId => ({ sessionId, memberId: sessionId, userId: 1 });
 
     hosts.add({
-      name: 'public',
       ip: '1.1.1.1',
       maxPlayers: 8,
       gameId: 'tanks',
+      info: 'public',
+      host: host('s1'),
     });
     hosts.add({
-      name: 'staged',
       ip: '2.2.2.2',
       maxPlayers: 8,
       gameId: 'tanks',
+      info: 'staged',
       hidden: true,
+      host: host('s2'),
     });
 
     const req = {
@@ -708,13 +711,13 @@ describe('GET /servers', () => {
   it('без токена скрытые комнаты не видны', async () => {
     const { servers } = await list(null);
 
-    expect(servers.map(({ name }) => name)).toEqual(['public']);
+    expect(servers.map(({ info }) => info)).toEqual(['public']);
   });
 
   it('админский токен показывает и тестовые комнаты', async () => {
     const { servers } = await list(signToken('admin'));
 
-    expect(servers.map(({ name }) => name).sort()).toEqual([
+    expect(servers.map(({ info }) => info).sort()).toEqual([
       'public',
       'staged',
     ]);

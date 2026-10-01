@@ -87,21 +87,22 @@ announcement goes to everyone, spectators included.
 
 ## Kicks
 
-| Trigger                | Threshold                                                      | Close code        |
-| ---------------------- | -------------------------------------------------------------- | ----------------- |
-| Latency                | EMA (α = 0.1) above `rtt.maxLatency` (1000 ms)                 | 4003              |
-| Missed pings           | more than `rtt.maxMissedPings` (5)                             | 4004              |
-| Idle                   | `idleKickTimeout.player` (120 s) / `.spectator` (`null` = off) | 4005              |
-| Room full              | —                                                              | 4006              |
-| Host blocked by rating | master decision                                                | 4002 (whole room) |
+| Trigger      | Threshold                                                      | Close code |
+| ------------ | -------------------------------------------------------------- | ---------- |
+| Latency      | EMA (α = 0.1) above `rtt.maxLatency` (1000 ms)                 | 4003       |
+| Missed pings | more than `rtt.maxMissedPings` (5)                             | 4004       |
+| Idle         | `idleKickTimeout.player` (120 s) / `.spectator` (`null` = off) | 4005       |
+| Room full    | —                                                              | 4006       |
 
 The host's own connection (`socketId === 'local'`) is immune.
 
-**There is no kick vote and no `/ban` endpoint.** Social moderation happens in
-the lobby: `/like` and `/unlike` are intercepted client-side and sent to the
-master, which keeps a host rating in `−10 .. 10`. At `−10` the host is
-blocked, its room evacuated with code 4002, and its contribution to players'
-rank/state is rolled back. None of this passes through the plugin.
+**There is no kick vote and no `/ban` endpoint.** The server rating
+(`/like` · `/unlike`, close code 4002) was removed; protection from a bad
+host is now the engine's host migration — automatic triggers (overload,
+hidden tab, network lag) and the `/changehost` vote, which the **master**
+counts (lobby mode only; the command is reserved, see
+[03-host-plugin.md](03-host-plugin.md)). None of it passes through the
+plugin, and the game's vote menu gets no item for it.
 
 ## Timer reference
 

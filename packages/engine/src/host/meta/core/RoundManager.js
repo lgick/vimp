@@ -79,9 +79,15 @@ class RoundManager {
     // идёт дальше, и второй раз `deaths` той же команде не пишется
     this._wipedTeamIds = new Set();
     this._removedPlayersList = []; // gameId игроков для удаления с полотна
+    // карта, подменённая игрой (overrideMapData) в клиентском виде, или null —
+    // контрольной точке она нужна отдельно от карты каталога
+    this._mapOverride = null;
+    this._baseMapData = null;
 
     // эстафета Worker'ов (Этап 5.2): колбэк переноса на границе раунда
     this._handoffCallback = null;
+    // плановая передача хоста ждёт границы раунда (host-migration этап 8d)
+    this._boundaryCallback = null;
   }
 
   get currentMap() {
@@ -90,6 +96,12 @@ class RoundManager {
 
   get currentMapData() {
     return this._currentMapData;
+  }
+
+  // JSON текущей карты в виде каталога (до масштабирования и подмены игрой)
+  // — контрольная точка везёт его с собой: каталог преемника мог измениться
+  get baseMapData() {
+    return this._baseMapData;
   }
 
   get removedPlayersList() {
@@ -113,11 +125,15 @@ class RoundManager {
   }
 
   // подготавливает данные текущей карты (масштабирование) без пересоздания
-  // мира — общий шаг createMap и восстановления эстафеты (Этап 5.2)
-  _prepareMapData() {
+  // мира — общий шаг createMap и восстановления эстафеты (Этап 5.2).
+  // source — JSON карты из контрольной точки (host-migration этап 5): та
+  // самая карта, что лежит в дампе ядра, даже если каталог уже другой
+  _prepareMapData(source = this._maps[this._currentMap]) {
+    this._mapOverride = null;
+    this._baseMapData = source;
     this._currentMapData = {
       scale: this._mapScale,
-      ...this._maps[this._currentMap],
+      ...source,
     };
 
     // если нет индивидуального конструктора для создания карты
@@ -130,11 +146,56 @@ class RoundManager {
 
   // восстанавливает карту после эстафеты Worker'ов (Этап 5.2): без
   // пересоздания мира и рассылки клиентам — мир соберёт первый
-  // initiateNewRound после переноса
-  restoreMap(mapName) {
+  // initiateNewRound после переноса, а при восстановлении посреди раунда
+  // (host-migration этап 5) он уже внутри дампа ядра: здесь только
+  // JS-сторона, ни createMap, ни load_map. scripted.createMap запоминает
+  // точки респауна и ботов в ядре не создаёт
+  restoreMap(mapName, { mapData = null, override = null } = {}) {
     this._currentMap = mapName;
-    this._prepareMapData();
+    this._prepareMapData(mapData ?? this._maps[mapName]);
+
+    if (override) {
+      this.overrideMapData(override);
+    }
+
     this._scripted.createMap(this._scaledMapData);
+  }
+
+  // состояние раунда для контрольной точки (host-migration этап 5)
+  serialize() {
+    return {
+      currentMap: this._currentMap,
+      override: this._mapOverride,
+      isRoundEnding: this._isRoundEnding,
+      wipedTeamIds: [...this._wipedTeamIds],
+      removedPlayers: [...this._removedPlayersList],
+      startMapNumber: this._startMapNumber,
+    };
+  }
+
+  // флаги раунда из контрольной точки (карту поднимает restoreMap)
+  restoreRound({
+    isRoundEnding = false,
+    wipedTeamIds = [],
+    removedPlayers = [],
+    startMapNumber = 0,
+  } = {}) {
+    this._isRoundEnding = isRoundEnding === true;
+    this._wipedTeamIds = new Set(wipedTeamIds);
+    this._removedPlayersList = [...removedPlayers];
+    this._startMapNumber = startMapNumber;
+  }
+
+  // отложенная смена карты: цель объявлена таймеру, чтобы контрольная точка
+  // могла её перенести (duration — остаток при восстановлении)
+  scheduleMapChange(mapName, duration) {
+    this._timerManager.startMapChangeDelay(
+      () => {
+        this._currentMap = mapName;
+        this.createMap();
+      },
+      { targetMap: mapName, duration },
+    );
   }
 
   // создает карту
@@ -245,6 +306,7 @@ class RoundManager {
     if (mapData) {
       this._currentMapData = mapData;
       this._scaledMapData = scaleMapData(mapData);
+      this._mapOverride = mapData;
     }
   }
 
@@ -265,6 +327,18 @@ class RoundManager {
     this._handoffCallback = null;
   }
 
+  // плановая передача хоста в игре без migration.midRound (host-migration
+  // этап 8d): колбэк сработает один раз, когда стартует следующий раунд.
+  // Раунд не придерживается — бета всё равно начнёт его заново из мягкой
+  // точки, а сорвавшаяся передача не должна оставить комнату без раунда
+  onRoundBoundary(cb) {
+    this._boundaryCallback = cb;
+  }
+
+  cancelRoundBoundary() {
+    this._boundaryCallback = null;
+  }
+
   // запуск нового раунда
   initiateNewRound() {
     this._timerManager.stopRoundTimer();
@@ -282,6 +356,13 @@ class RoundManager {
 
     this._startRound();
     this._timerManager.startRoundTimer();
+
+    if (this._boundaryCallback) {
+      const cb = this._boundaryCallback;
+
+      this._boundaryCallback = null;
+      cb();
+    }
   }
 
   // начало раунда
@@ -862,10 +943,7 @@ class RoundManager {
           if (result === 'Yes' && this._maps[mapName]) {
             this._chat.pushSystem('VOTE_PASSED');
             this._chat.pushSystem('MAP_NEXT', [mapName]);
-            this._timerManager.startMapChangeDelay(() => {
-              this._currentMap = mapName;
-              this.createMap();
-            });
+            this.scheduleMapChange(mapName);
           } else {
             this._chat.pushSystem('VOTE_FAILED');
           }
@@ -890,10 +968,7 @@ class RoundManager {
           if (resultingMapName && this._maps[resultingMapName]) {
             this._chat.pushSystem('VOTE_PASSED');
             this._chat.pushSystem('MAP_NEXT', [resultingMapName]);
-            this._timerManager.startMapChangeDelay(() => {
-              this._currentMap = resultingMapName;
-              this.createMap();
-            });
+            this.scheduleMapChange(resultingMapName);
           } else {
             // если никто не проголосовал, продлеваем время текущей карты
             this._timerManager.stopMapTimer();

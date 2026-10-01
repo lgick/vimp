@@ -24,6 +24,10 @@ const FIELDS = {
   // карты везёт мастер (room.maps), у игры их может не быть вовсе
   maps: { default: {} },
   currentMap: { default: null },
+  // строка карточки комнаты в лобби: 'map' — имя текущей карты; без поля
+  // карточка ничего не показывает (модули могут задать своё через
+  // deps.lobby.setInfo)
+  lobbyInfo: { default: null },
   // сколько карт попадает в голосование; 1 — минимальный осмысленный набор
   mapsInVote: { default: 1 },
   mapScale: { default: 1 },
@@ -61,6 +65,12 @@ const FIELDS = {
   endlessRound: { default: false },
 
   spectatorTeam: { derive: deriveSpectatorTeam },
+
+  // смена хоста посреди раунда (host-migration этап 5): true — игра
+  // гарантирует, что GameSim::serialize/deserialize и хуки модулей
+  // serializeState/restoreState переносят всё её состояние. Без поля —
+  // мягкий режим: мета переносится, раунд начинается заново
+  'migration.midRound': { default: false },
 };
 
 // Все пути gameConfig, которые движок читает: объявленные игрой поля плюс

@@ -276,4 +276,336 @@ describe('PortMachine', () => {
     expect(inspectHost(host).humans).toHaveLength(0);
     expect(frame('sendAuthResult', 's1')).toBeUndefined();
   });
+
+  describe('возобновление сессии (host-migration этап 4)', () => {
+    const GRACE = 20000;
+
+    // лобби-стратегия в миниатюре: ник — по токену, чужой токен — отказ
+    const tokenIdentity = {
+      params: [],
+      errorField: 'token',
+      resolve: async data => {
+        const nick = { 'tok-alice': 'Alice', 'tok-bob': 'Bob' }[data.token];
+
+        if (!nick) {
+          throw new Error('invalid token');
+        }
+
+        return nick;
+      },
+    };
+
+    const send = (socketId, port, data = null) =>
+      machine.message(socketId, JSON.stringify([port, data]));
+
+    // вход до игрового состояния: хендшейк + карта + первый кадр
+    const enterGame = async (socketId = 's1', token = 'tok-alice') => {
+      machine.connect(socketId);
+      send(socketId, PC.CONFIG_READY);
+      send(socketId, PC.AUTH_RESPONSE, { token, model: 'm1' });
+      await settle();
+      send(socketId, PC.MODULES_READY);
+      send(socketId, PC.MAP_READY);
+      send(socketId, PC.FIRST_SHOT_READY);
+
+      return host._participants.getHumans().find(p => p.token === token);
+    };
+
+    const lastFrame = (method, socketId) =>
+      socket
+        .framesOf(method)
+        .filter(item => item.socketId === socketId)
+        .at(-1);
+
+    const resumeRequest = (user, overrides = {}) => ({
+      v: 1,
+      gameId: user.gameId,
+      resumeKey: user.resumeKey,
+      token: 'tok-alice',
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      machine = makeMachine(tokenIdentity, { resumeGraceMs: GRACE });
+    });
+
+    it('после FIRST_SHOT_READY участник получает секрет места', async () => {
+      const user = await enterGame();
+      const session = frame('sendSessionData', 's1');
+
+      expect(session.args[0].resumeKey).toMatch(/^[0-9a-f]{32}$/);
+      expect(session.args[0].resumeKey).toBe(user.resumeKey);
+      expect(session.args[0].gameId).toBe(user.gameId);
+
+      // повторный FIRST_SHOT_READY (смена карты) ключ не перевыдаёт
+      send('s1', PC.FIRST_SHOT_READY);
+      expect(socket.framesOf('sendSessionData')).toHaveLength(1);
+    });
+
+    it('без resumeGraceMs секрет не выдаётся и обрыв снимает сразу', async () => {
+      machine = makeMachine(tokenIdentity);
+      await enterGame();
+
+      expect(frame('sendSessionData', 's1')).toBeUndefined();
+
+      machine.disconnect('s1');
+      expect(inspectHost(host).humans).toHaveLength(0);
+    });
+
+    it('обрыв в игре держит место resumeGraceMs, затем снимает', async () => {
+      const user = await enterGame();
+
+      machine.disconnect('s1');
+
+      expect(machine.has('s1')).toBe(false);
+      expect(inspectHost(host).humans).toHaveLength(1);
+      expect(host.isDetached(user.gameId)).toBe(true);
+
+      vi.advanceTimersByTime(GRACE - 1);
+      expect(inspectHost(host).humans).toHaveLength(1);
+
+      vi.advanceTimersByTime(1);
+      expect(inspectHost(host).humans).toHaveLength(0);
+    });
+
+    it('обрыв до входа в матч снимает участника сразу', async () => {
+      machine.connect('s1');
+      send('s1', PC.CONFIG_READY);
+      send('s1', PC.AUTH_RESPONSE, { token: 'tok-alice', model: 'm1' });
+      await settle();
+
+      machine.disconnect('s1');
+      expect(inspectHost(host).humans).toHaveLength(0);
+    });
+
+    it('LEAVE снимает участника сразу и закрывает соединение', async () => {
+      await enterGame();
+
+      send('s1', PC.LEAVE);
+
+      expect(machine.has('s1')).toBe(false);
+      expect(inspectHost(host).humans).toHaveLength(0);
+      expect(frame('close', 's1')).toBeDefined();
+    });
+
+    it('resume-соединение не начинает хендшейк и закрывается по таймауту', async () => {
+      machine.connect('s2', { resume: true });
+
+      expect(frame('sendConfig', 's2')).toBeUndefined();
+
+      // хендшейковые порты закрыты
+      send('s2', PC.CONFIG_READY);
+      expect(frame('sendAuthData', 's2')).toBeUndefined();
+
+      vi.advanceTimersByTime(5000);
+
+      expect(machine.has('s2')).toBe(false);
+      expect(frame('close', 's2').args[0]).toBe(4008);
+    });
+
+    it('без resumeGraceMs resume-флаг игнорируется: обычный хендшейк', () => {
+      machine = makeMachine(tokenIdentity);
+      machine.connect('s2', { resume: true });
+
+      expect(frame('sendConfig', 's2')).toBeDefined();
+    });
+
+    it('успешный RESUME_REQUEST возвращает место и шлёт пакет входа', async () => {
+      // ожидание короче интервала пингов: проверка «место не пропадёт» ниже
+      // не должна упереться в RTT-кик молчащего в тесте клиента
+      machine = makeMachine(tokenIdentity, { resumeGraceMs: 1000 });
+
+      const user = await enterGame();
+      const oldKey = user.resumeKey;
+
+      machine.disconnect('s1');
+      socket.clearFrames();
+
+      machine.connect('s2', { resume: true });
+      send('s2', PC.RESUME_REQUEST, resumeRequest(user));
+      await settle();
+
+      expect(frame('sendResumeResult', 's2').args[0]).toEqual({
+        ok: true,
+        gameId: user.gameId,
+        epoch: null,
+      });
+      expect(frame('sendClear', 's2')).toBeDefined();
+      expect(frame('sendFirstShot', 's2')).toBeDefined();
+      expect(frame('sendStat', 's2')).toBeDefined();
+      expect(frame('sendKeySet', 's2')).toBeDefined();
+
+      // новый секрет — последним сообщением пакета
+      const session = lastFrame('sendSessionData', 's2');
+
+      expect(session.args[0].resumeKey).not.toBe(oldKey);
+      expect(socket.frames.at(-1).method).toBe('sendSessionData');
+
+      expect(host.isDetached(user.gameId)).toBe(false);
+      expect(user.socketId).toBe('s2');
+      expect(machine.hasParticipant('s2')).toBe(true);
+
+      // ожидание возврата снято — место не пропадёт
+      vi.advanceTimersByTime(2000);
+      expect(inspectHost(host).humans).toHaveLength(1);
+
+      // игровые порты нового соединения открыты
+      const pushMessage = vi.spyOn(host, 'pushMessage');
+
+      send('s2', PC.CHAT_DATA, 'back');
+      expect(pushMessage).toHaveBeenCalledWith(user.gameId, 'back');
+    });
+
+    it('RESUME_RESULT несёт эпоху комнаты', async () => {
+      host.setRoom({ roomId: 'r1', roomSecret: 'sec', epoch: 3 });
+
+      const user = await enterGame();
+
+      machine.disconnect('s1');
+      machine.connect('s2', { resume: true });
+      send('s2', PC.RESUME_REQUEST, resumeRequest(user));
+      await settle();
+
+      expect(frame('sendResumeResult', 's2').args[0].epoch).toBe(3);
+    });
+
+    it.each([
+      ['version', user => resumeRequest(user, { v: 2 })],
+      ['unknown', user => resumeRequest(user, { resumeKey: 'f'.repeat(32) })],
+      ['unknown', user => resumeRequest(user, { gameId: user.gameId + 100 })],
+      ['auth', user => resumeRequest(user, { token: 'tok-bob' })],
+      ['auth', user => resumeRequest(user, { token: 'forged' })],
+    ])(
+      'отказ %s закрывает соединение, место ждёт дальше',
+      async (reason, build) => {
+        const user = await enterGame();
+
+        machine.disconnect('s1');
+        machine.connect('s2', { resume: true });
+        send('s2', PC.RESUME_REQUEST, build(user));
+        await settle();
+
+        expect(frame('sendResumeResult', 's2').args[0]).toEqual({
+          ok: false,
+          reason,
+        });
+        expect(frame('close', 's2')).toBeDefined();
+        expect(machine.has('s2')).toBe(false);
+        expect(host.isDetached(user.gameId)).toBe(true);
+      },
+    );
+
+    it('попытка одна на соединение', async () => {
+      const user = await enterGame();
+
+      machine.disconnect('s1');
+      machine.connect('s2', { resume: true });
+      send('s2', PC.RESUME_REQUEST, resumeRequest(user, { v: 0 }));
+      send('s2', PC.RESUME_REQUEST, resumeRequest(user));
+      await settle();
+
+      expect(socket.framesOf('sendResumeResult')).toHaveLength(1);
+    });
+
+    it('перехват полуоткрытой сессии закрывает прежнее соединение', async () => {
+      const user = await enterGame();
+
+      // хост обрыва не заметил: s1 жив, а клиент уже пришёл с s2
+      machine.connect('s2', { resume: true });
+      send('s2', PC.RESUME_REQUEST, resumeRequest(user));
+      await settle();
+
+      expect(frame('sendResumeResult', 's2').args[0].ok).toBe(true);
+      expect(frame('close', 's1')).toBeDefined();
+      expect(machine.has('s1')).toBe(false);
+      expect(user.socketId).toBe('s2');
+
+      // поздний disconnect прежнего соединения участника не трогает
+      machine.disconnect('s1');
+      expect(inspectHost(host).humans).toHaveLength(1);
+      expect(host.isDetached(user.gameId)).toBe(false);
+    });
+
+    it('место истекло, пока проверялась личность — unknown', async () => {
+      let release;
+
+      machine = makeMachine(
+        {
+          ...tokenIdentity,
+          resolve: data =>
+            data.v === 1
+              ? new Promise(resolve => {
+                  release = () => resolve('Alice');
+                })
+              : tokenIdentity.resolve(data),
+        },
+        { resumeGraceMs: GRACE },
+      );
+
+      const user = await enterGame();
+
+      machine.disconnect('s1');
+      machine.connect('s2', { resume: true });
+      send('s2', PC.RESUME_REQUEST, resumeRequest(user));
+
+      host.removeUser(user.gameId);
+      release();
+      await settle();
+
+      expect(frame('sendResumeResult', 's2').args[0]).toEqual({
+        ok: false,
+        reason: 'unknown',
+      });
+    });
+  });
+});
+
+describe('PortMachine.startGraceFor (host-migration этап 7.4)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // люди, поднятые из точки отсоединёнными: таймера обрыва у них не было
+  const makeWithHost = (resumeGraceMs, detached) => {
+    const fakeHost = {
+      isDetached: vi.fn(gameId => detached.has(gameId)),
+      removeUser: vi.fn(gameId => detached.delete(gameId)),
+    };
+    const machine = new PortMachine({
+      host: fakeHost,
+      socketManager: {},
+      clientCfg: {},
+      authSchema: { params: [] },
+      makeSocket: () => ({}),
+      identity: { params: [] },
+      resumeGraceMs,
+    });
+
+    return { machine, fakeHost };
+  };
+
+  it('не вернувшийся снимается по истечении resumeGraceMs', () => {
+    vi.useFakeTimers();
+
+    const detached = new Set([3, 4]);
+    const { machine, fakeHost } = makeWithHost(1000, detached);
+
+    machine.startGraceFor([3, 4, 5]);
+    detached.delete(4); // вернулся, пока шло ожидание
+
+    vi.advanceTimersByTime(999);
+    expect(fakeHost.removeUser).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(fakeHost.removeUser).toHaveBeenCalledTimes(1);
+    expect(fakeHost.removeUser).toHaveBeenCalledWith(3);
+  });
+
+  it('без resumeGraceMs — снимаются сразу', () => {
+    const { machine, fakeHost } = makeWithHost(0, new Set([3]));
+
+    machine.startGraceFor([3]);
+
+    expect(fakeHost.removeUser).toHaveBeenCalledWith(3);
+  });
 });

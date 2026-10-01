@@ -1,0 +1,9 @@
+//- меню комнаты (host-migration, этапы 3 и 8d): только лобби-режим, пока
+//- вкладка в комнате. «Hand over host» — только у хоста, когда передавать
+//- есть кому; статус передачи — на месте заблокированных пунктов
+div#room-menu(style='display:none')
+  input#room-menu-toggle(type='button', value='☰', title='Room menu')
+  div#room-menu-list(style='display:none')
+    input#room-menu-handover(type='button', value='Hand over host', style='display:none')
+    input#room-menu-leave(type='button', value='Leave server')
+    div#room-menu-status(style='display:none')

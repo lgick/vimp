@@ -139,6 +139,15 @@ export default {
     maxPlayers: 8,
   },
 
+  // Host change in the middle of a round: GameSim::serialize/deserialize
+  // (core/src/game.rs) carries the whole simulation, and the host modules in
+  // src/host/ keep no state of their own, so a new host continues from the
+  // same tick. A module that starts keeping state must implement
+  // serializeState()/restoreState(state) — `npm run sim` swaps the host
+  // every 0.5 s and goes red when something is lost. Without this flag the
+  // engine still moves the room to a new host, but restarts the round.
+  migration: { midRound: true },
+
   // The lobby "create server" form. The names must be exactly the keys the
   // host honours (maxPlayers, map, roundTime, mapTime, friendlyFire) —
   // anything else is accepted by the form and silently dropped. Numeric

@@ -67,6 +67,13 @@ const SHELL = [
     ],
   },
   { tag: 'div', id: 'game-informer' },
+  // оверлей переподключения (host-migration этап 4): в solo/dedicated не
+  // показывается, но разметка общая с informer.pug
+  {
+    tag: 'div',
+    id: 'session-overlay',
+    children: [{ tag: 'span', id: 'session-overlay-text' }],
+  },
   { tag: 'div', id: 'tech-informer' },
 ];
 
