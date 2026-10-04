@@ -1,4 +1,4 @@
-# Этап 14. Декомпозиция `client/main.js` (необязательный, крупный)
+# Этап 14. Декомпозиция `client/main.js` (необязательный, крупный) ✅ выполнен
 
 Находка: **F19** ([review.md](review.md), раздел F19).
 Уровень: 🟡 качество. Критерии: тестируемость, поддерживаемость,
@@ -111,3 +111,14 @@ checkpoint → регистрация → возврат своего игрок
 - У каждого модуля `client/session/*` есть тесты основных сценариев.
 - Prettier, eslint, vitest — зелёные. Release impact: npm `vimp-engine`,
   без записи в changelog.
+
+## Итог (2026-10-04)
+
+Выполнен по решению разработчика целиком. Кроме модулей 14.1–14.6
+выделены (раскладка файлов, без изменения поведения):
+`client/session/roomContext.js` — общее состояние комнаты (`roomId`,
+`epoch`, `memberJoined`, `entered`, `startFailed`);
+`client/session/Membership.js` — `join_room`, `JoinRetry`, `caps`,
+`member_update`; `client/session/hostRoomPrep.js` — `prepareHostRoom` и
+загрузка манифестов. Голосование «Change host» ушло в `GuestSession`.
+`main.js`: 4566 → 2727 строк. Тесты — `tests/client/session/*` (125).

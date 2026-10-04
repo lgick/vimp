@@ -45,7 +45,7 @@
 
 - `init(room, handoff?)` — динамически импортирует `HostPlugin` по
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
-wasmUrl }`, собирается `connectAsHost` из активного `GameManifest`),
+wasmUrl }`, собирается `HostRole.createRoom` из активного `GameManifest`),
   собирает конфиг игры (merge движковых дефолтов
   `packages/engine/src/config/hostDefaults.js` и представления `gameConfig` —
   `packages/engine/src/lib/gameConfigView.js`, единственная точка чтения
@@ -369,7 +369,7 @@ best }]`. Там она живёт до ответа auth: `ok` или `4xx`, к
   `setRoom({ roomId, roomSecret, epoch })` вызывается, когда этот ответ
   приходит — сообщением `set_room` в `host.worker.js`, которое отправляет
   `HostController.setRoom` (вызывается из обработчика `host_registered` в
-  `client/main.js`) — а также, не дожидаясь свежего ответа, из
+  `client/session/HostRole.js`) — а также, не дожидаясь свежего ответа, из
   `room.roomId`/`room.roomSecret`/`room.epoch` при `init` после эстафеты
   Worker'ов (Этап 5.2): `HostController` сохраняет их в `_room`, поэтому
   подменённый Worker наследует их сразу. Worker, поднятый страницей,
@@ -461,7 +461,7 @@ prediction) собирает `packages/engine/src/lib/buildClientConfig.js`.
 ### Отладочный рекордер (только dev)
 
 При включённом `gameConfig.isDevMode` (`room.isDevMode`, который
-`client/main.js` берёт из `import.meta.env.DEV`) `HostGame` держит
+`client/session/hostRoomPrep.js` берёт из `import.meta.env.DEV`) `HostGame` держит
 `DebugRecorder` (`packages/engine/src/host/DebugRecorder.js`, Worker-safe —
 только `clock`): он пишет живой матч в формат сценария headless-runner'а —
 seed, входы и каждый `updateKeys`/`pushMessage`/`parseVote` с номером тика.
@@ -531,7 +531,7 @@ host-entry сборки игры) — вся игровая половина х�
 задаёт). `host.worker.js` грузит его
 динамическим `import(room.game.hostEntryUrl)` на `init` (Этап 6.4) —
 `room.game` (`{ id, version, hostEntryUrl, wasmUrl }`) приходит из
-`entries` `GameManifest` через `connectAsHost`, поэтому движок не
+`entries` `GameManifest` через `HostRole.createRoom`, поэтому движок не
 импортирует игру статически вовсе. Его потребляют `host.worker.js`
 (`createCore`, конфиги/авторизация) и `HostGame` (команды, коды, модули,
 `onCoreEvent`).
@@ -732,7 +732,7 @@ socketId, resume: true }` Worker'а; если пир с тем же `clientId` �
 (`update_host { info }` каждые
 `lobbyConfig.create.heartbeatInterval` мс, меньше `heartbeatTimeout`
 мастера). Мастер отвечает `host_registered { roomId, epoch, roomSecret }`;
-`main.js` хранит их (`hostRoom`) и передаёт в Worker
+`HostRole` хранит их (`HostRole.room`) и передаёт в Worker
 (`HostController.setRoom` → `set_room`). Число игроков мастер считает сам по
 участникам комнаты — хост его больше не сообщает. `info` — при каждой смене
 строки карточки (`lobby_info` из Worker'а: смена карты при `lobbyInfo: 'map'`
@@ -744,7 +744,7 @@ socketId, resume: true }` Worker'а; если пир с тем же `clientId` �
 ([master.md](master.md#жизнь-комнаты)).
 
 **Reconnect сигналинга**: сигнальный WS хоста должен жить постоянно (офферы,
-heartbeat, выдача в списке) — при разрыве `main.js` переподключается с
+heartbeat, выдача в списке) — при разрыве `GuestSession` переподключается с
 экспоненциальным бэкоффом (`lobbyConfig.reconnect`), повторный `welcome`
 шлёт `reclaim_host { roomId, epoch, roomSecret, … }`: комната сохраняет свой
 `roomId` и через реконнект, и через рестарт мастера (секрет — HMAC, который
@@ -759,11 +759,11 @@ heartbeat, выдача в списке) — при разрыве `main.js` п�
 ### Динамические карты
 
 Комната стартует на актуальных картах мастера, а не на вшитых в бандл:
-`connectAsHost` фетчит `GET /games/:id/maps/manifest.json` (`:id` — id
+`HostRole.createRoom` фетчит `GET /games/:id/maps/manifest.json` (`:id` — id
 манифеста активной игры, Этап 6.4) + все карты и передаёт их в
 `init` Worker'а (`room.maps`; недоступность каталога некритична — fallback на
 карты из бандла). Обновление на лету: `host_registered.mapsVersion` (после
-reconnect) или сигнал `update_available` мастера → `refreshHostMaps` → fetch
+reconnect) или сигнал `update_available` мастера → `HostRole.refreshMaps` → fetch
 каталога → `HostController.updateMaps` → Worker `update_maps` →
 `HostGame.updateMaps`. Новые данные применяются **со следующей смены карты**
 (штатный путь `RoundManager.createMap`: масштабирование в JS → `load_map` ядра
@@ -788,7 +788,7 @@ reconnect) или сигнал `update_available` мастера → `refreshHos
 version } }` (Этап 6.5). Деплой рестартует мастер → сигнальный WS рвётся →
 штатный reconnect → `reclaim_host` → `host_registered.codeVersion` расходится с
 нашим по любой половине (деплой движка меняет `engine`, деплой только
-игры-плагина — `game.version`) → `refreshHostWorker()`: повторный фетч
+игры-плагина — `game.version`) → `HostRole.refreshWorker()`: повторный фетч
 **обоих** манифестов — `GET /worker/manifest.json` и активной игры
 `GET /games/:id/manifest.json` (`lobbyConfig.game.manifestUrl`) — собирает
 свежий `room.game` (`{ id, version, hostEntryUrl, wasmUrl }` из свежих
@@ -863,7 +863,7 @@ rank/state продолжают писаться после свопа (до v4 
 или таймаут (15 с) → новый Worker гасится, старому уходит `resume`
 (`resumeAfterHandoff`: возврат таймеров + перезапуск прерванного раунда) —
 **комната продолжает жить на прежней версии кода**, игроки ничего не
-замечают. Параллельные свопы исключены (guard в `main.js` и в
+замечают. Параллельные свопы исключены (guard в `HostRole` и в
 `HostController`).
 
 **Уступка плановой передаче.** Своп, ещё ждущий границы раунда (в игре с
@@ -872,12 +872,12 @@ rank/state продолжают писаться после свопа (до v4 
 актуального worker-бандла. `HostController.cancelPendingSwap()` шлёт
 старому Worker'у `cancel_handoff` (`HostGame.cancelHandoff` снимает колбэк
 границы, ближайший `initiateNewRound` стартует раунд как обычно) и
-отвергает промис свопа с `swap preempted`; `refreshHostWorker` не помечает
+отвергает промис свопа с `swap preempted`; `HostRole.refreshWorker` не помечает
 эту версию сбойной. Если Worker успел отдать `handoff_state` до прихода
 `cancel_handoff`, на запоздавшее состояние отвечается `resume`. Своп, уже
 переносящий состояние (после `handoff_state`), не снимается — передача
 отклоняется. Если передача сорвалась и вкладка осталась хостом,
-`refreshHostWorker()` запускается снова и повторяет своп, если версия всё
+`HostRole.refreshWorker()` запускается снова и повторяет своп, если версия всё
 ещё отличается.
 
 ### Миграция хоста
@@ -1089,7 +1089,7 @@ Worker получает `preload { room }` вместо `init`, импортир
 Та же механика без отката: хост отдаёт роль сам — «Leave server» или
 «Hand over host» в меню комнаты ([client.md](client.md#иерархия-ui-z-index));
 автотриггеры и голосование ниже входят в ту же
-`startPlannedHandoff({ reason, stay, defer })` (`client/network/PlannedHandoff.js`).
+`HandoffFlow.start({ reason, stay, defer })` (`client/network/PlannedHandoff.js`).
 
 1. Хост шлёт `handoff_begin { roomId, epoch, reason, stay }`; мастер
    переводит комнату в `handing_off` и отвечает `handoff_go` (преемнику —
@@ -1258,7 +1258,7 @@ the others.» вместо перезагрузки.
 **`cold`** (свежей точки нет): вкладка сохраняет `{ roomId, epoch,
 promotionToken, gameId, settings }` в `sessionStorage` (`vimp.promotion`)
 и перезагружается по ссылке на комнату. Бутстрап маршрута забирает запись
-(удаляя её при любом исходе), запускает `connectAsHost` с дефолтами
+(удаляя её при любом исходе), запускает `HostRole.createRoom` с дефолтами
 комнаты плюс `settings` мастера и регистрируется с токеном вместо создания
 комнаты. Матч начинается заново; остальные участники перезагружаются в
 комнату и входят с полным рукопожатием.
@@ -1272,10 +1272,10 @@ promotionToken, gameId, settings }` в `sessionStorage` (`vimp.promotion`)
 
 В лобби (`packages/engine/src/client/main.js`):
 
-- **присоединиться** — карточка сервера → `connectToRoom(roomId)` →
+- **присоединиться** — карточка сервера → `GuestSession.connectToRoom(roomId)` →
   `WebRtcManager` (offerer);
 - **создать сервер** — кнопка в лобби (`#lobby-host`,
-  `packages/engine/src/config/lobby.js`) → `connectAsHost(room)` → `HostController` + Worker +
+  `packages/engine/src/config/lobby.js`) → `HostRole.createRoom(room)` → `HostController` + Worker +
   `LoopbackTransport` (хост-игрок) + `HostConnectionManager` (удалённые
   клиенты, у каждого пира хранится `memberId` из оффера) + регистрация у
   мастера.

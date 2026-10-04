@@ -56,6 +56,8 @@ packages/engine/ — vimp-engine: the engine application (npm workspace)
                    ParticipantManager), SocketManager
     client/      — browser client
       main.js    — port dispatcher, lobby/role selection, module init, render loop
+      session/   — room scenarios wired by main.js: host role, successor, promotion,
+                   planned handoff, guest session, direct links
       network/   — SignalingClient, WebRtcManager (offerer), HostController,
                    LoopbackTransport, HostConnectionManager (answerer)
       components/ — MVC triplets (Auth, Lobby, CanvasManager, Controls, Game,

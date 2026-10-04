@@ -54,6 +54,8 @@ packages/engine/ — vimp-engine: движок-приложение (npm workspa
                    ParticipantManager), SocketManager
     client/      — браузерный клиент
       main.js    — диспетчер портов, лобби/роли, инициализация модулей, рендер-цикл
+      session/   — сценарии комнаты, которые связывает main.js: роль хоста, бета,
+                   промоушен, плановая передача, сессия гостя, прямые ссылки
       network/   — SignalingClient, WebRtcManager (offerer), HostController,
                    LoopbackTransport, HostConnectionManager (answerer)
       components/ — MVC-тройки (Auth, Lobby, CanvasManager, Controls, Game,

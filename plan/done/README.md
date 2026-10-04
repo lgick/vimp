@@ -72,6 +72,12 @@
   пересобраны **по желанию, не по необходимости** — сборка под
   `engineApi: 3` продолжает загружаться (`tests/master/gameCatalogCompat.test.js`).
   Остался ручной браузерный смоук и публикация пакетов игр.
+- [host-migration-review/](host-migration-review/) — исправления по
+  код-ревью миграции хоста (✅ 2026-10-04, `stage_1.md`–`stage_15.md`,
+  `review.md`): находки F1–F20 и R1–R2, последним — декомпозиция
+  `client/main.js` в `client/session/*`. Всё — уточнение невыпущенного
+  `[Unreleased]` npm `vimp-engine` (minor). Сам план `plan/host-migration/`
+  ждёт ручного smoke 11.3.
 
 ## Зафиксированные решения
 

@@ -48,7 +48,7 @@ strategy and this switch over main-thread messages. Main-thread messages:
 
 - `init(room, handoff?)` — dynamically imports `HostPlugin` from
   `room.game.hostEntryUrl` (`room.game = { id, version, hostEntryUrl,
-wasmUrl }`, built by `connectAsHost` from the active `GameManifest`),
+wasmUrl }`, built by `HostRole.createRoom` from the active `GameManifest`),
   assembles the game config (a merge of the engine defaults
   `packages/engine/src/config/hostDefaults.js` and the `gameConfig` view —
   `packages/engine/src/lib/gameConfigView.js`, the engine's single read point
@@ -375,8 +375,8 @@ best }]`. It stays there until auth answers: `ok` or a `4xx` other than
   Worker starts before the master's `host_registered` reply);
   `setRoom({ roomId, roomSecret, epoch })` is called once that reply
   arrives — `host.worker.js`'s `set_room` message, posted by
-  `HostController.setRoom` (called from `client/main.js`'s `host_registered`
-  handler) — and again, without waiting for a fresh reply, from
+  `HostController.setRoom` (called from the `host_registered` handler of
+  `client/session/HostRole.js`) — and again, without waiting for a fresh reply, from
   `room.roomId`/`room.roomSecret`/`room.epoch` on a Worker-handoff `init`
   (Stage 5.2), since `HostController` persists them onto `_room` so a
   swapped-in Worker inherits them immediately. A Worker started by a page
@@ -471,7 +471,7 @@ data) is assembled by `packages/engine/src/lib/buildClientConfig.js`.
 
 ### Debug recorder (dev only)
 
-When `gameConfig.isDevMode` is on (`room.isDevMode`, which `client/main.js`
+When `gameConfig.isDevMode` is on (`room.isDevMode`, which `client/session/hostRoomPrep.js`
 sets from `import.meta.env.DEV`), `HostGame` owns a `DebugRecorder`
 (`packages/engine/src/host/DebugRecorder.js`, Worker-safe — it only uses
 `clock`) that writes the live match into the headless runner's scenario
@@ -548,7 +548,7 @@ optionally `onCoreEvent` for game-specific `custom` core events (`vimp-tanks`
 doesn't set it).
 `host.worker.js` loads it with a dynamic `import(room.game.hostEntryUrl)` on
 `init` (Stage 6.4) — `room.game` (`{ id, version, hostEntryUrl, wasmUrl }`)
-comes from `GameManifest.entries` via `connectAsHost`, so the engine never
+comes from `GameManifest.entries` via `HostRole.createRoom`, so the engine never
 imports the game statically at all. It's consumed by `host.worker.js`
 (`createCore`, configs/auth) and `HostGame` (commands, codes, modules,
 `onCoreEvent`).
@@ -756,7 +756,7 @@ On `onReady` the host sends `register_host` (game/limit/card text/`memberId`
 (`update_host { info }` every
 `lobbyConfig.create.heartbeatInterval` ms, less than the master's
 `heartbeatTimeout`). The master answers `host_registered { roomId, epoch,
-roomSecret }`; `main.js` keeps them (`hostRoom`) and passes them to the Worker
+roomSecret }`; `HostRole` keeps them (`HostRole.room`) and passes them to the Worker
 (`HostController.setRoom` → `set_room`). The number of players is counted by
 the master from the room's members — the host no longer reports it. `info`
 — whenever the card text changes (`lobby_info` from the Worker: a map change
@@ -768,7 +768,7 @@ migration ([Host migration](#host-migration)); only a room nobody can take
 over gets `room_closed` ([master.md](master.md#room-lifecycle)).
 
 **Signaling reconnect**: the host's signaling WS needs to stay up
-permanently (offers, heartbeat, listing) — on a drop, `main.js` reconnects
+permanently (offers, heartbeat, listing) — on a drop, `GuestSession` reconnects
 with exponential backoff (`lobbyConfig.reconnect`), and a fresh `welcome`
 sends `reclaim_host { roomId, epoch, roomSecret, … }`: the room keeps its
 `roomId` across the reconnect and across a master restart (the secret is an
@@ -783,12 +783,12 @@ triggers a map catalog re-read (see below) / a Worker handoff.
 ### Dynamic maps
 
 A room starts on the master's current maps rather than the ones baked into
-the bundle: `connectAsHost` fetches `GET /games/:id/maps/manifest.json`
+the bundle: `HostRole.createRoom` fetches `GET /games/:id/maps/manifest.json`
 (`:id` — the active game's manifest id, Stage 6.4) plus every map and passes
 them to the Worker's `init` (`room.maps`; catalog unavailability is
 non-critical — falls back to the bundled maps). Updating on the fly:
 `host_registered.mapsVersion` (after a reconnect) or the master's
-`update_available` signal → `refreshHostMaps` → fetch the catalog →
+`update_available` signal → `HostRole.refreshMaps` → fetch the catalog →
 `HostController.updateMaps` → the Worker's `update_maps` →
 `HostGame.updateMaps`. New data applies **from the next map change on**
 (the regular `RoundManager.createMap` path: scaling in JS → the core's
@@ -815,7 +815,7 @@ disappears from what's served; a composite `hostCodeVersion` is remembered:
 master → the signaling WS drops → a regular reconnect → `reclaim_host` →
 `host_registered.codeVersion` differs from ours in either half (an engine
 deploy changes `engine`, a game-plugin-only deploy changes `game.version`) →
-`refreshHostWorker()`: re-fetches **both** `GET /worker/manifest.json` and
+`HostRole.refreshWorker()`: re-fetches **both** `GET /worker/manifest.json` and
 the active game's `GET /games/:id/manifest.json`
 (`lobbyConfig.game.manifestUrl`), builds a fresh `room.game` object
 (`{ id, version, hostEntryUrl, wasmUrl }` from the fresh manifest's
@@ -891,7 +891,7 @@ failure) or a timeout (15 s) → the new Worker is torn down, and `resume` is
 sent to the old one (`resumeAfterHandoff`: restoring timers + resuming the
 interrupted round) — **the room keeps living on the old code version**, and
 players notice nothing. Concurrent swaps are prevented (a guard in
-`main.js` and in `HostController`).
+`HostRole` and in `HostController`).
 
 **Yielding to a planned handoff.** A swap that is still waiting for the
 round boundary (up to an hour in a game with long rounds) gives way to a
@@ -899,12 +899,12 @@ round boundary (up to an hour in a game with long rounds) gives way to a
 the current worker bundle anyway. `HostController.cancelPendingSwap()`
 sends the old Worker `cancel_handoff` (`HostGame.cancelHandoff` removes the
 boundary callback, the next `initiateNewRound` starts a round as usual) and
-rejects the swap promise with `swap preempted`; `refreshHostWorker` does not
+rejects the swap promise with `swap preempted`; `HostRole.refreshWorker` does not
 mark that version as failed. If the Worker had already sent
 `handoff_state` before `cancel_handoff` arrived, the late state is answered
 with `resume`. A swap that is already carrying state (after
 `handoff_state`) cannot be cancelled — the handoff is refused. If the
-handoff is aborted and the tab stays the host, `refreshHostWorker()` runs
+handoff is aborted and the tab stays the host, `HostRole.refreshWorker()` runs
 again and restarts the swap when the version still differs.
 
 ### Host migration
@@ -1125,7 +1125,7 @@ The same machinery without the rollback: the host gives the role away on
 purpose — "Leave server" or "Hand over host" in the room menu
 ([client.md](client.md#ui-hierarchy-z-index)); the automatic triggers and
 the vote below enter the same
-`startPlannedHandoff({ reason, stay, defer })` (`client/network/PlannedHandoff.js`).
+`HandoffFlow.start({ reason, stay, defer })` (`client/network/PlannedHandoff.js`).
 
 1. The host sends `handoff_begin { roomId, epoch, reason, stay }`; the
    master moves the room to `handing_off` and answers `handoff_go` (the
@@ -1297,7 +1297,7 @@ first checkpoint after the cancel.
 **`cold`** (no fresh checkpoint): the tab saves `{ roomId, epoch,
 promotionToken, gameId, settings }` to `sessionStorage` (`vimp.promotion`)
 and reloads into the room link. The route bootstrap takes the record
-(always removing it), starts `connectAsHost` with the room defaults plus
+(always removing it), starts `HostRole.createRoom` with the room defaults plus
 the master's `settings` and registers with the token instead of creating a
 room. The match starts afresh; the other members reload into the room and
 enter with a full handshake.
@@ -1311,10 +1311,10 @@ the new epoch: `join_room`, then a WebRTC resume under its own `gameId`
 
 In the lobby (`packages/engine/src/client/main.js`):
 
-- **joining** — a server card → `connectToRoom(roomId)` → `WebRtcManager`
+- **joining** — a server card → `GuestSession.connectToRoom(roomId)` → `WebRtcManager`
   (offerer);
 - **creating a server** — the button in the lobby (`#lobby-host`,
-  `packages/engine/src/config/lobby.js`) → `connectAsHost(room)`
+  `packages/engine/src/config/lobby.js`) → `HostRole.createRoom(room)`
   → `HostController` + Worker + `LoopbackTransport` (the host player) +
   `HostConnectionManager` (remote clients, each peer kept with its
   `memberId` from the offer) + registering with the master.

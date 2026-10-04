@@ -6,7 +6,7 @@
 // в intervalMs отчёт повторяется (мастер мог перезапуститься).
 //
 // Без DOM: отправку, комнату, состав и таймеры инъектирует владелец
-// (client/main.js).
+// (client/session/HostRole.js).
 
 export default class RoomPeersReporter {
   /**

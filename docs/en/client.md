@@ -163,7 +163,7 @@ the server knows nothing about routes):
 | `#/<gameId>`          | quick play: the fullest non-full room of the game, else a new one |
 | `#/<gameId>/<roomId>` | that room directly — the lobby is never shown                     |
 
-The route is read once, after `welcome` and login (`bootRoute` in `main.js`;
+The route is read once, after `welcome` and login (`RouteBoot` in `client/session/RouteBoot.js`;
 the decision is the pure `decideRouteAction`). A room link asks
 `GET /rooms/:roomId` first: a live room is joined (the room's own `gameId`
 wins over the link's), a missing or full room falls back to quick play of the
@@ -241,7 +241,7 @@ reloadable close.
   fired — `#lobby` stays hidden until the player is signed in. Picking a
   server activates that room's game (the `join` payload carries its
   `gameId`; hosts older than 6.4 send none, and the join proceeds on the
-  active game) and then `connectToRoom` creates a `WebRtcManager`,
+  active game) and then `GuestSession.connectToRoom` creates a `WebRtcManager`,
   and establishes P2P. A
   plugin that fails to load is reported inline in `#lobby-error` and leaves
   the lobby usable — `#tech-informer` covers the whole tab and is reserved
@@ -369,10 +369,10 @@ reloadable close.
   text wins). See [dedicated.md](dedicated.md#game-websocket).
 - **WebRTC unavailable** (`ensureWebRtcAvailable`): if `RTCPeerConnection`
   is unavailable (Firefox with `media.peerconnection.enabled = false`,
-  resist fingerprinting, etc.), `connectToRoom`/`connectAsHost` show a
+  resist fingerprinting, etc.), `GuestSession.connectToRoom`/`HostRole.createRoom` show a
   plain message and stay in the lobby instead of failing with a black
   screen.
-- **The host role**: before starting the Worker, `connectAsHost` fetches
+- **The host role**: before starting the Worker, `HostRole.createRoom` fetches
   the master's map catalog (falls back to the bundle), registers the room
   and starts a heartbeat once `ready` fires; the host's signaling WS
   reconnects with backoff on a drop
@@ -431,6 +431,27 @@ reloadable close.
   goes into `room.isDevMode` and switches on the host recorder. Port 12
   (`CONSOLE`) carries the host's debug log into this tab's console as
   `[vimp:debug][host] …`. See [debugging.md](debugging.md#the-browser-half).
+
+## Room scenarios (`client/session/`)
+
+`main.js` executes on import and cannot be brought up in a test, so the
+lobby-mode room scenarios live in `packages/engine/src/client/session/` as
+modules with injected dependencies (signaling, supervisor, factories,
+config, DOM actions as callbacks) — none of them imports `main.js` or touches
+the global DOM. `main.js` only creates them and wires them together; every
+module has its own tests in `tests/client/session/`.
+
+| Module             | What lives there                                                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roomContext.js`   | the tab's shared room state: `roomId`, host `epoch`, `memberJoined`, `entered`, `startFailed`                                                                                                 |
+| `Membership.js`    | `join_room` and its retry after a master restart (`JoinRetry`), `caps` for successor selection, `member_update` (ICE type, guest FPS, the token-lifetime timer)                               |
+| `hostRoomPrep.js`  | `prepareHostRoom` (game by manifest or checkpoint version, master maps, worker bundle URL, composite `codeVersion`) and the manifest fetches                                                  |
+| `HostRole.js`      | creating a room (`createRoom`), adopting the host role (`adopt`), `register_host`/`reclaim_host` and heartbeat, `host_registered`, `probe`, `successor_assigned`, map refresh, Worker handoff |
+| `StandbyRole.js`   | the successor: `standby_assigned`/`standby_released`, `StandbyReceiver`, `HostPrewarm`, periodic `standby_status`                                                                             |
+| `PromotionFlow.js` | `promote` (checkpoint and cold), `promote_cancelled`, `host_revoked`, finishing a promotion, demoting a former host                                                                           |
+| `HandoffFlow.js`   | planned handoff (`PlannedHandoff`, `HostHealthPolicy`, `TokenHandoffTimer`), `request_handoff`, late `host_released`, "Leave server" and the guest's leave                                    |
+| `GuestSession.js`  | joining and reconnecting over WebRTC, `host_migrating`/`host_changed`, `room_closed`, signaling reconnect, the "Change host" vote, master error codes                                         |
+| `RouteBoot.js`     | direct links: route boot, quick play, waiting for a migrating room, cold promotion from `sessionStorage`, `hashchange`                                                                        |
 
 ## Error reporting (`lib/diagnostics.js`)
 
@@ -593,15 +614,15 @@ The game transport is WebRTC, not WebSocket (channel details —
   client saw (the restored match's `seqFloor`). **`HostPrewarm`** — on the
   first full checkpoint (`warm(latest, { allowedGame })`) it prepares the
   room the way creating one does (`prepareHostRoom({}, gameRef)` in
-  `main.js` — the checkpoint's room settings are not needed, promotion takes
+  `client/session/hostRoomPrep.js` — the checkpoint's room settings are not needed, promotion takes
   them from the checkpoint itself; `gameRef` comes from the descriptor's
   `game`, and only without it is the checkpoint unpacked; it loads the game
   manifest of the version in the checkpoint — `lobbyConfig.game.versionManifestUrl` when
   it differs from the active one —, the master's maps, the worker bundle
   URL) and brings up a `HostController` with `preload: true`
   ([host.md](host.md#standby-successor)); a new game version in a checkpoint
-  warms up again, a failed version is not retried. In the lobby, `main.js`
-  sends `caps` (`lib/hostCaps.js`: `canHost`, `mobile`, `hidden`,
+  warms up again, a failed version is not retried. In the lobby,
+  `client/session/Membership.js` sends `caps` (`lib/hostCaps.js`: `canHost`, `mobile`, `hidden`,
   `iceType`) in `join_room`/`register_host` and `member_update` on
   `visibilitychange` and on an `iceType` change. `canHost` is also false
   while the sign-in (`LobbyAuthModel.getTokenExpiresAt()`) expires within
@@ -705,7 +726,7 @@ The game transport is WebRTC, not WebSocket (channel details —
   same epoch and token with `mode: 'checkpoint'` → `degrade()` drops the
   wait): in the pre-warmed Worker (`HostPrewarm.take()`) when
   its game version matches the checkpoint, otherwise in a new
-  `HostController`; `onReady` → `main.js` adopts the host role and
+  `HostController`; `onReady` → `PromotionFlow` adopts the host role and
   registers with `promotionToken`, `onFailed` → `promote_failed`;
   `cancel()` on `promote_cancelled`; without a resume secret of the own
   player (`hasSession`) it fails before touching a Worker. `savePendingPromotion`/
@@ -716,11 +737,11 @@ The game transport is WebRTC, not WebSocket (channel details —
   supervisor sends `RESUME_REQUEST` to the tab's own Worker. The whole
   flow — [host.md](host.md#successor-promotion).
 - **`PlannedHandoff`** (host migration stage 8) — the host's side of a
-  planned handoff; `main.js` enters it through
-  `startPlannedHandoff({ reason, stay, defer })` (refused while a promotion owns
+  planned handoff; `HandoffFlow` enters it through
+  `HandoffFlow.start({ reason, stay, defer })` (refused while a promotion owns
   the Worker or a Worker handoff is already carrying state; a Worker handoff
   still waiting for the round boundary yields — `HostController.cancelPendingSwap()`
-  cancels it, and an aborted handoff runs `refreshHostWorker()` again; a
+  cancels it, and an aborted handoff runs `HostRole.refreshWorker()` again; a
   repeated call while one is running is ignored). `defer` (the default for `stay`) first waits for the round
   boundary — `HostController.awaitRoundBoundary`, answered at once by a game
   with `migration.midRound`, otherwise when the next round starts, at most
@@ -764,7 +785,7 @@ othersPresent })` from `main.js`: role changes, `HostConnectionManager`
   `reloadToRoom`) would announce a leave and lose its seat.
 
 The client's role is picked in the lobby (`packages/engine/src/client/main.js`): **joining**
-(`connectToRoom` → `WebRtcManager`, offerer) or **hosting** (`connectAsHost`
+(`GuestSession.connectToRoom` → `WebRtcManager`, offerer) or **hosting** (`HostRole.createRoom`
 → a browser host in the same tab). For a host, the game transport is
 **`LoopbackTransport`**: the same interface as `WebRtcManager` (`publisher`
 with `message`/`close`, `send`/`close`), but data travels through
@@ -992,7 +1013,7 @@ both the `roomDefaults` being overridden and the `room.game` entries sent
 to the Worker come from the _picked_ manifest (see the Bootstrap note
 above). Each built field's `getValue()` (already unit-converted,
 e.g. `unit:'s'` seconds→ms) overrides the matching `roomDefaults` key, and
-the result is sent as the room object to `connectAsHost` → `HostController`
+the result is sent as the room object to `HostRole.createRoom` → `HostController`
 → the Worker, where `applyRoomOverrides`
 (`packages/engine/src/lib/applyRoomOverrides.js`) reads `maxPlayers`/`roundTime`/`mapTime`/
 `friendlyFire`/`map`.
@@ -1529,7 +1550,7 @@ most `migration.leaveFlushTimeoutMs` (3 s) — then `host_leaving` (no people,
 the master closes it at once). **Hand over host** — only the current host,
 when the room has other people and the master assigned a successor
 (`successor_assigned` with a non-null `successorMemberId`):
-`startPlannedHandoff({ reason: 'handover', stay: true })`, no confirmation
+`HandoffFlow.start({ reason: 'handover', stay: true })`, no confirmation
 (the role can be handed back). While a handoff runs both are disabled and a
 status takes their place ("Handing over…", "Slow connection…"); a failed one
 shows "Host handover failed" until the menu is closed. The panel sits above

@@ -3,8 +3,9 @@ import HostController from './HostController.js';
 
 // Прогрев преемника (host-migration этап 6): по первой полной контрольной
 // точке бета готовит комнату так же, как это делает создание комнаты
-// (prepareHostRoom в main.js: манифест игры той версии, что в точке, карты
-// мастера, URL worker-бандла), и поднимает HostController в режиме preload —
+// (prepareHostRoom в client/session/hostRoomPrep.js: манифест игры той
+// версии, что в точке, карты мастера, URL worker-бандла), и поднимает
+// HostController в режиме preload —
 // Worker импортировал плагин и скомпилировал wasm, матча нет. Промоушен
 // (этап 7) поднимет в нём матч из точки без ожидания сети.
 /**
