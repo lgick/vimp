@@ -7,7 +7,9 @@ const VOTE_VALUES = ['yes', 'no'];
 // себя. Прошедшее голосование просит хоста отдать роль (request_handoff
 // vote) и через voteForceAfterMs снимает его принудительно — аварийным
 // путём MigrationCoordinator. Состояние голосований — здесь, отметка
-// demotedUntil смещённого хоста — в участнике комнаты реестра.
+// demotedUntil смещённого хоста — в участнике комнаты реестра. Голос — у
+// аккаунта (userId), а не у вкладки: N вкладок одного пользователя — один
+// голос, и голосует только пробывший в комнате minVoterAgeMs.
 export default class HostVoteManager {
   /**
    * @param {Object} deps
@@ -41,11 +43,12 @@ export default class HostVoteManager {
       userStartCooldownMs: 60000,
       voteForceAfterMs: 5000,
       demotedCooldownMs: 600000,
+      minVoterAgeMs: 30000,
       ...deps.timings,
     };
 
     // roomId -> { voteId, epoch, initiatorMemberId, eligible, yes, no,
-    // endsAt, timer }
+    // endsAt, timer }; eligible/yes/no — множества userId
     this._votes = new Map();
     // roomId -> время старта последнего голосования
     this._lastVoteAt = new Map();
@@ -66,6 +69,8 @@ export default class HostVoteManager {
       this._sendTo(member?.sessionId, {
         type: 'error',
         code: 'voteRejected',
+        re: 'host_vote_start',
+        roomId: room.roomId,
         reason,
       });
     };
@@ -78,16 +83,25 @@ export default class HostVoteManager {
       return reject('migrating');
     }
 
-    if (memberId === room.host.memberId) {
+    // любая вкладка пользователя хоста — тоже хост
+    if (
+      memberId === room.host.memberId ||
+      (member.userId !== null && member.userId === room.host.userId)
+    ) {
       return reject('host');
+    }
+
+    const now = this._now();
+    const timings = this._timings;
+
+    if (!this._isVoter(room, member, now)) {
+      return reject('tooNew');
     }
 
     if (this._votes.has(room.roomId) || this._forces.has(room.roomId)) {
       return reject('active');
     }
 
-    const now = this._now();
-    const timings = this._timings;
     const lastVoteAt = this._lastVoteAt.get(room.roomId);
 
     if (
@@ -109,7 +123,12 @@ export default class HostVoteManager {
 
     // снимать хоста некуда — голосование бессмысленно
     if (!this._migration.hasCandidate(room)) {
-      this._sendTo(member.sessionId, { type: 'error', code: 'noSuccessor' });
+      this._sendTo(member.sessionId, {
+        type: 'error',
+        code: 'noSuccessor',
+        re: 'host_vote_start',
+        roomId: room.roomId,
+      });
       return;
     }
 
@@ -117,18 +136,16 @@ export default class HostVoteManager {
     this._lastStartByUser.set(room.roomId, starts);
     this._lastVoteAt.set(room.roomId, now);
 
-    const eligible = new Set(
-      this._registry
-        .liveMembers(room.roomId, now)
-        .map(live => live.memberId)
-        .filter(id => id !== room.host.memberId),
-    );
+    const voters = this._registry
+      .liveMembers(room.roomId, now)
+      .filter(live => this._isVoter(room, live, now));
+    const eligible = new Set(voters.map(live => live.userId));
     const vote = {
       voteId: this._randomBytes(8).toString('hex'),
       epoch: room.epoch,
       initiatorMemberId: memberId,
       eligible,
-      yes: new Set([memberId]),
+      yes: new Set([member.userId]),
       no: new Set(),
       endsAt: now + timings.hostVoteDurationMs,
       timer: null,
@@ -140,10 +157,11 @@ export default class HostVoteManager {
     );
     this._votes.set(room.roomId, vote);
 
-    // хосту окно не шлётся: голосование идёт мимо него
-    for (const id of eligible) {
-      if (id !== memberId) {
-        this._sendTo(room.members.get(id)?.sessionId, {
+    // хосту окно не шлётся: голосование идёт мимо него. Каждой вкладке
+    // голосующего пользователя — своё окно, ответ любой из них — его голос
+    for (const voter of voters) {
+      if (voter.memberId !== memberId) {
+        this._sendTo(voter.sessionId, {
           type: 'host_vote',
           roomId: room.roomId,
           voteId: vote.voteId,
@@ -175,20 +193,22 @@ export default class HostVoteManager {
    */
   answer(room, memberId, { voteId, value }) {
     const vote = this._votes.get(room?.roomId);
+    const userId = room?.members.get(memberId)?.userId ?? null;
 
     if (
       !vote ||
       vote.voteId !== voteId ||
-      !vote.eligible.has(memberId) ||
+      userId === null ||
+      !vote.eligible.has(userId) ||
       !VOTE_VALUES.includes(value)
     ) {
       return;
     }
 
-    // повторный ответ меняет мнение
-    vote.yes.delete(memberId);
-    vote.no.delete(memberId);
-    vote[value].add(memberId);
+    // повторный ответ (с любой вкладки пользователя) меняет мнение
+    vote.yes.delete(userId);
+    vote.no.delete(userId);
+    vote[value].add(userId);
 
     // голос принят — «Your vote has been accepted», как у голосований хоста
     this._sendTo(room.members.get(memberId)?.sessionId, {
@@ -280,11 +300,18 @@ export default class HostVoteManager {
   // исход: строгое большинство «за» от текущего eligible; досрочно — как
   // только он определён, по таймеру — молчание считается «против»
   _evaluate(room, vote, final) {
-    for (const id of vote.eligible) {
-      if (!room.members.has(id)) {
-        vote.eligible.delete(id);
-        vote.yes.delete(id);
-        vote.no.delete(id);
+    // пользователь ушёл, если в комнате не осталось ни одной его вкладки
+    const present = new Set();
+
+    for (const member of room.members.values()) {
+      present.add(member.userId);
+    }
+
+    for (const userId of vote.eligible) {
+      if (!present.has(userId)) {
+        vote.eligible.delete(userId);
+        vote.yes.delete(userId);
+        vote.no.delete(userId);
       }
     }
 
@@ -386,6 +413,16 @@ export default class HostVoteManager {
     if (room?.status === 'online' && room.epoch === epoch) {
       this._migration.forceHostChange(room, 'vote');
     }
+  }
+
+  // голосует аккаунт гостя (не хоста), пробывший в комнате minVoterAgeMs:
+  // свежие вкладки не накручивают голосование
+  _isVoter(room, member, now) {
+    return (
+      member.userId !== null &&
+      member.userId !== room.host.userId &&
+      now - member.joinedAt >= this._timings.minVoterAgeMs
+    );
   }
 
   _sendTo(sessionId, message) {

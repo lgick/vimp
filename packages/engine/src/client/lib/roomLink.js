@@ -100,6 +100,8 @@ export function setRoute(hashPart) {
  */
 export function reloadTo(hashPart) {
   setRoute(hashPart);
+  // единственный потребитель — pageReload.js (сначала guard.exit())
+  // eslint-disable-next-line no-restricted-syntax
   window.location.reload();
 }
 

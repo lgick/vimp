@@ -563,7 +563,7 @@ describe('HostController: промоушен (host-migration этап 7.4)', () 
     );
 
     worker.emit({ type: 'preloaded' });
-    expect(controller.preloaded).toBe(true);
+    expect(onPreloaded).toHaveBeenCalledTimes(1);
 
     const onReady = vi.fn();
     const onLobbyInfoChange = vi.fn();

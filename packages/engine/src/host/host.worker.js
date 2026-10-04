@@ -27,6 +27,10 @@ const PS_TECH_INFORM_DATA = wsports.server.TECH_INFORM_DATA;
 let host = null;
 let portMachine = null;
 
+// комната закрывается (shutdown): новых не пускаем — иначе вошедший вылетел
+// бы через секунды вместе с комнатой
+let shuttingDown = false;
+
 // эстафета Worker'ов (Этап 5.2): socketId → gameId участников, восстановленных
 // из handoff-меты — их порт-машины поднимаются минуя хендшейк
 let handoffClients = null;
@@ -97,6 +101,11 @@ function postCheckpoint({ meta, core, final }) {
           createdAt: meta.createdAt,
           final,
           mode: meta.mode,
+          // игра точки — в дескриптор канала standby: бете не нужно
+          // распаковывать точку ради версии игры (ревью F15)
+          game: meta.room?.game
+            ? { id: meta.room.game.id, version: meta.room.game.version }
+            : null,
           bytes: owned,
         },
         [owned.buffer],
@@ -184,6 +193,12 @@ async function onInit(room, handoff = null, checkpointBytes = null, seqFloor) {
 // RESUME_REQUEST вместо хендшейка
 function onConnect(socketId, resume = false) {
   if (!portMachine) {
+    return;
+  }
+
+  // закрытие без кода: в лобби-режиме гость уходит искать другую комнату
+  if (shuttingDown) {
+    self.postMessage({ type: 'close_client', socketId });
     return;
   }
 
@@ -326,6 +341,11 @@ self.onmessage = async event => {
       );
       break;
 
+    // плановая передача хоста вытесняет эстафету, ещё ждущую границы раунда
+    case 'cancel_handoff':
+      host?.cancelHandoff();
+      break;
+
     // новый Worker не поднялся — продолжаем жить на этой версии
     case 'resume':
       host?.resumeAfterHandoff();
@@ -388,5 +408,36 @@ self.onmessage = async event => {
     case 'unfreeze':
       host?.unfreeze();
       break;
+
+    // хост закрывает комнату («Leave server» последнего человека): закрыть
+    // игры участников и дождаться записи профилей — не дольше timeoutMs
+    case 'shutdown': {
+      const timeoutMs =
+        Number(msg.timeoutMs) > 0 ? Number(msg.timeoutMs) : 3000;
+      let timer = null;
+
+      shuttingDown = true;
+
+      try {
+        await Promise.race([
+          host?.destroy(),
+          new Promise(resolve => {
+            timer = setTimeout(resolve, timeoutMs);
+          }),
+        ]);
+      } catch (e) {
+        self.postMessage({
+          type: 'diagnostic',
+          kind: 'shutdown',
+          message: e && e.message ? e.message : String(e),
+          stack: e && typeof e.stack === 'string' ? e.stack : null,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+
+      self.postMessage({ type: 'shutdown_done' });
+      break;
+    }
   }
 };

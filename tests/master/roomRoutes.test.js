@@ -111,3 +111,64 @@ describe('GET /rooms/:roomId', () => {
     expect(other.code).toBe(404);
   });
 });
+
+// GET /quickplay/:gameId (ревью F16): лучшая комната вместо всего списка
+describe('GET /quickplay/:gameId', () => {
+  const qreq = (gameId, ip = '1.1.1.1') => ({
+    params: { gameId },
+    headers: {},
+    socket: { remoteAddress: ip },
+  });
+
+  it('невалидный gameId — 400 и бакет лимита не тратится', () => {
+    const res = fakeRes();
+
+    routes.quickPlay(qreq('Bad Id!'), res);
+    routes.quickPlay(qreq('Bad Id!'), fakeRes());
+    routes.quickPlay(qreq('Bad Id!'), fakeRes());
+
+    const ok = fakeRes();
+
+    routes.quickPlay(qreq('tanks'), ok);
+
+    expect(res.code).toBe(400);
+    expect(res.body).toEqual({ error: 'badRequest' });
+    expect(ok.code).toBe(200);
+  });
+
+  it('нет комнаты — { room: null }', () => {
+    const res = fakeRes();
+
+    routes.quickPlay(qreq('tanks'), res);
+
+    expect(res.code).toBe(200);
+    expect(res.body).toEqual({ room: null });
+  });
+
+  it('есть — публичная форма комнаты', () => {
+    const room = addRoom();
+    const res = fakeRes();
+
+    routes.quickPlay(qreq('tanks'), res);
+
+    expect(res.code).toBe(200);
+    expect(res.body.room).toMatchObject({
+      roomId: room.roomId,
+      gameId: 'tanks',
+      maxPlayers: 8,
+    });
+    expect(res.body.room.ip).toBeUndefined();
+  });
+
+  it('лимит общий с GET /rooms/:roomId — 429', () => {
+    routes.lookup(req('k7m2qx3a'), fakeRes());
+    routes.quickPlay(qreq('tanks'), fakeRes());
+
+    const res = fakeRes();
+
+    routes.quickPlay(qreq('tanks'), res);
+
+    expect(res.code).toBe(429);
+    expect(res.body).toEqual({ error: 'tooManyRequests' });
+  });
+});

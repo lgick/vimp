@@ -7,6 +7,27 @@ import HostController from './HostController.js';
 // мастера, URL worker-бандла), и поднимает HostController в режиме preload —
 // Worker импортировал плагин и скомпилировал wasm, матча нет. Промоушен
 // (этап 7) поднимет в нём матч из точки без ожидания сети.
+/**
+ * Игра точки совпадает с той, что подтвердил мастер (promote.game /
+ * standby_assigned.game): точку шлёт хост — другой игрок, ей нельзя верить.
+ * Мастер без поля game (allowed — null) — проверка пропускается.
+ * @param {{ id: string, version: string }} gameRef - room.game точки.
+ * @param {{ id: string, versions?: string[] }|null} allowed
+ * @returns {boolean}
+ */
+export function isConfirmedGame(gameRef, allowed) {
+  if (!allowed) {
+    return true;
+  }
+
+  return (
+    gameRef.id === allowed.id &&
+    (!Array.isArray(allowed.versions) ||
+      allowed.versions.length === 0 ||
+      allowed.versions.includes(gameRef.version))
+  );
+}
+
 export default class HostPrewarm {
   /**
    * @param {Object} options
@@ -63,30 +84,45 @@ export default class HostPrewarm {
    * Прогрев по точке. Повторный вызов с той же игрой/версией ничего не
    * делает; смена версии игры в точке (деплой в живой комнате) — прогрев
    * заново.
-   * @param {Uint8Array} bytes - Сжатая контрольная точка (не передаётся —
-   *   копия остаётся у вызывающего).
+   * @param {Object} checkpoint - запись StandbyReceiver.latest(): { bytes,
+   *   game, … }. game из дескриптора избавляет от распаковки точки (ревью
+   *   F15); без него (хост старше поля) игра читается из самой точки.
+   *   bytes не передаются — копия остаётся у вызывающего.
+   * @param {Object} [options]
+   * @param {{ id: string, versions?: string[] }|null} [options.allowedGame] -
+   *   игра комнаты по данным мастера (standby_assigned.game).
    * @returns {Promise<void>}
    */
-  async warm(bytes) {
+  async warm(checkpoint, { allowedGame = null } = {}) {
     if (this._state === 'destroyed' || this._state === 'warming') {
       return;
     }
 
-    let meta;
+    let gameRef = checkpoint?.game ?? null;
 
-    // негодная точка — проблема этой точки, а не версии игры: прогретый
-    // Worker остаётся, следующая точка той же версии проверяется как обычно
-    try {
-      ({ meta } = await this._decode(bytes));
-    } catch (e) {
-      this._onError?.(e);
-      return;
+    if (!gameRef) {
+      // негодная точка — проблема этой точки, а не версии игры: прогретый
+      // Worker остаётся, следующая точка той же версии проверяется как обычно
+      try {
+        const { meta } = await this._decode(checkpoint?.bytes);
+
+        gameRef = meta?.room?.game ?? null;
+      } catch (e) {
+        this._onError?.(e);
+        return;
+      }
     }
-
-    const gameRef = meta?.room?.game ?? null;
 
     if (!gameRef?.id || !gameRef.version) {
       this._onError?.(new Error('checkpoint has no room.game'));
+      return;
+    }
+
+    gameRef = { id: gameRef.id, version: gameRef.version };
+
+    // как и негодная точка — проблема точки: состояние не меняется
+    if (!isConfirmedGame(gameRef, allowedGame)) {
+      this._onError?.(new Error('checkpoint game is not the room game'));
       return;
     }
 
@@ -107,10 +143,9 @@ export default class HostPrewarm {
     let prepared;
 
     try {
-      prepared = await this._prepareRoom(
-        { ...(meta.room.settings ?? {}) },
-        gameRef,
-      );
+      // настройки точки не нужны: игра, карты и dev-режим комнаты беты —
+      // свои, а настройки комнаты промоушен берёт из самой точки (ревью F1)
+      prepared = await this._prepareRoom({}, gameRef);
     } catch (e) {
       this._fail(e);
       return;

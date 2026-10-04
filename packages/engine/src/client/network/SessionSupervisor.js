@@ -19,6 +19,15 @@ const PC_RESUME_REQUEST = wsports.client.RESUME_REQUEST;
 // версия формата RESUME_REQUEST (хост отвечает 'version' на чужую)
 const RESUME_VERSION = 1;
 
+// предел ожидания смены хоста, продлённого мастером (host_migrating.waitMs):
+// мусорное поле не держит гостя в замороженной сессии бесконечно
+const MAX_MIGRATION_WAIT_MS = 120000;
+
+const clampWait = waitMs =>
+  Number.isFinite(waitMs)
+    ? Math.min(Math.max(waitMs, 0), MAX_MIGRATION_WAIT_MS)
+    : 0;
+
 export const SESSION_STATES = Object.freeze({
   connecting: 'connecting',
   handshake: 'handshake',
@@ -59,7 +68,8 @@ export default class SessionSupervisor {
    *   { createTransport() → новый транспорт с resume (уже connect'нутый),
    *     getToken() → identity-токен для RESUME_REQUEST }.
    * @param {Object} [opts.timing] - { reconnectWindowMs, reconnectBaseDelayMs,
-   *   reconnectMaxDelayMs, hostSilenceMs, migrationWaitMs }
+   *   reconnectMaxDelayMs, hostSilenceMs, migrationWaitMs,
+   *   resumeSilenceGraceMs }
    *   (config/lobby.js → session).
    * @param {Object} [opts.clock] - часы и таймеры (тесты).
    */
@@ -93,6 +103,7 @@ export default class SessionSupervisor {
     this._maxDelayMs = timing.reconnectMaxDelayMs ?? 4000;
     this._silenceMs = timing.hostSilenceMs ?? 3000;
     this._migrationWaitMs = timing.migrationWaitMs ?? 20000;
+    this._resumeSilenceGraceMs = timing.resumeSilenceGraceMs ?? 3000;
 
     this._state = S.connecting;
     this._transport = null;
@@ -106,11 +117,15 @@ export default class SessionSupervisor {
 
     this._lastMessageAt = 0;
     this._watchdog = null;
+    // возобновились, кадра ещё не было: восстановленный матч законно стоит,
+    // ожидая остальных (hostDefaults.resumeWaitMs) — сторожку фора
+    this._awaitingFrame = false;
 
     this._attempt = 0;
     this._attemptTimer = null;
     this._windowTimer = null;
     this._migrationTimer = null;
+    this._migrationDeadline = 0;
     // resumeWith({ onFailed }): сбой этого возврата — не конец сессии для
     // владельца, а его отдельный случай (преемник уже хост комнаты)
     this._onRoleResumeFailed = null;
@@ -224,6 +239,7 @@ export default class SessionSupervisor {
       this._clearReconnectTimers();
       this._onRoleResumeFailed = null;
       this._resuming = true;
+      this._awaitingFrame = true;
       this._lastMessageAt = this._clock.now();
       this._setState(S.inGame);
       this._startWatchdog();
@@ -269,9 +285,17 @@ export default class SessionSupervisor {
    * что от него ещё придёт, отбрасывается: у клиента не должно быть двух
    * источников кадров ни на миг (зомби-хост эпохи N и новый хост N+1).
    * Ждём host_changed не дольше migrationWaitMs.
+   * @param {Object} [options]
+   * @param {boolean} [options.keepTransport] - транспорт не закрывать: так
+   *   делает только бета плановой передачи — поверх того же соединения с
+   *   замороженным хостом идёт канал standby с финальной точкой. Кадры
+   *   транспорта всё равно отбрасываются, его закрытие не терминально;
+   *   бросят его host_changed или resumeWith.
+   * @param {number} [options.waitMs] - host_migrating.waitMs: сколько мастер
+   *   ещё ищет преемника; меньше migrationWaitMs ожидание не укорачивает.
    * @returns {boolean} сессия перешла в ожидание.
    */
-  migrate() {
+  migrate({ keepTransport = false, waitMs } = {}) {
     if (
       this._reconnect === null ||
       this._userLeft ||
@@ -283,19 +307,60 @@ export default class SessionSupervisor {
 
     this._stopWatchdog();
     this._clearReconnectTimers();
-    this._dropTransport();
-    this._resuming = false;
-    this._setState(S.migrating);
 
+    if (!keepTransport) {
+      this._dropTransport();
+    }
+
+    this._resuming = false;
+    this._awaitingFrame = false;
+    this._setState(S.migrating);
+    this._armMigrationTimer(Math.max(this._migrationWaitMs, clampWait(waitMs)));
+
+    return true;
+  }
+
+  /**
+   * Повторный host_migrating той же эпохи (следующий кандидат, деградация
+   * передачи): ожидание продлевается до waitMs, но не укорачивается.
+   * @param {number} waitMs
+   * @returns {boolean} срок продлён.
+   */
+  extendMigration(waitMs) {
+    if (this._state !== S.migrating) {
+      return false;
+    }
+
+    const left = Math.max(0, this._migrationDeadline - this._clock.now());
+    const wanted = clampWait(waitMs);
+
+    if (wanted <= left) {
+      return false;
+    }
+
+    this._armMigrationTimer(wanted);
+
+    return true;
+  }
+
+  _armMigrationTimer(ms) {
+    this._clearMigrationTimer();
+    this._migrationDeadline = this._clock.now() + ms;
     this._migrationTimer = this._clock.setTimeout(() => {
       this._migrationTimer = null;
 
       if (this._state === S.migrating) {
         this._terminate();
       }
-    }, this._migrationWaitMs);
+    }, ms);
+  }
 
-    return true;
+  /**
+   * Применён бинарный кадр хоста: восстановленный матч пошёл, фора сторожка
+   * снята.
+   */
+  noteFrame() {
+    this._awaitingFrame = false;
   }
 
   /**
@@ -448,6 +513,12 @@ export default class SessionSupervisor {
       return;
     }
 
+    // сохранённый транспорт к замороженному хосту (keepTransport): у
+    // клиента не должно быть двух источников кадров
+    if (this._state === S.migrating) {
+      return;
+    }
+
     this._lastMessageAt = this._clock.now();
     this._onMessage(data);
   }
@@ -484,6 +555,12 @@ export default class SessionSupervisor {
     }
 
     this._dropTransport();
+
+    // сохранённый транспорт (keepTransport) закрылся: исход миграции решают
+    // host_changed, promote или таймер ожидания
+    if (this._state === S.migrating) {
+      return;
+    }
 
     if (this._state === S.reconnecting) {
       // транспорт, выданный resumeWith без фабрики попыток: повторять нечем
@@ -616,7 +693,11 @@ export default class SessionSupervisor {
       return;
     }
 
-    if (this._clock.now() - this._lastMessageAt > this._silenceMs) {
+    const limitMs = this._awaitingFrame
+      ? this._silenceMs + this._resumeSilenceGraceMs
+      : this._silenceMs;
+
+    if (this._clock.now() - this._lastMessageAt > limitMs) {
       this._transport.close();
     }
   }

@@ -28,16 +28,16 @@ const tokensEqual = (a, b) =>
   TOKEN_PATTERN.test(b) &&
   crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-// Миграция хоста. Аварийная (host-migration этап 7): машина состояний
-// комнаты online(N) → migrating(N → N+1) → online(N+1). Хост потерян —
-// мастер повышает преемника: бету со свежей контрольной точкой (checkpoint)
-// или любого способного участника (cold); кандидатов нет — комната
-// закрывается. Плановая (этап 8): online(N) → handing_off(N → N+1) →
-// online(N+1) — хост жив и сам отдаёт бете финальную точку; сбой
-// возвращает комнату в online(N), хост теряет связь посреди передачи —
-// передача становится аварийной миграцией. Отдельно от SignalingServer, чтобы не раздувать его: сигналинг
-// зовёт coordinator на событиях и даёт ему доступ к сессиям через колбэки.
-// Состояние, переживающее попытки, лежит в комнате реестра; таймеры — здесь.
+// Миграция хоста. Аварийная (host-migration этап 7): машина состояний комнаты
+// online(N) → migrating(N → N+1) → online(N+1). Хост потерян — мастер повышает
+// преемника: бету со свежей контрольной точкой (checkpoint) или любого
+// способного участника (cold); кандидатов нет — комната закрывается. Плановая
+// (этап 8): online(N) → handing_off(N → N+1) → online(N+1) — хост жив и сам
+// отдаёт бете финальную точку; сбой возвращает комнату в online(N), хост теряет
+// связь посреди передачи — передача становится аварийной миграцией. Отдельно от
+// SignalingServer, чтобы не раздувать его: сигналинг зовёт coordinator на
+// событиях и даёт ему доступ к сессиям через колбэки. Состояние, переживающее
+// попытки, лежит в комнате реестра; таймеры — здесь.
 export default class MigrationCoordinator {
   /**
    * @param {Object} deps
@@ -52,6 +52,8 @@ export default class MigrationCoordinator {
    *   и удаление комнаты.
    * @param {Function} deps.scoreOf - (sessionId) линейка связности.
    * @param {Object} deps.successorOptions - опции pickSuccessor.
+   * @param {Function} [deps.gameOf] - (room) → { id, versions } | null:
+   *   игра комнаты, по которой преемник проверяет точку (promote.game).
    * @param {Object} [deps.timings] - пороги master.room.* (этап 7.8).
    * @param {Function} [deps.onTransition] - (room) хост комнаты начал
    *   меняться (этап 10: идущее голосование «Change host» отменяется).
@@ -65,6 +67,7 @@ export default class MigrationCoordinator {
     this._closeRoom = deps.closeRoom;
     this._scoreOf = deps.scoreOf;
     this._successorOptions = deps.successorOptions;
+    this._gameOf = deps.gameOf ?? (() => null);
     this._onTransition = deps.onTransition ?? (() => {});
     this._now = deps.now ?? (() => Date.now());
     this._randomBytes = deps.randomBytes ?? crypto.randomBytes;
@@ -86,7 +89,9 @@ export default class MigrationCoordinator {
       probeTimeoutMs: 2000,
       reportWindowMs: 5000,
       forcedMigrationCooldownMs: 30000,
+      minUnreachableReporters: 2,
       handoffTimeoutMs: 8000,
+      migrationNoticeMarginMs: 5000,
       lagRttThresholdMs: 250,
       lagSustainMs: 10000,
       lagImprovementRatio: 0.35,
@@ -108,6 +113,11 @@ export default class MigrationCoordinator {
 
   isHandingOff(room) {
     return room?.status === 'handing_off';
+  }
+
+  // одинокий хост пишет очки перед закрытием (host_closing): войти нельзя
+  isClosing(room) {
+    return room?.status === 'closing';
   }
 
   // хост сменяется (аварийно или планово): преемник может занять комнату
@@ -186,17 +196,7 @@ export default class MigrationCoordinator {
     this._unbindHost(room.roomId);
     this._onTransition(room);
 
-    this._broadcast(
-      room,
-      {
-        type: 'host_migrating',
-        roomId: room.roomId,
-        epoch: room.pendingEpoch,
-        reason,
-      },
-      [room.host.memberId],
-    );
-
+    // host_migrating гостям рассылает каждая попытка промоушена
     this._promoteNext(room);
 
     return true;
@@ -253,6 +253,26 @@ export default class MigrationCoordinator {
     migration.promotionToken = this._randomBytes(16).toString('hex');
     migration.tried.push(next.member.memberId);
 
+    const timeout =
+      next.mode === 'cold'
+        ? this._timings.coldPromotionTimeoutMs
+        : this._timings.promotionTimeoutMs;
+
+    // на каждую попытку: гость ждёт host_changed не дольше waitMs, и у
+    // цепочки кандидатов дедлайн продлевается. Кандидат тоже получает — в
+    // аварии он бросает транспорт к мёртвому хосту
+    this._broadcast(
+      room,
+      {
+        type: 'host_migrating',
+        roomId: room.roomId,
+        epoch: room.pendingEpoch,
+        reason: migration.reason,
+        waitMs: timeout + this._timings.migrationNoticeMarginMs,
+      },
+      [migration.oldHostMemberId],
+    );
+
     this._send(next.member.sessionId, {
       type: 'promote',
       roomId: room.roomId,
@@ -261,12 +281,8 @@ export default class MigrationCoordinator {
       mode: next.mode,
       reason: migration.reason,
       settings: room.settings,
+      game: this._gameOf(room),
     });
-
-    const timeout =
-      next.mode === 'cold'
-        ? this._timings.coldPromotionTimeoutMs
-        : this._timings.promotionTimeoutMs;
 
     this._clearPromotionTimer(room.roomId);
     this._promotionTimers.set(
@@ -294,7 +310,8 @@ export default class MigrationCoordinator {
       live(beta) &&
       untried(beta) &&
       standby?.memberId === beta.memberId &&
-      now - standby.receivedAt <= this._timings.checkpointMaxAgeMs
+      now - standby.receivedAt <= this._timings.checkpointMaxAgeMs &&
+      this._registry.isConfirmed(room, beta)
     ) {
       return { member: beta, mode: 'checkpoint' };
     }
@@ -303,6 +320,9 @@ export default class MigrationCoordinator {
       ...member,
       live: live(member),
       score: this._scoreOf(member.sessionId),
+      // хост не подтвердил пира — фантомная сессия, к ней никто не
+      // подключится
+      confirmed: this._registry.isConfirmed(room, member),
     }));
     const { successorMemberId } = pickSuccessor(
       {
@@ -624,6 +644,7 @@ export default class MigrationCoordinator {
       mode: 'planned',
       reason: plannedReason,
       settings: room.settings,
+      game: this._gameOf(room),
     });
 
     this._broadcast(
@@ -633,8 +654,13 @@ export default class MigrationCoordinator {
         roomId: room.roomId,
         epoch: room.pendingEpoch,
         reason: plannedReason,
+        waitMs:
+          this._timings.handoffTimeoutMs +
+          this._timings.migrationNoticeMarginMs,
       },
-      [room.host.memberId],
+      // бета узнала о передаче из promote и держит соединение с замороженным
+      // хостом: по нему придёт финальная точка
+      [room.host.memberId, beta.memberId],
     );
 
     this._clearPromotionTimer(room.roomId);
@@ -758,6 +784,21 @@ export default class MigrationCoordinator {
     this.hostLost(room, 'leaving');
   }
 
+  /**
+   * host_closing {roomId, epoch}: «Leave server» хоста, в комнате которого
+   * нет людей. Пока Worker пишет очки (запись атрибутируется комнатой, пока
+   * та зарегистрирована), комната скрыта и закрыта для входа — иначе
+   * вошедший сразу вылетел бы по закрытию. Таймера нет: следом идёт
+   * host_leaving, а упавшая вкладка оборвёт WS — оба пути ведут в hostLost.
+   */
+  onHostClosing(room, epoch) {
+    if (!room || epoch !== room.epoch || room.status !== 'online') {
+      return;
+    }
+
+    room.status = 'closing';
+  }
+
   // преемник не занял комнату, отказал или ушёл: комната возвращается в
   // online(N) — эпоха растёт только при успешной смене хоста. Гостям —
   // host_changed reclaimed: они уже бросили транспорт к хосту по
@@ -830,8 +871,24 @@ export default class MigrationCoordinator {
         mode: 'checkpoint',
         reason: migration.reason,
         settings: room.settings,
+        game: this._gameOf(room),
       });
     }
+
+    // гости ждали дедлайна передачи — теперь дедлайна аварийной попытки
+    this._broadcast(
+      room,
+      {
+        type: 'host_migrating',
+        roomId: room.roomId,
+        epoch: room.pendingEpoch,
+        reason: migration.reason,
+        waitMs:
+          this._timings.promotionTimeoutMs +
+          this._timings.migrationNoticeMarginMs,
+      },
+      [migration.oldHostMemberId, migration.candidateMemberId],
+    );
 
     this._clearPromotionTimer(room.roomId);
     this._promotionTimers.set(
@@ -852,24 +909,29 @@ export default class MigrationCoordinator {
    * @param {number} epoch
    */
   onUnreachable(room, memberId, epoch) {
+    // отчёт — от аккаунта, не от вкладки: N вкладок одного пользователя
+    // кворум не набирают
+    const userId = room?.members.get(memberId)?.userId ?? null;
+
     if (
       !room ||
       room.status !== 'online' ||
       epoch !== room.epoch ||
       memberId === room.host.memberId ||
-      !room.members.has(memberId)
+      userId === null ||
+      userId === room.host.userId
     ) {
       return;
     }
 
     const now = this._now();
-    const last = room.reports.get(memberId);
+    const last = room.reports.get(userId);
 
     if (last !== undefined && now - last < REPORT_MIN_INTERVAL_MS) {
       return;
     }
 
-    room.reports.set(memberId, now);
+    room.reports.set(userId, now);
 
     // сигналинг хоста уже потерян — свидетельства гостя достаточно
     if (!this._hostSessionId(room.roomId)) {
@@ -937,23 +999,40 @@ export default class MigrationCoordinator {
   }
 
   // хост отвечает мастеру, но до него не достучалась половина гостей —
-  // сломана его P2P-сторона
+  // сломана его P2P-сторона. Гости и отчёты — по аккаунтам; с одним гостем
+  // не понять, чья сторона сломана, — отчёты хоста не снимают
   _checkQuorum(room) {
     const now = this._now();
 
-    for (const [memberId, at] of room.reports) {
+    for (const [userId, at] of room.reports) {
       if (now - at >= this._timings.reportWindowMs) {
-        room.reports.delete(memberId);
+        room.reports.delete(userId);
       }
     }
 
-    const guests = [...room.members.values()].filter(
-      member =>
-        member.memberId !== room.host.memberId &&
+    const guests = new Set();
+
+    for (const member of room.members.values()) {
+      if (
+        member.userId !== null &&
+        member.userId !== room.host.userId &&
         member.sessionId !== null &&
-        this._hasSession(member.sessionId),
-    ).length;
-    const quorum = Math.max(1, Math.ceil(guests / 2));
+        this._hasSession(member.sessionId)
+      ) {
+        guests.add(member.userId);
+      }
+    }
+
+    const { minUnreachableReporters } = this._timings;
+
+    if (guests.size < minUnreachableReporters) {
+      return;
+    }
+
+    const quorum = Math.max(
+      minUnreachableReporters,
+      Math.ceil(guests.size / 2),
+    );
 
     if (room.reports.size >= quorum) {
       this._forceMigration(room, 'unreachable');

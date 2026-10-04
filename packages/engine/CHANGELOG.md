@@ -46,8 +46,18 @@ bumps the minor version).
   `lobby?.setInfo` and needs no `requires` entry.
 - `join_room`/`leave_room` signaling messages: the master tracks room members
   itself (a guest joins after `AUTH_RESULT` and rejoins with the same tab
-  `memberId` after a signaling reconnect); `GET /servers` `currentPlayers` is
-  counted from the members, not reported by the host.
+  `memberId` after a signaling reconnect, even mid WebRTC reconnect; after a
+  master restart it repeats `join_room` on `unknownRoom` until the host
+  reclaims the room — `lobbyConfig.session.joinRetryWindowMs`); `GET /servers` `currentPlayers` is
+  counted from the members, not reported by the host. The host confirms the
+  guests connected to it over WebRTC (`room_peers`, repeated every
+  `lobbyConfig.migration.peersReportIntervalMs`), and the lobby count and the
+  successor candidates include only confirmed members (a host that sends no
+  report keeps the old count); a guest listed in the epoch's last report
+  before its own `join_room` is confirmed as soon as it joins. A `memberId` belongs to its user (`join_room`
+  with another user's is refused with `memberTaken`); a tab leaves its
+  previous room when it registers its own, and a guest whose session ends
+  without a reload (a kick) sends `leave_room`.
 - Direct links in the lobby mode: `#/<gameId>/<roomId>` opens that room
   without showing the lobby, `#/<gameId>` is quick play (the fullest non-full
   room of the game, else a new room with the form's defaults —
@@ -57,6 +67,10 @@ bumps the minor version).
 - `GET /rooms/:roomId` on the lobby master: the public room shape plus
   `status`, `404 unknownRoom`, rate-limited per IP
   (`master.room.lookupRateLimit`).
+- `GET /quickplay/:gameId` on the lobby master: `{ room }` — the room quick
+  play joins, chosen by the master instead of the client pulling the game's
+  whole room list (same per-IP limit); the client falls back to
+  `GET /servers?search=` when the route is missing.
 - "Copy link" on the lobby's room card (inside a room the link sits in the
   address bar).
 - Session resume in the lobby mode: a guest's dropped WebRTC connection
@@ -102,8 +116,21 @@ bumps the minor version).
   terminated) and designates a successor per room from the members'
   capabilities (`caps` in `join_room`/`register_host`, the new
   `member_update`); the host streams checkpoints to it over a `standby`
-  data channel (`lobbyConfig.migration`), and the successor pre-warms a
-  host Worker (`preload`).
+  data channel (`lobbyConfig.migration`), reopening it with a backoff if it
+  closes while the successor is still connected, and the successor
+  pre-warms a host Worker (`preload`). The successor reports its latest
+  checkpoint with its age (`standby_status.ageMs`) and the master judges
+  freshness by that age, not by when the status arrived; a promoted
+  successor refuses a checkpoint older than
+  `lobbyConfig.migration.maxRestoreAgeMs` (cold start instead). A tab whose
+  sign-in expires within `lobbyConfig.migration.minTokenLifetimeMs` (10 min)
+  reports `canHost: false` and declines a promotion, and a host whose
+  sign-in expires within `migration.tokenHandoffLeadMs` (5 min) hands the
+  role over to its successor on a round boundary, retrying every
+  `migration.tokenHandoffRetryMs` (5 s) until the sign-in expires when there
+  is no successor yet, a Worker relay is in progress or the handoff aborted; an expired sign-in
+  no longer drops a guest out of a running match (`invalidToken` on
+  `join_room` is only logged).
 - Host migration in the lobby mode: when the host is lost the room is not
   closed — the master promotes the standby successor, which restores the
   match from its latest checkpoint; the guests reconnect and resume their
@@ -116,22 +143,30 @@ bumps the minor version).
 promotionToken }` (no per-IP limit); the next candidate is tried after a
     deadline or `promote_failed`. Guests report `host_unreachable`; the master
     probes the host (`probe`/`probe_ack`) and forces a migration on no answer
-    or on a quorum of reports. New signaling messages `host_migrating`,
+    or on a quorum of reports — counted per account, at least
+    `master:room:minUnreachableReporters` (2) distinct users, so one guest
+    never forces it. New signaling messages `host_migrating`,
     `promote`, `promote_cancelled`, `host_changed`, `host_revoked`; a
     `reclaim_host` after a mere signaling drop cancels the migration
     (`host_changed { mode: 'reclaimed' }`). `register_host`/`reclaim_host`
     carry the room `settings` for a cold restart (`lib/roomSettings.js`). New
     config `master:room:checkpointMaxAgeMs`, `promotionTimeoutMs`,
     `coldPromotionTimeoutMs`, `probeTimeoutMs`, `reportWindowMs`,
-    `forcedMigrationCooldownMs`.
+    `forcedMigrationCooldownMs`, `migrationNoticeMarginMs`.
   - Guests follow a host change: a dropped or silent transport is
     reported to the master (`host_unreachable`); `host_migrating` closes the
     transport to the old host at once and shows a "Switching host…" overlay
     with keys and sound off; `host_changed` resumes the place at the new (or
-    returned) host, or reloads into the room on a `cold` restart; no
-    `host_changed` within `lobbyConfig.session.migrationWaitMs` (40 s) sends
-    the tab to quick play. A room link to a migrating room waits for it
-    (`session.migrationPollMs`) instead of falling back to quick play. Quick
+    returned) host, or reloads into the room on a `cold` restart. Guests
+    wait as long as the master is still looking for a successor:
+    `host_migrating` comes for every promotion attempt with `waitMs` (the
+    attempt's deadline plus `master:room:migrationNoticeMarginMs`), which
+    extends `lobbyConfig.session.migrationWaitMs` (40 s) and never shortens
+    it; no `host_changed` by then sends the tab to quick play. After a resume
+    the silence watchdog allows `session.resumeSilenceGraceMs` more until the
+    first frame, while a restored match waits for the others. A room link to
+    a migrating room waits for it (`session.migrationPollMs`, up to
+    `session.linkWaitMaxMs`) instead of falling back to quick play. Quick
     play waits a random `quickPlay.createDelayMinMs`…`createDelayMaxMs` and
     re-reads `GET /servers` before creating a room of its own.
   - The promoted successor takes the room over: on `promote { mode:
@@ -144,7 +179,13 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     failure reports `promote_failed` (as does a `checkpoint` promotion of a
     tab whose own player has no resume secret); once the room is taken, a
     failed return of the successor's own player keeps the room running for
-    the guests instead of reloading the tab. A former host that gets `host_revoked`
+    the guests instead of reloading the tab. The checkpoint is untrusted: the
+    successor takes only the known room settings from it (`map`,
+    `maxPlayers`, `roundTime`, `mapTime`, `friendlyFire`), while the game,
+    maps and dev mode are its own, and the checkpoint's game and version must
+    be ones the master confirms in `promote.game` / `standby_assigned.game`
+    (`{ id, versions }`; `register_host` of the new epoch and `reclaim_host`
+    refresh the room's `gameVersion`). A former host that gets `host_revoked`
     (or `staleEpoch` on reclaim) drops its Worker and resumes as a guest of the
     new host. Worker message `start_after_restore { waitForResume }`,
     `HostController.initFromCheckpoint`, `HostPrewarm.take()`,
@@ -153,7 +194,7 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
   standby successor, which continues the match from the same tick.
   - The master: `handoff_begin { roomId, epoch, reason, stay }` from the
     current host moves the room to `handing_off` and answers `handoff_go`
-    (the successor gets `promote { mode: 'planned' }`, the members
+    (the successor gets `promote { mode: 'planned' }`, the other members
     `host_migrating`) or `handoff_unavailable { reason }` (`noSuccessor`,
     `busy`, `staleEpoch`). Success sends the old host `host_released`; a
     successor that misses `master:room:handoffTimeoutMs` (8 s), refuses or
@@ -169,28 +210,43 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     otherwise takes the latest periodic one; a repeated `promote` with
     `mode: 'checkpoint'` drops the wait. The final checkpoint has priority
     on the `standby` channel — no periodic one overtakes it or replaces it
-    afterwards.
+    afterwards. While it waits, the successor's own player is paused
+    without dropping its connection to the frozen host, so the final
+    checkpoint arrives over the `standby` channel on that connection.
   - The host: if the handoff is aborted, `unfreeze` sends every connected
     participant a full resync, so entities removed while the world was
-    frozen do not linger on their canvas.
+    frozen do not linger on their canvas; the host's own player answering
+    it is not re-admitted (no "joined the game", no initial vote, no
+    respawn).
   - The host's tab: `handoff_go` freezes the match and sends the final
     checkpoint; on `host_released` its own player resumes as a guest of the
     new host (handover) or the tab goes to the lobby (leave). The handoff has one deadline, `migration.handoffDeadlineMs` (10 s from `handoff_begin`, above the master's timeout): a slow master (no `handoff_go` within `migration.handoffSlowMs`, 3 s) is not a failure, and a late `handoff_go` still freezes the match and sends the final checkpoint. A refusal, `handoff_aborted`, a signaling drop or the deadline cancel it for good — the match unfreezes and the tab stays the host; a leaving host leaves anyway — `host_leaving` starts an emergency migration.
     The room menu starts it: "Leave server" (everyone; a host alone closes
-    the room, a guest is released by the host at once with `LEAVE`) and
+    the room — the master hides it and lets nobody in (`host_closing`) while
+    the Worker writes the participants' scores, up to
+    `migration.leaveFlushTimeoutMs`, 3 s — and a guest is released by the
+    host at once with `LEAVE`) and
     "Hand over host" (the host, when the master has assigned a successor);
     while it runs the items are disabled and a status ("Handing over…",
     "Slow connection…", "Host handover failed") takes their place. In a game
     without `migration.midRound` a handover waits for the next round
     (`migration.deferMaxMs`, 30 s at most); a leave does not wait.
     `window.__vimpDebug.handoff({ reason, stay })` also starts one in a dev
-    build.
+    build. A handoff does not wait for the room's code update: a Worker
+    handoff still waiting for the round boundary yields to it (the
+    successor starts on the current code anyway) and is retried if the
+    handoff is aborted.
   - The host's tab asks for confirmation before closing while other people
     are in the room (`beforeunload`); `pagehide` sends the master
     `host_leaving` at once (a guest's — `LEAVE` and `leave_room`).
-  - Guests: an offer refused with `error { code: 'migrating' }` is re-sent
-    after `webrtc.offerRetryMs` (1 s); a room link to a room in
-    `handing_off` waits for it like for `migrating`.
+  - Guests: an offer to a room that is changing hosts (`migrating`,
+    `handing_off`) or waiting for its host's `reclaim_host` is refused with
+    `error { code: 'migrating' }` and re-sent after `webrtc.offerRetryMs`
+    (1 s); `unknownRoom` is kept for a room that no longer exists, and a
+    guest whose session is migrating does not leave on it. A room link to a
+    room in `handing_off` waits for it like for `migrating`.
+  - Signaling errors carry `re` (the request they answer) and `roomId`
+    alongside `code`.
 - System message codes `s:7` (`HOST_CHANGED`, "Host changed"), `s:8`
   (`HOST_REVOKED`, "You are no longer the host (connection lost)") and, in
   place of `s:7` after an automatic handoff, `s:9`
@@ -227,7 +283,9 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
   `master.room.minSuccessorFps`. The master accepts `overload`, `hidden` and
   `network` as planned-handoff reasons.
 - "Change host" vote in lobby rooms — started with `/changehost`, counted
-  by the master (the host cannot block it); a passed vote hands the host
+  by the master (the host cannot block it), one vote per account (any tab of
+  the host's account neither starts nor votes), only for members in the room
+  for at least `minVoterAgeMs` (30 s; `voteRejected` reason `tooNew`); a passed vote hands the host
   role over and bars the old host from it for 10 minutes. Not available in
   dedicated or standalone mode. Its initiator sees "Voting has started",
   like the initiator of a host vote, and a guest whose answer counted sees
@@ -237,7 +295,7 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
   (with `reason`) and `noSuccessor`; `request_handoff` and handoffs take
   `reason: 'vote'`; config `master:room:vote` (`hostVoteDurationMs`,
   `roomVoteCooldownMs`, `userStartCooldownMs`, `voteForceAfterMs`,
-  `demotedCooldownMs`). The guests' "Change host?" window is the engine vote
+  `demotedCooldownMs`, `minVoterAgeMs`). The guests' "Change host?" window is the engine vote
   `@changeHost` — vote names starting with `@` and the command `/changehost`
   are reserved by the engine; an engine vote and a host vote wait for each
   other instead of overwriting. Chat notices `v:6`–`v:15` (usage, "you are

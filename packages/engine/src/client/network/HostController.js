@@ -97,8 +97,6 @@ export default class HostController {
     this._onLobbyInfoChange = onLobbyInfoChange;
     this._onPreloaded = onPreloaded;
     this._ready = false;
-    // прогретый Worker преемника: матча в нём нет
-    this._preloaded = false;
     this._deliveries = new Map(); // socketId → { onMessage, onClose }
     this._pendingConnects = []; // connect-сообщения до готовности Worker'а
 
@@ -121,6 +119,10 @@ export default class HostController {
     this._debugRequests = new Map();
     this._debugRequestId = 0;
 
+    // ожидание ответа Worker'а на shutdown (закрытие комнаты)
+    this._shutdownResolve = null;
+    this._shutdownPromise = null;
+
     this._worker.onmessage = e => this._onWorkerMessage(e.data);
 
     // старт авторитетной части в Worker'е; контрольная точка — без копии
@@ -133,11 +135,6 @@ export default class HostController {
     } else {
       this._worker.postMessage({ type: 'init', room });
     }
-  }
-
-  // Worker прогрет (режим preload) и ждёт контрольную точку
-  get preloaded() {
-    return this._preloaded;
   }
 
   _createWorker(url) {
@@ -282,6 +279,25 @@ export default class HostController {
 
       this._worker.postMessage({ type: 'prepare_handoff' });
     });
+  }
+
+  /**
+   * Снять эстафету, ждущую границы раунда (плановая передача хоста
+   * важнее). Своп уже переносит состояние — снять нельзя.
+   * @returns {boolean} эстафета снята.
+   */
+  cancelPendingSwap() {
+    if (!this._swap || this._swap.paused) {
+      return false;
+    }
+
+    const { reject } = this._swap;
+
+    this._swap = null;
+    this._worker.postMessage({ type: 'cancel_handoff' });
+    reject(new Error('swap preempted'));
+
+    return true;
   }
 
   // ***** контрольные точки (host-migration этап 5) ***** //
@@ -503,8 +519,48 @@ export default class HostController {
     this._debugRequests.clear();
   }
 
+  /**
+   * Корректное закрытие комнаты: Worker закрывает игры участников и пишет
+   * профили (HostGame.destroy). Разрешается по ответу Worker'а или по
+   * таймауту — Worker не гасится, это делает destroy().
+   * @param {Object} [options]
+   * @param {number} [options.timeoutMs]
+   * @returns {Promise<void>}
+   */
+  shutdown({ timeoutMs = 3000 } = {}) {
+    // эстафета переносит состояние в новый Worker, закрывать нечего
+    if (this._swap) {
+      return Promise.resolve();
+    }
+
+    // повторный вызов (второй клик «Leave server») — тот же промис: второй
+    // HostGame.destroy() поверх идущего повторил бы flush (двойной зачёт)
+    if (this._shutdownPromise) {
+      return this._shutdownPromise;
+    }
+
+    this._shutdownPromise = new Promise(resolve => {
+      // страховка поверх таймаута Worker'а: зависший Worker не ответит вовсе
+      const timer = setTimeout(
+        () => this._shutdownResolve?.(),
+        timeoutMs + 500,
+      );
+
+      this._shutdownResolve = () => {
+        clearTimeout(timer);
+        this._shutdownResolve = null;
+        resolve();
+      };
+      this._worker.postMessage({ type: 'shutdown', timeoutMs });
+    });
+
+    return this._shutdownPromise;
+  }
+
   // останавливает Worker (закрытие комнаты)
   destroy() {
+    this._shutdownResolve?.();
+
     this._rejectDebugRequests('host destroyed');
 
     if (this._swap) {
@@ -533,8 +589,12 @@ export default class HostController {
 
   // старый Worker достиг границы раунда и отдал состояние: поднять новый
   _onHandoffState(state) {
+    // своп снят (cancelPendingSwap), а Worker успел отдать состояние раньше,
+    // чем получил cancel_handoff: его таймеры стоят — вернуть к игре. После
+    // destroy() Worker остановлен, сообщение ничего не сделает
     if (!this._swap) {
-      return; // своп уже отменён (destroy)
+      this._worker.postMessage({ type: 'resume' });
+      return;
     }
 
     this._swap.paused = true;
@@ -667,7 +727,6 @@ export default class HostController {
         break;
 
       case 'preloaded':
-        this._preloaded = true;
         this._onPreloaded?.(msg);
         break;
 
@@ -712,6 +771,10 @@ export default class HostController {
           listener(msg.health);
         }
 
+        break;
+
+      case 'shutdown_done':
+        this._shutdownResolve?.();
         break;
 
       case 'debug_result': {

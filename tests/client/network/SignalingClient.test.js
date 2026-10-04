@@ -352,6 +352,17 @@ describe('SignalingClient: преемник (host-migration этап 6)', () => 
     });
   });
 
+  it('roomPeers шлёт room_peers: подключённые к хосту участники', () => {
+    client.roomPeers({ roomId: 'r1', epoch: 2, memberIds: ['m1'] });
+
+    expect(socket.lastSent()).toEqual({
+      type: 'room_peers',
+      roomId: 'r1',
+      epoch: 2,
+      memberIds: ['m1'],
+    });
+  });
+
   it('probeAck шлёт probe_ack с nonce пробы (host-migration 7.3)', () => {
     client.probeAck('n1');
 
@@ -450,6 +461,16 @@ describe('SignalingClient: преемник (host-migration этап 6)', () => 
     });
   });
 
+  it('hostClosing шлёт host_closing (ревью, этап 10)', () => {
+    client.hostClosing('r1', 3);
+
+    expect(socket.lastSent()).toEqual({
+      type: 'host_closing',
+      roomId: 'r1',
+      epoch: 3,
+    });
+  });
+
   it('memberUpdate шлёт member_update', () => {
     client.memberUpdate('r1', { ...caps, hidden: true });
 
@@ -460,12 +481,13 @@ describe('SignalingClient: преемник (host-migration этап 6)', () => 
     });
   });
 
-  it('standbyStatus шлёт standby_status', () => {
+  it('standbyStatus шлёт standby_status с возрастом точки', () => {
     client.standbyStatus({
       roomId: 'r1',
       epoch: 2,
       checkpointId: 'cp',
       createdAt: 10,
+      ageMs: 250,
     });
 
     expect(socket.lastSent()).toEqual({
@@ -474,6 +496,7 @@ describe('SignalingClient: преемник (host-migration этап 6)', () => 
       epoch: 2,
       checkpointId: 'cp',
       createdAt: 10,
+      ageMs: 250,
     });
   });
 });

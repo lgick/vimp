@@ -221,6 +221,16 @@ export default class WebRtcManager {
   // Окно connectTimeoutMs отсчитывается заново: передача ограничена
   // таймаутом мастера, ожидание не бесконечно
   onSignalingError(msg) {
+    // ответ про другую комнату или на другой запрос (join_room, голосование)
+    // к этому офферу не относится
+    if (msg?.roomId && msg.roomId !== this._roomId) {
+      return;
+    }
+
+    if (msg?.re && msg.re !== 'webrtc_offer') {
+      return;
+    }
+
     if (
       msg?.code !== 'migrating' ||
       this._closed ||
@@ -334,6 +344,11 @@ export default class WebRtcManager {
     this._signaling.publisher.off('webrtc_answer', 'onAnswer', this);
     this._signaling.publisher.off('ice_candidate', 'onRemoteCandidate', this);
     this._signaling.publisher.off('error', 'onSignalingError', this);
+  }
+
+  // оба канала открыты и менеджер не закрыт
+  get isOpen() {
+    return this._openChannels === 2 && !this._closed;
   }
 
   // перечитывает тип ICE-кандидата; смена — событие 'iceType'

@@ -37,10 +37,10 @@ describe('HostPrewarm', () => {
     const onReady = vi.fn();
     const { prewarm, prepareRoom, controllers } = create({ onReady });
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
 
     expect(prepareRoom).toHaveBeenCalledWith(
-      { map: 'arena', maxPlayers: 8 },
+      {},
       { id: 'tanks', version: '1.0.0' },
     );
     expect(controllers[0].opts).toMatchObject({
@@ -61,13 +61,13 @@ describe('HostPrewarm', () => {
   it('та же версия повторно не греется; новая — заново', async () => {
     const { prewarm, prepareRoom, controllers } = create();
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
     controllers[0].opts.onPreloaded();
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
 
     expect(prepareRoom).toHaveBeenCalledTimes(1);
 
-    await prewarm.warm({ version: '1.1.0' });
+    await prewarm.warm({ bytes: { version: '1.1.0' } });
 
     expect(controllers[0].destroy).toHaveBeenCalled();
     expect(controllers).toHaveLength(2);
@@ -77,14 +77,14 @@ describe('HostPrewarm', () => {
     const onError = vi.fn();
     const { prewarm, prepareRoom, controllers } = create({ onError });
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
     controllers[0].opts.onError({ message: 'no wasm' });
 
     expect(prewarm.state).toBe('failed');
     expect(controllers[0].destroy).toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
 
     expect(prepareRoom).toHaveBeenCalledTimes(1);
   });
@@ -96,7 +96,7 @@ describe('HostPrewarm', () => {
       decode: async () => ({ meta: {}, core: null }),
     });
 
-    await prewarm.warm({});
+    await prewarm.warm({ bytes: {} });
 
     expect(prewarm.state).toBe('idle');
     expect(onError).toHaveBeenCalled();
@@ -116,13 +116,13 @@ describe('HostPrewarm', () => {
       },
     });
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
     controllers[0].opts.onPreloaded();
 
     broken = true;
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
     broken = false;
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(prewarm.state).toBe('ready');
@@ -134,7 +134,7 @@ describe('HostPrewarm', () => {
   it('destroy гасит прогретый Worker', async () => {
     const { prewarm, controllers } = create();
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
     controllers[0].opts.onPreloaded();
     prewarm.destroy();
 
@@ -147,7 +147,7 @@ describe('HostPrewarm', () => {
 
     expect(prewarm.take()).toBeNull();
 
-    await prewarm.warm({ version: '1.0.0' });
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
     controllers[0].opts.onPreloaded();
 
     const taken = prewarm.take();
@@ -159,5 +159,98 @@ describe('HostPrewarm', () => {
 
     expect(controllers[0].destroy).not.toHaveBeenCalled();
     expect(prewarm.take()).toBeNull();
+  });
+
+  it('prepareRoom не получает настроек точки (ревью F1, F15)', async () => {
+    const { prewarm, prepareRoom } = create({
+      decode: async () => ({
+        meta: {
+          room: {
+            settings: {
+              map: 'm2',
+              isDevMode: true,
+              game: { id: 'evil', hostEntryUrl: 'https://evil.test/x.js' },
+              maps: { evil: {} },
+              seed: 7,
+            },
+            game: { id: 'tanks', version: '1.0.0' },
+          },
+        },
+        core: null,
+      }),
+    });
+
+    await prewarm.warm({ bytes: {} });
+
+    expect(prepareRoom).toHaveBeenCalledWith(
+      {},
+      { id: 'tanks', version: '1.0.0' },
+    );
+  });
+
+  it('игра из дескриптора — точка не распаковывается (ревью F15)', async () => {
+    const decode = vi.fn();
+    const { prewarm, prepareRoom } = create({ decode });
+
+    await prewarm.warm({
+      bytes: new Uint8Array(4),
+      game: { id: 'tanks', version: '2.0.0' },
+    });
+
+    expect(decode).not.toHaveBeenCalled();
+    expect(prepareRoom).toHaveBeenCalledWith(
+      {},
+      { id: 'tanks', version: '2.0.0' },
+    );
+  });
+
+  it('без игры в дескрипторе (старый хост) — игра читается из точки', async () => {
+    const decode = vi.fn(async () => ({ meta: meta('1.2.0'), core: null }));
+    const { prewarm, prepareRoom } = create({ decode });
+    const bytes = new Uint8Array(4);
+
+    await prewarm.warm({ bytes, game: null });
+
+    expect(decode).toHaveBeenCalledWith(bytes);
+    expect(prepareRoom).toHaveBeenCalledWith(
+      {},
+      { id: 'tanks', version: '1.2.0' },
+    );
+  });
+
+  it('игра, не подтверждённая мастером, — onError, прогрев не тронут', async () => {
+    const onError = vi.fn();
+    const { prewarm, prepareRoom, controllers } = create({ onError });
+    const allowedGame = { id: 'tanks', versions: ['1.0.0'] };
+
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+    controllers[0].opts.onPreloaded();
+    await prewarm.warm({ bytes: { version: '9.9.9' } }, { allowedGame });
+    await prewarm.warm(
+      { bytes: { version: '1.0.0' } },
+      { allowedGame: { id: 'snakes', versions: [] } },
+    );
+
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(prepareRoom).toHaveBeenCalledTimes(1);
+    expect(controllers[0].destroy).not.toHaveBeenCalled();
+    expect(prewarm.state).toBe('ready');
+    expect(prewarm.controller).toBe(controllers[0]);
+  });
+
+  it('несовпадение не помечает версию как провалившуюся', async () => {
+    const onError = vi.fn();
+    const { prewarm, controllers } = create({ onError });
+
+    await prewarm.warm(
+      { bytes: { version: '1.0.0' } },
+      { allowedGame: { id: 'tanks', versions: ['2.0.0'] } },
+    );
+
+    expect(prewarm.state).toBe('idle');
+
+    await prewarm.warm({ bytes: { version: '1.0.0' } });
+
+    expect(controllers).toHaveLength(1);
   });
 });

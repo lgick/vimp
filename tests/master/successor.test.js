@@ -48,6 +48,8 @@ describe('isCandidate', () => {
     ['вошёл недавно', member('a', { joinedAt: NOW - 9999 }), false],
     ['смещён голосованием', member('a', { demotedUntil: NOW + 1 }), false],
     ['смещение истекло', member('a', { demotedUntil: NOW }), true],
+    ['хост не подтвердил пира', member('a', { confirmed: false }), false],
+    ['подтверждён хостом', member('a', { confirmed: true }), true],
     ['годный', member('a'), true],
   ])('%s', (_name, m, expected) => {
     expect(isCandidate(m, 'host', NOW, OPTS.minMemberAgeMs)).toBe(expected);

@@ -154,6 +154,43 @@ describe('Promotion: режим checkpoint', () => {
     expect(hooks.onFailed).toHaveBeenCalledWith(expect.any(Error));
   });
 
+  it('точка старше maxRestoreAgeMs — сбой без Worker’а (ревью F8)', async () => {
+    const { promotion, created, prepareRoom, hooks } = create({
+      receiver: makeReceiver({
+        bytes: new Uint8Array([1, 2]),
+        seq: 50,
+        receivedAt: 1000,
+      }),
+      maxRestoreAgeMs: 15000,
+      now: () => 16001,
+    });
+
+    await promotion.start();
+
+    expect(created).toHaveLength(0);
+    expect(prepareRoom).not.toHaveBeenCalled();
+    expect(promotion.state).toBe('failed');
+    expect(hooks.onFailed).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('точка ровно maxRestoreAgeMs — промоушен идёт', async () => {
+    const { promotion, created, hooks } = create({
+      receiver: makeReceiver({
+        bytes: new Uint8Array([1, 2]),
+        seq: 50,
+        receivedAt: 1000,
+      }),
+      maxRestoreAgeMs: 15000,
+      now: () => 16000,
+    });
+
+    await promotion.start();
+    created[0].opts.onReady?.();
+
+    expect(created).toHaveLength(1);
+    expect(hooks.onFailed).not.toHaveBeenCalled();
+  });
+
   it('без секрета места своего игрока — отказ до подготовки комнаты', async () => {
     const { promotion, prepareRoom, created, hooks } = create({
       hasSession: () => false,
@@ -201,6 +238,135 @@ describe('Promotion: режим checkpoint', () => {
       epoch: 3,
       promotionToken: TOKEN,
     });
+  });
+});
+
+describe('Promotion: точка — недоверенные данные (ревью F1)', () => {
+  const EVIL_SETTINGS = {
+    map: 'm2',
+    isDevMode: true,
+    game: { id: 'evil', hostEntryUrl: 'https://evil.test/x.js' },
+    maps: { evil: {} },
+    seed: 7,
+  };
+  const OWN_GAME = { id: 'tanks', version: '1.0.0', hostEntryUrl: '/own.js' };
+  const OWN_MAPS = { arena: {} };
+
+  const evilDecode = async () => ({
+    meta: {
+      room: {
+        settings: EVIL_SETTINGS,
+        game: { id: 'tanks', version: '1.0.0' },
+      },
+    },
+    core: null,
+  });
+
+  // как prepareHostRoom в main.js: мутирует аргумент и кладёт своё
+  const ownPrepareRoom = () =>
+    vi.fn(async settings => {
+      settings.isDevMode = false;
+      settings.game = OWN_GAME;
+      settings.maps = OWN_MAPS;
+
+      return { room: settings, workerUrl: '/worker.js', mapsVersion: 'm1' };
+    });
+
+  const expectOwnRoom = room => {
+    expect(room.map).toBe('m2');
+    expect(room.isDevMode).toBe(false);
+    expect(room.game).toBe(OWN_GAME);
+    expect(room.maps).toBe(OWN_MAPS);
+    expect(room).not.toHaveProperty('seed');
+  };
+
+  it('холодный путь: в prepareRoom и Worker идут только известные настройки', async () => {
+    const prepareRoom = ownPrepareRoom();
+    const { promotion, created } = create({ decode: evilDecode, prepareRoom });
+
+    await promotion.start();
+
+    expect(created).toHaveLength(1);
+    expectOwnRoom(created[0].room);
+  });
+
+  it('холодный путь: prepareRoom получает { map } без чужих ключей', async () => {
+    let received = null;
+    const prepareRoom = vi.fn(async settings => {
+      received = { ...settings };
+
+      return { room: { ...settings, game: OWN_GAME }, workerUrl: null };
+    });
+    const { promotion } = create({ decode: evilDecode, prepareRoom });
+
+    await promotion.start();
+
+    expect(received).toEqual({ map: 'm2' });
+  });
+
+  it('прогретый путь: точка не перекрывает игру, карты и dev-режим', async () => {
+    const warm = makeController();
+    const prewarm = {
+      take: () => ({
+        controller: warm,
+        prepared: {
+          room: { isDevMode: false, game: OWN_GAME, maps: OWN_MAPS },
+          gameRef: { id: 'tanks', version: '1.0.0' },
+        },
+      }),
+    };
+    const { promotion } = create({ decode: evilDecode, prewarm });
+
+    await promotion.start();
+
+    expectOwnRoom(warm.initFromCheckpoint.mock.calls[0][0]);
+  });
+
+  it('версия игры, не подтверждённая мастером, — отказ без Worker’а', async () => {
+    const { promotion, created, hooks } = create({
+      promote: { ...PROMOTE, game: { id: 'tanks', versions: ['1.0.0'] } },
+      decode: async () => ({ meta: meta('9.9.9'), core: null }),
+    });
+
+    await promotion.start();
+
+    expect(created).toHaveLength(0);
+    expect(promotion.state).toBe('failed');
+    expect(hooks.onFailed).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('чужая игра — отказ без Worker’а', async () => {
+    const { promotion, created, hooks } = create({
+      promote: { ...PROMOTE, game: { id: 'snakes', versions: ['1.0.0'] } },
+    });
+
+    await promotion.start();
+
+    expect(created).toHaveLength(0);
+    expect(hooks.onFailed).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('подтверждённая версия — промоушен идёт', async () => {
+    const { promotion, created } = create({
+      promote: {
+        ...PROMOTE,
+        game: { id: 'tanks', versions: ['0.9.0', '1.0.0'] },
+      },
+    });
+
+    await promotion.start();
+
+    expect(created).toHaveLength(1);
+  });
+
+  it('мастер без поля game — проверка пропускается', async () => {
+    const { promotion, created } = create({
+      decode: async () => ({ meta: meta('9.9.9'), core: null }),
+    });
+
+    await promotion.start();
+
+    expect(created).toHaveLength(1);
   });
 });
 
@@ -309,6 +475,35 @@ describe('Promotion: режим planned (плановая передача, эт
 
     expect(receiver.waitForFinal).not.toHaveBeenCalled();
     expect(created).toHaveLength(1);
+  });
+
+  // ревью F2: финальная точка идёт по каналу standby поверх соединения
+  // с замороженным хостом — бета ставит сессию на паузу, не закрывая его
+  it('holdSession — до ожидания финальной точки', async () => {
+    const receiver = makeWaitingReceiver();
+    const holdSession = vi.fn();
+    const { promotion } = create({ promote: PLANNED, receiver, holdSession });
+    const started = promotion.start();
+
+    await flush();
+    expect(holdSession).toHaveBeenCalledTimes(1);
+    expect(holdSession.mock.invocationCallOrder[0]).toBeLessThan(
+      receiver.waitForFinal.mock.invocationCallOrder[0],
+    );
+
+    receiver.deliverFinal();
+    await started;
+
+    expect(holdSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('режим checkpoint holdSession не зовёт', async () => {
+    const holdSession = vi.fn();
+    const { promotion } = create({ holdSession });
+
+    await promotion.start();
+
+    expect(holdSession).not.toHaveBeenCalled();
   });
 });
 

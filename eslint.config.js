@@ -223,6 +223,48 @@ export default [
               message:
                 'Движок не импортирует игру напрямую — только динамически по GameManifest.',
             },
+            {
+              group: ['**/roomLink.js'],
+              importNames: ['reloadTo'],
+              message: 'перезагрузка только через client/lib/pageReload.js',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // Программная перезагрузка страницы — только через pageReload.js: он
+  // снимает защиту вкладки (guard.exit()), иначе pagehide принял бы
+  // перезагрузку за закрытие вкладки и гость объявил бы уход (ревью 8d).
+  // Опции правила в flat config заменяются последним блоком, поэтому
+  // самому pageReload.js запрет на игру повторён без запрета reloadTo.
+  {
+    files: ['packages/engine/src/client/**/*.js'],
+    ignores: ['packages/engine/src/client/lib/pageReload.js'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'location',
+          property: 'reload',
+          message: 'перезагрузка только через client/lib/pageReload.js',
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/engine/src/client/lib/pageReload.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@vimp-games/*', '@vimp-games/**'],
+              message:
+                'Движок не импортирует игру напрямую — только динамически по GameManifest.',
+            },
           ],
         },
       ],
@@ -263,6 +305,13 @@ export default [
           message:
             'таблица экспортов клиентского ядра заморожена (И1/И3): у ядра, собранного год назад, ' +
             'нового метода нет — зови возможность опкодом через dispatchCoreOp() (lib/coreAbi.js)',
+        },
+        // window.location.reload() — то же, что location.reload(), но
+        // no-restricted-properties его не видит (объект — не идентификатор)
+        {
+          selector:
+            'MemberExpression[object.property.name="location"][property.name="reload"]',
+          message: 'перезагрузка только через client/lib/pageReload.js',
         },
       ],
     },

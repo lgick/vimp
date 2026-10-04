@@ -80,18 +80,6 @@ describe('HostConnectionManager', () => {
     );
   });
 
-  // memberId гостя понадобится назначению преемника (host-migration, этап 6)
-  it('хранит memberId пира из оффера рядом с clientId', async () => {
-    await mgr.onOffer({
-      clientId: 'c1',
-      sdp: { type: 'offer' },
-      memberId: 'm1',
-    });
-
-    expect(mgr.memberIdOf('c1')).toBe('m1');
-    expect(mgr.memberIdOf('ghost')).toBeNull();
-  });
-
   it('peerConnectionOf: pc гостя по memberId — только с открытыми каналами', async () => {
     await mgr.onOffer({
       clientId: 'c1',
@@ -114,10 +102,54 @@ describe('HostConnectionManager', () => {
     expect(mgr.peerConnectionOf(null)).toBeNull();
   });
 
-  it('оффер без memberId (страница до этапа 2) — memberId null', async () => {
+  it('connectedMemberIds: memberId пиров с открытыми meta и state', async () => {
+    const pcs = [];
+
+    mgr = new HostConnectionManager(signaling, controller, {
+      peerFactory: () => {
+        pcs.push(makePc());
+
+        return pcs.at(-1);
+      },
+    });
+
+    await mgr.onOffer({ clientId: 'c1', sdp: {}, memberId: 'm1' });
+    await mgr.onOffer({ clientId: 'c2', sdp: {}, memberId: 'm2' });
+    await mgr.onOffer({ clientId: 'c3', sdp: {} });
+
+    expect(mgr.connectedMemberIds()).toEqual([]);
+
+    for (const peerPc of pcs) {
+      const meta = makeChannel('meta');
+      const state = makeChannel('state');
+
+      peerPc.ondatachannel({ channel: meta });
+      peerPc.ondatachannel({ channel: state });
+      meta.onopen();
+
+      // у второго пира открыт только meta
+      if (peerPc !== pcs[1]) {
+        state.onopen();
+      }
+    }
+
+    // c3 без memberId (страница до этапа 2) в отчёт не попадает
+    expect(mgr.connectedMemberIds()).toEqual(['m1']);
+  });
+
+  it('оффер без memberId (страница до этапа 2) — пира нет в отчёте', async () => {
     await mgr.onOffer({ clientId: 'c1', sdp: { type: 'offer' } });
 
-    expect(mgr.memberIdOf('c1')).toBeNull();
+    const meta = makeChannel('meta');
+    const state = makeChannel('state');
+
+    pc.ondatachannel({ channel: meta });
+    pc.ondatachannel({ channel: state });
+    meta.onopen();
+    state.onopen();
+
+    expect(mgr.connectedMemberIds()).toEqual([]);
+    expect(mgr.peerConnectionOf(null)).toBeNull();
   });
 
   it('подписан на webrtc_offer сигналинга', () => {

@@ -78,7 +78,11 @@ in the body — a stateless getter on the core, doesn't change `pack_body`) ∨
 which picks the channel. Backpressure: a positional frame is dropped when
 the state channel's `bufferedAmount` overflows, `meta` never is. The host
 registers the room with the master (`register_host`, `reclaim_host` after a
-signaling reconnect, heartbeat `update_host`).
+signaling reconnect, heartbeat `update_host`) and reports which guests have
+both channels open to it (`room_peers { roomId, epoch, memberIds }` — on
+every change, debounced, and every 15 s): the master counts the lobby's
+players and the successor candidates by it
+([master.md](master.md#room-lifecycle)).
 
 **The interpolator's buffer** was switched from "push at the end" (only
 correct with TCP ordering) to **insertion by `seq`** with deduplication:
@@ -273,17 +277,42 @@ host:
 ```
 host lost (its signaling closed, heartbeat timeout, guests' host_unreachable
            + the master's probe)
-  → master: host_migrating { epoch: N+1 } to everyone → guests close the
-    transport to the old host at once, "Switching host…", keys and sound off
-  → master: promote { mode } to the successor
+  → master: host_migrating { epoch: N+1, waitMs } to everyone → guests close
+    the transport to the old host at once, "Switching host…", keys and sound
+    off, wait for host_changed up to waitMs
+  → master: promote { mode, game } to the successor (the candidate failed —
+    host_migrating with a new waitMs and promote to the next one)
       checkpoint — the successor restores the match from its latest
-                   checkpoint, register_host { epoch: N+1, promotionToken }
+                   checkpoint (its game and version must match game),
+                   register_host { epoch: N+1, promotionToken }
       cold       — the successor reloads into the room and starts it afresh
   → master: host_changed { epoch: N+1, mode } to everyone
       checkpoint/reclaimed — webrtc_offer { resume: true } to the new host
                              → RESUME_REQUEST → RESUME_RESULT (as above)
       cold                 — reload into the room, full handshake
 ```
+
+A planned handoff (the host gives the role away on purpose,
+[host.md](host.md#planned-handoff)) changes the order: `handoff_go` to the
+host, `promote { mode: 'planned' }` to the successor, `host_migrating` to
+everyone except the host and the successor (`waitMs` — the handoff deadline
+with a margin). The successor keeps its
+WebRTC connection to the frozen host — the final checkpoint arrives over
+its `standby` channel — and drops it only on `host_changed` or when it
+resumes its own player on the new Worker.
+
+**Signaling errors around a migration.** Master errors carry `re` (the
+request type) and `roomId`, so a client matches them to the request
+([master.md](master.md#signaling-protocol-websocket)):
+
+| Error on `webrtc_offer` | When                                                                                               | Client                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `migrating`             | the room is alive but nobody can take the offer: `migrating`, `handing_off`, host awaiting reclaim | the same offer again after `offerRetryMs` (1 s)            |
+| `unknownRoom`           | the registry has no such room                                                                      | "Room no longer exists", unless the session is `migrating` |
+
+`join_room` with a `memberId` the room already holds for another user gets
+`memberTaken` (the record is left alone); an honest tab's `memberId` is a
+`crypto.randomUUID()`, so the client only logs it.
 
 **What a rollback means for the player.** The successor continues from its
 latest checkpoint (`lobbyConfig.migration.checkpointIntervalMs`, 500 ms),

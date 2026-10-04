@@ -119,28 +119,3 @@ describe('HostUnloadGuard: pagehide', () => {
     expect(onHostLeave).not.toHaveBeenCalled();
   });
 });
-
-// находка код-ревью 8d: pagehide срабатывает и на программной перезагрузке —
-// без exit() гость, перезагружающийся в ту же комнату, объявлял бы уход
-describe('main.js: программные перезагрузки — только через reloadPage', () => {
-  it('прямых reloadTo(/location.reload() вне обёртки нет', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { resolve } = await import('node:path');
-    // окружение happy-dom: import.meta.url не file:, путь — от корня репо
-    const source = readFileSync(
-      resolve(process.cwd(), 'packages/engine/src/client/main.js'),
-      'utf8',
-    );
-    const wrapper = source.match(
-      /\nfunction reloadPage\([^)]*\) \{[\s\S]*?\n\}\n/,
-    );
-
-    expect(wrapper).not.toBeNull();
-    expect(wrapper[0]).toContain('unloadGuard?.exit()');
-
-    const rest = source.replace(wrapper[0], '\n').replace(/\/\/.*$/gm, '');
-
-    expect(rest).not.toMatch(/(?<![\w.])reloadTo\(/);
-    expect(rest).not.toMatch(/location\.reload\(/);
-  });
-});

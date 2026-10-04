@@ -160,15 +160,23 @@ export default class SignalingClient {
     this._send({ type: 'member_update', roomId, caps });
   }
 
-  // бета → у неё есть полная контрольная точка (id и свежесть)
-  standbyStatus({ roomId, epoch, checkpointId, createdAt }) {
+  // бета → у неё есть полная контрольная точка (id и свежесть: ageMs —
+  // сколько назад бета её получила)
+  standbyStatus({ roomId, epoch, checkpointId, createdAt, ageMs }) {
     this._send({
       type: 'standby_status',
       roomId,
       epoch,
       checkpointId,
       createdAt,
+      ageMs,
     });
+  }
+
+  // хост → участники с открытыми каналами к нему: мастер считает игроков
+  // и кандидатов в беты только по ним
+  roomPeers({ roomId, epoch, memberIds }) {
+    this._send({ type: 'room_peers', roomId, epoch, memberIds });
   }
 
   // хост → ответ на пробу мастера (host-migration этап 7.3): главный поток
@@ -213,6 +221,12 @@ export default class SignalingClient {
   // начинает аварийную миграцию сразу, не дожидаясь обрыва WS
   hostLeaving(roomId, epoch) {
     this._send({ type: 'host_leaving', roomId, epoch });
+  }
+
+  // хост → в комнате нет людей, он пишет очки перед закрытием: мастер
+  // скрывает комнату и закрывает её для входа до host_leaving
+  hostClosing(roomId, epoch) {
+    this._send({ type: 'host_closing', roomId, epoch });
   }
 
   // гость → покинул комнату

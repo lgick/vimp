@@ -3,6 +3,7 @@ import {
   buildHostCaps,
   canHostIn,
   isMobileDevice,
+  tokenAllowsHosting,
 } from '../../../packages/engine/src/client/lib/hostCaps.js';
 
 const coarse = matches => () => ({ matches });
@@ -85,5 +86,23 @@ describe('buildHostCaps', () => {
       iceType: null,
       fps: null,
     });
+  });
+});
+
+describe('tokenAllowsHosting', () => {
+  const now = 1_000_000;
+
+  it('срок неизвестен — не мешает', () => {
+    expect(tokenAllowsHosting(null, 600000, now)).toBe(true);
+  });
+
+  it('запаса больше порога — можно', () => {
+    expect(tokenAllowsHosting(now + 600001, 600000, now)).toBe(true);
+  });
+
+  it('ровно на пороге и меньше — нельзя', () => {
+    expect(tokenAllowsHosting(now + 600000, 600000, now)).toBe(false);
+    expect(tokenAllowsHosting(now + 1000, 600000, now)).toBe(false);
+    expect(tokenAllowsHosting(now - 1000, 600000, now)).toBe(false);
   });
 });

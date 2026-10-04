@@ -368,7 +368,9 @@ const signaling = new SignalingServer(registry, {
     forcedMigrationCooldownMs: config.get(
       'master:room:forcedMigrationCooldownMs',
     ),
+    minUnreachableReporters: config.get('master:room:minUnreachableReporters'),
     handoffTimeoutMs: config.get('master:room:handoffTimeoutMs'),
+    migrationNoticeMarginMs: config.get('master:room:migrationNoticeMarginMs'),
     // автотриггеры (этап 9c): правило сетевого лага хоста
     lagRttThresholdMs: config.get('master:room:lagRttThresholdMs'),
     lagSustainMs: config.get('master:room:lagSustainMs'),
@@ -497,7 +499,8 @@ app.get('/servers', adminAuth.optional, (req, res) => {
 });
 
 // REST API: комната по прямому id (ссылка #/<gameId>/<roomId>, этап 3
-// host-migration) — публичная форма + status; скрытые тоже отдаются
+// host-migration) — публичная форма + status; скрытые тоже отдаются. Тот же
+// лимитер — у быстрой игры
 const roomLookupLimiter = new RateLimiter(
   config.get('master:room:lookupRateLimit'),
 );
@@ -508,6 +511,8 @@ const roomRoutes = createRoomRoutes({
 });
 
 app.get('/rooms/:roomId', roomRoutes.lookup);
+// быстрая игра (ревью F16): лучшая комната игры, без всего списка
+app.get('/quickplay/:gameId', roomRoutes.quickPlay);
 
 // REST API: JWKS central auth-сервиса, проксированный под origin мастера
 // (Этап B3) — Worker хоста проверяет по нему подпись identity-токена

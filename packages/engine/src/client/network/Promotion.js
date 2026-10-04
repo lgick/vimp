@@ -1,5 +1,7 @@
 import { decodeCheckpoint } from '../../lib/checkpointCodec.js';
+import { sanitizeRoomSettings } from '../../lib/roomSettings.js';
 import HostController from './HostController.js';
+import { isConfirmedGame } from './HostPrewarm.js';
 
 // Преемник становится хостом (host-migration этап 7.4). Режим checkpoint:
 // матч поднимается из последней контрольной точки беты — в прогретом
@@ -125,6 +127,9 @@ export default class Promotion {
    *   waitForFinal(), lastSeenSeq).
    * @param {number} [options.finalWaitMs] - ожидание финальной точки
    *   (mode planned).
+   * @param {number} [options.maxRestoreAgeMs] - точка, полученная раньше,
+   *   не поднимается: откат на столько — хуже холодного старта.
+   * @param {Function} [options.now] - часы (мс, как receivedAt приёмника).
    * @param {Object|null} [options.prewarm] - HostPrewarm (take()).
    * @param {Function} options.prepareRoom - (settings, gameRef) →
    *   Promise<{ room, workerUrl, mapsVersion, codeVersion }>.
@@ -138,6 +143,9 @@ export default class Promotion {
    * @param {Function} [options.hasSession] - () → есть ли у своего игрока
    *   секрет места: без него он не вернётся в поднятый матч, а комнату
    *   хостила бы вкладка без игрока — промоушен отклоняется сразу.
+   * @param {Function} [options.holdSession] - плановая передача: поставить
+   *   сессию своего игрока на паузу, не закрывая транспорт к замороженному
+   *   хосту — по нему идёт финальная точка.
    * @param {Function} options.onReady - ({ controller, room, prepared,
    *   lobbyInfo }) матч поднят на паузе.
    * @param {Function} options.onFailed - (error) поднять не удалось.
@@ -146,6 +154,8 @@ export default class Promotion {
     promote,
     receiver,
     finalWaitMs = 3000,
+    maxRestoreAgeMs = 15000,
+    now = () => Date.now(),
     prewarm = null,
     prepareRoom,
     hostSocketId,
@@ -154,12 +164,15 @@ export default class Promotion {
     diagnostics = null,
     hostCallbacks = {},
     hasSession = () => true,
+    holdSession = () => {},
     onReady,
     onFailed,
   }) {
     this._promote = promote;
     this._receiver = receiver;
     this._finalWaitMs = finalWaitMs;
+    this._maxRestoreAgeMs = maxRestoreAgeMs;
+    this._now = now;
     this._prewarm = prewarm;
     this._prepareRoom = prepareRoom;
     this._hostSocketId = hostSocketId;
@@ -168,6 +181,7 @@ export default class Promotion {
     this._diagnostics = diagnostics;
     this._hostCallbacks = hostCallbacks;
     this._hasSession = hasSession;
+    this._holdSession = holdSession;
     this._onReady = onReady;
     this._onFailed = onFailed;
 
@@ -199,6 +213,12 @@ export default class Promotion {
     }
 
     this._state = 'starting';
+
+    // сама, не дожидаясь host_migrating: его порядок относительно promote
+    // и наличие зависят от версии мастера
+    if (this._promote.mode === 'planned') {
+      this._holdSession();
+    }
 
     try {
       await this._start();
@@ -288,6 +308,13 @@ export default class Promotion {
       throw new Error('no checkpoint to restore from');
     }
 
+    // поток точек мог встать задолго до падения хоста (ревью F8): отказ —
+    // promote_failed, мастер переходит к холодному старту. Финальная точка
+    // плановой передачи свежая всегда
+    if (this._now() - latest.receivedAt > this._maxRestoreAgeMs) {
+      throw new Error('checkpoint is too old to restore from');
+    }
+
     // копия: буфер уходит в Worker списком переноса, а точка приёмника
     // должна остаться целой (повторная попытка, отладка)
     const bytes = latest.bytes.slice();
@@ -298,11 +325,16 @@ export default class Promotion {
       throw new Error('checkpoint has no room.game');
     }
 
+    // игру и её версию подтверждает мастер: точка от хоста — недоверенная
+    if (!isConfirmedGame(gameRef, this._promote.game ?? null)) {
+      throw new Error('checkpoint game is not the room game');
+    }
+
     if (this._state !== 'starting') {
       return; // отменили, пока распаковывали
     }
 
-    const settings = { ...(meta.room.settings ?? {}) };
+    const settings = sanitizeRoomSettings(meta.room?.settings);
     const seqFloor = Math.max(this._receiver.lastSeenSeq ?? 0, latest.seq ?? 0);
 
     // прогретый Worker годится только той же версии игры, что в точке
@@ -316,9 +348,10 @@ export default class Promotion {
       warm.controller.destroy();
     }
 
+    // копия: prepareHostRoom мутирует аргумент (isDevMode, game, maps)
     const prepared = warmMatches
       ? warm.prepared
-      : await this._prepareRoom(settings, gameRef);
+      : await this._prepareRoom({ ...settings }, gameRef);
 
     if (this._state !== 'starting') {
       if (warmMatches) {
@@ -328,6 +361,8 @@ export default class Promotion {
       return;
     }
 
+    // точка недоверенная: из неё — только настройки комнаты, а игра, карты
+    // и dev-режим — свои (prepared.room)
     const room = {
       ...prepared.room,
       ...settings,

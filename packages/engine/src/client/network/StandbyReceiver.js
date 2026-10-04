@@ -52,7 +52,8 @@ export default class StandbyReceiver {
   /**
    * Последняя полная точка.
    * @returns {Object|null} { bytes, checkpointId, wireId, seq, createdAt,
-   *   final, mode, receivedAt }.
+   *   final, mode, game, receivedAt }; game — { id, version } из
+   *   дескриптора или null (хост его не прислал).
    */
   latest() {
     return this._latest;

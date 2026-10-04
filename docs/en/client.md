@@ -173,16 +173,19 @@ dismissible `#tech-informer`. A room that is changing its host
 planned handoff, stage 8) is alive but has nobody to
 connect to: `#tech-informer` shows "Switching host…" and the tab re-asks
 `GET /rooms/:roomId` every `session.migrationPollMs` (1 s) for up to
-`session.migrationWaitMs` (40 s) — `online` again → join, `404` (the room
+`session.linkWaitMaxMs` (90 s, room for a chain of candidates) — `online` again → join, `404` (the room
 is gone) or still migrating at the deadline → quick play; a network error or
 `5xx` counts as "still migrating" and is asked again (`classifyRoomPoll`); a
-hash change abandons the wait and the new route is read. Quick play picks a room from
-`GET /servers?search=<gameId>` (`pickQuickPlayRoom`: exact `gameId`, not
-full, most players, first on a tie) and otherwise creates one with the
-creation form's defaults (`lobbyConfig.quickPlay.autoCreate`). Before
-creating it waits a random `quickPlay.createDelayMinMs` …
-`createDelayMaxMs` (0.5–2 s, `quickPlayCreateDelay`) and asks
-`GET /servers` once more: the guests of a closed room arrive together, and
+hash change abandons the wait and the new route is read. Quick play asks the
+master for the room — `GET /quickplay/:gameId` (`lobbyConfig.quickPlayUrl`,
+[master.md](master.md#get-quickplaygameid): exact `gameId`, not full, most
+players, first on a tie); on a network error or a non-2xx answer (a master
+without the route) it picks one itself from
+`GET /servers?search=<gameId>` (`pickQuickPlayRoom`, the same rule), and
+otherwise creates one with the creation form's defaults
+(`lobbyConfig.quickPlay.autoCreate`). Before creating it waits a random
+`quickPlay.createDelayMinMs` … `createDelayMaxMs` (0.5–2 s,
+`quickPlayCreateDelay`) and asks the master once more: the guests of a closed room arrive together, and
 without the pause each would create a room of its own. Other hashes
 (`#auth`, garbage) are left alone.
 
@@ -384,10 +387,29 @@ reloadable close.
   `join_room { roomId, memberId, token }` so the master knows who is in the
   room ([master.md](master.md#room-lifecycle)). The signaling reconnect with
   backoff is common to the whole lobby mode: after a fresh `welcome` the host
-  sends `reclaim_host`, a guest in a room repeats `join_room` with the same
-  `memberId`. Signaling `error`s are handled: `unknownRoom` while waiting for
-  the answer to an offer — "Room no longer exists" and back to the lobby;
-  `invalidToken` — sign-out (sign in again); `hostLimit` — the room is closed
+  sends `reclaim_host`, a guest that has announced its membership
+  (`memberJoined`, set when `join_room` is sent, cleared on leaving the room
+  or taking the host role) repeats `join_room` with the same `memberId` —
+  even while its WebRTC transport is reconnecting. A reply `unknownRoom` to
+  `join_room` for the current room means the master restarted and the host
+  has not reclaimed the room yet: `JoinRetry` (`client/lib/JoinRetry.js`)
+  repeats `join_room` after 1, 2, 4, 8, 8, 8 s for up to
+  `session.joinRetryWindowMs` (30 s) and stops on `room_joined`; past the
+  window nothing happens — the P2P match may live on. Signaling `error`s are handled (the master's `re`/`roomId`
+  tell which request and room the error is about): `unknownRoom` is decided
+  by `decideUnknownRoom` (`client/lib/signalingErrors.js`) — an error about
+  another room is ignored; a successor taking the room drops the role on a
+  reply to `register_host`; while the supervisor is `migrating` the outcome
+  is left to `host_changed`/`room_closed` and the migration timer; a reply to
+  an offer while the current transport is a WebRTC one with its channels not
+  open yet — "Room no longer exists" and back to the lobby;
+  `invalidToken` is decided by `decideInvalidToken` (same file) — a
+  successor's `register_host` refused: it drops the role and reports
+  `promote_failed`, staying signed in; a guest's `join_room` refused while
+  its session is not `closed`: the match goes on (the P2P link needs no
+  token), the `JoinRetry` stops and only `engine.session.tokenExpired` is
+  logged, with no UI message; otherwise sign-out (sign in again), leaving
+  the room if in one; `hostLimit` — the room is closed
   with a message; `roomTaken`/`invalidRoomSecret` — the host registers a new
   room; `staleEpoch` — the host tab was replaced while it was away: it
   becomes a guest of the new epoch
@@ -542,10 +564,12 @@ The game transport is WebRTC, not WebSocket (channel details —
     are ignored; the epoch of the first answer is pinned), and
     `connectTimeoutMs` (`lobbyConfig.webrtc`, 10 s — the channels did not
     open in time → `close`). An `error { code: 'migrating' }` from the
-    master before the host answered (the room is in a planned handoff,
-    stage 8) re-sends the same offer and the candidates gathered so far
-    after `offerRetryMs` (`lobbyConfig.webrtc`, 1 s), restarting the
+    master before the host answered (the room is changing hosts or its
+    host's signaling is detached; an error about another room or another
+    request is ignored) re-sends the same offer and the candidates gathered
+    so far after `offerRetryMs` (`lobbyConfig.webrtc`, 1 s), restarting the
     connect window — the guest reaches whichever host the room has by then.
+    `isOpen` — both channels open and the manager not closed.
     `destroy()` unsubscribes from signaling and
     closes the peer without emitting `close`, so an abandoned attempt never
     eats the answers of the next one. Host migration stage 6: after the
@@ -559,25 +583,44 @@ The game transport is WebRTC, not WebSocket (channel details —
   the `standby` channel: assembles the chunks of a checkpoint
   (`standbyChunks.js`), drops an unfinished one as soon as a newer one
   starts, and keeps the **latest full** one: `latest()` →
-  `{ bytes, checkpointId, wireId, seq, createdAt, final, mode, receivedAt }`,
+  `{ bytes, checkpointId, wireId, seq, createdAt, final, mode, game, receivedAt }`
+  (`game` — `{ id, version }` from the chunk descriptor, or `null`),
   the `checkpoint` event, `waitForFinal(minWireId, timeoutMs)` for a planned
   handover (a periodic checkpoint not newer than a received final one does
   not replace it; `discardFinal()` on `promote_cancelled` keeps an aborted
   handover's final checkpoint — even one arriving after the cancel — from
   completing the next one). `noteFrame` remembers the `seq` of the last host frame this
   client saw (the restored match's `seqFloor`). **`HostPrewarm`** — on the
-  first full checkpoint it prepares the room the way creating one does
-  (`prepareHostRoom(settings, gameRef)` in `main.js`: the game manifest of
-  the version in the checkpoint — `lobbyConfig.game.versionManifestUrl` when
+  first full checkpoint (`warm(latest, { allowedGame })`) it prepares the
+  room the way creating one does (`prepareHostRoom({}, gameRef)` in
+  `main.js` — the checkpoint's room settings are not needed, promotion takes
+  them from the checkpoint itself; `gameRef` comes from the descriptor's
+  `game`, and only without it is the checkpoint unpacked; it loads the game
+  manifest of the version in the checkpoint — `lobbyConfig.game.versionManifestUrl` when
   it differs from the active one —, the master's maps, the worker bundle
   URL) and brings up a `HostController` with `preload: true`
   ([host.md](host.md#standby-successor)); a new game version in a checkpoint
   warms up again, a failed version is not retried. In the lobby, `main.js`
   sends `caps` (`lib/hostCaps.js`: `canHost`, `mobile`, `hidden`,
   `iceType`) in `join_room`/`register_host` and `member_update` on
-  `visibilitychange` and on an `iceType` change; on `standby_assigned` it
+  `visibilitychange` and on an `iceType` change. `canHost` is also false
+  while the sign-in (`LobbyAuthModel.getTokenExpiresAt()`) expires within
+  `migration.minTokenLifetimeMs` (10 min; `tokenAllowsHosting`): the host
+  shows its token to the master mid-match (`register_host`,
+  `reclaim_host`) and it is never renewed. A one-shot timer sends
+  `member_update` at the moment the sign-in gets that short, such a tab
+  answers `promote` (both modes, and a cold promotion after reload) with
+  `promote_failed` before preparing anything, and a host arms a timer for
+  `migration.tokenHandoffLeadMs` (5 min) before expiry
+  (`TokenHandoffTimer`): if it has a successor then, it starts a planned
+  "Hand over host" (`handover`, stays as a guest, waits for the round
+  boundary); with no successor yet, a Worker relay in progress or an aborted
+  handoff it retries every `migration.tokenHandoffRetryMs` (5 s) until the
+  sign-in expires, tries at once when a successor is assigned inside that
+  window, and re-arms on a new sign-in; on `standby_assigned` it
   reports `standby_status` on the first checkpoint and every
-  `migration.standbyStatusIntervalMs` (5 s); `standby_released`, leaving
+  `migration.standbyStatusIntervalMs` (5 s), with the checkpoint's age
+  `ageMs` (the master judges freshness by it); `standby_released`, leaving
   the room or a new epoch terminates the pre-warmed Worker and drops the
   checkpoints.
 - **`SessionSupervisor`** — owns the current transport (`attach`), forwards
@@ -604,7 +647,12 @@ The game transport is WebRTC, not WebSocket (channel details —
   **Silence watchdog**: in `inGame`, outside a map load (`MAP_DATA` …
   `FIRST_SHOT_DATA`), no message from the host for
   `session.hostSilenceMs` (3 s) closes the transport and starts the
-  reconnect. Messages from an abandoned transport are dropped. A drop the
+  reconnect. After a resume and until the first binary frame
+  (`noteFrame()` from `handleMessage`) the limit is
+  `hostSilenceMs + session.resumeSilenceGraceMs` (6 s): a match raised from
+  a checkpoint stands still up to the Worker's `resumeWaitMs` (3 s) waiting
+  for the others, and the guest that came back first must not take that for
+  a dead transport. Messages from an abandoned transport are dropped. A drop the
   client noticed itself (closed transport or silence) is first reported to
   the master — `host_unreachable { roomId, epoch }` (`onHostLost`), its
   evidence for a probe or a host change
@@ -617,6 +665,13 @@ The game transport is WebRTC, not WebSocket (channel details —
   client frames next to the new host of N+1; the "Switching host…" overlay,
   keys disabled, sound muted, the silence watchdog stopped. Rendering keeps
   running — the frame stands, snapshot-independent animations go on.
+  `migrate({ keepTransport: true })` — only the successor of a planned
+  handoff (`Promotion` `holdSession` on `promote { mode: 'planned' }`):
+  the same `migrating`, but the transport stays open, because the
+  `standby` channel with the final checkpoint shares its
+  `RTCPeerConnection`; its messages are dropped while `migrating`, its
+  close is not terminal (the outcome is up to `host_changed`, `promote` or
+  the wait timer), and `hostChanged`/`resumeWith` drop it.
   `host_changed { epoch, mode }` → `hostChanged()`: the tab adopts the epoch
   (`minEpoch` of the next offers — older answers are ignored);
   `checkpoint`/`planned`/`reclaimed` (the old host came back before a
@@ -625,8 +680,12 @@ The game transport is WebRTC, not WebSocket (channel details —
   clean entry into the room; `cold` (the new host started the match afresh)
   → `reloadTo(#/<gameId>/<roomId>)`. `reclaimed` while not waiting is
   ignored — the transport to that host is still good. No secret yet
-  (`SESSION_DATA`) → a clean entry as well. Nothing within
-  `session.migrationWaitMs` (40 s), or `room_closed` → terminal: the room
+  (`SESSION_DATA`) → a clean entry as well. The wait lasts
+  `session.migrationWaitMs` (40 s) or the master's `host_migrating.waitMs`,
+  whichever is longer (`migrate({ waitMs })`, capped at 120 s); a repeated
+  `host_migrating` of the same epoch (the next candidate, a handoff turned
+  emergency) → `extendMigration(waitMs)`: extends the wait, never shortens
+  it. Nothing within it, or `room_closed` → terminal: the room
   is closed, `reloadTo(#/<gameId>)` (quick play of the same game).
   **Role change** — `resumeWith(transport, { reconnect, getToken })`: the
   tab resumes its place through the given transport — a successor through
@@ -658,9 +717,11 @@ The game transport is WebRTC, not WebSocket (channel details —
   flow — [host.md](host.md#successor-promotion).
 - **`PlannedHandoff`** (host migration stage 8) — the host's side of a
   planned handoff; `main.js` enters it through
-  `startPlannedHandoff({ reason, stay, defer })` (refused while a Worker handoff
-  or a promotion owns the Worker; a repeated call while one is running is
-  ignored). `defer` (the default for `stay`) first waits for the round
+  `startPlannedHandoff({ reason, stay, defer })` (refused while a promotion owns
+  the Worker or a Worker handoff is already carrying state; a Worker handoff
+  still waiting for the round boundary yields — `HostController.cancelPendingSwap()`
+  cancels it, and an aborted handoff runs `refreshHostWorker()` again; a
+  repeated call while one is running is ignored). `defer` (the default for `stay`) first waits for the round
   boundary — `HostController.awaitRoundBoundary`, answered at once by a game
   with `migration.midRound`, otherwise when the next round starts, at most
   `migration.deferMaxMs` (30 s); the handoff counts as started meanwhile
@@ -689,10 +750,16 @@ othersPresent })` from `main.js`: role changes, `HostConnectionManager`
   `host_leaving` (the master starts an emergency migration at once), a
   guest sends `LEAVE` to the host and `leave_room` to the master (its seat
   is freed at once, not after `resumeGraceMs`) — best-effort, a dropped
-  connection covers what does not arrive. `exit()` ("Leave server", any
+  connection covers what does not arrive. A guest whose session ends without
+  a reload (`handleDisconnect`: a kick takes it to the lobby, the signaling
+  session lives on) sends `leave_room` too — otherwise the tab would stay a
+  "ghost" member of the room: counted in the lobby, eligible to vote, a
+  successor candidate. A `memberTaken` error is only logged. `exit()` ("Leave server", any
   move to the lobby) drops both: the leave is already announced. `pagehide`
-  fires on a programmatic reload too, so every reload in `main.js` goes
-  through `reloadPage(hashPart?)`, which calls `exit()` first — otherwise a
+  fires on a programmatic reload too, so every client reload goes through
+  `reloadPage(hashPart?)` (`createPageReload`, `client/lib/pageReload.js`),
+  which calls `exit()` first — ESLint rejects a direct `location.reload()` or
+  `reloadTo` import elsewhere in `src/client/` — otherwise a
   guest reloading back into the same room (a successor's cold promotion,
   `reloadToRoom`) would announce a leave and lose its seat.
 
@@ -731,11 +798,22 @@ listens for `webrtc_offer` via `SignalingClient`, creates a
 `RTCPeerConnection` per client, catches the `meta`/`state` channels in
 `ondatachannel`, sends `webrtc_answer`+ICE, registers the room with the
 master (`register_host`/heartbeat), and answers the lobby ping
-(`ping_host`). Remote clients' data flows into the same Worker as the host
-player's loopback. `HostController` also wraps the Worker's host checkpoints
+(`ping_host`). **`RoomPeersReporter`** (`client/network/RoomPeersReporter.js`,
+no DOM, timers injectable) tells the master which guests are really
+connected: `room_peers { roomId, epoch, memberIds }` with
+`HostConnectionManager.connectedMemberIds()` (peers with both channels open)
+on every peer change (debounced 500 ms), at once on `host_registered` and
+every `migration.peersReportIntervalMs` (15 s); nothing while the tab has
+no registered room. The master counts the lobby's players and the successor
+candidates by it ([master.md](master.md#room-lifecycle)). Remote clients'
+data flows into the same Worker as the host player's loopback. `HostController` also wraps the Worker's host checkpoints
 (`startCheckpoints`/`stopCheckpoints`/`requestCheckpoint`/`onCheckpoint`,
 `freeze`/`unfreeze`, `startAfterRestore`; a constructor `checkpoint` raises
 the match from one). Details — [host.md](host.md#checkpoints).
+`shutdown({ timeoutMs })` closes the room cleanly: the Worker's `shutdown`
+(participants' games closed, profiles flushed), resolved by `shutdown_done`
+or after `timeoutMs + 500` ms, at once during a Worker handoff (the state is
+moved, not closed); a repeated call returns the promise already in flight (a second `HostGame.destroy()` would flush the same delta twice), and `main.js` ignores a second "Leave server" while the first is waiting; the Worker is terminated only by `destroy()`.
 
 There's no classic-Worker fallback (it would forbid ESM and require an
 inlined WASM binary — see PLAN.md risk #5), so "Create server" first feature-
@@ -1444,8 +1522,11 @@ hidden`), lobby mode only, visible while the tab is in a room
 stage 8d): **Leave server** — everyone; a guest sends `LEAVE` to the host
 and `leave_room` to the master and reloads into the lobby, the host with
 other people hands the role over (`reason: 'leave', stay: false`) and goes
-to the lobby, a host alone closes the room (`host_leaving` — no people, the
-master closes it at once). **Hand over host** — only the current host,
+to the lobby, a host alone closes the room: "Leaving…" overlay,
+`host_closing` (the master hides the room and stops letting anyone in),
+`HostController.shutdown` — the Worker writes the participants' scores, at
+most `migration.leaveFlushTimeoutMs` (3 s) — then `host_leaving` (no people,
+the master closes it at once). **Hand over host** — only the current host,
 when the room has other people and the master assigned a successor
 (`successor_assigned` with a non-null `successorMemberId`):
 `startPlannedHandoff({ reason: 'handover', stay: true })`, no confirmation

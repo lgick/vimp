@@ -331,7 +331,9 @@ The identity JWT (`src/lib/jwt.js`) carries `sub` (user id), `nick` and
 `role`,
 signed RS256, short-lived (`config.jwt.expiresIn`, 4 hours by default — long
 enough to outlast a match; the client also checks `exp` when restoring a
-persisted token, see Lobby login below) and verified with
+persisted token, see Lobby login below; in host migration a lobby tab whose
+token expires within `lobbyConfig.migration.minTokenLifetimeMs` does not take
+the host role, see [client.md](client.md)) and verified with
 `issuer: 'vimp-auth'`. A pending token (issued between the OAuth callback and
 `POST /nick`) instead carries `pending: true` and no nick — `requireAuth` in
 `src/main.js` rejects it on every other endpoint, and `/nick` itself rejects

@@ -14,6 +14,10 @@ const MEMBER_ID_PATTERN = /^[0-9a-f-]{36}$/i;
 // сглаживание RTT участника и его джиттера (host-migration этап 6)
 const RTT_EMA_ALPHA = 0.2;
 
+// потолок возраста точки из standby_status.ageMs: дальше точка заведомо
+// не свежая, а огромное число не должно уводить receivedAt в прошлое без меры
+const STANDBY_AGE_CAP_MS = 10 * 60 * 1000;
+
 const isValidMemberId = value =>
   typeof value === 'string' && MEMBER_ID_PATTERN.test(value);
 
@@ -100,6 +104,7 @@ export default class SignalingServer {
       },
       scoreOf: sessionId => this.scoreOf(sessionId),
       successorOptions: this._successorOptions,
+      gameOf: room => this._roomGame(room),
       now: this._now,
       randomBytes: options.randomBytes,
       setTimer: options.setTimer,
@@ -137,6 +142,7 @@ export default class SignalingServer {
       'leave_room': this._onLeaveRoom,
       'member_update': this._onMemberUpdate,
       'standby_status': this._onStandbyStatus,
+      'room_peers': this._onRoomPeers,
       'webrtc_offer': this._onWebRtcOffer,
       'webrtc_answer': this._onWebRtcAnswer,
       'ice_candidate': this._onIceCandidate,
@@ -147,6 +153,7 @@ export default class SignalingServer {
       'promote_failed': this._onPromoteFailed,
       'handoff_begin': this._onHandoffBegin,
       'host_leaving': this._onHostLeaving,
+      'host_closing': this._onHostClosing,
       'host_health': this._onHostHealth,
       'host_vote_start': this._onHostVoteStart,
       'host_vote_answer': this._onHostVoteAnswer,
@@ -405,6 +412,8 @@ export default class SignalingServer {
       // точки
       live: member.sessionId !== null && this._sessions.has(member.sessionId),
       score: this.scoreOf(member.sessionId),
+      // без WebRTC-соединения с хостом бета не получит ни одной точки
+      confirmed: this._registry.isConfirmed(room, member),
     }));
     const result = pickSuccessor(
       {
@@ -447,10 +456,28 @@ export default class SignalingServer {
         type: 'standby_assigned',
         roomId: room.roomId,
         epoch: room.epoch,
+        game: this._roomGame(room),
       });
     }
 
     this._sendSuccessorToHost(room);
+  }
+
+  // игра комнаты для проверки точки бетой: id и допустимые версии —
+  // зарегистрированная хостом и текущая в каталоге (эстафета Worker'ов
+  // могла поднять комнату на новую). null — игра неизвестна мастеру
+  _roomGame(room) {
+    if (!room?.gameId) {
+      return null;
+    }
+
+    const catalogVersion =
+      this._gameCatalog?.getManifest(room.gameId)?.version ?? null;
+    const versions = [...new Set([room.gameVersion, catalogVersion])].filter(
+      v => typeof v === 'string' && v !== '',
+    );
+
+    return { id: room.gameId, versions };
   }
 
   _sendSuccessorToHost(room) {
@@ -493,7 +520,7 @@ export default class SignalingServer {
 
   // бета получила полную точку (и далее раз в 5 с): мастер знает, есть ли у
   // неё точка и насколько свежая (этап 7 выбирает режим промоушена)
-  _onStandbyStatus(session, { roomId, epoch, checkpointId, createdAt }) {
+  _onStandbyStatus(session, { roomId, epoch, checkpointId, createdAt, ageMs }) {
     const room = this._registry.get(roomId);
 
     if (
@@ -507,12 +534,59 @@ export default class SignalingServer {
       return;
     }
 
+    // свежесть — по возрасту самой точки, а не по приходу статуса: статус
+    // идёт раз в 5 с, даже когда поток точек встал (ревью F8)
+    const now = this._now();
+    const prev = room.standby;
+    const id = checkpointId.slice(0, 64);
+    const age =
+      Number.isFinite(ageMs) && ageMs >= 0
+        ? Math.min(ageMs, STANDBY_AGE_CAP_MS)
+        : null;
+    let receivedAt;
+
+    if (age !== null) {
+      receivedAt = now - age;
+    } else if (
+      prev &&
+      prev.memberId === room.successorMemberId &&
+      prev.checkpointId === id
+    ) {
+      // бета без ageMs (страница до этой правки): та же точка свежее не
+      // становится
+      receivedAt = prev.receivedAt;
+    } else {
+      receivedAt = now;
+    }
+
     room.standby = {
       memberId: room.successorMemberId,
-      checkpointId: checkpointId.slice(0, 64),
+      checkpointId: id,
       createdAt,
-      receivedAt: this._now(),
+      receivedAt,
     };
+  }
+
+  // хост подтверждает участников с открытыми каналами к нему: счётчик лобби
+  // и кандидаты в беты — только они (сигнальная сессия без пира — фантом)
+  _onRoomPeers(session, { roomId, epoch, memberIds }) {
+    const room = this._registry.get(roomId);
+
+    if (
+      !room ||
+      this._hostedRoom(session) !== roomId ||
+      epoch !== room.epoch ||
+      !Array.isArray(memberIds)
+    ) {
+      return;
+    }
+
+    this._registry.setConfirmedPeers(
+      roomId,
+      memberIds.slice(0, room.maxPlayers * 2).filter(isValidMemberId),
+      this._now(),
+    );
+    this._reviewSuccessor(room);
   }
 
   // хост создаёт комнату; token — Bearer identity-токен хоста: без него/при
@@ -523,7 +597,7 @@ export default class SignalingServer {
       msg;
 
     if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered');
+      this._sendError(session, 'alreadyRegistered', { re: 'register_host' });
       return;
     }
 
@@ -534,14 +608,14 @@ export default class SignalingServer {
     }
 
     if (!this._gameAvailable(gameId)) {
-      this._sendError(session, 'gameUnavailable');
+      this._sendError(session, 'gameUnavailable', { re: 'register_host' });
       return;
     }
 
     const identity = await this._verifyToken(token);
 
     if (identity === null) {
-      this._sendError(session, 'invalidToken');
+      this._sendError(session, 'invalidToken', { re: 'register_host' });
       return;
     }
 
@@ -560,10 +634,11 @@ export default class SignalingServer {
 
     // лимит: не более одной комнаты с одного IP
     if (!room) {
-      this._sendError(session, 'hostLimit');
+      this._sendError(session, 'hostLimit', { re: 'register_host' });
       return;
     }
 
+    this._leaveMembership(session, room.roomId);
     this._bindHost(session, room);
     this._sendRegistered(session, room, gameVersion);
   }
@@ -575,7 +650,10 @@ export default class SignalingServer {
     const identity = await this._verifyToken(msg.token);
 
     if (identity === null) {
-      this._sendError(session, 'invalidToken');
+      this._sendError(session, 'invalidToken', {
+        re: 'register_host',
+        roomId: msg.roomId,
+      });
       return;
     }
 
@@ -587,7 +665,10 @@ export default class SignalingServer {
     });
 
     if (!check.ok) {
-      this._sendError(session, check.code);
+      this._sendError(session, check.code, {
+        re: 'register_host',
+        roomId: msg.roomId,
+      });
       return;
     }
 
@@ -606,11 +687,13 @@ export default class SignalingServer {
         caps: msg.caps,
         // холодный промоушен перезагрузил страницу: прежняя запись вкладки
         previousMemberId: migration.candidateMemberId,
+        gameVersion: msg.gameVersion,
       },
       this._now(),
     );
     this._registry.setSettings(room.roomId, msg.settings);
 
+    this._leaveMembership(session, room.roomId);
     this._bindHost(session, room);
     this._sendRegistered(session, room, msg.gameVersion ?? room.gameVersion);
     this._migration.completePromotion(room, { migration });
@@ -624,14 +707,17 @@ export default class SignalingServer {
     const { roomId, epoch, roomSecret, memberId, gameId, gameVersion } = msg;
 
     if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered');
+      this._sendError(session, 'alreadyRegistered', {
+        re: 'reclaim_host',
+        roomId,
+      });
       return;
     }
 
     const identity = await this._verifyToken(msg.token);
 
     if (identity === null) {
-      this._sendError(session, 'invalidToken');
+      this._sendError(session, 'invalidToken', { re: 'reclaim_host', roomId });
       return;
     }
 
@@ -645,7 +731,10 @@ export default class SignalingServer {
         userId: identity.userId,
       })
     ) {
-      this._sendError(session, 'invalidRoomSecret');
+      this._sendError(session, 'invalidRoomSecret', {
+        re: 'reclaim_host',
+        roomId,
+      });
       return;
     }
 
@@ -653,7 +742,7 @@ export default class SignalingServer {
 
     if (room && room.epoch > epoch) {
       // хоста уже сменили (этап 7) — этот снимает роль
-      this._sendError(session, 'staleEpoch');
+      this._sendError(session, 'staleEpoch', { re: 'reclaim_host', roomId });
       return;
     }
 
@@ -667,14 +756,14 @@ export default class SignalingServer {
       this._migration.inTransition(room) &&
       !this._migration.canCancelByReclaim(room)
     ) {
-      this._sendError(session, 'staleEpoch');
+      this._sendError(session, 'staleEpoch', { re: 'reclaim_host', roomId });
       return;
     }
 
     if (room && (room.epoch < epoch || room.host.userId !== identity.userId)) {
       // секрет верен, но id занят другой комнатой — клиент регистрируется
       // заново
-      this._sendError(session, 'roomTaken');
+      this._sendError(session, 'roomTaken', { re: 'reclaim_host', roomId });
       return;
     }
 
@@ -682,7 +771,7 @@ export default class SignalingServer {
       const other = this._registry.getByIp(session.ip);
 
       if (other && other !== room) {
-        this._sendError(session, 'hostLimit');
+        this._sendError(session, 'hostLimit', { re: 'reclaim_host', roomId });
         return;
       }
 
@@ -705,6 +794,7 @@ export default class SignalingServer {
         sessionId: session.id,
         memberId: this._memberIdOf(session, memberId),
         ip: session.ip,
+        gameVersion,
       });
 
       if (msg.caps !== undefined) {
@@ -720,7 +810,10 @@ export default class SignalingServer {
       // мастер перезапускался: реестр в памяти пуст, комната создаётся
       // заново с тем же roomId/epoch
       if (!this._gameAvailable(gameId)) {
-        this._sendError(session, 'gameUnavailable');
+        this._sendError(session, 'gameUnavailable', {
+          re: 'reclaim_host',
+          roomId,
+        });
         return;
       }
 
@@ -736,7 +829,7 @@ export default class SignalingServer {
       );
 
       if (!room) {
-        this._sendError(session, 'hostLimit');
+        this._sendError(session, 'hostLimit', { re: 'reclaim_host', roomId });
         return;
       }
     }
@@ -889,25 +982,29 @@ export default class SignalingServer {
     const identity = await this._verifyToken(token);
 
     if (identity === null) {
-      this._sendError(session, 'invalidToken');
+      this._sendError(session, 'invalidToken', { re: 'join_room', roomId });
       return;
     }
 
     const room = this._registry.get(roomId);
 
-    if (!room) {
-      this._sendError(session, 'unknownRoom');
+    // закрывающаяся комната для новичка уже не существует
+    if (!room || this._migration.isClosing(room)) {
+      this._sendError(session, 'unknownRoom', { re: 'join_room', roomId });
+      return;
+    }
+
+    const taken = room.members.get(memberId);
+
+    // memberId — id вкладки (randomUUID); чужой занять нельзя — иначе
+    // joinMember перепишет userId и сессию записи (в том числе беты)
+    if (taken && taken.userId !== identity.userId) {
+      this._sendError(session, 'memberTaken', { re: 'join_room', roomId });
       return;
     }
 
     // одна вкладка — одна комната
-    if (session.memberOf && session.memberOf.roomId !== roomId) {
-      const previousRoomId = session.memberOf.roomId;
-
-      this._registry.leaveMember(previousRoomId, session.memberOf.memberId);
-      this._votes.membersChanged(previousRoomId);
-      this._reviewSuccessor(this._registry.get(previousRoomId));
-    }
+    this._leaveMembership(session, roomId);
 
     this._registry.joinMember(roomId, {
       memberId,
@@ -927,6 +1024,7 @@ export default class SignalingServer {
         type: 'standby_assigned',
         roomId,
         epoch: room.epoch,
+        game: this._roomGame(room),
       });
     }
 
@@ -939,7 +1037,20 @@ export default class SignalingServer {
       return;
     }
 
-    this._registry.leaveMember(roomId, session.memberOf.memberId);
+    this._leaveMembership(session);
+  }
+
+  // снимает членство сессии в прежней комнате (кроме keepRoomId): вкладка
+  // ушла в другую комнату или сама стала хостом — «призрак» иначе остался
+  // бы в счётчике, голосовании и кандидатах
+  _leaveMembership(session, keepRoomId = null) {
+    if (!session.memberOf || session.memberOf.roomId === keepRoomId) {
+      return;
+    }
+
+    const { roomId, memberId } = session.memberOf;
+
+    this._registry.leaveMember(roomId, memberId);
     session.memberOf = null;
     this._votes.membersChanged(roomId);
     this._reviewSuccessor(this._registry.get(roomId));
@@ -949,20 +1060,24 @@ export default class SignalingServer {
   // от страниц до этапа 2)
   _onWebRtcOffer(session, { roomId, hostId, sdp, memberId, resume }) {
     const id = roomId ?? hostId;
+    const room = this._registry.get(id);
     const host = this._getHostSession(id);
 
-    // плановая передача (этап 8): хост заморожен и вот-вот уйдёт — новый
-    // гость повторит оффер через 1 с, уже к преемнику
-    if (host && this._migration.isHandingOff(this._registry.get(id))) {
-      this._sendError(session, 'migrating');
+    // комната жива, но принять оффер сейчас некому: хост сменяется (этапы
+    // 7–8) или его сигналинг отсоединён и ждёт reclaim_host — гость повторит
+    // оффер через offerRetryMs, уже к тому, кто будет хостом
+    if (room && (!host || this._migration.inTransition(room))) {
+      this._sendError(session, 'migrating', { re: 'webrtc_offer', roomId: id });
       return;
     }
 
-    if (!host) {
+    // закрывающаяся комната — как исчезнувшая: не migrating, иначе гость
+    // повторял бы оффер в комнату, которой через секунды не будет
+    if (!host || this._migration.isClosing(room)) {
       // unknownHost — код страниц до этапа 2, оставлен алиасом
-      this._send(session, {
-        type: 'error',
-        code: 'unknownRoom',
+      this._sendError(session, 'unknownRoom', {
+        re: 'webrtc_offer',
+        roomId: id,
         alias: 'unknownHost',
       });
       return;
@@ -972,9 +1087,16 @@ export default class SignalingServer {
       type: 'webrtc_offer',
       clientId: session.id,
       sdp,
-      memberId: isValidMemberId(memberId) ? memberId : undefined,
+      // участник комнаты — только своим зарегистрированным memberId: хост по
+      // нему узнаёт пира (в том числе бету)
+      memberId:
+        session.memberOf?.roomId === id
+          ? session.memberOf.memberId
+          : isValidMemberId(memberId)
+            ? memberId
+            : undefined,
       resume: resume === true ? true : undefined,
-      epoch: this._registry.get(id)?.epoch,
+      epoch: room?.epoch,
     });
   }
 
@@ -1017,7 +1139,7 @@ export default class SignalingServer {
   // сигнальный пинг: замер приблизительный (клиент→мастер→хост)
   _onPingHost(session, { roomId, hostId, pingId }) {
     if (!this._pingLimiter.consume(session.ip)) {
-      this._sendError(session, 'rateLimited');
+      this._sendError(session, 'rateLimited', { re: 'ping_host' });
       return;
     }
 
@@ -1103,6 +1225,17 @@ export default class SignalingServer {
     }
 
     this._migration.onHostLeaving(this._registry.get(roomId), epoch);
+  }
+
+  // одинокий хост закрывает комнату: на время записи очков вход закрыт
+  _onHostClosing(session, { roomId, epoch }) {
+    const hosted = this._hostedRoom(session);
+
+    if (!hosted || hosted !== roomId) {
+      return;
+    }
+
+    this._migration.onHostClosing(this._registry.get(roomId), epoch);
   }
 
   // здоровье хоста (этап 9c): мастер решает, не отдать ли роль из-за лага
@@ -1207,8 +1340,24 @@ export default class SignalingServer {
     }
   }
 
-  _sendError(session, code) {
-    this._send(session, { type: 'error', code });
+  /**
+   * Ошибка в ответ на запрос клиента.
+   * @param {Object} session
+   * @param {string} code
+   * @param {Object} [options]
+   * @param {string|null} [options.re] - тип сообщения, на которое это ответ.
+   * @param {string|null} [options.roomId] - комната запроса.
+   * Остальные поля (alias, reason) уходят как есть. Поля только
+   * добавляются: старые клиенты читают code.
+   */
+  _sendError(session, code, { re = null, roomId = null, ...extra } = {}) {
+    this._send(session, {
+      type: 'error',
+      code,
+      ...(re ? { re } : {}),
+      ...(roomId ? { roomId } : {}),
+      ...extra,
+    });
   }
 
   _unpack(data) {

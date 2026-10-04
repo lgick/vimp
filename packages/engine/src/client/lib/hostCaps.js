@@ -67,3 +67,16 @@ export function buildHostCaps(
     fps: Number.isFinite(fps) ? Math.round(fps) : null,
   };
 }
+
+/**
+ * Хватит ли срока токена, чтобы вкладка могла принять роль хоста: хост
+ * предъявляет токен мастеру посреди матча (register_host, reclaim_host), а
+ * продления нет.
+ * @param {number|null} expiresAt - мс эпохи; null — неизвестно (не мешает).
+ * @param {number} minLifetimeMs
+ * @param {number} [now]
+ * @returns {boolean}
+ */
+export function tokenAllowsHosting(expiresAt, minLifetimeMs, now = Date.now()) {
+  return expiresAt === null || expiresAt - now > minLifetimeMs;
+}

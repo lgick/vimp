@@ -15,6 +15,7 @@ const host = {
   startAfterResume: vi.fn(),
   freeze: vi.fn(),
   unfreeze: vi.fn(),
+  cancelHandoff: vi.fn(),
   currentMap: 'arena',
   lobbyInfo: 'arena',
 };
@@ -243,5 +244,77 @@ describe('host.worker: старт у преемника (host-migration этап
     expect(host.startAfterResume.mock.calls[0][1]).toEqual({
       reason: 'hidden',
     });
+  });
+});
+
+describe('host.worker: плановая передача вытесняет эстафету (ревью, этап 8)', () => {
+  it('cancel_handoff снимает ждущую эстафету', async () => {
+    host.cancelHandoff.mockClear();
+
+    await send({ type: 'cancel_handoff' });
+
+    expect(host.cancelHandoff).toHaveBeenCalledOnce();
+  });
+});
+
+describe('host.worker: закрытие комнаты последним человеком (ревью, этап 10)', () => {
+  it('shutdown ждёт host.destroy и отвечает shutdown_done', async () => {
+    let finished = false;
+
+    host.destroy = vi.fn(async () => {
+      await Promise.resolve();
+      finished = true;
+    });
+    posted.length = 0;
+
+    await send({ type: 'shutdown', timeoutMs: 1000 });
+
+    expect(host.destroy).toHaveBeenCalledOnce();
+    expect(finished).toBe(true);
+    expect(posted).toEqual([{ type: 'shutdown_done' }]);
+  });
+
+  it('зависший destroy — ответ по таймауту', async () => {
+    host.destroy = vi.fn(() => new Promise(() => {}));
+    posted.length = 0;
+
+    await send({ type: 'shutdown', timeoutMs: 10 });
+
+    expect(posted).toEqual([{ type: 'shutdown_done' }]);
+  });
+
+  it('исключение в destroy — diagnostic и всё равно shutdown_done', async () => {
+    host.destroy = vi.fn(async () => {
+      throw new Error('flush failed');
+    });
+    posted.length = 0;
+
+    await send({ type: 'shutdown', timeoutMs: 1000 });
+
+    expect(posted).toHaveLength(2);
+    expect(posted[0]).toMatchObject({
+      type: 'diagnostic',
+      kind: 'shutdown',
+      message: 'flush failed',
+    });
+    expect(posted[1]).toEqual({ type: 'shutdown_done' });
+  });
+
+  it('после shutdown новое подключение закрывается без кода (поиск другой комнаты)', async () => {
+    host.destroy = vi.fn(async () => {});
+    await send({ type: 'shutdown', timeoutMs: 1000 });
+
+    const machine = machines.at(-1);
+    const before = machine.connects.length;
+
+    posted.length = 0;
+    await send({ type: 'connect', socketId: 'late' });
+    await send({ type: 'connect', socketId: 'late-resume', resume: true });
+
+    expect(machine.connects).toHaveLength(before);
+    expect(posted).toEqual([
+      { type: 'close_client', socketId: 'late' },
+      { type: 'close_client', socketId: 'late-resume' },
+    ]);
   });
 });

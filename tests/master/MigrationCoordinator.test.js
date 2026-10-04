@@ -208,6 +208,7 @@ const reportStandby = (beta, roomId) => {
     epoch: 1,
     checkpointId: 'cp-1',
     createdAt: 1,
+    ageMs: 0,
   });
 };
 
@@ -252,6 +253,7 @@ describe('хост потерян — промоушен беты с точко�
       roomId: room.roomId,
       epoch: 2,
       reason: 'disconnected',
+      waitMs: 15000,
     });
     // комната в миграции не выдаётся в список
     expect(registry.getList().servers).toEqual([]);
@@ -305,6 +307,60 @@ describe('хост потерян — промоушен беты с точко�
     expect(room.migration.mode).toBe('cold');
   });
 
+  it('бета повторяет ту же точку — свежее она не становится (ревью F8)', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    // поток точек встал: статус идёт, точка прежняя (бета без ageMs)
+    for (let i = 0; i < 3; i += 1) {
+      clock.now += 4500;
+      beta.ws.message({
+        type: 'standby_status',
+        roomId: room.roomId,
+        epoch: 1,
+        checkpointId: 'cp-1',
+        createdAt: 1,
+      });
+    }
+
+    host.ws.drop();
+
+    expect(beta.ws.lastOf('promote')).toMatchObject({ mode: 'cold' });
+  });
+
+  it('свежесть — по возрасту точки из standby_status.ageMs', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    beta.ws.message({
+      type: 'standby_status',
+      roomId: room.roomId,
+      epoch: 1,
+      checkpointId: 'cp-2',
+      createdAt: 2,
+      ageMs: 20000,
+    });
+    host.ws.drop();
+
+    expect(beta.ws.lastOf('promote')).toMatchObject({ mode: 'cold' });
+  });
+
+  it('свежий ageMs — промоушен с точкой', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    clock.now += 11000;
+    beta.ws.message({
+      type: 'standby_status',
+      roomId: room.roomId,
+      epoch: 1,
+      checkpointId: 'cp-1',
+      createdAt: 1,
+      ageMs: 100,
+    });
+    clock.now += 5000;
+    host.ws.drop();
+
+    expect(beta.ws.lastOf('promote')).toMatchObject({ mode: 'checkpoint' });
+  });
+
   it('IP-лимит «одна комната на IP» на промоушен не действует', async () => {
     const { host, beta, room } = await setupRoom();
     // другой хост с IP беты уже держит свою комнату
@@ -347,6 +403,27 @@ describe('хост потерян — промоушен беты с точко�
     expect(room.members.has(beta.memberId)).toBe(false);
     expect(room.settings).toEqual({ map: 'mill' });
   });
+
+  // ревью F4: гость заметил обрыв почти одновременно с мастером и сразу
+  // шлёт оффер с resume — комната жива, хоста просто ещё нет
+  it('оффер в комнату migrating — error migrating, а не unknownRoom', async () => {
+    const { host, guest, room } = await setupRoom();
+
+    host.ws.drop();
+
+    guest.ws.message({
+      type: 'webrtc_offer',
+      roomId: room.roomId,
+      sdp: 'X',
+      resume: true,
+    });
+    expect(guest.ws.lastOf('error')).toEqual({
+      type: 'error',
+      code: 'migrating',
+      re: 'webrtc_offer',
+      roomId: room.roomId,
+    });
+  });
 });
 
 describe('проверка register_host преемника', () => {
@@ -364,6 +441,8 @@ describe('проверка register_host преемника', () => {
     expect(beta.ws.lastOf('error')).toEqual({
       type: 'error',
       code: 'invalidPromotion',
+      re: 'register_host',
+      roomId: room.roomId,
     });
 
     // токен утёк гостю — но он не тот пользователь
@@ -843,7 +922,7 @@ describe('отчёты клиентов и проба хоста (7.3)', () => {
       roomId: host.roomId,
       epoch: 1,
     });
-    // 1 гость → кворум 1: ответ пробы сразу даёт «unreachable»
+    // 1 гость: отчёты хоста не снимают (кворум не меньше 2 пользователей)
     host.ws.message({
       type: 'probe_ack',
       nonce: host.ws.lastOf('probe').nonce,
@@ -869,6 +948,110 @@ describe('отчёты клиентов и проба хоста (7.3)', () => {
     });
     advance(5000);
     expect(room.status).toBe('online');
+  });
+
+  // вторая вкладка того же пользователя: свой memberId, тот же userId
+  const joinTab = async (roomId, userId, tab) => {
+    const conn = await connect(`5.5.6.${userId}`);
+
+    conn.userId = userId;
+    conn.memberId = memberIdOf(userId * 100 + tab);
+    conn.ws.message({
+      type: 'join_room',
+      roomId,
+      memberId: conn.memberId,
+      token: signToken(userId),
+      caps: CAN_HOST,
+    });
+    await signaling.idle();
+
+    return conn;
+  };
+  const ackProbe = host =>
+    host.ws.message({
+      type: 'probe_ack',
+      nonce: host.ws.lastOf('probe').nonce,
+    });
+
+  it('две вкладки одного пользователя — один голос кворума', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+    const tab = await joinTab(room.roomId, guest.userId, 2);
+
+    // гостей-пользователей 2 → кворум 2
+    unreachable(guest, room.roomId);
+    ackProbe(host);
+    clock.now += 2001;
+    unreachable(tab, room.roomId);
+
+    expect(room.reports.size).toBe(1);
+    expect(room.status).toBe('online');
+
+    unreachable(beta, room.roomId);
+
+    expect(room.status).toBe('migrating');
+    expect(guest.ws.lastOf('host_migrating')).toMatchObject({
+      reason: 'unreachable',
+    });
+  });
+
+  it('один гость-пользователь (и в двух вкладках) не запускает unreachable', async () => {
+    const host = await connectHost();
+    const guest = await join(host.roomId, 2);
+    const tab = await joinTab(host.roomId, 2, 2);
+    const room = registry.get(host.roomId);
+
+    unreachable(guest, room.roomId);
+    ackProbe(host);
+    clock.now += 2001;
+    unreachable(tab, room.roomId);
+
+    expect(room.status).toBe('online');
+    expect(guest.ws.typed('host_migrating')).toEqual([]);
+  });
+
+  it('вкладка пользователя хоста не отчитывается', async () => {
+    const { host, room } = await setupRoom();
+    const hostTab = await joinTab(room.roomId, 1, 2);
+
+    unreachable(hostTab, room.roomId);
+
+    expect(room.reports.size).toBe(0);
+    expect(host.ws.typed('probe')).toEqual([]);
+  });
+
+  it('два пользователя из двух — unreachable', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    unreachable(guest, room.roomId);
+    ackProbe(host);
+    expect(room.status).toBe('online');
+
+    unreachable(beta, room.roomId);
+
+    expect(room.status).toBe('migrating');
+  });
+
+  it('неподтверждённый хостом участник не становится ни бетой, ни холодным кандидатом', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    // хост подключён по WebRTC только к гостю
+    host.ws.message({
+      type: 'room_peers',
+      roomId: room.roomId,
+      epoch: 1,
+      memberIds: [guest.memberId],
+    });
+
+    expect(room.successorMemberId).toBe(guest.memberId);
+
+    // устаревшее назначение со свежей точкой — ветка беты тоже проверяет
+    // подтверждение
+    room.successorMemberId = beta.memberId;
+    reportStandby(beta, room.roomId);
+    host.ws.drop();
+
+    expect(beta.ws.typed('promote')).toEqual([]);
+    expect(guest.ws.lastOf('promote')).toMatchObject({ mode: 'cold' });
   });
 
   it('кулдаун принудительных миграций: внутри него — только проба', async () => {
@@ -949,6 +1132,9 @@ describe('плановая передача (этап 8)', () => {
       reason: 'handover',
     });
     expect(host.ws.typed('host_migrating')).toEqual([]);
+    // бета узнала о передаче из promote и держит соединение с замороженным
+    // хостом до финальной точки (ревью F2)
+    expect(beta.ws.typed('host_migrating')).toEqual([]);
     // комната в передаче не выдаётся в список
     expect(registry.getList().servers).toEqual([]);
 
@@ -1047,6 +1233,8 @@ describe('плановая передача (этап 8)', () => {
     expect(guest.ws.lastOf('error')).toEqual({
       type: 'error',
       code: 'migrating',
+      re: 'webrtc_offer',
+      roomId: room.roomId,
     });
     expect(host.ws.typed('webrtc_offer')).toHaveLength(offersBefore);
   });
@@ -1127,7 +1315,8 @@ describe('плановая передача (этап 8)', () => {
       ...promote,
       mode: 'checkpoint',
     });
-    expect(guest.ws.typed('host_migrating')).toHaveLength(1);
+    // повтор с дедлайном аварийной попытки (ревью F12)
+    expect(guest.ws.typed('host_migrating')).toHaveLength(2);
 
     // дедлайн — обычный promotionTimeoutMs, сбой беты ведёт к следующему
     // кандидату, а не к отмене
@@ -1253,6 +1442,71 @@ describe('host_leaving (этап 8.4)', () => {
 
     expect(room.status).toBe('migrating');
     expect(beta.ws.lastOf('promote')).toMatchObject({ mode: 'checkpoint' });
+  });
+});
+
+describe('host_closing: одинокий хост закрывает комнату (ревью, этап 10)', () => {
+  it('комната скрыта из списка и ссылки, вход и оффер — unknownRoom', async () => {
+    const host = await connectHost();
+    const room = registry.get(host.roomId);
+
+    host.ws.message({ type: 'host_closing', roomId: room.roomId, epoch: 1 });
+    expect(room.status).toBe('closing');
+    expect(registry.getList().servers).toEqual([]);
+    expect(registry.getPublic(room.roomId)).toBeNull();
+
+    const late = await join(room.roomId, 4);
+
+    expect(late.ws.lastOf('error')).toMatchObject({
+      code: 'unknownRoom',
+      re: 'join_room',
+      roomId: room.roomId,
+    });
+    expect(late.ws.lastOf('room_joined')).toBeUndefined();
+    expect(room.members.has(late.memberId)).toBe(false);
+
+    late.ws.message({ type: 'webrtc_offer', roomId: room.roomId, sdp: 'x' });
+    expect(late.ws.lastOf('error')).toMatchObject({
+      code: 'unknownRoom',
+      re: 'webrtc_offer',
+    });
+    expect(host.ws.lastOf('webrtc_offer')).toBeUndefined();
+  });
+
+  it('записи очков в закрывающейся комнате по-прежнему атрибутированы', async () => {
+    const host = await connectHost();
+
+    host.ws.message({ type: 'host_closing', roomId: host.roomId, epoch: 1 });
+
+    expect(registry.verifiedAttribution(host.roomId, host.roomSecret)).toEqual({
+      sessionId: host.roomId,
+    });
+  });
+
+  it('после host_leaving комната закрывается как раньше', async () => {
+    const host = await connectHost();
+
+    host.ws.message({ type: 'host_closing', roomId: host.roomId, epoch: 1 });
+    host.ws.message({ type: 'host_leaving', roomId: host.roomId, epoch: 1 });
+
+    expect(registry.get(host.roomId)).toBeUndefined();
+  });
+
+  it('чужая эпоха, не от хоста, комната в миграции — без эффекта', async () => {
+    const { host, guest, room } = await setupRoom();
+
+    host.ws.message({ type: 'host_closing', roomId: room.roomId, epoch: 5 });
+    guest.ws.message({ type: 'host_closing', roomId: room.roomId, epoch: 1 });
+    expect(room.status).toBe('online');
+
+    host.ws.message({
+      type: 'handoff_begin',
+      roomId: room.roomId,
+      epoch: 1,
+      reason: 'handover',
+    });
+    host.ws.message({ type: 'host_closing', roomId: room.roomId, epoch: 1 });
+    expect(room.status).toBe('handing_off');
   });
 });
 
@@ -1457,6 +1711,7 @@ describe('сетевой лаг хоста и общий кулдаун авто
         epoch: 2,
         checkpointId: 'cp-2',
         createdAt: 2,
+        ageMs: 0,
       });
 
     expect(room.successorMemberId).toBe(guest.memberId);
@@ -1572,5 +1827,166 @@ describe('сетевой лаг хоста и общий кулдаун авто
 
     expect(room.epoch).toBe(2);
     expect(room.lastAutoMigrationAt).toBe(clock.now);
+  });
+});
+
+describe('игра комнаты в promote (ревью F1)', () => {
+  const begin = host =>
+    host.ws.message({
+      type: 'handoff_begin',
+      roomId: host.roomId,
+      epoch: 1,
+      reason: 'handover',
+      stay: true,
+    });
+
+  const GAME = { id: 'tanks', versions: ['1.0.0'] };
+
+  it('promote(checkpoint) несёт игру и версию комнаты', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    room.gameVersion = '1.0.0';
+    host.ws.drop();
+
+    expect(beta.ws.lastOf('promote').game).toEqual(GAME);
+  });
+
+  it('promote(planned) и повтор после обрыва хоста несут игру', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    room.gameVersion = '1.0.0';
+    begin(host);
+
+    expect(beta.ws.lastOf('promote')).toMatchObject({
+      mode: 'planned',
+      game: GAME,
+    });
+
+    host.ws.drop();
+
+    expect(beta.ws.lastOf('promote')).toMatchObject({
+      mode: 'checkpoint',
+      game: GAME,
+    });
+  });
+
+  it('игра неизвестна мастеру — game: null', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    room.gameId = null;
+    host.ws.drop();
+
+    expect(beta.ws.lastOf('promote').game).toBeNull();
+  });
+
+  it('register_host преемника обновляет версию игры комнаты', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    room.gameVersion = '1.0.0';
+    host.ws.drop();
+    await registerPromoted(beta, beta.ws.lastOf('promote'), {
+      gameVersion: '1.1.0',
+    });
+
+    expect(room.status).toBe('online');
+    expect(room.gameVersion).toBe('1.1.0');
+  });
+
+  it('версия-мусор не затирает известную', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    room.gameVersion = '1.0.0';
+    host.ws.drop();
+    await registerPromoted(beta, beta.ws.lastOf('promote'), {
+      gameVersion: 'x'.repeat(65),
+    });
+
+    expect(room.status).toBe('online');
+    expect(room.gameVersion).toBe('1.0.0');
+  });
+});
+
+// гость ждёт host_changed столько, сколько мастер ещё ищет преемника: дедлайн
+// текущей попытки + migrationNoticeMarginMs (по умолчанию 5000)
+describe('host_migrating.waitMs (ревью F12)', () => {
+  const beginHandoff = host =>
+    host.ws.message({
+      type: 'handoff_begin',
+      roomId: host.roomId,
+      epoch: 1,
+      reason: 'handover',
+      stay: true,
+    });
+
+  it('каждая попытка промоушена рассылает host_migrating со своим waitMs', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    host.ws.drop();
+
+    expect(guest.ws.typed('host_migrating')).toEqual([
+      {
+        type: 'host_migrating',
+        roomId: room.roomId,
+        epoch: 2,
+        reason: 'disconnected',
+        waitMs: 15000,
+      },
+    ]);
+    // кандидат тоже: в аварии он бросает транспорт к мёртвому хосту
+    expect(beta.ws.lastOf('host_migrating')).toMatchObject({ waitMs: 15000 });
+    expect(host.ws.typed('host_migrating')).toEqual([]);
+
+    // бета не справилась — cold-кандидату 25 с, гостям повтор той же эпохи
+    advance(10000);
+
+    expect(guest.ws.lastOf('promote')).toMatchObject({ mode: 'cold' });
+    expect(guest.ws.typed('host_migrating')).toHaveLength(2);
+    expect(guest.ws.lastOf('host_migrating')).toEqual({
+      type: 'host_migrating',
+      roomId: room.roomId,
+      epoch: 2,
+      reason: 'disconnected',
+      waitMs: 30000,
+    });
+    expect(beta.ws.lastOf('host_migrating')).toMatchObject({ waitMs: 30000 });
+  });
+
+  it('плановая передача: waitMs — handoffTimeoutMs с запасом', async () => {
+    const { host, guest } = await setupRoom();
+
+    beginHandoff(host);
+
+    expect(guest.ws.lastOf('host_migrating')).toMatchObject({
+      reason: 'handover',
+      waitMs: 13000,
+    });
+  });
+
+  it('передача деградировала в аварию — гостям повтор с promotionTimeoutMs, бете и хосту нет', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    beginHandoff(host);
+    host.ws.drop();
+
+    expect(room.status).toBe('migrating');
+    expect(guest.ws.typed('host_migrating')).toHaveLength(2);
+    expect(guest.ws.lastOf('host_migrating')).toEqual({
+      type: 'host_migrating',
+      roomId: room.roomId,
+      epoch: 2,
+      reason: 'handover',
+      waitMs: 15000,
+    });
+    expect(beta.ws.typed('host_migrating')).toEqual([]);
+    expect(host.ws.typed('host_migrating')).toEqual([]);
+  });
+
+  it('migrationNoticeMarginMs настраивается', async () => {
+    signaling._migration._timings.migrationNoticeMarginMs = 1000;
+
+    const { host, guest } = await setupRoom();
+
+    host.ws.drop();
+    expect(guest.ws.lastOf('host_migrating')).toMatchObject({ waitMs: 11000 });
   });
 });

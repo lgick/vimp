@@ -351,7 +351,11 @@ describe('register_host', () => {
     ws.message({ type: 'register_host', name: 'Room' });
     await flushAsync();
 
-    expect(ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
+    expect(ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'invalidToken',
+      re: 'register_host',
+    });
     expect(registry.size).toBe(0);
   });
 
@@ -370,7 +374,11 @@ describe('register_host', () => {
     ws.message({ type: 'register_host', name: 'Room', token: forged });
     await flushAsync();
 
-    expect(ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
+    expect(ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'invalidToken',
+      re: 'register_host',
+    });
   });
 
   // игра, помеченная каталогом недоступной (compat.ok === false, этап 5
@@ -425,6 +433,7 @@ describe('register_host', () => {
       expect(ws.lastSent()).toEqual({
         type: 'error',
         code: 'gameUnavailable',
+        re: 'register_host',
       });
       expect(registry.size).toBe(0);
       // проверка стоит до проверки токена: она дешевле запроса JWKS
@@ -445,7 +454,11 @@ describe('register_host', () => {
     ws.message({ type: 'register_host', name: 'Second', token: signToken(1) });
     await flushAsync();
 
-    expect(ws.lastSent()).toEqual({ type: 'error', code: 'alreadyRegistered' });
+    expect(ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'alreadyRegistered',
+      re: 'register_host',
+    });
     expect(registry.size).toBe(1);
   });
 
@@ -460,7 +473,11 @@ describe('register_host', () => {
     });
     await flushAsync();
 
-    expect(second.ws.lastSent()).toEqual({ type: 'error', code: 'hostLimit' });
+    expect(second.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'hostLimit',
+      re: 'register_host',
+    });
   });
 
   // review-3.md (R3-1): Nginx деплоя ставит X-Forwarded-For через
@@ -487,7 +504,11 @@ describe('register_host', () => {
     ws.message({ type: 'register_host', name: 'Second', token: signToken(2) });
     await flushAsync();
 
-    expect(ws.lastSent()).toEqual({ type: 'error', code: 'hostLimit' });
+    expect(ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'hostLimit',
+      re: 'register_host',
+    });
   });
 
   // за прод-Nginx адрес приходит в X-Real-IP (его прокси перезаписывает), и
@@ -532,6 +553,7 @@ describe('register_host', () => {
     expect(await register('8.8.8.8', 3)).toEqual({
       type: 'error',
       code: 'hostLimit',
+      re: 'register_host',
     });
   });
 
@@ -767,6 +789,24 @@ describe('маршрутизация WebRTC', () => {
     });
   });
 
+  it('оффер участника комнаты несёт его зарегистрированный memberId, а не присланный', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.message({
+      type: 'webrtc_offer',
+      roomId: host.roomId,
+      sdp: 'OFFER',
+      memberId: memberIdOf(1),
+    });
+
+    expect(host.ws.lastSent()).toMatchObject({
+      type: 'webrtc_offer',
+      clientId: guest.id,
+      memberId: guest.memberId,
+    });
+  });
+
   it('hostId в оффере — алиас roomId (страницы до этапа 2)', async () => {
     const host = await connectHost();
     const client = await connect();
@@ -789,6 +829,8 @@ describe('маршрутизация WebRTC', () => {
     expect(client.ws.lastSent()).toEqual({
       type: 'error',
       code: 'unknownRoom',
+      re: 'webrtc_offer',
+      roomId: 'nope',
       alias: 'unknownHost',
     });
   });
@@ -859,6 +901,7 @@ describe('ping_host / pong_host', () => {
     expect(client.ws.lastSent()).toEqual({
       type: 'error',
       code: 'rateLimited',
+      re: 'ping_host',
     });
 
     // третий пинг до хоста не дошёл
@@ -929,7 +972,12 @@ describe('join_room / leave_room', () => {
   it('неизвестная комната — unknownRoom, без токена — invalidToken', async () => {
     const guest = await joinRoom('abcd1234');
 
-    expect(guest.ws.lastSent()).toEqual({ type: 'error', code: 'unknownRoom' });
+    expect(guest.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'unknownRoom',
+      re: 'join_room',
+      roomId: 'abcd1234',
+    });
 
     const host = await connectHost();
     const anon = await connect({ ip: '6.6.6.6' });
@@ -941,7 +989,12 @@ describe('join_room / leave_room', () => {
     });
     await flushAsync();
 
-    expect(anon.ws.lastSent()).toEqual({ type: 'error', code: 'invalidToken' });
+    expect(anon.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'invalidToken',
+      re: 'join_room',
+      roomId: host.roomId,
+    });
   });
 
   it('реконнект сигналинга: тот же memberId перепривязывается', async () => {
@@ -977,6 +1030,113 @@ describe('join_room / leave_room', () => {
     host.ws.message({ type: 'leave_room', roomId: host.roomId });
 
     expect(registry.get(host.roomId).members.size).toBe(1);
+  });
+
+  it('join_room с чужим memberId другого пользователя — memberTaken, запись не тронута', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId, { userId: 50 });
+    const thief = await connect({ ip: '6.6.6.6' });
+
+    thief.ws.message({
+      type: 'join_room',
+      roomId: host.roomId,
+      memberId: guest.memberId,
+      token: signToken(77),
+    });
+    await flushAsync();
+
+    expect(thief.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'memberTaken',
+      re: 'join_room',
+      roomId: host.roomId,
+    });
+    expect(registry.get(host.roomId).members.get(guest.memberId)).toMatchObject(
+      { userId: 50, sessionId: guest.id },
+    );
+  });
+
+  it('register_host снимает прежнее членство сессии в чужой комнате', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.message({
+      type: 'register_host',
+      maxPlayers: 8,
+      token: signToken(50),
+      memberId: memberIdOf(51),
+    });
+    await signaling.idle();
+
+    expect(guest.ws.lastSent().type).toBe('host_registered');
+    expect(registry.get(host.roomId).members.has(guest.memberId)).toBe(false);
+  });
+});
+
+describe('room_peers (подтверждение участников хостом)', () => {
+  it('от хоста своей эпохи: счётчик лобби — только подтверждённые, мусор отброшен', async () => {
+    const host = await connectHost();
+    const a = await joinRoom(host.roomId, { userId: 50, ip: '5.5.5.1' });
+
+    await joinRoom(host.roomId, { userId: 51, ip: '5.5.5.2' });
+
+    expect(registry.getList().servers[0].currentPlayers).toBe(3);
+
+    host.ws.message({
+      type: 'room_peers',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      memberIds: [a.memberId, 'not-a-uuid', 42],
+    });
+
+    const room = registry.get(host.roomId);
+
+    expect(room.members.get(a.memberId).peerConfirmed).toBe(true);
+    expect(registry.getList().servers[0].currentPlayers).toBe(2);
+  });
+
+  it('берёт не больше maxPlayers × 2 элементов', async () => {
+    const host = await connectHost();
+    const a = await joinRoom(host.roomId);
+    const filler = Array.from({ length: 16 }, (_v, i) => memberIdOf(900 + i));
+
+    host.ws.message({
+      type: 'room_peers',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      memberIds: [...filler, a.memberId],
+    });
+
+    expect(
+      registry.get(host.roomId).members.get(a.memberId).peerConfirmed,
+    ).toBe(false);
+  });
+
+  it('не от хоста, чужой эпохи или без массива — игнорируется', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+    const room = registry.get(host.roomId);
+
+    guest.ws.message({
+      type: 'room_peers',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      memberIds: [guest.memberId],
+    });
+    host.ws.message({
+      type: 'room_peers',
+      roomId: host.roomId,
+      epoch: host.epoch + 1,
+      memberIds: [guest.memberId],
+    });
+    host.ws.message({
+      type: 'room_peers',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      memberIds: 'nope',
+    });
+
+    expect(room.peersReportedAt).toBeNull();
   });
 });
 
@@ -1071,7 +1231,12 @@ describe('reclaim_host', () => {
         roomSecret: host.roomSecret,
         token: signToken(66),
       }),
-    ).toEqual({ type: 'error', code: 'invalidRoomSecret' });
+    ).toEqual({
+      type: 'error',
+      code: 'invalidRoomSecret',
+      re: 'reclaim_host',
+      roomId: host.roomId,
+    });
 
     expect(
       await reclaim(thief, {
@@ -1080,7 +1245,12 @@ describe('reclaim_host', () => {
         roomSecret: 'A'.repeat(43),
         token: signToken(66),
       }),
-    ).toEqual({ type: 'error', code: 'invalidRoomSecret' });
+    ).toEqual({
+      type: 'error',
+      code: 'invalidRoomSecret',
+      re: 'reclaim_host',
+      roomId: host.roomId,
+    });
 
     expect(registry.get(host.roomId).host.sessionId).not.toBe(thief.id);
   });
@@ -1099,7 +1269,12 @@ describe('reclaim_host', () => {
         roomSecret: host.roomSecret,
         token: signToken(1),
       }),
-    ).toEqual({ type: 'error', code: 'staleEpoch' });
+    ).toEqual({
+      type: 'error',
+      code: 'staleEpoch',
+      re: 'reclaim_host',
+      roomId: host.roomId,
+    });
   });
 
   it('id занят комнатой другого пользователя — roomTaken', async () => {
@@ -1116,7 +1291,12 @@ describe('reclaim_host', () => {
         roomSecret: host.roomSecret,
         token: signToken(1),
       }),
-    ).toEqual({ type: 'error', code: 'roomTaken' });
+    ).toEqual({
+      type: 'error',
+      code: 'roomTaken',
+      re: 'reclaim_host',
+      roomId: host.roomId,
+    });
   });
 
   it('без токена — invalidToken', async () => {
@@ -1129,7 +1309,12 @@ describe('reclaim_host', () => {
         epoch: 1,
         roomSecret: host.roomSecret,
       }),
-    ).toEqual({ type: 'error', code: 'invalidToken' });
+    ).toEqual({
+      type: 'error',
+      code: 'invalidToken',
+      re: 'reclaim_host',
+      roomId: host.roomId,
+    });
   });
 });
 
@@ -1191,6 +1376,23 @@ describe('жизненный цикл комнаты', () => {
       false,
     );
     expect(host.ws.closed.code).toBe(4000);
+  });
+
+  // ревью F4: хост ждёт reclaim_host — оффер повторится, а не уведёт гостя
+  it('оффер в online-комнату с отсоединённым хостом — error migrating', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    host.ws.handlers.close();
+    guest.ws.message({ type: 'webrtc_offer', roomId: host.roomId, sdp: 'X' });
+
+    expect(registry.get(host.roomId)).toMatchObject({ status: 'online' });
+    expect(guest.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'migrating',
+      re: 'webrtc_offer',
+      roomId: host.roomId,
+    });
   });
 
   it('отсоединённый гость после grace выпадает из комнаты', async () => {
@@ -1319,7 +1521,7 @@ describe('преемник комнаты (host-migration этап 6)', () => {
     const guest = await join(host.roomId, 50);
 
     expect(typed(guest.ws, 'standby_assigned')).toEqual([
-      { type: 'standby_assigned', roomId: host.roomId, epoch: 1 },
+      { type: 'standby_assigned', roomId: host.roomId, epoch: 1, game: null },
     ]);
     expect(host.ws.lastSent()).toEqual({
       type: 'successor_assigned',
@@ -1485,6 +1687,73 @@ describe('преемник комнаты (host-migration этап 6)', () => {
     });
   });
 
+  it('standby_status: та же точка без ageMs не становится свежее (ревью F8)', async () => {
+    const host = await connectHost();
+    const beta = await join(host.roomId, 50);
+    const room = registry.get(host.roomId);
+    const status = {
+      type: 'standby_status',
+      roomId: host.roomId,
+      epoch: 1,
+      checkpointId: 'abc-1',
+      createdAt: 1234,
+    };
+    const firstAt = clock.now;
+
+    beta.ws.message(status);
+    clock.now += 5000;
+    beta.ws.message(status);
+    expect(room.standby.receivedAt).toBe(firstAt);
+
+    // новая точка — новый момент получения
+    beta.ws.message({ ...status, checkpointId: 'abc-2' });
+    expect(room.standby.receivedAt).toBe(clock.now);
+  });
+
+  it('standby_status.ageMs: момент получения точки = сейчас − возраст', async () => {
+    const host = await connectHost();
+    const beta = await join(host.roomId, 50);
+    const room = registry.get(host.roomId);
+    const status = {
+      type: 'standby_status',
+      roomId: host.roomId,
+      epoch: 1,
+      checkpointId: 'abc-1',
+      createdAt: 1234,
+    };
+
+    beta.ws.message({ ...status, ageMs: 100 });
+    expect(room.standby.receivedAt).toBe(clock.now - 100);
+
+    beta.ws.message({ ...status, ageMs: 20000 });
+    expect(room.standby.receivedAt).toBe(clock.now - 20000);
+
+    // потолок возраста — 10 минут
+    beta.ws.message({ ...status, ageMs: 1e12 });
+    expect(room.standby.receivedAt).toBe(clock.now - 10 * 60 * 1000);
+  });
+
+  it('standby_status: мусорный ageMs — как будто поля нет', async () => {
+    const host = await connectHost();
+    const beta = await join(host.roomId, 50);
+    const room = registry.get(host.roomId);
+    const status = {
+      type: 'standby_status',
+      roomId: host.roomId,
+      epoch: 1,
+      createdAt: 1234,
+    };
+
+    beta.ws.message({ ...status, checkpointId: 'a', ageMs: '100' });
+    expect(room.standby.receivedAt).toBe(clock.now);
+
+    beta.ws.message({ ...status, checkpointId: 'b', ageMs: -5 });
+    expect(room.standby.receivedAt).toBe(clock.now);
+
+    beta.ws.message({ ...status, checkpointId: 'c', ageMs: Infinity });
+    expect(room.standby.receivedAt).toBe(clock.now);
+  });
+
   it('хост вернулся (reclaim_host) — ему снова successor_assigned', async () => {
     const host = await connectHost();
     const beta = await join(host.roomId, 50);
@@ -1512,5 +1781,127 @@ describe('преемник комнаты (host-migration этап 6)', () => {
         successorClientId: beta.id,
       },
     ]);
+  });
+
+  // ревью F9: сигналинг гостя переподключился к свежему мастеру раньше хоста
+  it('рестарт мастера: join_room до reclaim_host — unknownRoom, повтор после — участник и кандидат', async () => {
+    const host = await connectHost();
+
+    registry = new RoomRegistry(REGISTRY_OPTIONS);
+    signaling = new SignalingServer(registry, {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      hostReclaimGraceMs: 300,
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      jwksProxy,
+      issuer: ISSUER,
+      now: () => clock.now,
+      successor: {
+        minMemberAgeMs: 0,
+        switchRatio: 0.65,
+        switchSustainMs: 30000,
+      },
+    });
+
+    const guest = await connect({ ip: '5.5.5.50' });
+    const joinMsg = {
+      type: 'join_room',
+      roomId: host.roomId,
+      memberId: memberIdOf(50),
+      token: signToken(50),
+      caps: CAN_HOST,
+    };
+
+    guest.ws.message(joinMsg);
+    await flushAsync();
+
+    expect(guest.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'unknownRoom',
+      re: 'join_room',
+      roomId: host.roomId,
+    });
+
+    const again = await connect({ ip: '1.1.1.1' });
+
+    again.ws.message({
+      type: 'reclaim_host',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+    });
+    await flushAsync();
+
+    guest.ws.message(joinMsg);
+    await flushAsync();
+
+    expect(typed(guest.ws, 'room_joined')).toEqual([
+      { type: 'room_joined', roomId: host.roomId, epoch: 1 },
+    ]);
+    expect(registry.get(host.roomId).members.has(memberIdOf(50))).toBe(true);
+    expect(registry.getList().servers[0].currentPlayers).toBe(2);
+    expect(typed(guest.ws, 'standby_assigned')).toHaveLength(1);
+    expect(registry.get(host.roomId).successorMemberId).toBe(memberIdOf(50));
+  });
+
+  it('standby_assigned несёт игру: версия комнаты и каталога (ревью F1)', async () => {
+    const host = await connectHost();
+    const room = registry.get(host.roomId);
+
+    room.gameId = 'tanks';
+    room.gameVersion = '1.0.0';
+    signaling._gameCatalog = {
+      getManifest: id => (id === 'tanks' ? { version: '1.1.0' } : undefined),
+    };
+
+    const guest = await join(host.roomId, 50);
+
+    expect(typed(guest.ws, 'standby_assigned')[0].game).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0', '1.1.0'],
+    });
+
+    // реконнект сигналинга беты — назначение заново, с той же игрой
+    guest.ws.handlers.close();
+
+    const again = await connect({ ip: '5.5.5.5' });
+
+    again.ws.message({
+      type: 'join_room',
+      roomId: host.roomId,
+      memberId: guest.memberId,
+      token: signToken(50),
+      caps: CAN_HOST,
+    });
+    await flushAsync();
+
+    expect(typed(again.ws, 'standby_assigned').at(-1).game).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0', '1.1.0'],
+    });
+  });
+
+  it('reclaim_host с gameVersion обновляет версию игры комнаты', async () => {
+    const host = await connectHost();
+
+    host.ws.handlers.close();
+
+    const again = await connect({ ip: '1.1.1.1' });
+
+    again.ws.message({
+      type: 'reclaim_host',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+      gameVersion: '2.0.0',
+    });
+    await flushAsync();
+
+    expect(registry.get(host.roomId).gameVersion).toBe('2.0.0');
   });
 });

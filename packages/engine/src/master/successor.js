@@ -29,7 +29,9 @@ const scoreOf = member =>
 
 /**
  * Может ли участник стать бетой прямо сейчас.
- * @param {Object} member - { memberId, live, caps, joinedAt, demotedUntil }.
+ * @param {Object} member - { memberId, live, caps, joinedAt, demotedUntil,
+ *   confirmed }; confirmed: false — хост не подтвердил WebRTC-соединение с
+ *   ним (room_peers), фантом без пира не получит ни точек, ни роли.
  * @param {string|null} hostMemberId
  * @param {number} now
  * @param {number} minMemberAgeMs
@@ -56,7 +58,8 @@ export function isCandidate(
     (allowHidden || member.caps?.hidden !== true) &&
     (allowHidden || !Number.isFinite(fps) || fps >= minFps) &&
     now - member.joinedAt >= minMemberAgeMs &&
-    !(member.demotedUntil > now)
+    !(member.demotedUntil > now) &&
+    member.confirmed !== false
   );
 }
 
@@ -77,7 +80,7 @@ function compareCandidates(a, b) {
  * @param {Object|null} room.challenger - { memberId, since }: кандидат,
  *   который лучше текущей беты, и с какого момента.
  * @param {Array<Object>} room.members - { memberId, live, caps, joinedAt,
- *   score, demotedUntil, relayPenalty }.
+ *   score, demotedUntil, relayPenalty, confirmed }.
  * @param {number} now
  * @param {Object} opts
  * @param {number} opts.minMemberAgeMs

@@ -293,3 +293,111 @@ describe('StandbySender: канал и точки', () => {
     expect(controller.stopCheckpoints).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('StandbySender: повторное открытие канала (ревью F8)', () => {
+  let timers;
+
+  // таймеры вручную: run() исполняет взведённый и возвращает его задержку
+  const createTimers = () => {
+    const pending = new Map();
+    let next = 0;
+
+    return {
+      pending,
+      setTimeout: (fn, ms) => {
+        next += 1;
+        pending.set(next, { fn, ms });
+
+        return next;
+      },
+      clearTimeout: id => pending.delete(id),
+      run() {
+        const [[id, { fn, ms }]] = pending;
+
+        pending.delete(id);
+        fn();
+
+        return ms;
+      },
+    };
+  };
+
+  beforeEach(() => {
+    timers = createTimers();
+    sender = new StandbySender({
+      controller,
+      connections: {
+        peerConnectionOf: memberId => peers.get(memberId) ?? null,
+      },
+      intervalMs: 500,
+      chunkBytes: 1024,
+      highWaterBytes: 4096,
+      reopenDelayMs: 1000,
+      reopenMaxDelayMs: 10000,
+      timers,
+      now: () => 1500,
+    });
+  });
+
+  it('канал закрылся при живом пире — через задержку открыт новый, точки включены', () => {
+    const pc = new FakePc();
+
+    peers.set('m1', pc);
+    sender.setSuccessor('m1');
+    pc.last.onclose();
+
+    expect(controller.stopCheckpoints).toHaveBeenCalledTimes(1);
+    expect(pc.channels).toHaveLength(1);
+    expect(timers.run()).toBe(1000);
+    expect(pc.channels).toHaveLength(2);
+    expect(controller.startCheckpoints).toHaveBeenCalledTimes(2);
+  });
+
+  it('задержка растёт до потолка, open её сбрасывает', () => {
+    const pc = new FakePc();
+    const delays = [];
+
+    peers.set('m1', pc);
+    sender.setSuccessor('m1');
+
+    for (let i = 0; i < 6; i++) {
+      pc.last.onclose();
+      delays.push(timers.run());
+    }
+
+    expect(delays).toEqual([1000, 2000, 4000, 8000, 10000, 10000]);
+
+    pc.last.open();
+    pc.last.onclose();
+
+    expect(timers.run()).toBe(1000);
+  });
+
+  it('пира нет — канала нет', () => {
+    const pc = new FakePc();
+
+    peers.set('m1', pc);
+    sender.setSuccessor('m1');
+    peers.delete('m1');
+    pc.last.onclose();
+    timers.run();
+
+    expect(pc.channels).toHaveLength(1);
+    expect(controller.startCheckpoints).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroy и смена беты снимают таймер', () => {
+    const pc = new FakePc();
+
+    peers.set('m1', pc);
+    sender.setSuccessor('m1');
+    pc.last.onclose();
+    sender.setSuccessor('m2');
+    expect(timers.pending.size).toBe(0);
+
+    sender.setSuccessor('m1');
+    pc.last.onclose();
+    sender.destroy();
+    expect(timers.pending.size).toBe(0);
+  });
+});

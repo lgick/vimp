@@ -14,6 +14,11 @@ import { encodeStandbyChunks } from './standbyChunks.js';
 // отправки, периодические не уходят, а снятые до неё (seq не новее —
 // кодирование в Worker'е асинхронно) отбрасываются: бета не должна принять
 // устаревшую точку поверх финальной.
+//
+// Канал закрылся сам при живом пире беты (ревью F8) — без повторного открытия
+// поток точек встал бы до смены состава пиров, а бета докладывала бы мастеру
+// всё более старую точку. Повтор — с экспоненциальной задержкой
+// reopenDelayMs…reopenMaxDelayMs; открытие сбрасывает её.
 export default class StandbySender {
   /**
    * @param {Object} options
@@ -26,6 +31,10 @@ export default class StandbySender {
    * @param {number} options.highWaterBytes - порог bufferedAmount.
    * @param {Object} [options.diagnostics] - журнал (пропуски точек).
    * @param {Function} [options.onStats] - после каждой отправки/пропуска.
+   * @param {number} [options.reopenDelayMs] - первая пауза перед повторным
+   *   открытием закрывшегося канала.
+   * @param {number} [options.reopenMaxDelayMs] - потолок паузы.
+   * @param {Object} [options.timers] - { setTimeout, clearTimeout } (тесты).
    * @param {Function} [options.now] - часы (мс).
    */
   constructor({
@@ -36,6 +45,9 @@ export default class StandbySender {
     highWaterBytes,
     diagnostics = null,
     onStats = null,
+    reopenDelayMs = 1000,
+    reopenMaxDelayMs = 10000,
+    timers = globalThis,
     now = () => Date.now(),
   }) {
     this._controller = controller;
@@ -45,6 +57,9 @@ export default class StandbySender {
     this._highWaterBytes = highWaterBytes;
     this._diagnostics = diagnostics;
     this._onStats = onStats;
+    this._reopenDelayMs = reopenDelayMs;
+    this._reopenMaxDelayMs = reopenMaxDelayMs;
+    this._timers = timers;
     this._now = now;
 
     this._memberId = null;
@@ -57,6 +72,9 @@ export default class StandbySender {
     // seq последней финальной точки (null — не было)
     this._finalSeq = null;
     this._lastSentAt = null;
+    // повторное открытие закрывшегося канала: таймер и следующая пауза
+    this._reopenTimer = null;
+    this._reopenDelay = reopenDelayMs;
 
     this._stats = {
       sent: 0,
@@ -70,11 +88,6 @@ export default class StandbySender {
     this._unsubscribe = controller.onCheckpoint(checkpoint =>
       this._onCheckpoint(checkpoint),
     );
-  }
-
-  // memberId беты (null — некого)
-  get successorMemberId() {
-    return this._memberId;
   }
 
   // метрики для настройки интервала/порогов (размер, интервал, пропуски)
@@ -92,6 +105,8 @@ export default class StandbySender {
       return;
     }
 
+    this._cancelReopen();
+    this._reopenDelay = this._reopenDelayMs;
     this._closeChannel();
     this._memberId = memberId ?? null;
     this.refresh();
@@ -123,6 +138,7 @@ export default class StandbySender {
   destroy() {
     this._unsubscribe?.();
     this._unsubscribe = null;
+    this._cancelReopen();
     this._setCheckpoints(false);
     this._closeChannel();
     this._memberId = null;
@@ -139,17 +155,42 @@ export default class StandbySender {
 
     channel.binaryType = 'arraybuffer';
     channel.bufferedAmountLowThreshold = this._highWaterBytes;
-    channel.onopen = () => this._flushFinal();
+    channel.onopen = () => {
+      this._reopenDelay = this._reopenDelayMs;
+      this._flushFinal();
+    };
     channel.onbufferedamountlow = () => this._flushFinal();
     channel.onclose = () => {
       if (this._channel === channel) {
         this._dropChannel();
         this._setCheckpoints(false);
+        this._scheduleReopen();
       }
     };
 
+    this._cancelReopen();
     this._pc = pc;
     this._channel = channel;
+  }
+
+  // пира нет — refresh() канал не откроет, и повторов больше не будет
+  _scheduleReopen() {
+    this._cancelReopen();
+
+    const delay = this._reopenDelay;
+
+    this._reopenDelay = Math.min(delay * 2, this._reopenMaxDelayMs);
+    this._reopenTimer = this._timers.setTimeout(() => {
+      this._reopenTimer = null;
+      this.refresh();
+    }, delay);
+  }
+
+  _cancelReopen() {
+    if (this._reopenTimer !== null) {
+      this._timers.clearTimeout(this._reopenTimer);
+      this._reopenTimer = null;
+    }
   }
 
   _closeChannel() {

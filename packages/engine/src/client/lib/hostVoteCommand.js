@@ -31,16 +31,6 @@ export function parseChangeHost(text, bootMode) {
 }
 
 /**
- * Перехватывает ли клиент сообщение (не отправляя его хосту).
- * @param {string} text
- * @param {string} bootMode
- * @returns {boolean}
- */
-export function shouldInterceptChangeHost(text, bootMode) {
-  return parseChangeHost(text, bootMode) !== null;
-}
-
-/**
  * Заголовок окна голосования у гостя.
  * @param {string|null} nick - инициатор.
  * @returns {string}

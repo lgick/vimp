@@ -6,7 +6,6 @@ import {
   parseChangeHost,
   rejectionMessageKey,
   resultMessage,
-  shouldInterceptChangeHost,
 } from '../../../packages/engine/src/client/lib/hostVoteCommand.js';
 
 // Голосование «Change host» (host-migration этап 10): /changehost
@@ -16,18 +15,15 @@ describe('parseChangeHost', () => {
   it('в лобби /changehost перехватывается', () => {
     expect(parseChangeHost('/changehost', 'lobby')).toBe('start');
     expect(parseChangeHost('  /changehost  ', 'lobby')).toBe('start');
-    expect(shouldInterceptChangeHost('/changehost', 'lobby')).toBe(true);
   });
 
   it('с аргументами — подсказка, хосту всё равно не уходит', () => {
     expect(parseChangeHost('/changehost now', 'lobby')).toBe('usage');
-    expect(shouldInterceptChangeHost('/changehost now', 'lobby')).toBe(true);
   });
 
   it('в solo и dedicated не перехватывается', () => {
     for (const mode of ['solo', 'dedicated']) {
       expect(parseChangeHost('/changehost', mode)).toBe(null);
-      expect(shouldInterceptChangeHost('/changehost', mode)).toBe(false);
     }
   });
 

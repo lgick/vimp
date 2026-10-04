@@ -318,6 +318,39 @@ describe('HostGame: восстановление из контрольной т�
     expect(socket.framesOf('sendClear')).toHaveLength(0);
   });
 
+  // ревью F3: клиент хост-игрока не в режиме возобновления и отвечает на
+  // первый кадр пакета синхронизации FIRST_SHOT_READY — это не вход в матч
+  it.each([
+    ['обычная игра', MID_ROUND],
+    ['noSpectators', { ...MID_ROUND, noSpectators: true }],
+  ])(
+    'повторный FIRST_SHOT_READY после разморозки — не вход (%s)',
+    async (_, game) => {
+      const { host, socket } = await createFixtureHost({ game });
+      const gameId = await enterMatch(host, { socketId: 's1' });
+
+      host.freeze();
+      host.setCheckpointSink(() => {});
+      host.requestCheckpoint({ final: true });
+      host.unfreeze();
+      expect(socket.framesOf('sendFirstShot').length).toBeGreaterThan(0);
+
+      socket.clearFrames();
+
+      const pushSystem = vi.spyOn(host._chat, 'pushSystem');
+      const admitPlayer = vi.spyOn(host._roundManager, 'admitPlayer');
+
+      host.firstShotReady(gameId);
+
+      expect(pushSystem).not.toHaveBeenCalledWith(
+        'USER_JOINED',
+        expect.anything(),
+      );
+      expect(socket.framesOf('sendFirstVote')).toHaveLength(0);
+      expect(admitPlayer).not.toHaveBeenCalled();
+    },
+  );
+
   it('чужая игра в точке валит восстановление', async () => {
     const { host } = await createFixtureHost();
     const { meta, core } = takeCheckpoint(host);
@@ -630,5 +663,24 @@ describe('HostGame: плановая передача ждёт границы р
     host.awaitRoundBoundary(cb);
 
     expect(cb).toHaveBeenCalledOnce();
+  });
+});
+
+describe('HostGame: плановая передача вытесняет эстафету (ревью, этап 8)', () => {
+  it('cancelHandoff: граница раунда стартует раунд, колбэк эстафеты не зовётся', async () => {
+    const { host } = await createFixtureHost();
+    const cb = vi.fn();
+
+    await enterMatch(host);
+    host.requestHandoff(cb);
+    host.cancelHandoff();
+
+    const startRound = vi.spyOn(host._roundManager, '_startRound');
+
+    host._roundManager.initiateNewRound();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(startRound).toHaveBeenCalledOnce();
+    expect(cb).not.toHaveBeenCalled();
   });
 });

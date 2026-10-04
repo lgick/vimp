@@ -685,6 +685,13 @@ export default class HostGame {
       return;
     }
 
+    // уже готовый участник получил пакет синхронизации (разморозка после
+    // сорвавшейся передачи) и ответил на его первый кадр — это не вход в
+    // матч: ни USER_JOINED, ни initialVote, ни повторной выдачи актора
+    if (user.isReady === true) {
+      return;
+    }
+
     const socketId = user.socketId;
 
     user.isReady = true;
@@ -872,6 +879,12 @@ export default class HostGame {
       this._timerManager.stopIdleCheckTimer();
       this._flushBeforeHandoff().then(() => cb(this._collectHandoff()));
     });
+  }
+
+  // отмена эстафеты, ещё ждущей границы раунда: плановая передача хоста её
+  // вытесняет (ревью, этап 8); повторный вызов безвреден
+  cancelHandoff() {
+    this._roundManager.cancelHandoff();
   }
 
   // плановая передача хоста (host-migration этап 8d): игра без
@@ -1132,13 +1145,9 @@ export default class HostGame {
    * ядра. Ядро прикладывается только у игры с migration.midRound и только
    * если дамп снялся — иначе режим 'soft' (восстановление начнёт раунд
    * заново).
-   * @param {'checkpoint'|'boundary'} [kind]
+   * @param {'checkpoint'|'boundary'} kind
    * @returns {{meta: Object, core: Uint8Array|null}}
    */
-  collectCheckpoint(kind = 'checkpoint') {
-    return this._collectState(kind);
-  }
-
   _collectState(kind) {
     let core = null;
     let plugin = null;

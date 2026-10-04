@@ -108,9 +108,9 @@ export default {
     // successorSwitchRatio × score текущего дольше successorSwitchSustainMs
     successorSwitchSustainMs: 30000,
     successorSwitchRatio: 0.65,
-    // аварийная миграция (этап 7): бета — преемник с точкой, если её
-    // standby_status пришёл не раньше checkpointMaxAgeMs назад (статус идёт
-    // раз в 5 с — окно больше двух периодов), иначе cold-промоушен любого
+    // аварийная миграция (этап 7): бета — преемник с точкой, если она
+    // получила её не раньше checkpointMaxAgeMs назад (по standby_status.ageMs;
+    // статус идёт раз в 5 с — окно больше двух периодов), иначе cold-промоушен любого
     // способного; преемник не занял комнату за promotionTimeoutMs
     // (coldPromotionTimeoutMs — он перезагружает страницу) — следующий
     checkpointMaxAgeMs: 12000,
@@ -118,13 +118,20 @@ export default {
     coldPromotionTimeoutMs: 25000,
     // отчёты host_unreachable: хост не ответил на probe за probeTimeoutMs —
     // потерян; ответил, но за reportWindowMs отчиталась половина гостей —
-    // принудительная миграция, не чаще forcedMigrationCooldownMs на комнату
+    // принудительная миграция, не чаще forcedMigrationCooldownMs на комнату.
+    // Гости и отчёты считаются по аккаунтам; кворум — не меньше
+    // minUnreachableReporters разных пользователей (в паре с плохим P2P один
+    // гость не снимает хоста — иначе роль «пинг-понгом» ходит по кругу)
     probeTimeoutMs: 2000,
     reportWindowMs: 5000,
     forcedMigrationCooldownMs: 30000,
+    minUnreachableReporters: 2,
     // плановая передача (этап 8): преемник не занял комнату за
     // handoffTimeoutMs — передача отменяется, хост размораживает матч
     handoffTimeoutMs: 8000,
+    // host_migrating.waitMs — дедлайн текущей попытки промоушена (передачи)
+    // плюс migrationNoticeMarginMs: столько гость ждёт host_changed
+    migrationNoticeMarginMs: 5000,
     // автотриггеры (этап 9c). Сетевой лаг хоста: медиана его RTT до гостей
     // (host_health) выше lagRttThresholdMs непрерывно lagSustainMs, а score
     // беты лучше score хоста хотя бы на lagImprovementRatio — хосту
@@ -143,13 +150,16 @@ export default {
     // комнате и тем же пользователем — не раньше кулдаунов; прошедшее
     // голосование просит хоста отдать роль, не начал за voteForceAfterMs —
     // принудительная миграция; снятый хост не бета и не хост комнаты
-    // demotedCooldownMs (кроме случая, когда больше принять некому)
+    // demotedCooldownMs (кроме случая, когда больше принять некому).
+    // Один голос на аккаунт; голосует и начинает участник, пробывший в
+    // комнате не меньше minVoterAgeMs (свежие вкладки не накручивают голоса)
     vote: {
       hostVoteDurationMs: 15000,
       roomVoteCooldownMs: 120000,
       userStartCooldownMs: 60000,
       voteForceAfterMs: 5000,
       demotedCooldownMs: 600000,
+      minVoterAgeMs: 30000,
     },
     // GET /rooms/:roomId (прямая ссылка, этап 3) на IP: открытие ссылки —
     // один запрос, лимит только против перебора roomId

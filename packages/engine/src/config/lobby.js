@@ -9,6 +9,10 @@ export default {
   // прямая ссылка #/<gameId>/<roomId> проверяется до входа
   roomUrl: roomId => `/rooms/${encodeURIComponent(roomId)}`,
 
+  // быстрая игра (GET /quickplay/:gameId, ревью F16): лучшая комната игры
+  // от мастера вместо всего списка; недоступен — GET /servers?search
+  quickPlayUrl: gameId => `/quickplay/${encodeURIComponent(gameId)}`,
+
   // быстрая игра по ссылке #/<gameId>: подходящей комнаты нет — создать
   // свою с настройками формы по умолчанию (false — показать лобби этой игры);
   // createDelayMinMs…createDelayMaxMs — случайная пауза перед созданием и
@@ -189,22 +193,46 @@ export default {
   // точки в канале standby (≤ минимального maxMessageSize с запасом);
   // standbyHighWaterBytes — bufferedAmount, выше которого периодическая
   // точка пропускается; standbyStatusIntervalMs — как часто бета сообщает
-  // мастеру свою последнюю точку; finalWaitMs — сколько бета при плановой
+  // мастеру свою последнюю точку (с её возрастом); maxRestoreAgeMs — точку,
+  // полученную раньше, преемник не поднимает (promote_failed → холодный
+  // старт; больше master:room:checkpointMaxAgeMs на дорогу статуса);
+  // standbyReopenDelayMs…standbyReopenMaxDelayMs — экспоненциальная пауза
+  // перед повторным открытием канала standby, закрывшегося при живом пире
+  // беты; finalWaitMs — сколько бета при плановой
   // передаче (этап 8) ждёт финальную точку замороженного хоста, прежде чем
   // взять последнюю периодическую; handoffSlowMs — нет handoff_go за это
   // время — «медленная связь» (передача продолжается); handoffDeadlineMs —
   // общий дедлайн плановой передачи от handoff_begin (master:room:
   // handoffTimeoutMs + запас на дорогу ответа мастера); deferMaxMs — потолок
-  // ожидания границы раунда передачей в игре без migration.midRound (этап 8d)
+  // ожидания границы раунда передачей в игре без migration.midRound (этап 8d);
+  // peersReportIntervalMs — период повтора room_peers хоста мастеру (кто
+  // подключён по WebRTC; при смене состава отчёт уходит сразу, с дебаунсом);
+  // minTokenLifetimeMs — вкладка, чей вход истечёт раньше, не объявляет
+  // canHost и отказывается от промоушена (токен предъявляется мастеру
+  // посреди матча, продления нет); tokenHandoffLeadMs — за столько до
+  // истечения входа хост с бетой сам передаёт роль (плановая передача на
+  // границе раунда); tokenHandoffRetryMs — через сколько повторить её, если
+  // беты ещё нет, идёт эстафета Worker'ов или передача сорвалась (повторы —
+  // до истечения входа); leaveFlushTimeoutMs — сколько «Leave
+  // server» хоста без людей ждёт записи очков участников перед закрытием
+  // комнаты (HostController.shutdown)
   migration: {
     checkpointIntervalMs: 500,
     standbyChunkBytes: 65536,
     standbyHighWaterBytes: 1024 * 1024,
     standbyStatusIntervalMs: 5000,
+    maxRestoreAgeMs: 15000,
+    standbyReopenDelayMs: 1000,
+    standbyReopenMaxDelayMs: 10000,
     finalWaitMs: 3000,
     handoffSlowMs: 3000,
     handoffDeadlineMs: 10000,
     deferMaxMs: 30000,
+    peersReportIntervalMs: 15000,
+    minTokenLifetimeMs: 600000,
+    tokenHandoffLeadMs: 300000,
+    tokenHandoffRetryMs: 5000,
+    leaveFlushTimeoutMs: 3000,
 
     // автотриггеры передачи (этап 9b, HostHealthPolicy; сэмпл — сообщение
     // health Worker'а раз в ~1 с): мягкая перегрузка — среднее tickRate за
@@ -244,7 +272,16 @@ export default {
   // считается мёртвым (кадры идут ~30/с, PING — раз в 3 с);
   // migrationWaitMs — сколько после host_migrating ждать host_changed, затем
   // комната считается закрытой (быструю игру); migrationPollMs — период
-  // повторного GET /rooms/:roomId, пока комната по ссылке в 'migrating'
+  // повторного GET /rooms/:roomId, пока комната по ссылке в 'migrating';
+  // host_migrating.waitMs мастера (сколько он ещё ищет преемника) ожидание
+  // продлевает, но не укорачивает; linkWaitMaxMs — крайний срок ожидания
+  // комнаты по ссылке, пока она меняет хоста; resumeSilenceGraceMs — фора
+  // сторожку тишины после возобновления до первого кадра: восстановленный
+  // матч стоит до hostDefaults.resumeWaitMs, ожидая остальных. Связки с
+  // таймингами мастера и Worker'а — tests/config/migrationTimings.test.js;
+  // joinRetryWindowMs — сколько гость повторяет join_room на unknownRoom
+  // после рестарта мастера, пока хост не вернёт комнату reclaim_host (больше
+  // master.room.hostReclaimGraceMs с запасом на бэкофф сигналинга хоста)
   session: {
     reconnectWindowMs: 15000,
     reconnectBaseDelayMs: 500,
@@ -252,6 +289,9 @@ export default {
     hostSilenceMs: 3000,
     migrationWaitMs: 40000,
     migrationPollMs: 1000,
+    linkWaitMaxMs: 90000,
+    resumeSilenceGraceMs: 3000,
+    joinRetryWindowMs: 30000,
   },
 
   // приёмник выгрузок отладочного контура (этап 6 плана plan/done/ai-debug):

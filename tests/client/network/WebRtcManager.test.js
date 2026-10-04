@@ -227,6 +227,20 @@ describe('WebRtcManager: каналы данных', () => {
     expect(opened).toHaveBeenCalledTimes(1);
   });
 
+  it('isOpen — оба канала открыты и менеджер не закрыт', async () => {
+    await manager.connect('h1');
+    expect(manager.isOpen).toBe(false);
+
+    peer.channels.meta.open();
+    expect(manager.isOpen).toBe(false);
+
+    peer.channels.state.open();
+    expect(manager.isOpen).toBe(true);
+
+    manager.close();
+    expect(manager.isOpen).toBe(false);
+  });
+
   it('сообщения из обоих каналов идут одним потоком message', async () => {
     const messages = [];
 
@@ -661,6 +675,40 @@ describe('WebRtcManager: плановая передача хоста (host-migr
       signaling.publisher.emit('error', { code: 'migrating' });
       vi.advanceTimersByTime(1000);
       expect(signaling.sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ревью F4: ошибка несёт re/roomId — чужие ответы повтор не запускают
+  it('migrating чужой комнаты и ошибка на join_room — без повтора', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const next = makeManager({ offerRetryMs: 1000 });
+
+      await next.connect('r1');
+      signaling.sent = [];
+      signaling.publisher.emit('error', {
+        code: 'migrating',
+        re: 'webrtc_offer',
+        roomId: 'r2',
+      });
+      signaling.publisher.emit('error', {
+        code: 'migrating',
+        re: 'join_room',
+        roomId: 'r1',
+      });
+      vi.advanceTimersByTime(1000);
+      expect(signaling.sent).toEqual([]);
+
+      signaling.publisher.emit('error', {
+        code: 'migrating',
+        re: 'webrtc_offer',
+        roomId: 'r1',
+      });
+      vi.advanceTimersByTime(1000);
+      expect(signaling.sent.filter(m => m.type === 'offer')).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

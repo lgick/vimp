@@ -304,3 +304,27 @@ describe('LobbyAuthModel: getRole', () => {
     expect(model.getRole()).toBe('user');
   });
 });
+
+// срок входа (host-migration-review этап 7): вкладка с кончающимся токеном
+// не принимает роль хоста
+describe('LobbyAuthModel: getTokenExpiresAt', () => {
+  it('отдаёт exp токена в мс', () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+
+    model.boot(`?token=${makeToken({ sub: 'u1', nick: 'Vanya', exp })}`);
+
+    expect(model.getTokenExpiresAt()).toBe(exp * 1000);
+  });
+
+  it('токен без exp — срок неизвестен', () => {
+    model.boot(`?token=${makeToken({ sub: 'u1', nick: 'Vanya' })}`);
+
+    expect(model.getTokenExpiresAt()).toBeNull();
+  });
+
+  it('без токена — null', () => {
+    model.boot('');
+
+    expect(model.getTokenExpiresAt()).toBeNull();
+  });
+});

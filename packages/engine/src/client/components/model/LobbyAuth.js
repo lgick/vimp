@@ -128,6 +128,15 @@ export default class LobbyAuthModel {
     return decodeJwtPayload(this._identityToken)?.role ?? 'user';
   }
 
+  // срок входа (мс эпохи) или null — неизвестен. Вкладка с кончающимся
+  // токеном не принимает роль хоста: register_host/reclaim_host предъявят
+  // его мастеру посреди матча (host-migration-review этап 7)
+  getTokenExpiresAt() {
+    const exp = decodeJwtPayload(this._identityToken)?.exp;
+
+    return typeof exp === 'number' ? exp * 1000 : null;
+  }
+
   _restore(tokenStorageKey) {
     const token = localStorage[tokenStorageKey];
 

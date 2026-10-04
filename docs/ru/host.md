@@ -88,8 +88,8 @@ room.game.wasmUrl })`, создаёт `HostGame`, отвечает
 - `disconnect(socketId)` — удаляет участника из игры и реестра;
 - `update_maps(maps)` — обновлённый каталог карт мастера →
   `HostGame.updateMaps`;
-- `prepare_handoff` / `resume` / `handoff_complete` — протокол эстафеты
-  Worker'ов (см. одноимённый раздел ниже);
+- `prepare_handoff` / `cancel_handoff` / `resume` / `handoff_complete` —
+  протокол эстафеты Worker'ов (см. одноимённый раздел ниже);
 - `checkpoint_start { intervalMs }` / `checkpoint_stop` /
   `checkpoint_request { final }` / `start_after_restore { waitForResume }` /
   `freeze` / `unfreeze` — контрольные точки хоста (см.
@@ -101,6 +101,15 @@ room.game.wasmUrl })`, создаёт `HostGame`, отвечает
   не придерживается — преемник всё равно начнёт его заново из мягкой точки,
   а сорвавшаяся передача не должна оставить комнату без раунда), а у игры с
   `midRound` — сразу;
+- `shutdown { timeoutMs }` — хост закрывает комнату («Leave server», когда
+  в ней больше никого): Worker вызывает `HostGame.destroy()` — закрывает
+  игры участников и ждёт срочной записи профилей — не дольше `timeoutMs`
+  (по умолчанию 3 с) и отвечает `shutdown_done`; исключение в `destroy`
+  уходит как `diagnostic { kind: 'shutdown' }`, `shutdown_done` — всё
+  равно. С этого момента новый `connect` (гость, чей оффер дошёл до хоста
+  раньше `host_closing`) получает `close_client` без кода — в лобби-режиме
+  гость ищет другую комнату, а не входит в закрывающийся матч. Worker не
+  гасится — это делает главный поток;
 - `debug { action, requestId }` — отладочные запросы, только в dev
   (`startRecording`/`stopRecording`/`dump`), ответ — `debug_result` с тем же
   `requestId`. Промис в главном потоке имеет таймаут 5 с: отладка нужна
@@ -433,7 +442,7 @@ Host-фасад — wiring модулей + жизненный цикл учас
   «Эстафета Worker'ов»;
 - **контрольные точки**: `setCheckpointSink(fn)`, `startCheckpoints(ms)` /
   `stopCheckpoints()`, `requestCheckpoint({ final })`,
-  `collectCheckpoint(kind)`, `freeze()`/`unfreeze()`, `startAfterRestore()`,
+  `freeze()`/`unfreeze()`, `startAfterRestore()`,
   `startAfterResume(onStart)` (старт у преемника, когда люди вернулись),
   `detachedGameIds()`, опции конструктора `checkpoint`/`seqFloor`/`roomSettings`/`mapsVersion` —
   см. раздел «Контрольные точки»;
@@ -857,6 +866,20 @@ rank/state продолжают писаться после свопа (до v4 
 замечают. Параллельные свопы исключены (guard в `main.js` и в
 `HostController`).
 
+**Уступка плановой передаче.** Своп, ещё ждущий границы раунда (в игре с
+длинными раундами — до часа), уступает
+[плановой передаче](#плановая-передача) — преемник и так готовит комнату из
+актуального worker-бандла. `HostController.cancelPendingSwap()` шлёт
+старому Worker'у `cancel_handoff` (`HostGame.cancelHandoff` снимает колбэк
+границы, ближайший `initiateNewRound` стартует раунд как обычно) и
+отвергает промис свопа с `swap preempted`; `refreshHostWorker` не помечает
+эту версию сбойной. Если Worker успел отдать `handoff_state` до прихода
+`cancel_handoff`, на запоздавшее состояние отвечается `resume`. Своп, уже
+переносящий состояние (после `handoff_state`), не снимается — передача
+отклоняется. Если передача сорвалась и вкладка осталась хостом,
+`refreshHostWorker()` запускается снова и повторяет своп, если версия всё
+ещё отличается.
+
 ### Миграция хоста
 
 В лобби-режиме комната переживает вкладку, которая её создала: роль хоста
@@ -908,7 +931,7 @@ rank/state продолжают писаться после свопа (до v4 
 | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `version`, `kind`, `mode`                                                                    | `4`; `'checkpoint'` или `'boundary'` (эстафета внутри вкладки); `'midRound'` или `'soft'`                                                                                                                                                                                              |
 | `gameId`, `gameVersion`, `engineVersion`, `createdAt`, `checkpointId`, `seq`, `snapshotTick` | идентичность и счётчик кадров                                                                                                                                                                                                                                                          |
-| `room`                                                                                       | `{ roomId, epoch, settings, game: { id, version } }` — `settings` — то, что читает `applyRoomOverrides`: преемник собирает тот же конфиг ядра                                                                                                                                          |
+| `room`                                                                                       | `{ roomId, epoch, settings, game: { id, version } }` — `settings` — то, что читает `applyRoomOverrides`: преемник собирает тот же конфиг ядра (без `isDevMode` — dev-режим определяет сборка вкладки)                                                                                  |
 | `map`                                                                                        | `{ name, data, mapsVersion, override }` — JSON текущей карты из каталога (у преемника каталог может быть другим) и карта, подменённая игрой через `overrideMapData`                                                                                                                    |
 | `timers`                                                                                     | `TimerManager.serialize()`: остаток карты/раунда, `teamChangeGraceLeft`, `pending` (отложенный рестарт раунда, смена карты с `targetMap`), `voteCooldowns`                                                                                                                             |
 | `round`                                                                                      | `isRoundEnding`, `wipedTeamIds`, `removedPlayers`, `startMapNumber`                                                                                                                                                                                                                    |
@@ -984,12 +1007,20 @@ callbacks)` (прогретый Worker); конструктор принимае
 `RTCPeerConnection`, получает новый канал на ближайшей смене состава пиров
 (`refresh()`). Пока канал есть, включён
 `HostController.startCheckpoints(migration.checkpointIntervalMs)`; без него —
-`stopCheckpoints()`.
+`stopCheckpoints()`. Канал, закрывшийся сам при живом пире преемника,
+открывается заново по таймеру с экспоненциальной задержкой
+(`migration.standbyReopenDelayMs` 1 с, удвоение до
+`standbyReopenMaxDelayMs` 10 с; открытие её сбрасывает; новый преемник или
+`destroy` таймер снимают) — иначе поток точек стоял бы до ближайшей смены
+состава пиров.
 
 **Куски** (`client/network/standbyChunks.js`). Логический поток одной точки —
 `[u16 descLen][desc JSON][байты точки]`, где
-`desc = { checkpointId, createdAt, mode }` — преемник сообщает мастеру id и
-свежесть, не распаковывая точку. Поток режется на куски не больше
+`desc = { checkpointId, createdAt, mode, game }` — преемник сообщает мастеру
+id и свежесть и прогревает игру (`game: { id, version }` из сообщения
+`checkpoint` Worker'а или `null`; приёмник оставляет только непустые строки
+не длиннее 64 символов), не распаковывая точку. Хост старше поля `game` его
+не шлёт — тогда прогрев читает `room.game` из самой точки. Поток режется на куски не больше
 `migration.standbyChunkBytes` (64 КБ) вместе с 24-байтным little-endian
 заголовком:
 
@@ -1022,8 +1053,9 @@ Worker получает `preload { room }` вместо `init`, импортир
 `lib/createHostRuntime.js`: `compileStreaming`, с откатом на
 `compile(arrayBuffer)`), отвечает `preloaded` и матч не создаёт; сбой —
 ответ `error`. Повторный `import` того же URL в этом Worker'е берётся из
-кэша модулей, а wasm — из HTTP-кэша. Сторона преемника — в
-[client.md](client.md).
+кэша модулей, а wasm — из HTTP-кэша. Прогрев даёт HTTP-кэш и кэш кода wasm
+браузера (`compileStreaming`), сам скомпилированный `WebAssembly.Module` не
+переиспользуется. Сторона преемника — в [client.md](client.md).
 
 ### Аварийная миграция
 
@@ -1061,9 +1093,14 @@ Worker получает `preload { room }` вместо `init`, импортир
 
 1. Хост шлёт `handoff_begin { roomId, epoch, reason, stay }`; мастер
    переводит комнату в `handing_off` и отвечает `handoff_go` (преемнику —
-   `promote { mode: 'planned' }`, всем — `host_migrating`) либо
+   `promote { mode: 'planned' }`, остальным — `host_migrating`) либо
    `handoff_unavailable` — тогда передача роли просто не делается, а уход
-   продолжается аварийной миграцией (`host_leaving`).
+   продолжается аварийной миграцией (`host_leaving`). Преемник
+   `host_migrating` не получает: по `promote { mode: 'planned' }` он сам
+   ставит сессию своего игрока на паузу (опция `holdSession` у
+   `Promotion` → `SessionSupervisor.migrate({ keepTransport: true })`) и
+   держит соединение с замороженным хостом — поверх него идёт канал
+   `standby` с финальной точкой.
 2. `handoff_go` → `freeze()` → `requestCheckpoint({ final: true })`:
    финальная точка уходит по `standby` раньше любой периодической.
 3. Преемник ждёт её (`migration.finalWaitMs`, см.
@@ -1074,12 +1111,18 @@ Worker получает `preload { room }` вместо `init`, импортир
    лобби. `handoff_aborted`, отказ, обрыв сигналинга или
    `migration.handoffDeadlineMs` → `unfreeze()` (с полной синхронизацией,
    см. «Заморозка» в [Контрольные точки](#контрольные-точки)): матч идёт
-   дальше, вкладка остаётся хостом, эпоха не меняется.
+   дальше, вкладка остаётся хостом, эпоха не меняется. Игрок самого хоста
+   не в режиме возобновления и отвечает на первый кадр синхронизации
+   `FIRST_SHOT_READY`; `firstShotReady` уже готового участника
+   игнорируется — ни `USER_JOINED`, ни `initialVote`, ни повторного актора
+   при `noSpectators`.
 
 Игра без `migration.midRound` передаёт роль (`stay`) только на границе
 раунда (`awaitRoundBoundary`, не дольше `migration.deferMaxMs`); уход не
-ждёт — преемник начинает новый раунд из мягкой точки. Закрытие вкладки
-хоста — не плановая передача: `beforeunload` просит подтверждения, пока в
+ждёт — преемник начинает новый раунд из мягкой точки. Эстафета Worker'ов,
+ждущая границы раунда, передачу не блокирует — она снимается (см.
+«Уступка плановой передаче» в [Эстафета Worker'ов](#эстафета-workerов)).
+Закрытие вкладки хоста — не плановая передача: `beforeunload` просит подтверждения, пока в
 комнате есть другие люди, а `pagehide` шлёт `host_leaving` — аварийная
 миграция с обычным откатом (диалог останавливает главный поток, финальная
 точка во время него уйти не может).
@@ -1164,7 +1207,17 @@ mode }`, [master.md](master.md#миграция-хоста)), вкладка п�
 версии игры, что в точке, иначе — в новом `HostController` с
 `{ checkpoint, seqFloor }`; `seqFloor` — большее из последнего кадра хоста,
 который видел этот клиент, и `seq` точки. Комната получает `hostSocketId`,
-`roomId` и новую эпоху. `ready` (матч на паузе) → вкладка берёт роль хоста
+`roomId` и новую эпоху. Точку шлёт хост — другой игрок, поэтому это
+недоверенные данные: из `meta.room.settings` берутся только ключи
+`sanitizeRoomSettings` (`lib/roomSettings.js`: `map`, `maxPlayers`,
+`roundTime`, `mapTime`, `friendlyFire`, числа клампятся), а игра, карты
+мастера и dev-режим — собственные (`prepareHostRoom`; `isDevMode` в точку
+не попадает вовсе). `room.game` точки сверяется с игрой, которую
+подтверждает мастер, — `promote.game { id, versions }`: другая игра или
+неподтверждённая версия → `promote_failed` (мастер без этого поля —
+проверка пропускается). Прогрев так же сверяет точку со
+`standby_assigned.game` и такую точку игнорирует (прогретый Worker
+остаётся). `ready` (матч на паузе) → вкладка берёт роль хоста
 (те же `HostConnectionManager`/`StandbySender`/heartbeat, что у созданной
 комнаты) и регистрируется. `host_registered` → `start_after_restore {
 waitForResume: true, reason }` (`reason` из `promote`; главный поток
@@ -1176,8 +1229,11 @@ waitForResume: true, reason }` (`reason` из `promote`; главный пото
 переключения его не съедает. Свой игрок преемника возвращается через
 `LoopbackTransport(controller, 'local', { resume: true })` со своим
 `resumeKey`; участник перепривязывается к `'local'`, и исключения
-хоста-игрока (не кикается, не отсоединяется) переезжают на него. Сбой на
-любом шаге (нет точки, нет секрета места своего игрока, плагин/wasm,
+хоста-игрока (не кикается, не отсоединяется) переезжают на него. Точка,
+полученная раньше `migration.maxRestoreAgeMs` (15 с) назад, не
+поднимается — откат мира на столько хуже холодного старта; финальная точка
+плановой передачи свежая всегда. Сбой на
+любом шаге (нет точки или она слишком старая, нет секрета места своего игрока, плагин/wasm,
 `init` → `error`, мастер отверг регистрацию) — `promote_failed`, вкладка
 снова ждёт как гость; `promote_cancelled` гасит Worker так же. После
 регистрации комната — этой вкладки: если свой игрок всё же не вернулся

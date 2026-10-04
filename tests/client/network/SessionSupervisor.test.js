@@ -504,6 +504,73 @@ describe('SessionSupervisor', () => {
       expect(attempts).toHaveLength(1);
     });
 
+    describe('keepTransport: бета плановой передачи (F2)', () => {
+      it('транспорт цел, но его кадры не доходят, сторожка нет', () => {
+        const supervisor = inGame();
+        const close = vi.spyOn(first, 'close');
+
+        expect(supervisor.migrate({ keepTransport: true })).toBe(true);
+        expect(supervisor.state).toBe(S.migrating);
+        expect(first.destroyed).toBe(false);
+
+        hooks.onMessage.mockClear();
+        first.receive('[10,1]');
+        expect(hooks.onMessage).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(TIMING.hostSilenceMs * 3);
+        expect(close).not.toHaveBeenCalled();
+        expect(supervisor.state).toBe(S.migrating);
+      });
+
+      it('повторный migrate (host_migrating старого мастера) транспорт не бросает', () => {
+        const supervisor = inGame();
+
+        supervisor.migrate({ keepTransport: true });
+
+        expect(supervisor.migrate()).toBe(false);
+        expect(first.destroyed).toBe(false);
+      });
+
+      it('закрытие сохранённого транспорта не терминально', () => {
+        const supervisor = inGame();
+
+        supervisor.migrate({ keepTransport: true });
+        first.close();
+
+        expect(supervisor.state).toBe(S.migrating);
+        expect(hooks.onTerminal).not.toHaveBeenCalled();
+        expect(hooks.onHostLost).not.toHaveBeenCalled();
+        expect(attempts).toHaveLength(0);
+
+        // исход по-прежнему решает таймер ожидания
+        vi.advanceTimersByTime(TIMING.migrationWaitMs);
+        expect(hooks.onTerminal).toHaveBeenCalledTimes(1);
+      });
+
+      it('host_changed reclaimed бросает сохранённый транспорт и возобновляет', () => {
+        const supervisor = inGame();
+
+        supervisor.migrate({ keepTransport: true });
+        supervisor.hostChanged({ mode: 'reclaimed' });
+
+        expect(first.destroyed).toBe(true);
+        expect(supervisor.state).toBe(S.reconnecting);
+        expect(attempts).toHaveLength(1);
+      });
+
+      it('resumeWith бросает сохранённый транспорт', () => {
+        const supervisor = inGame();
+        const loopback = makeTransport();
+
+        supervisor.migrate({ keepTransport: true });
+        supervisor.resumeWith(loopback);
+
+        expect(first.destroyed).toBe(true);
+        expect(supervisor.transport).toBe(loopback);
+        expect(supervisor.state).toBe(S.reconnecting);
+      });
+    });
+
     it('без reconnect (вкладка-хост, solo, dedicated) — не мигрирует', () => {
       const supervisor = inGame({ reconnect: null });
 
@@ -549,6 +616,121 @@ describe('SessionSupervisor', () => {
 
       vi.advanceTimersByTime(60000);
       expect(supervisor.state).toBe(S.inGame);
+    });
+  });
+
+  // мастер сообщает, сколько ещё ищет преемника (ревью F12)
+  describe('host_migrating.waitMs', () => {
+    it('migrate({ waitMs }) дольше migrationWaitMs — ждёт waitMs', () => {
+      const supervisor = inGame();
+
+      supervisor.migrate({ waitMs: 60000 });
+      vi.advanceTimersByTime(59999);
+      expect(supervisor.state).toBe(S.migrating);
+
+      vi.advanceTimersByTime(1);
+      expect(supervisor.state).toBe(S.closed);
+      expect(hooks.onTerminal).toHaveBeenCalledTimes(1);
+    });
+
+    it('waitMs короче migrationWaitMs не укорачивает ожидание', () => {
+      const supervisor = inGame();
+
+      supervisor.migrate({ waitMs: 1000 });
+      vi.advanceTimersByTime(TIMING.migrationWaitMs - 1);
+      expect(supervisor.state).toBe(S.migrating);
+    });
+
+    it.each([NaN, -5, Infinity, '60000', null, 10 ** 9])(
+      'мусорный waitMs %s игнорируется (предел 120 с)',
+      waitMs => {
+        const supervisor = inGame();
+
+        supervisor.migrate({ waitMs });
+        vi.advanceTimersByTime(
+          waitMs === 10 ** 9 ? 120000 : TIMING.migrationWaitMs,
+        );
+        expect(supervisor.state).toBe(S.closed);
+      },
+    );
+
+    it('extendMigration продлевает, но не укорачивает', () => {
+      const supervisor = inGame();
+
+      supervisor.migrate();
+      vi.advanceTimersByTime(15000);
+
+      // осталось 5 с — продление до 30 с
+      expect(supervisor.extendMigration(30000)).toBe(true);
+      vi.advanceTimersByTime(29999);
+      expect(supervisor.state).toBe(S.migrating);
+
+      // осталась 1 мс — 0 и мусор срок не трогают
+      supervisor.extendMigration(0);
+      supervisor.extendMigration('x');
+      vi.advanceTimersByTime(1);
+      expect(supervisor.state).toBe(S.closed);
+    });
+
+    it('extendMigration короче остатка — остаток сохраняется', () => {
+      const supervisor = inGame();
+
+      supervisor.migrate({ waitMs: 60000 });
+      supervisor.extendMigration(1000);
+      vi.advanceTimersByTime(59999);
+      expect(supervisor.state).toBe(S.migrating);
+      vi.advanceTimersByTime(1);
+      expect(supervisor.state).toBe(S.closed);
+    });
+
+    it('extendMigration вне ожидания — ничего', () => {
+      const supervisor = inGame();
+
+      expect(supervisor.extendMigration(30000)).toBe(false);
+      expect(supervisor.state).toBe(S.inGame);
+    });
+  });
+
+  // восстановленный матч стоит до resumeWaitMs, ожидая остальных (ревью F12)
+  describe('фора сторожка после возобновления', () => {
+    const resumed = () => {
+      const supervisor = inGame({
+        timing: { ...TIMING, resumeSilenceGraceMs: 3000 },
+      });
+
+      first.close();
+      attempts[0].open();
+      supervisor.resumeResult({ ok: true, gameId: 7 });
+
+      return supervisor;
+    };
+
+    it('до первого кадра порог — hostSilenceMs + resumeSilenceGraceMs', () => {
+      const supervisor = resumed();
+
+      vi.advanceTimersByTime(5000);
+      expect(supervisor.state).toBe(S.inGame);
+
+      vi.advanceTimersByTime(2000);
+      expect(supervisor.state).toBe(S.reconnecting);
+    });
+
+    it('noteFrame() возвращает обычный порог', () => {
+      const supervisor = resumed();
+
+      attempts[0].receive(new ArrayBuffer(4));
+      supervisor.noteFrame();
+      vi.advanceTimersByTime(4100);
+      expect(supervisor.state).toBe(S.reconnecting);
+    });
+
+    it('первичный вход форы не получает', () => {
+      const supervisor = inGame({
+        timing: { ...TIMING, resumeSilenceGraceMs: 3000 },
+      });
+
+      vi.advanceTimersByTime(4100);
+      expect(supervisor.state).toBe(S.reconnecting);
     });
   });
 

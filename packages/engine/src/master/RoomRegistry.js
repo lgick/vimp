@@ -17,6 +17,20 @@ const toInt = (value, fallback, min, max) => {
 
 const ICE_TYPES = new Set(['host', 'srflx', 'prflx', 'relay']);
 const MAX_FPS = 1000;
+const MAX_GAME_VERSION = 64;
+
+// версию игры комнаты актуализирует хост новой эпохи и вернувшийся хост:
+// эстафета Worker'ов могла поднять матч на новой версии, а бета сверяет с
+// ней точку. Мусор — версия не трогается; hidden не пересчитывается
+function setGameVersion(room, gameVersion) {
+  if (
+    typeof gameVersion === 'string' &&
+    gameVersion !== '' &&
+    gameVersion.length <= MAX_GAME_VERSION
+  ) {
+    room.gameVersion = gameVersion;
+  }
+}
 
 /**
  * Возможности участника (host-migration этап 6) из недоверенного сообщения:
@@ -71,6 +85,12 @@ export default class RoomRegistry {
     this._hostReclaimGraceMs = options.hostReclaimGraceMs ?? 10000;
 
     this._rooms = new Map(); // roomId -> Room
+    // индексы (ревью F16): регистрация хоста и закрытие WS не проходят по
+    // всем комнатам. IP хоста -> roomId его комнат (обычно одна: add/restore
+    // её гарантируют, а смена хоста — нет); sessionId -> ключи участников
+    // "roomId\u0000memberId", привязанных к этой сессии
+    this._hostIpIndex = new Map();
+    this._sessionIndex = new Map();
   }
 
   get size() {
@@ -149,8 +169,17 @@ export default class RoomRegistry {
       votedOutEpoch: null,
       hostSince: now,
       lag: null,
-      // отчёты host_unreachable: memberId -> время последнего
+      // отчёты host_unreachable: userId -> время последнего (кворум — по
+      // аккаунтам, не по вкладкам)
       reports: new Map(),
+      // когда хост последний раз прислал room_peers (подключённые по WebRTC
+      // участники); null — отчётов нет (хост старше их), и подтверждёнными
+      // считаются все
+      peersReportedAt: null,
+      // memberId из последнего room_peers этой эпохи: отчёт обычно
+      // опережает join_room нового гостя (тот шлёт его после входа в матч),
+      // и подтверждение не должно ждать следующего отчёта
+      reportedPeerIds: new Set(),
       maxPlayers: toInt(maxPlayers, ceiling, 1, ceiling),
       // строка карточки лобби (gameConfig.lobbyInfo игры): null — игра её
       // не задаёт, и карточка ничего не показывает
@@ -182,13 +211,15 @@ export default class RoomRegistry {
       members: new Map(),
       // преемник (host-migration этап 6): memberId беты, кандидат на её
       // замену ({ memberId, since } — гистерезис) и свежесть её точки
-      // ({ memberId, checkpointId, createdAt, receivedAt } из standby_status)
+      // ({ memberId, checkpointId, createdAt, receivedAt } из standby_status;
+      // receivedAt — когда бета получила точку, по часам мастера)
       successorMemberId: null,
       successorChallenger: null,
       standby: null,
     };
 
     this._rooms.set(roomId, room);
+    this._indexHostIp(room);
     // хост — участник своей комнаты
     this.joinMember(roomId, host, now);
 
@@ -221,8 +252,20 @@ export default class RoomRegistry {
 
   // комната, которую хостит этот IP (лимит «одна комната на IP»)
   getByIp(ip) {
+    const roomIds = this._hostIpIndex.get(ip);
+
+    if (!roomIds) {
+      return undefined;
+    }
+
+    if (roomIds.size === 1) {
+      return this._rooms.get(roomIds.values().next().value);
+    }
+
+    // редкий случай (преемник с IP другого хоста): первая по реестру, как
+    // при полном проходе
     for (const room of this._rooms.values()) {
-      if (room.host.ip === ip) {
+      if (roomIds.has(room.roomId)) {
         return room;
       }
     }
@@ -231,7 +274,83 @@ export default class RoomRegistry {
   }
 
   remove(roomId) {
-    return this._rooms.delete(roomId);
+    const room = this._rooms.get(roomId);
+
+    if (!room) {
+      return false;
+    }
+
+    this._deleteRoom(room);
+
+    return true;
+  }
+
+  _deleteRoom(room) {
+    for (const member of room.members.values()) {
+      this._unindexMember(room.roomId, member);
+    }
+
+    this._unindexHostIp(room);
+    this._rooms.delete(room.roomId);
+  }
+
+  _indexHostIp(room) {
+    const roomIds = this._hostIpIndex.get(room.host.ip);
+
+    if (roomIds) {
+      roomIds.add(room.roomId);
+    } else {
+      this._hostIpIndex.set(room.host.ip, new Set([room.roomId]));
+    }
+  }
+
+  _unindexHostIp(room) {
+    const roomIds = this._hostIpIndex.get(room.host.ip);
+
+    if (roomIds?.delete(room.roomId) && roomIds.size === 0) {
+      this._hostIpIndex.delete(room.host.ip);
+    }
+  }
+
+  _indexMember(roomId, member) {
+    if (member.sessionId === null) {
+      return;
+    }
+
+    const key = `${roomId}\u0000${member.memberId}`;
+    const keys = this._sessionIndex.get(member.sessionId);
+
+    if (keys) {
+      keys.add(key);
+    } else {
+      this._sessionIndex.set(member.sessionId, new Set([key]));
+    }
+  }
+
+  _unindexMember(roomId, member) {
+    if (member.sessionId === null) {
+      return;
+    }
+
+    const keys = this._sessionIndex.get(member.sessionId);
+
+    if (keys?.delete(`${roomId}\u0000${member.memberId}`) && keys.size === 0) {
+      this._sessionIndex.delete(member.sessionId);
+    }
+  }
+
+  _deleteMember(room, memberId) {
+    const member = room.members.get(memberId);
+
+    if (!member) {
+      return false;
+    }
+
+    this._unindexMember(room.roomId, member);
+    // отчёт описывал прежнее членство: повторный вход ждёт нового отчёта
+    room.reportedPeerIds.delete(memberId);
+
+    return room.members.delete(memberId);
   }
 
   // секрет текущей эпохи — уходит только хосту в host_registered
@@ -276,7 +395,11 @@ export default class RoomRegistry {
   }
 
   // хост вернулся (reclaim_host): перепривязать сессию, снять отсоединение
-  attachHost(roomId, { sessionId, memberId, ip }, now = Date.now()) {
+  attachHost(
+    roomId,
+    { sessionId, memberId, ip, gameVersion },
+    now = Date.now(),
+  ) {
     const room = this._rooms.get(roomId);
 
     if (!room) {
@@ -288,14 +411,17 @@ export default class RoomRegistry {
     // memberId — id вкладки; reclaim из той же вкладки его не меняет, но
     // старая запись не должна остаться висеть, если он всё же другой
     if (previous && room.host.memberId !== memberId) {
-      room.members.delete(room.host.memberId);
+      this._deleteMember(room, room.host.memberId);
     }
 
+    this._unindexHostIp(room);
     room.host.sessionId = sessionId;
     room.host.memberId = memberId;
     room.host.ip = ip;
+    this._indexHostIp(room);
     room.host.detachedAt = null;
     room.lastSeen = now;
+    setGameVersion(room, gameVersion);
 
     this.joinMember(
       roomId,
@@ -327,7 +453,17 @@ export default class RoomRegistry {
   // memberId вкладки), она удаляется
   promoteHost(
     roomId,
-    { epoch, sessionId, memberId, userId, nick, ip, caps, previousMemberId },
+    {
+      epoch,
+      sessionId,
+      memberId,
+      userId,
+      nick,
+      ip,
+      caps,
+      previousMemberId,
+      gameVersion,
+    },
     now = Date.now(),
   ) {
     const room = this._rooms.get(roomId);
@@ -337,8 +473,10 @@ export default class RoomRegistry {
     }
 
     if (previousMemberId && previousMemberId !== memberId) {
-      room.members.delete(previousMemberId);
+      this._deleteMember(room, previousMemberId);
     }
+
+    this._unindexHostIp(room);
 
     room.epoch = epoch;
     room.status = 'online';
@@ -352,12 +490,22 @@ export default class RoomRegistry {
       ip,
       detachedAt: null,
     };
+    this._indexHostIp(room);
     room.lastSeen = now;
     room.hostSince = now;
     room.lag = null;
     room.successorMemberId = null;
     room.successorChallenger = null;
     room.standby = null;
+    // к новому хосту пиры подключаются заново — он пришлёт свой room_peers
+    room.peersReportedAt = null;
+    room.reportedPeerIds = new Set();
+
+    for (const member of room.members.values()) {
+      member.peerConfirmed = false;
+    }
+
+    setGameVersion(room, gameVersion);
 
     this.joinMember(roomId, { memberId, userId, nick, sessionId, caps }, now);
 
@@ -402,21 +550,42 @@ export default class RoomRegistry {
       // к хосту-ему не смогли подключиться (этап 7) — ярус relay до конца
       // членства
       relayPenalty: existing?.relayPenalty ?? false,
+      // хост подтвердил WebRTC-соединение с ним (room_peers)
+      // (или был в его отчёте ещё до join_room)
+      peerConfirmed:
+        existing?.peerConfirmed ?? room.reportedPeerIds.has(memberId),
     };
 
+    if (existing) {
+      this._unindexMember(roomId, existing);
+    }
+
     room.members.set(memberId, member);
+    this._indexMember(roomId, member);
 
     return member;
   }
 
   // WS участника закрылся: он ещё в комнате memberGraceMs (реконнект)
   detachMember(sessionId, now = Date.now()) {
-    for (const room of this._rooms.values()) {
-      for (const member of room.members.values()) {
-        if (member.sessionId === sessionId) {
-          member.sessionId = null;
-          member.detachedAt = now;
-        }
+    const keys = this._sessionIndex.get(sessionId);
+
+    if (!keys) {
+      return;
+    }
+
+    this._sessionIndex.delete(sessionId);
+
+    for (const key of keys) {
+      const split = key.indexOf('\u0000');
+      const member = this._rooms
+        .get(key.slice(0, split))
+        ?.members.get(key.slice(split + 1));
+
+      // запись могли удалить мимо реестра — сверка по самой сессии
+      if (member?.sessionId === sessionId) {
+        member.sessionId = null;
+        member.detachedAt = now;
       }
     }
   }
@@ -435,9 +604,40 @@ export default class RoomRegistry {
     return member;
   }
 
+  // отчёт хоста room_peers: участники с открытыми каналами к нему. Остальные
+  // — самозаявленные (сигнальная сессия без пира) и не считаются игроками
+  setConfirmedPeers(roomId, memberIds, now = Date.now()) {
+    const room = this._rooms.get(roomId);
+
+    if (!room) {
+      return;
+    }
+
+    const confirmed = new Set(memberIds);
+
+    room.peersReportedAt = now;
+    room.reportedPeerIds = confirmed;
+
+    for (const member of room.members.values()) {
+      member.peerConfirmed = confirmed.has(member.memberId);
+    }
+  }
+
+  // участник подтверждён хостом; без отчётов (хост старше room_peers) —
+  // все, как раньше
+  isConfirmed(room, member) {
+    return (
+      room.peersReportedAt === null ||
+      member.memberId === room.host.memberId ||
+      member.peerConfirmed === true
+    );
+  }
+
   // участник ушёл сам — без grace
   leaveMember(roomId, memberId) {
-    return this._rooms.get(roomId)?.members.delete(memberId) ?? false;
+    const room = this._rooms.get(roomId);
+
+    return room ? this._deleteMember(room, memberId) : false;
   }
 
   _isLive(member, now) {
@@ -488,7 +688,14 @@ export default class RoomRegistry {
     for (const [roomId, room] of this._rooms) {
       for (const [memberId, member] of room.members) {
         if (!this._isLive(member, now)) {
-          room.members.delete(memberId);
+          this._deleteMember(room, memberId);
+        }
+      }
+
+      // отметки голосования (этап 10) живут до срока — иначе копятся
+      for (const [userId, until] of room.demotedUsers) {
+        if (until <= now) {
+          room.demotedUsers.delete(userId);
         }
       }
 
@@ -496,7 +703,7 @@ export default class RoomRegistry {
       // кандидат может перезагружать страницу (cold) дольше memberGraceMs.
       // Её закроет MigrationCoordinator по дедлайну промоушена
       if (room.members.size === 0 && room.status !== 'migrating') {
-        this._rooms.delete(roomId);
+        this._deleteRoom(room);
         removed.push(roomId);
         continue;
       }
@@ -581,13 +788,45 @@ export default class RoomRegistry {
     };
   }
 
+  // быстрая игра (GET /quickplay/:gameId, ревью F16): среди видимых, как в
+  // getList, комнат строго этой игры — неполная с максимумом игроков (при
+  // равенстве — первая), как pickQuickPlayRoom клиента по полному списку.
+  // Скрытые не выдаются: быстрая игра — не админский вызов
+  bestRoom(gameId, now = Date.now()) {
+    let best = null;
+    let bestPlayers = -1;
+
+    for (const room of this._rooms.values()) {
+      if (
+        room.hidden ||
+        room.status !== 'online' ||
+        room.host.sessionId === null ||
+        room.gameId !== gameId
+      ) {
+        continue;
+      }
+
+      const players = this.currentPlayers(room, now);
+
+      if (players < room.maxPlayers && players > bestPlayers) {
+        best = room;
+        bestPlayers = players;
+      }
+    }
+
+    return best ? this._toPublic(best, now) : null;
+  }
+
   // публичная форма одной комнаты по прямому id (GET /rooms/:roomId, прямая
   // ссылка): скрытые тоже — вход по id в скрытую комнату и так возможен
-  // оффером; status нужен ссылке, чтобы отличить комнату в миграции
+  // оффером; status нужен ссылке, чтобы отличить комнату в миграции.
+  // Закрывающаяся (host_closing) — 404: войти в неё уже нельзя
   getPublic(roomId, now = Date.now()) {
     const room = this.get(roomId);
 
-    return room ? { ...this._toPublic(room, now), status: room.status } : null;
+    return room && room.status !== 'closing'
+      ? { ...this._toPublic(room, now), status: room.status }
+      : null;
   }
 
   // строка карточки: санированная и обрезанная, пустая — null
@@ -604,12 +843,13 @@ export default class RoomRegistry {
     return text === '' ? null : text;
   }
 
-  // число людей в комнате — по участникам, а не по самоотчёту хоста
+  // число людей в комнате — по участникам, подтверждённым хостом, а не по
+  // самоотчёту хоста
   currentPlayers(room, now = Date.now()) {
     let count = 0;
 
     for (const member of room.members.values()) {
-      if (this._isLive(member, now)) {
+      if (this._isLive(member, now) && this.isConfirmed(room, member)) {
         count += 1;
       }
     }

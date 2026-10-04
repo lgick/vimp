@@ -309,13 +309,15 @@ describe('старт голосования', () => {
   });
 
   it('хост не может начать', async () => {
-    const { host } = await setupVoteRoom();
+    const { host, room } = await setupVoteRoom();
 
     startVote(host);
 
     expect(host.ws.lastOf('error')).toEqual({
       type: 'error',
       code: 'voteRejected',
+      re: 'host_vote_start',
+      roomId: room.roomId,
       reason: 'host',
     });
     expect(host.ws.typed('host_vote_started')).toEqual([]);
@@ -391,7 +393,123 @@ describe('старт голосования', () => {
     expect(guest.ws.lastOf('error')).toEqual({
       type: 'error',
       code: 'noSuccessor',
+      re: 'host_vote_start',
+      roomId: host.roomId,
     });
+  });
+});
+
+describe('голос — по пользователю', () => {
+  // вторая вкладка того же пользователя: свой memberId, тот же userId
+  const joinTab = async (roomId, userId, tab) => {
+    const conn = await connect(`5.5.6.${userId}`);
+
+    conn.userId = userId;
+    conn.roomId = roomId;
+    conn.memberId = memberIdOf(userId * 100 + tab);
+    conn.ws.message({
+      type: 'join_room',
+      roomId,
+      memberId: conn.memberId,
+      token: signToken(userId),
+      caps: CAN_HOST,
+    });
+    await signaling.idle();
+
+    return conn;
+  };
+
+  it('две вкладки одного пользователя — один eligible и один голос', async () => {
+    const { beta, guests, room } = await setupVoteRoom(3);
+    const [initiator, other] = guests;
+    const otherTab = await joinTab(room.roomId, other.userId, 2);
+
+    startVote(initiator);
+
+    const vote = beta.ws.lastOf('host_vote');
+
+    // пользователи: бета, инициатор, other (в двух вкладках), третий гость
+    expect(vote.eligibleCount).toBe(4);
+    expect(otherTab.ws.lastOf('host_vote')).toEqual(vote);
+
+    // обе вкладки other — «за»: это один голос, 2 из 4 — не большинство
+    answer(other, vote.voteId, 'yes');
+    answer(otherTab, vote.voteId, 'yes');
+    expect(initiator.ws.typed('host_vote_result')).toEqual([]);
+
+    answer(beta, vote.voteId, 'yes');
+
+    expect(initiator.ws.lastOf('host_vote_result')).toMatchObject({
+      passed: true,
+      yes: 3,
+      no: 1,
+      eligibleCount: 4,
+    });
+  });
+
+  it('повторный ответ с другой вкладки меняет голос пользователя', async () => {
+    const { beta, guests, room } = await setupVoteRoom(3);
+    const [initiator, second] = guests;
+    const secondTab = await joinTab(room.roomId, second.userId, 2);
+
+    startVote(initiator);
+
+    const vote = beta.ws.lastOf('host_vote');
+
+    expect(vote.eligibleCount).toBe(4);
+    answer(second, vote.voteId, 'no');
+    answer(secondTab, vote.voteId, 'yes');
+    answer(beta, vote.voteId, 'yes');
+
+    expect(initiator.ws.lastOf('host_vote_result')).toMatchObject({
+      passed: true,
+      yes: 3,
+      eligibleCount: 4,
+    });
+  });
+
+  it('вторая вкладка пользователя хоста не начинает и не голосует', async () => {
+    const { beta, guests, room } = await setupVoteRoom(1);
+    const hostTab = await joinTab(room.roomId, 1, 2);
+    const [initiator] = guests;
+
+    startVote(hostTab);
+
+    expect(hostTab.ws.lastOf('error')).toMatchObject({
+      code: 'voteRejected',
+      reason: 'host',
+    });
+
+    startVote(initiator);
+
+    const vote = beta.ws.lastOf('host_vote');
+
+    expect(vote.eligibleCount).toBe(2);
+    expect(hostTab.ws.typed('host_vote')).toEqual([]);
+
+    answer(hostTab, vote.voteId, 'no');
+    expect(hostTab.ws.typed('host_vote_accepted')).toEqual([]);
+  });
+
+  it('участник моложе minVoterAgeMs не начинает (tooNew) и не голосует', async () => {
+    const { beta, guests, room } = await setupVoteRoom(2);
+    const [initiator, fresh] = guests;
+
+    room.members.get(fresh.memberId).joinedAt = clock.now - 29999;
+
+    startVote(fresh);
+
+    expect(fresh.ws.lastOf('error')).toMatchObject({
+      code: 'voteRejected',
+      reason: 'tooNew',
+    });
+
+    startVote(initiator);
+
+    const vote = beta.ws.lastOf('host_vote');
+
+    expect(vote.eligibleCount).toBe(2);
+    expect(fresh.ws.typed('host_vote')).toEqual([]);
   });
 });
 

@@ -92,8 +92,8 @@ wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies
   registry;
 - `update_maps(maps)` — an updated map catalog from the master →
   `HostGame.updateMaps`;
-- `prepare_handoff` / `resume` / `handoff_complete` — the Worker handoff
-  protocol (see the section of the same name below);
+- `prepare_handoff` / `cancel_handoff` / `resume` / `handoff_complete` — the
+  Worker handoff protocol (see the section of the same name below);
 - `checkpoint_start { intervalMs }` / `checkpoint_stop` /
   `checkpoint_request { final }` / `start_after_restore { waitForResume }` /
   `freeze` / `unfreeze` — host checkpoints (see [Checkpoints](#checkpoints);
@@ -104,6 +104,16 @@ wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies
   round has started (the round is not held back — the successor restarts it
   from the soft checkpoint anyway, and a failed handoff must not leave the
   room without a round), and at once for a game with `midRound`;
+- `shutdown { timeoutMs }` — the host closes the room ("Leave server" with
+  nobody else in it): the Worker calls `HostGame.destroy()` — closes the
+  participants' games and waits for the urgent profile flush — at most
+  `timeoutMs` (3 s by default), then answers `shutdown_done`; an exception
+  in `destroy` goes out as `diagnostic { kind: 'shutdown' }` and
+  `shutdown_done` follows anyway. From then on a new `connect` (a guest whose
+  offer reached the host before `host_closing`) is answered `close_client`
+  without a code — in lobby mode the guest goes looking for another room
+  instead of entering a match about to close. The Worker is not terminated —
+  the main thread does that;
 - `debug { action, requestId }` — dev-only debugging requests
   (`startRecording`/`stopRecording`/`dump`), answered by `debug_result` with
   the same `requestId`. The promise on the main thread has a 5 s timeout:
@@ -443,7 +453,7 @@ The host facade — module wiring + the participant lifecycle:
   of a cold start) — see "Worker handoff" below;
 - **checkpoints**: `setCheckpointSink(fn)`, `startCheckpoints(ms)` /
   `stopCheckpoints()`, `requestCheckpoint({ final })`,
-  `collectCheckpoint(kind)`, `freeze()`/`unfreeze()`, `startAfterRestore()`,
+  `freeze()`/`unfreeze()`, `startAfterRestore()`,
   `startAfterResume(onStart)` (a successor's start once people are back),
   `detachedGameIds()`, the constructor's `checkpoint`/`seqFloor`/`roomSettings`/`mapsVersion`
   options — see "Checkpoints" below;
@@ -883,6 +893,20 @@ interrupted round) — **the room keeps living on the old code version**, and
 players notice nothing. Concurrent swaps are prevented (a guard in
 `main.js` and in `HostController`).
 
+**Yielding to a planned handoff.** A swap that is still waiting for the
+round boundary (up to an hour in a game with long rounds) gives way to a
+[planned handoff](#planned-handoff) — the successor prepares the room from
+the current worker bundle anyway. `HostController.cancelPendingSwap()`
+sends the old Worker `cancel_handoff` (`HostGame.cancelHandoff` removes the
+boundary callback, the next `initiateNewRound` starts a round as usual) and
+rejects the swap promise with `swap preempted`; `refreshHostWorker` does not
+mark that version as failed. If the Worker had already sent
+`handoff_state` before `cancel_handoff` arrived, the late state is answered
+with `resume`. A swap that is already carrying state (after
+`handoff_state`) cannot be cancelled — the handoff is refused. If the
+handoff is aborted and the tab stays the host, `refreshHostWorker()` runs
+again and restarts the swap when the version still differs.
+
 ### Host migration
 
 In the lobby mode the room outlives the tab that created it: the host role
@@ -935,7 +959,7 @@ else's host). The meta, all JSON, **without tokens or secrets**:
 | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `version`, `kind`, `mode`                                                                    | `4`; `'checkpoint'` or `'boundary'` (in-tab handoff); `'midRound'` or `'soft'`                                                                                                                                                                                                                  |
 | `gameId`, `gameVersion`, `engineVersion`, `createdAt`, `checkpointId`, `seq`, `snapshotTick` | identity and the frame counter                                                                                                                                                                                                                                                                  |
-| `room`                                                                                       | `{ roomId, epoch, settings, game: { id, version } }` — `settings` is what `applyRoomOverrides` reads, so a successor builds the same core config                                                                                                                                                |
+| `room`                                                                                       | `{ roomId, epoch, settings, game: { id, version } }` — `settings` is what `applyRoomOverrides` reads, so a successor builds the same core config (without `isDevMode` — the dev mode belongs to the tab's build)                                                                                |
 | `map`                                                                                        | `{ name, data, mapsVersion, override }` — the catalog JSON of the current map (the successor's catalog may differ) and a map the game substituted with `overrideMapData`                                                                                                                        |
 | `timers`                                                                                     | `TimerManager.serialize()`: remaining map/round time, `teamChangeGraceLeft`, `pending` (deferred round restart, map change with its `targetMap`), `voteCooldowns`                                                                                                                               |
 | `round`                                                                                      | `isRoundEnding`, `wipedTeamIds`, `removedPlayers`, `startMapNumber`                                                                                                                                                                                                                             |
@@ -1014,12 +1038,21 @@ successor's channel is closed. A successor that connects after the
 assignment, or reconnects with a new `RTCPeerConnection`, gets a new
 channel on the next peers change (`refresh()`). While a channel exists,
 `HostController.startCheckpoints(migration.checkpointIntervalMs)` is on;
-without one, `stopCheckpoints()`.
+without one, `stopCheckpoints()`. A channel that closes by itself while the
+successor's peer is alive is reopened by a timer with an exponential backoff
+(`migration.standbyReopenDelayMs` 1 s, doubling up to
+`standbyReopenMaxDelayMs` 10 s; an open resets it; a new successor or
+`destroy` cancels it) — otherwise the checkpoint stream would stall until
+the next peers change.
 
 **Chunks** (`client/network/standbyChunks.js`). The logical stream of one
 checkpoint is `[u16 descLen][desc JSON][checkpoint bytes]`, where
-`desc = { checkpointId, createdAt, mode }` — the successor reports the id
-and freshness to the master without unpacking. It is cut into pieces of at
+`desc = { checkpointId, createdAt, mode, game }` — the successor reports
+the id and freshness to the master, and pre-warms the game
+(`game: { id, version }` from the Worker's `checkpoint` message, or `null`;
+the receiver keeps only non-empty strings of at most 64 characters), without
+unpacking. A host older than the `game` field does not send it — pre-warming
+then reads `room.game` from the checkpoint itself. It is cut into pieces of at
 most `migration.standbyChunkBytes` (64 KB) including a 24-byte
 little-endian header:
 
@@ -1052,8 +1085,10 @@ the Worker gets `preload { room }` instead of `init`, imports the
 (`preloadHostRuntime` in `lib/createHostRuntime.js`: `compileStreaming`,
 falling back to `compile(arrayBuffer)`), replies `preloaded` and creates no
 match; a failure replies `error`. A later `import` of the same URL in that
-Worker comes from the module cache and the wasm from the HTTP cache. See
-[client.md](client.md) for the successor side.
+Worker comes from the module cache and the wasm from the HTTP cache. The
+warm-up buys the HTTP cache and the browser's wasm code cache
+(`compileStreaming`); the compiled `WebAssembly.Module` itself is not
+reused. See [client.md](client.md) for the successor side.
 
 ### Emergency migration
 
@@ -1094,9 +1129,14 @@ the vote below enter the same
 
 1. The host sends `handoff_begin { roomId, epoch, reason, stay }`; the
    master moves the room to `handing_off` and answers `handoff_go` (the
-   successor gets `promote { mode: 'planned' }`, everyone
+   successor gets `promote { mode: 'planned' }`, everyone else
    `host_migrating`), or `handoff_unavailable` — then a handover is simply
    not done, a leave goes on as an emergency migration (`host_leaving`).
+   The successor gets no `host_migrating`: on `promote { mode: 'planned' }`
+   it pauses its own player's session itself (`Promotion` option
+   `holdSession` → `SessionSupervisor.migrate({ keepTransport: true })`)
+   and keeps the connection to the frozen host — the `standby` channel with
+   the final checkpoint runs over it.
 2. `handoff_go` → `freeze()` → `requestCheckpoint({ final: true })`: the
    final checkpoint goes over `standby` ahead of any periodic one.
 3. The successor waits for it (`migration.finalWaitMs`, see
@@ -1107,12 +1147,18 @@ the vote below enter the same
    goes to the lobby. `handoff_aborted`, a refusal, a signaling drop or
    `migration.handoffDeadlineMs` → `unfreeze()` (with a full resync, see
    _Freeze_ in [Checkpoints](#checkpoints)): the match goes on, the tab
-   stays the host, the epoch is unchanged.
+   stays the host, the epoch is unchanged. The host's own player is not in
+   resume mode and answers the resync's first frame with
+   `FIRST_SHOT_READY`; `firstShotReady` of a participant that is already
+   ready is ignored — no `USER_JOINED`, no `initialVote`, no second actor
+   with `noSpectators`.
 
 A game without `migration.midRound` hands over (`stay`) only at a round
 boundary (`awaitRoundBoundary`, at most `migration.deferMaxMs`); a leave
 does not wait — the successor starts a new round from the soft checkpoint.
-Closing the host's tab is not planned: `beforeunload` asks for confirmation
+A Worker swap still waiting for the round boundary does not block a
+handoff — it is cancelled (see _Yielding to a planned handoff_ in
+[Worker handoff](#worker-handoff)). Closing the host's tab is not planned: `beforeunload` asks for confirmation
 while other people are in the room, and `pagehide` sends `host_leaving` —
 an emergency migration with the usual rollback (the dialog stops the main
 thread, so no final checkpoint can leave the tab during it).
@@ -1196,7 +1242,18 @@ checkpoint of `StandbyReceiver` is restored in the pre-warmed Worker
 callbacks)`) when it runs the game version of the checkpoint, otherwise in
 a new `HostController` with `{ checkpoint, seqFloor }`; `seqFloor` is the
 larger of the last host frame this client saw and the checkpoint's `seq`.
-The room gets `hostSocketId`, `roomId` and the new epoch. `ready` (the
+The room gets `hostSocketId`, `roomId` and the new epoch. The checkpoint
+comes from the host — another player — so it is untrusted data: of
+`meta.room.settings` only the keys of `sanitizeRoomSettings`
+(`lib/roomSettings.js`: `map`, `maxPlayers`, `roundTime`, `mapTime`,
+`friendlyFire`, numbers clamped) are taken, while the game, the master's
+maps and the dev mode are the successor's own (`prepareHostRoom`; the
+checkpoint does not carry `isDevMode` at all). The checkpoint's
+`room.game` is checked against the game the master confirms —
+`promote.game { id, versions }`: another game or an unconfirmed version →
+`promote_failed` (a master without the field skips the check). Pre-warming
+checks it the same way against `standby_assigned.game` and ignores such a
+checkpoint (the warm Worker stays). `ready` (the
 match paused) → the tab adopts the host role (the same
 `HostConnectionManager`/`StandbySender`/heartbeat as a created room) and
 registers. `host_registered` → `start_after_restore { waitForResume: true,
@@ -1209,7 +1266,10 @@ sends `HOST_CHANGED` to the chat (`HOST_CHANGED_OVERLOAD`/`_HIDDEN`/
 switching pause does not eat it. The successor's own player comes back
 through `LoopbackTransport(controller, 'local', { resume: true })` with its
 `resumeKey`; the participant is re-bound to `'local'`, so the host-player
-exemptions (no kick, no detach) move to it. A failure at any step (no
+exemptions (no kick, no detach) move to it. A checkpoint received longer than
+`migration.maxRestoreAgeMs` (15 s) ago is not restored — rolling the world
+back that far is worse than a cold start; a planned handover's final
+checkpoint is always fresh. A failure at any step (no or too old a
 checkpoint, no resume secret of the own player, plugin/wasm, `init` →
 `error`, the master rejecting the registration) sends `promote_failed` and
 the tab goes back to waiting as a guest; `promote_cancelled` tears the

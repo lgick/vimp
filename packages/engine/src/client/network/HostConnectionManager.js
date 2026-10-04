@@ -206,11 +206,6 @@ export default class HostConnectionManager {
     this._onPeersChange?.(this._peers.size);
   }
 
-  // memberId пира по clientId (null — оффер без него, страница до этапа 2)
-  memberIdOf(clientId) {
-    return this._peers.get(clientId)?.memberId ?? null;
-  }
-
   // RTCPeerConnection гостя по memberId (канал standby преемнику,
   // host-migration этап 6): только пир с открытыми meta/state; null — нет
   peerConnectionOf(memberId) {
@@ -225,6 +220,20 @@ export default class HostConnectionManager {
     }
 
     return null;
+  }
+
+  // memberId гостей с открытыми meta и state — отчёт room_peers мастеру
+  // (кого хост действительно видит)
+  connectedMemberIds() {
+    const ids = [];
+
+    for (const peer of this._peers.values()) {
+      if (peer.openCount === 2 && peer.memberId) {
+        ids.push(peer.memberId);
+      }
+    }
+
+    return ids;
   }
 
   // число активных пиров

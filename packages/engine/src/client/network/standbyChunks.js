@@ -4,8 +4,10 @@
 // (StandbySender) и приёмника (StandbyReceiver).
 //
 // Логический поток одной точки: [u16 descLen][desc JSON utf-8][байты
-// точки], desc = { checkpointId, createdAt, mode } — приёмнику не нужно
-// распаковывать точку, чтобы сообщить мастеру её id и свежесть.
+// точки], desc = { checkpointId, createdAt, mode, game } — приёмнику не
+// нужно распаковывать точку, чтобы сообщить мастеру её id и свежесть, а
+// прогреву — чтобы узнать игру (game: { id, version } или null; хост старше
+// поля его не шлёт, старый приёмник его игнорирует).
 //
 // Кусок: 24-байтный заголовок (little-endian) + данные потока:
 //   0  u32 wireId      — номер точки у отправителя (растёт)
@@ -21,11 +23,12 @@ export const STANDBY_HEADER_BYTES = 24;
 export const STANDBY_CHUNK_VERSION = 1;
 
 const DESC_LEN_BYTES = 2;
+const GAME_FIELD_MAX_LENGTH = 64;
 
 /**
  * Режет точку на куски.
- * @param {Object} checkpoint - { checkpointId, createdAt, mode, seq, final,
- *   bytes } (как отдаёт HostController.onCheckpoint).
+ * @param {Object} checkpoint - { checkpointId, createdAt, mode, game, seq,
+ *   final, bytes } (как отдаёт HostController.onCheckpoint).
  * @param {number} wireId
  * @param {number} chunkBytes - потолок размера куска вместе с заголовком.
  * @returns {Uint8Array[]}
@@ -42,6 +45,7 @@ export function encodeStandbyChunks(checkpoint, wireId, chunkBytes) {
       checkpointId: checkpoint.checkpointId,
       createdAt: checkpoint.createdAt,
       mode: checkpoint.mode ?? null,
+      game: parseGame(checkpoint.game),
     }),
   );
   const bytes = checkpoint.bytes;
@@ -118,7 +122,7 @@ export function decodeStandbyChunk(raw) {
  * Разбирает собранный логический поток.
  * @param {Uint8Array} stream
  * @returns {{ checkpointId: string, createdAt: number, mode: string|null,
- *   bytes: Uint8Array }|null}
+ *   game: { id: string, version: string }|null, bytes: Uint8Array }|null}
  */
 export function parseStandbyStream(stream) {
   if (stream.byteLength < DESC_LEN_BYTES) {
@@ -159,7 +163,23 @@ export function parseStandbyStream(stream) {
     checkpointId: desc.checkpointId,
     createdAt: desc.createdAt,
     mode: typeof desc.mode === 'string' ? desc.mode : null,
+    game: parseGame(desc.game),
     // своя копия: буфер можно отдать в Worker списком переноса
     bytes: stream.slice(DESC_LEN_BYTES + descLen),
   };
+}
+
+// игра дескриптора — только { id, version } из непустых коротких строк:
+// дескриптор шлёт хост, то есть другой игрок
+function parseGame(game) {
+  const isField = value =>
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= GAME_FIELD_MAX_LENGTH;
+
+  if (!game || typeof game !== 'object' || !isField(game.id)) {
+    return null;
+  }
+
+  return isField(game.version) ? { id: game.id, version: game.version } : null;
 }

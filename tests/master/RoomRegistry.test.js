@@ -223,6 +223,74 @@ describe('RoomRegistry: участники', () => {
     expect(registry.getList({}, 700).servers[0].currentPlayers).toBe(2);
   });
 
+  it('без отчёта room_peers все живые участники подтверждены (хост старше этапа)', () => {
+    const room = addRoom({}, 0);
+
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'a' }, 0);
+
+    expect(room.peersReportedAt).toBeNull();
+    expect(registry.isConfirmed(room, room.members.get('g1'))).toBe(true);
+    expect(registry.currentPlayers(room, 0)).toBe(2);
+  });
+
+  it('setConfirmedPeers: счётчик — хост и подтверждённые хостом участники', () => {
+    const room = addRoom({}, 0);
+
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'a' }, 0);
+    registry.joinMember(room.roomId, { memberId: 'g2', sessionId: 'b' }, 0);
+    registry.setConfirmedPeers(room.roomId, ['g1', 'ghost'], 10);
+
+    expect(room.peersReportedAt).toBe(10);
+    expect(room.members.get('g1').peerConfirmed).toBe(true);
+    expect(room.members.get('g2').peerConfirmed).toBe(false);
+    expect(
+      registry.isConfirmed(room, room.members.get(room.host.memberId)),
+    ).toBe(true);
+    expect(registry.isConfirmed(room, room.members.get('g2'))).toBe(false);
+    expect(registry.currentPlayers(room, 10)).toBe(2);
+    expect(registry.getList({}, 10).servers[0].currentPlayers).toBe(2);
+  });
+
+  it('joinMember сохраняет peerConfirmed при реконнекте, новичок не подтверждён', () => {
+    const room = addRoom({}, 0);
+
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'a' }, 0);
+    registry.setConfirmedPeers(room.roomId, ['g1'], 10);
+    registry.detachMember('a', 20);
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'c' }, 30);
+    registry.joinMember(room.roomId, { memberId: 'g2', sessionId: 'b' }, 30);
+
+    expect(room.members.get('g1').peerConfirmed).toBe(true);
+    expect(room.members.get('g2').peerConfirmed).toBe(false);
+  });
+
+  // ревью R1: отчёт хоста (каналы открылись) приходит раньше join_room
+  // гостя (тот шлёт его только после PS_AUTH_RESULT)
+  it('гость из отчёта room_peers подтверждён, даже если join_room пришёл позже', () => {
+    const room = addRoom({}, 0);
+
+    registry.setConfirmedPeers(room.roomId, ['g1'], 10);
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'a' }, 20);
+
+    expect(registry.isConfirmed(room, room.members.get('g1'))).toBe(true);
+    expect(registry.currentPlayers(room, 20)).toBe(2);
+  });
+
+  it('удалённый участник при повторном входе не подтверждается старым отчётом', () => {
+    const room = addRoom({}, 0);
+
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'a' }, 0);
+    registry.setConfirmedPeers(room.roomId, ['g1'], 10);
+    registry.leaveMember(room.roomId, 'g1');
+    registry.joinMember(room.roomId, { memberId: 'g1', sessionId: 'b' }, 20);
+
+    expect(registry.isConfirmed(room, room.members.get('g1'))).toBe(false);
+  });
+
+  it('setConfirmedPeers в неизвестную комнату — без ошибки', () => {
+    expect(() => registry.setConfirmedPeers('nope', ['g1'], 0)).not.toThrow();
+  });
+
   it('leave удаляет участника сразу, без grace', () => {
     const room = addRoom();
 
@@ -527,6 +595,8 @@ describe('RoomRegistry: настройки и смена хоста (host-migrat
     room.successorMemberId = 'g1';
     room.standby = { memberId: 'g1' };
     room.reports.set('g1', 0);
+    registry.joinMember(room.roomId, { memberId: 'g2', sessionId: 'c' }, 0);
+    registry.setConfirmedPeers(room.roomId, ['g1', 'g2'], 0);
 
     registry.promoteHost(
       room.roomId,
@@ -560,10 +630,214 @@ describe('RoomRegistry: настройки и смена хоста (host-migrat
     });
     expect(room.reports.size).toBe(0);
     expect(room.members.has('g1')).toBe(false);
+    // новый хост пришлёт свой отчёт room_peers
+    expect(room.peersReportedAt).toBeNull();
+    expect(room.members.get('g2').peerConfirmed).toBe(false);
     expect(room.members.get('g1-reloaded')).toMatchObject({ nick: 'beta' });
     // секрет новой эпохи — от нового хоста
     expect(registry.roomSecret(room)).toBe(
       deriveRoomSecret(KEY, { roomId: room.roomId, epoch: 2, userId: 42 }),
+    );
+  });
+
+  // ревью R1: отчёт прежнего хоста — о каналах к нему, не к новому
+  it('promoteHost: отчёт room_peers прошлой эпохи не подтверждает гостя в новой', () => {
+    const room = addRoom({}, 0);
+
+    registry.setConfirmedPeers(room.roomId, ['g3'], 0);
+    registry.promoteHost(
+      room.roomId,
+      { epoch: 2, sessionId: 'b', memberId: 'h2', userId: 42, ip: '8.8.8.8' },
+      50,
+    );
+    registry.joinMember(room.roomId, { memberId: 'g3', sessionId: 'c' }, 70);
+
+    expect(room.members.get('g3').peerConfirmed).toBe(false);
+  });
+});
+
+describe('RoomRegistry: индексы (ревью F16)', () => {
+  // эталон getByIp — полный проход, как до индекса
+  const scanByIp = ip =>
+    [...registry.rooms()].find(room => room.host.ip === ip);
+
+  const expectIpIndexConsistent = ips => {
+    for (const ip of ips) {
+      expect(registry.getByIp(ip)).toBe(scanByIp(ip));
+    }
+  };
+
+  it('getByIp согласован с полным проходом после create / attach / promote / remove / sweep', () => {
+    const ips = ['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4', '5.5.5.5'];
+    const a = addRoom({ ip: ips[0] }, 0);
+    const b = addRoom({ ip: ips[1] }, 0);
+
+    expectIpIndexConsistent(ips);
+    expect(registry.getByIp(ips[0])).toBe(a);
+
+    registry.attachHost(
+      a.roomId,
+      { sessionId: 'sa2', memberId: a.host.memberId, ip: ips[2] },
+      0,
+    );
+    expectIpIndexConsistent(ips);
+    expect(registry.getByIp(ips[0])).toBeUndefined();
+    expect(registry.getByIp(ips[2])).toBe(a);
+
+    registry.promoteHost(
+      b.roomId,
+      { epoch: 2, sessionId: 'sb2', memberId: 'mb2', userId: 77, ip: ips[3] },
+      0,
+    );
+    expectIpIndexConsistent(ips);
+    expect(registry.getByIp(ips[3])).toBe(b);
+
+    expect(registry.add({ ip: ips[3], host: hostOf() }, 0)).toBeNull();
+
+    registry.remove(a.roomId);
+    expectIpIndexConsistent(ips);
+    expect(registry.add({ ip: ips[2], host: hostOf() }, 0)).not.toBeNull();
+
+    // все участники b ушли — sweep удаляет комнату
+    for (const member of registry.liveMembers(b.roomId, 0)) {
+      registry.leaveMember(b.roomId, member.memberId);
+    }
+    registry.sweep(0);
+    expectIpIndexConsistent(ips);
+    expect(registry.getByIp(ips[3])).toBeUndefined();
+  });
+
+  it('detachMember трогает ровно участников этой сессии', () => {
+    const a = addRoom({}, 0);
+    const b = addRoom({}, 0);
+
+    registry.joinMember(a.roomId, { memberId: 'x1', sessionId: 'S' }, 0);
+    registry.joinMember(b.roomId, { memberId: 'x2', sessionId: 'S' }, 0);
+    registry.joinMember(a.roomId, { memberId: 'y', sessionId: 'T' }, 0);
+
+    registry.detachMember('S', 10);
+
+    expect(a.members.get('x1')).toMatchObject({
+      sessionId: null,
+      detachedAt: 10,
+    });
+    expect(b.members.get('x2')).toMatchObject({
+      sessionId: null,
+      detachedAt: 10,
+    });
+    expect(a.members.get('y')).toMatchObject({
+      sessionId: 'T',
+      detachedAt: null,
+    });
+    expect(a.members.get(a.host.memberId).sessionId).toBe(a.host.sessionId);
+  });
+
+  it('участник сменил сессию — прежняя его больше не отсоединяет', () => {
+    const a = addRoom({}, 0);
+
+    registry.joinMember(a.roomId, { memberId: 'x', sessionId: 'old' }, 0);
+    registry.joinMember(a.roomId, { memberId: 'x', sessionId: 'new' }, 0);
+
+    registry.detachMember('old', 10);
+
+    expect(a.members.get('x')).toMatchObject({
+      sessionId: 'new',
+      detachedAt: null,
+    });
+
+    registry.detachMember('new', 20);
+
+    expect(a.members.get('x')).toMatchObject({
+      sessionId: null,
+      detachedAt: 20,
+    });
+  });
+
+  it('ушедший и вернувшийся участник отсоединяется по новой сессии', () => {
+    const a = addRoom({}, 0);
+
+    registry.joinMember(a.roomId, { memberId: 'x', sessionId: 'S' }, 0);
+    registry.leaveMember(a.roomId, 'x');
+    registry.joinMember(a.roomId, { memberId: 'x', sessionId: 'S2' }, 0);
+
+    registry.detachMember('S', 10);
+    expect(a.members.get('x').sessionId).toBe('S2');
+
+    registry.detachMember('S2', 10);
+    expect(a.members.get('x').sessionId).toBeNull();
+  });
+
+  it('sweep удаляет истёкшие demotedUsers', () => {
+    const a = addRoom({}, 0);
+
+    a.demotedUsers.set(1, 100);
+    a.demotedUsers.set(2, 50);
+
+    registry.sweep(50);
+
+    expect([...a.demotedUsers.keys()]).toEqual([1]);
+
+    registry.sweep(100);
+
+    expect(a.demotedUsers.size).toBe(0);
+  });
+});
+
+describe('RoomRegistry.bestRoom (ревью F16)', () => {
+  // count подтверждённых гостей сверх хоста
+  const fill = (room, count) => {
+    for (let i = 0; i < count; i += 1) {
+      registry.joinMember(
+        room.roomId,
+        { memberId: `${room.roomId}-g${i}`, sessionId: `${room.roomId}-s${i}` },
+        0,
+      );
+    }
+  };
+
+  it('самая наполненная неполная комната строго этой игры', () => {
+    const small = addRoom({}, 0);
+    const big = addRoom({}, 0);
+    const full = addRoom({ maxPlayers: 2 }, 0);
+    const other = addRoom({ gameId: 'tanks-2' }, 0);
+
+    fill(small, 1);
+    fill(big, 3);
+    fill(full, 1);
+    fill(other, 5);
+
+    expect(registry.bestRoom('tanks', 0)).toEqual(
+      registry.getList({}, 0).servers.find(s => s.roomId === big.roomId),
+    );
+    expect(registry.bestRoom('tank', 0)).toBeNull();
+  });
+
+  it('при равенстве — первая; скрытые, мигрирующие и без хоста не выдаются', () => {
+    const first = addRoom({}, 0);
+    const second = addRoom({}, 0);
+
+    expect(registry.bestRoom('tanks', 0).roomId).toBe(first.roomId);
+
+    first.status = 'migrating';
+    expect(registry.bestRoom('tanks', 0).roomId).toBe(second.roomId);
+
+    registry.detachHost(second.roomId, 0);
+    expect(registry.bestRoom('tanks', 0)).toBeNull();
+
+    addRoom({ hidden: true }, 0);
+    expect(registry.bestRoom('tanks', 0)).toBeNull();
+  });
+
+  it('совпадает с выбором клиента по полному списку', async () => {
+    const { pickQuickPlayRoom } =
+      await import('../../packages/engine/src/client/lib/roomLink.js');
+    const rooms = [addRoom({}, 0), addRoom({}, 0), addRoom({}, 0)];
+
+    fill(rooms[1], 2);
+    fill(rooms[2], 2);
+
+    expect(registry.bestRoom('tanks', 0)).toEqual(
+      pickQuickPlayRoom(registry.getList({}, 0).servers, 'tanks'),
     );
   });
 });

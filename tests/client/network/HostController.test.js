@@ -420,7 +420,7 @@ describe('HostController: режим preload (host-migration этап 6)', () =>
     expect(workers[0].posted).toEqual([
       { type: 'preload', room: { name: 'room' } },
     ]);
-    expect(controller.preloaded).toBe(false);
+    expect(onPreloaded).not.toHaveBeenCalled();
 
     workers[0].emit({
       type: 'preloaded',
@@ -429,7 +429,6 @@ describe('HostController: режим preload (host-migration этап 6)', () =>
       wasmCompiled: true,
     });
 
-    expect(controller.preloaded).toBe(true);
     expect(onPreloaded).toHaveBeenCalledWith(
       expect.objectContaining({ gameId: 'tanks', wasmCompiled: true }),
     );
@@ -535,5 +534,129 @@ describe('HostController: периодические точки и эстафе�
       type: 'checkpoint_start',
       intervalMs: 250,
     });
+  });
+});
+
+describe('HostController: плановая передача вытесняет эстафету (ревью, этап 8)', () => {
+  it('до handoff_state эстафета снимается: cancel_handoff, отказ swap preempted', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    expect(controller.cancelPendingSwap()).toBe(true);
+    expect(workers[0].posted).toContainEqual({ type: 'cancel_handoff' });
+    await expect(swap).rejects.toThrow('swap preempted');
+    expect(controller._swap).toBeNull();
+  });
+
+  it('после handoff_state (пауза) снять нельзя — своп продолжается', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+
+    expect(controller.cancelPendingSwap()).toBe(false);
+    expect(workers[0].posted).not.toContainEqual({ type: 'cancel_handoff' });
+
+    workers[1].emit({ type: 'ready' });
+    await expect(swap).resolves.toBeUndefined();
+  });
+
+  it('поздний handoff_state после снятия возвращает Worker к игре (resume)', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    controller.cancelPendingSwap();
+    await expect(swap).rejects.toThrow('swap preempted');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+
+    expect(workers[0].posted).toContainEqual({ type: 'resume' });
+    expect(workers).toHaveLength(1);
+  });
+});
+
+describe('HostController: закрытие комнаты последним человеком (ревью, этап 10)', () => {
+  it("shutdown шлёт Worker'у таймаут и разрешается по shutdown_done", async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    let done = false;
+    const shutdown = controller.shutdown({ timeoutMs: 60000 }).then(() => {
+      done = true;
+    });
+
+    expect(workers[0].posted).toContainEqual({
+      type: 'shutdown',
+      timeoutMs: 60000,
+    });
+
+    await Promise.resolve();
+    expect(done).toBe(false);
+
+    workers[0].emit({ type: 'shutdown_done' });
+    await shutdown;
+    expect(done).toBe(true);
+    expect(workers[0].terminate).not.toHaveBeenCalled();
+  });
+
+  it("без ответа Worker'а — разрешается по страховочному таймауту", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const { controller, workers } = createController();
+
+      workers[0].emit({ type: 'ready' });
+
+      let done = false;
+
+      controller.shutdown({ timeoutMs: 1000 }).then(() => {
+        done = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(done).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("во время эстафеты — сразу, без сообщения Worker'у", async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+    controller.swapWorker('/worker-2.js').catch(() => {});
+
+    await expect(controller.shutdown()).resolves.toBeUndefined();
+    expect(workers[0].posted.some(m => m.type === 'shutdown')).toBe(false);
+  });
+
+  it('повторный shutdown возвращает идущий промис и не шлёт второе сообщение', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const first = controller.shutdown({ timeoutMs: 60000 });
+    const second = controller.shutdown({ timeoutMs: 60000 });
+
+    expect(second).toBe(first);
+    expect(workers[0].posted.filter(m => m.type === 'shutdown')).toHaveLength(
+      1,
+    );
+
+    workers[0].emit({ type: 'shutdown_done' });
+    await expect(first).resolves.toBeUndefined();
   });
 });

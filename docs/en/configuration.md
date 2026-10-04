@@ -419,8 +419,9 @@ The master server's config (see [master.md](master.md)); read by
   closing starts a migration at once; when nobody can be promoted the room
   waits this long for `reclaim_host`, then the sweep migrates or closes it), `maxInfoLength: 48` (the cap of the lobby card
   text a game sets through `gameConfig.lobbyInfo`/`lobby.setInfo`),
-  `lookupRateLimit: { limit: 20, windowMs: 1000 }` (`GET /rooms/:roomId` per
-  IP — against `roomId` enumeration); member RTT and the successor
+  `lookupRateLimit: { limit: 20, windowMs: 1000 }` (`GET /rooms/:roomId` and
+  `GET /quickplay/:gameId` per IP, one shared bucket — against `roomId`
+  enumeration); member RTT and the successor
   ([master.md](master.md#member-rtt-and-successor), host migration stage 6):
   `rttProbeIntervalMs: 5000` (`ws.ping()` of every session),
   `wsDeadAfterMs: 12000` (no `pong` for longer — the session is terminated),
@@ -431,16 +432,24 @@ The master server's config (see [master.md](master.md)); read by
   current one's — or whose connectivity tier is better — for this long);
   emergency host migration ([master.md](master.md#host-migration), stage 7):
   `checkpointMaxAgeMs: 12000` (the successor is promoted with its checkpoint
-  only if its `standby_status` arrived no longer ago — more than two status
-  periods; otherwise a cold promotion), `promotionTimeoutMs: 10000` and
+  only if it received that checkpoint no longer ago — by
+  `standby_status.ageMs`, more than two status periods; otherwise a cold
+  promotion), `promotionTimeoutMs: 10000` and
   `coldPromotionTimeoutMs: 25000` (how long a promoted candidate has to take
   the room before the next one is tried; a cold one reloads its page),
   `probeTimeoutMs: 2000` (no `probe_ack` for longer — the host is lost),
   `reportWindowMs: 5000` (the window for the guest-report quorum),
   `forcedMigrationCooldownMs: 30000` (at most one migration by reports/probe
-  per room within it); planned host handoff ([master.md](master.md#planned-handoff),
+  per room within it), `minUnreachableReporters: 2` (reports and guests are
+  counted per user; the quorum is `max(this, ceil(guest users / 2))`, and
+  with fewer guest users reports never force a migration); planned host handoff ([master.md](master.md#planned-handoff),
   stage 8): `handoffTimeoutMs: 8000` (the successor did not take the room
   within it — the handoff is aborted and the host unfreezes the match);
+  `migrationNoticeMarginMs: 5000` (`host_migrating.waitMs` is the current
+  promotion's or handoff's deadline plus this margin — how long the guests
+  wait for `host_changed`); the relations between these timings and the
+  client's and the Worker's are checked by
+  `tests/config/migrationTimings.test.js`;
   automatic triggers ([master.md](master.md#host-network-lag), stage 9c):
   `lagRttThresholdMs: 250` and `lagSustainMs: 10000` (the host's median RTT
   to its guests from `host_health` above the threshold for this long counts
@@ -457,7 +466,9 @@ The master server's config (see [master.md](master.md)); read by
   one user's starts in a room), `voteForceAfterMs: 5000` (a passed vote: the
   host has not started its handoff by then — or it failed — and is replaced
   by force), `demotedCooldownMs: 600000` (a voted-out host is neither
-  successor nor host of the room meanwhile, unless nobody else can take it);
+  successor nor host of the room meanwhile, unless nobody else can take it),
+  `minVoterAgeMs: 30000` (a member votes and starts a vote only after this
+  long in the room; votes are counted per user);
 - `regionHeader: 'x-region'` — the header carrying a host's region from
   Nginx/CDN;
 - `pingRateLimit` — the limit on signaling `ping_host` requests per IP
@@ -491,6 +502,9 @@ host: the lobby happens before connecting to a host.
 - `serversUrl: '/servers'` — the master's server-list REST endpoint;
 - `roomUrl: roomId => '/rooms/<roomId>'` — the room behind a direct link
   (`#/<gameId>/<roomId>`, [client.md](client.md));
+- `quickPlayUrl: gameId => '/quickplay/<gameId>'` — the quick-play room the
+  master picks ([master.md](master.md#get-quickplaygameid)); unavailable —
+  picked from `GET /servers?search=<gameId>`;
 - `quickPlay.autoCreate: true` — quick play (`#/<gameId>`) with no suitable
   room creates one with the creation form's defaults (`false` — show the
   lobby with that game selected); `quickPlay.createDelayMinMs: 500` …
@@ -578,10 +592,16 @@ host: the lobby happens before connecting to a host.
   channel, header included — under the smallest `maxMessageSize` with a
   margin), `standbyHighWaterBytes: 1048576` (`bufferedAmount` above which a
   periodic checkpoint is skipped), `standbyStatusIntervalMs: 5000` (how
-  often the successor reports its latest checkpoint to the master),
-  `finalWaitMs: 3000` (how long the successor of a planned handover, stage
+  often the successor reports its latest checkpoint, with its age, to the
+  master), `maxRestoreAgeMs: 15000` (a promoted successor does not restore
+  a checkpoint received longer ago — `promote_failed`, the master falls back
+  to a cold start; above `master:room:checkpointMaxAgeMs` to allow for the
+  status's travel), `standbyReopenDelayMs: 1000` …
+  `standbyReopenMaxDelayMs: 10000` (exponential backoff before the host
+  reopens a `standby` channel that closed while the successor's peer is
+  alive), `finalWaitMs: 3000` (how long the successor of a planned handover, stage
   8, waits for the frozen host's final checkpoint before taking the latest
-  periodic one), `handoffSlowMs: 3000` (no `handoff_go` in this time — the host reports a slow connection, the handoff goes on), `handoffDeadlineMs: 10000` (the planned handoff's single deadline from `handoff_begin` — `master:room:handoffTimeoutMs` plus room for the master's answer to travel back), `deferMaxMs: 30000` (the longest a planned handoff in a game without `migration.midRound` waits for the round boundary before it goes anyway, stage 8d); `auto` — automatic handoff triggers (stage 9b, `HostHealthPolicy`, one sample = one Worker `health` message, ~1 s; see [host.md](host.md#automatic-triggers)): `enabled: true` (master switch), `overloadTickRate: 100` / `overloadWindowMs: 5000` (soft overload by the mean — the handoff waits for the round boundary), `criticalTickRate: 60` / `criticalWindowMs: 3000` and `lostWindows: 3` (hard overload by the mean or by `lostMs > 0` in a row — at once), `recoverTickRate: 110` / `recoverWindowMs: 5000` (every sample above — the deferred automatic handoff is cancelled), `hiddenHandoffMs: 1500` (hidden host tab — at once), `autoHandoffCooldownMs: 90000` (between this tab's automatic handoffs), `minHostTenureMs: 30000` (not right after taking the role), `hostHealthIntervalMs: 2000` (stage 9c: how often the host sends `host_health` to the master, from the latest sample; nothing while the match is frozen), `fpsReportIntervalMs: 10000` (how often a guest sends `member_update` with its mean render FPS over the interval in `caps.fps`); `enabled: false` also makes the host ignore the master's `request_handoff`;
+  periodic one), `handoffSlowMs: 3000` (no `handoff_go` in this time — the host reports a slow connection, the handoff goes on), `handoffDeadlineMs: 10000` (the planned handoff's single deadline from `handoff_begin` — `master:room:handoffTimeoutMs` plus room for the master's answer to travel back), `deferMaxMs: 30000` (the longest a planned handoff in a game without `migration.midRound` waits for the round boundary before it goes anyway, stage 8d), `peersReportIntervalMs: 15000` (how often the host repeats `room_peers` — the guests connected to it over WebRTC — to the master; on a peer change it goes at once, debounced 500 ms), `minTokenLifetimeMs: 600000` (a tab whose sign-in expires sooner reports `canHost: false` and declines a promotion — the host shows its token to the master mid-match and it is never renewed), `tokenHandoffLeadMs: 300000` (this long before its sign-in expires a host with a successor hands the role over — a planned handoff on the round boundary), `tokenHandoffRetryMs: 5000` (how soon that handoff is retried when there is no successor yet, a Worker relay is in progress or the handoff aborted; retries stop when the sign-in expires), `leaveFlushTimeoutMs: 3000` (how long "Leave server" of a host alone in the room waits for its Worker to write the participants' scores before closing the room — `HostController.shutdown`); `auto` — automatic handoff triggers (stage 9b, `HostHealthPolicy`, one sample = one Worker `health` message, ~1 s; see [host.md](host.md#automatic-triggers)): `enabled: true` (master switch), `overloadTickRate: 100` / `overloadWindowMs: 5000` (soft overload by the mean — the handoff waits for the round boundary), `criticalTickRate: 60` / `criticalWindowMs: 3000` and `lostWindows: 3` (hard overload by the mean or by `lostMs > 0` in a row — at once), `recoverTickRate: 110` / `recoverWindowMs: 5000` (every sample above — the deferred automatic handoff is cancelled), `hiddenHandoffMs: 1500` (hidden host tab — at once), `autoHandoffCooldownMs: 90000` (between this tab's automatic handoffs), `minHostTenureMs: 30000` (not right after taking the role), `hostHealthIntervalMs: 2000` (stage 9c: how often the host sends `host_health` to the master, from the latest sample; nothing while the match is frozen), `fpsReportIntervalMs: 10000` (how often a guest sends `member_update` with its mean render FPS over the interval in `caps.fps`); `enabled: false` also makes the host ignore the master's `request_handoff`;
 - `session` — the guest's session supervisor (host migration stage 4,
   `SessionSupervisor`): `reconnectWindowMs: 15000` (how long after a drop
   to keep trying to get back into the match), `reconnectBaseDelayMs: 500` …
@@ -591,9 +611,22 @@ host: the lobby happens before connecting to a host.
   `migrationWaitMs: 40000` (how long after `host_migrating` to wait for
   `host_changed` — then the room counts as closed and the tab goes to quick
   play; longer than the master's search for a successor,
-  `promotionTimeoutMs` + `coldPromotionTimeoutMs` = 35 s; also the cap of waiting on a room link whose room is migrating),
+  `promotionTimeoutMs` + `coldPromotionTimeoutMs` = 35 s; the master's
+  `host_migrating.waitMs` extends it, never shortens it),
   `migrationPollMs: 1000` (how often a room link re-asks
   `GET /rooms/:roomId` while the room is migrating);
+  host migration review stage 9: `linkWaitMaxMs: 90000` (the cap of waiting
+  on a room link whose room is changing its host — room for a chain of
+  candidates; `404` ends it sooner), `resumeSilenceGraceMs: 3000` (after a
+  resume and until the first frame the silence watchdog waits
+  `hostSilenceMs` plus this — not below the Worker's `resumeWaitMs`, the
+  pause of a match raised from a checkpoint); these and the timings above
+  are tied to the master's and the Worker's, see
+  `tests/config/migrationTimings.test.js`;
+  host migration review stage 6: `joinRetryWindowMs: 30000` (how long a
+  guest repeats `join_room` on `unknownRoom` after a master restart, until
+  the host reclaims the room — longer than `room.hostReclaimGraceMs`, with
+  room for the host's signaling backoff);
 - `pageSize: 10` — the page size for "Load more" (`offset`/`limit`);
 - `debugReportUrl: '/debug/report'` — the upload endpoint of the debugging
   loop (`window.__vimpDebug`); the master registers the route in dev only,

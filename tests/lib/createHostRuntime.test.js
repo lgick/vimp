@@ -56,6 +56,16 @@ describe('createHostRuntime', () => {
     expect(runtime.game.parts.friendlyFire).toBe(true);
   });
 
+  it('настройки комнаты для точки — без isDevMode (ревью F1)', async () => {
+    const runtime = await build({
+      map: 'arena',
+      maxPlayers: 2,
+      isDevMode: true,
+    });
+
+    expect(runtime.host._roomSettings).toEqual({ map: 'arena', maxPlayers: 2 });
+  });
+
   it('overrideGameConfig правит конфиг до создания ядра', async () => {
     const runtime = await build(
       {},
