@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.36.0] — 2026-10-05
+
 ### ⚠️ Breaking
 
 - The lobby master refuses to start in production without
@@ -2762,6 +2764,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.36.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.36.0
 [0.35.6]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.6
 [0.35.5]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.5
 [0.35.4]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.4
