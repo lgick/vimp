@@ -188,7 +188,10 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     be ones the master confirms in `promote.game` / `standby_assigned.game`
     (`{ id, versions }`; `register_host` of the new epoch and `reclaim_host`
     refresh the room's `gameVersion`, but only to the catalog's current
-    version of the game). A former host that gets `host_revoked`
+    version of the game; a room restored after a master restart keeps the
+    version its host names, but one the catalog does not serve as current is
+    not confirmed to successors until it does, and while the catalog does not
+    know the game yet the room gets no successor). A former host that gets `host_revoked`
     (or `staleEpoch` on reclaim) drops its Worker and resumes as a guest of the
     new host. Worker message `start_after_restore { waitForResume }`,
     `HostController.initFromCheckpoint`, `HostPrewarm.take()`,
@@ -292,7 +295,9 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
   the host's account neither starts nor votes), only for members in the room
   for at least `minVoterAgeMs` (30 s; `voteRejected` reason `tooNew`) and
   only members the host confirms as connected (`room_peers`; reason
-  `notConnected`); a passed vote hands the host
+  `notConnected`) — after a host change not before the new host's first
+  `room_peers`, at most `peersReportGraceMs` (20 s; reason `migrating`); a
+  passed vote hands the host
   role over and bars the old host from it for 10 minutes. Not available in
   dedicated or standalone mode. Its initiator sees "Voting has started",
   like the initiator of a host vote, and a guest whose answer counted sees
@@ -302,7 +307,7 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
   (with `reason`) and `noSuccessor`; `request_handoff` and handoffs take
   `reason: 'vote'`; config `master:room:vote` (`hostVoteDurationMs`,
   `roomVoteCooldownMs`, `userStartCooldownMs`, `voteForceAfterMs`,
-  `demotedCooldownMs`, `minVoterAgeMs`). The guests' "Change host?" window is the engine vote
+  `demotedCooldownMs`, `minVoterAgeMs`, `peersReportGraceMs`). The guests' "Change host?" window is the engine vote
   `@changeHost` — vote names starting with `@` and the command `/changehost`
   are reserved by the engine; an engine vote and a host vote wait for each
   other instead of overwriting. Chat notices `v:6`–`v:15` (usage, "you are

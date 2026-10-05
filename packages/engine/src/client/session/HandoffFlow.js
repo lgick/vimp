@@ -112,8 +112,8 @@ export default class HandoffFlow {
           if (cancelled) {
             this._ui.setHandoffMenu(null);
             // нагрузка нормализовалась до границы раунда — передача не
-            // нужна, а вытесненная ею эстафета — нужна
-            this._resumeCodeUpdate();
+            // нужна, а отложенное или вытесненное ею обновление кода — нужно
+            this._hostRole.resumeCodeUpdate();
           }
 
           return cancelled;
@@ -191,7 +191,7 @@ export default class HandoffFlow {
     const controller = this._hostRole.controller;
 
     // промоушен сам владеет Worker'ом; передача уже идёт; комната ещё не
-    // зарегистрирована — до вытеснения эстафеты, чтобы не снять её зря
+    // зарегистрирована
     if (
       !this._planned ||
       !controller ||
@@ -202,18 +202,19 @@ export default class HandoffFlow {
       return false;
     }
 
-    // эстафета Worker'ов уступает передаче (преемник и так поднимется на
-    // актуальном коде); своп, уже переносящий состояние, — нет
-    if (!this._hostRole.preemptSwap()) {
+    // своп, уже переносящий состояние, передача не вытесняет — она ждёт
+    if (!this._hostRole.canPreemptSwap()) {
       return false;
     }
 
     const started = this._planned.start({ reason, stay, defer });
 
+    // эстафета Worker'ов уступает только начавшейся передаче (преемник и так
+    // поднимется на актуальном коде); всё синхронно — состояние свопа между
+    // проверкой и вытеснением не меняется
     if (started) {
+      this._hostRole.preemptSwap();
       this._ui.setHandoffMenu('pending');
-    } else {
-      this._resumeCodeUpdate();
     }
 
     return started;
@@ -348,14 +349,6 @@ export default class HandoffFlow {
     this._ui.mute();
   }
 
-  // вкладка осталась хостом, а эстафету вытеснила (или не дала начать)
-  // передача — обновление кода нужно снова
-  _resumeCodeUpdate() {
-    if (this._hostRole.controller && this._hostRole.codeVersion) {
-      this._hostRole.refreshWorker();
-    }
-  }
-
   // передача не состоялась, вкладка осталась хостом: замороженный матч
   // продолжается (Worker разморожен, гостям ушла полная синхронизация)
   _onAborted({ reason, frozen }) {
@@ -371,8 +364,9 @@ export default class HandoffFlow {
       this._ui.showSessionOverlay(null);
     }
 
-    // вкладка осталась хостом: эстафета, вытесненная передачей, нужна снова
-    this._resumeCodeUpdate();
+    // вкладка осталась хостом: обновление кода, отложенное или вытесненное
+    // передачей, нужно снова
+    this._hostRole.resumeCodeUpdate();
 
     // передача по сроку входа всё ещё нужна
     this._tokenHandoff?.retry();

@@ -907,18 +907,25 @@ mark that version as failed. If the Worker had already sent
 `handoff_state` before `cancel_handoff` arrived, the late state is answered
 with `resume`. A swap that is already carrying state (after
 `handoff_state`) cannot be cancelled — the handoff is refused. If the
-handoff is aborted and the tab stays the host, `HostRole.refreshWorker()` runs
-again and restarts the swap when the version still differs.
+handoff is aborted and the tab stays the host, `HostRole.resumeCodeUpdate()`
+runs `HostRole.refreshWorker()` again and restarts the swap when the version
+still differs.
 
-`HandoffFlow.start` goes through `HostRole.preemptSwap()`: a swap that is
-still fetching its manifests is flagged and simply never reaches
-`swapWorker`; one waiting for the round boundary is cancelled as above. The
-code update is also resumed when a deferred handoff is cancelled (load back
-to normal before the boundary) and when the swap was preempted but the
-handoff did not start. Dropping the host role (`HostController.destroy`,
+`HandoffFlow.start` first asks `HostRole.canPreemptSwap()` (a swap already
+carrying state refuses the handoff, which waits), then runs
+`PlannedHandoff.start`, and only a handoff that has begun calls
+`HostRole.preemptSwap()` — a refused `PlannedHandoff.start` leaves the relay
+alone. A swap waiting for the round boundary is cancelled as above; one still fetching its
+manifests is left alone — once they arrive it sees the handoff running and
+stops short of `swapWorker` (a handoff that began and already failed
+meanwhile does not stop it). A code update requested while a handoff runs,
+or stopped/cancelled by one, is remembered: `HostRole.resumeCodeUpdate()` —
+called when the handoff is aborted or a deferred one is cancelled (load back
+to normal before the boundary) — reruns `refreshWorker()` only then, so
+fluctuating load does not refetch the manifests for nothing. Dropping the host role (`HostController.destroy`,
 e.g. after `host_revoked`) rejects a pending swap with `host destroyed` —
 not counted as a failed version either; `HostRole.teardown()` resets the
-swap flags, so a tab promoted again later is not stuck with a stale swap.
+swap flags and the remembered update, so a tab promoted again later is not stuck with a stale swap.
 
 ### Host migration
 

@@ -468,7 +468,11 @@ The master server's config (see [master.md](master.md)); read by
   by force), `demotedCooldownMs: 600000` (a voted-out host is neither
   successor nor host of the room meanwhile, unless nobody else can take it),
   `minVoterAgeMs: 30000` (a member votes and starts a vote only after this
-  long in the room; votes are counted per user);
+  long in the room; votes are counted per user), `peersReportGraceMs: 20000`
+  (after a host change a vote waits for the new host's first `room_peers`
+  at most this long — more than `lobby.migration.peersReportIntervalMs`, so
+  a lost first report is repeated within the window; the pair is checked by
+  `tests/config/migrationTimings.test.js`);
 - `regionHeader: 'x-region'` — the header carrying a host's region from
   Nginx/CDN;
 - `pingRateLimit` — the limit on signaling `ping_host` requests per IP

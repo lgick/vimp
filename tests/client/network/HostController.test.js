@@ -545,6 +545,7 @@ describe('HostController: плановая передача вытесняет �
 
     const swap = controller.swapWorker('/worker-2.js');
 
+    expect(controller.swapCarryingState).toBe(false);
     expect(controller.cancelPendingSwap()).toBe(true);
     expect(workers[0].posted).toContainEqual({ type: 'cancel_handoff' });
     await expect(swap).rejects.toThrow('swap preempted');
@@ -560,6 +561,7 @@ describe('HostController: плановая передача вытесняет �
 
     workers[0].emit({ type: 'handoff_state', state: {} });
 
+    expect(controller.swapCarryingState).toBe(true);
     expect(controller.cancelPendingSwap()).toBe(false);
     expect(workers[0].posted).not.toContainEqual({ type: 'cancel_handoff' });
 

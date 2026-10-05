@@ -406,6 +406,23 @@ export default class SignalingServer {
       return;
     }
 
+    this._verifyGameVersion(room);
+
+    // версию восстановленной комнаты нечем проверить — каталог ещё не знает
+    // игру: пустой список версий бета прочла бы как «любая», а выданный до
+    // загрузки каталога — устарел бы. Беты нет, пока каталог не загрузится
+    // (периодический reviewSuccessors назначит её)
+    if (
+      this._gameVersionUnverified(room) &&
+      !this._catalogManifest(room.gameId)
+    ) {
+      if (room.successorMemberId !== null) {
+        this._assignSuccessor(room, null);
+      }
+
+      return;
+    }
+
     const members = [...room.members.values()].map(member => ({
       ...member,
       // кандидат — только с живой сессией: отсоединённый в grace не примет
@@ -463,17 +480,26 @@ export default class SignalingServer {
     this._sendSuccessorToHost(room);
   }
 
+  // манифест игры из каталога мастера; null — игра или каталог неизвестны
+  _catalogManifest(gameId) {
+    return gameId ? (this._gameCatalog?.getManifest(gameId) ?? null) : null;
+  }
+
   // игра комнаты для проверки точки бетой: id и допустимые версии —
   // зарегистрированная хостом и текущая в каталоге (эстафета Worker'ов
-  // могла поднять комнату на новую). null — игра неизвестна мастеру
+  // могла поднять комнату на новую). Версия, не проверенная при
+  // восстановлении после рестарта мастера, не подтверждается. null — игра
+  // неизвестна мастеру
   _roomGame(room) {
     if (!room?.gameId) {
       return null;
     }
 
-    const catalogVersion =
-      this._gameCatalog?.getManifest(room.gameId)?.version ?? null;
-    const versions = [...new Set([room.gameVersion, catalogVersion])].filter(
+    const catalogVersion = this._catalogManifest(room.gameId)?.version ?? null;
+    const roomVersion = this._gameVersionUnverified(room)
+      ? null
+      : room.gameVersion;
+    const versions = [...new Set([roomVersion, catalogVersion])].filter(
       v => typeof v === 'string' && v !== '',
     );
 
@@ -490,13 +516,55 @@ export default class SignalingServer {
       return gameVersion;
     }
 
-    const catalogVersion = room.gameId
-      ? this._gameCatalog?.getManifest(room.gameId)?.version
-      : undefined;
+    const catalogVersion = this._catalogManifest(room.gameId)?.version;
 
     return typeof catalogVersion === 'string' && gameVersion === catalogVersion
       ? gameVersion
       : undefined;
+  }
+
+  // комната восстанавливается после рестарта мастера: прежней версии он не
+  // помнит, а гости вернутся в комнату сами. Версия, которую каталог не
+  // раздаёт как текущую (застейдженная или игра, которую каталог ещё не
+  // загрузил — первая синхронизация ограничена дедлайном), остаётся
+  // комнате, но помечается непроверенной. Без каталога вовсе (тесты, dev)
+  // сверять не с чем — не помечается
+  _unverifiedGameVersion(gameId, gameVersion) {
+    if (
+      !this._gameCatalog ||
+      !gameId ||
+      typeof gameVersion !== 'string' ||
+      gameVersion === ''
+    ) {
+      return null;
+    }
+
+    return this._catalogManifest(gameId)?.version === gameVersion
+      ? null
+      : gameVersion;
+  }
+
+  // комната на версии, непроверенной при восстановлении: бетам она не
+  // подтверждается (_roomGame)
+  _gameVersionUnverified(room) {
+    return (
+      room.unverifiedGameVersion !== null &&
+      room.gameVersion === room.unverifiedGameVersion
+    );
+  }
+
+  // каталог раздаёт помеченную версию как текущую (её одобрили позже, или
+  // каталог догрузился) — дальше она обычная. Пометка, с которой комната
+  // уже ушла на версию каталога, больше ничего не значит
+  _verifyGameVersion(room) {
+    if (
+      room.unverifiedGameVersion !== null &&
+      (!this._gameVersionUnverified(room) ||
+        this._catalogManifest(room.gameId)?.version ===
+          room.unverifiedGameVersion)
+    ) {
+      room.unverifiedGameVersion = null;
+    }
   }
 
   _sendSuccessorToHost(room) {
@@ -638,6 +706,12 @@ export default class SignalingServer {
       return;
     }
 
+    // за время проверки токена эта же сессия могла занять комнату
+    if (session.roomId) {
+      this._sendError(session, 'alreadyRegistered', { re: 'register_host' });
+      return;
+    }
+
     const room = this._registry.add(
       this._roomFields(session, identity, {
         maxPlayers,
@@ -670,6 +744,15 @@ export default class SignalingServer {
 
     if (identity === null) {
       this._sendError(session, 'invalidToken', {
+        re: 'register_host',
+        roomId: msg.roomId,
+      });
+      return;
+    }
+
+    // за время проверки токена эта же сессия могла занять комнату
+    if (session.roomId) {
+      this._sendError(session, 'alreadyRegistered', {
         re: 'register_host',
         roomId: msg.roomId,
       });
@@ -737,6 +820,15 @@ export default class SignalingServer {
 
     if (identity === null) {
       this._sendError(session, 'invalidToken', { re: 'reclaim_host', roomId });
+      return;
+    }
+
+    // за время проверки токена эта же сессия могла занять комнату
+    if (session.roomId) {
+      this._sendError(session, 'alreadyRegistered', {
+        re: 'reclaim_host',
+        roomId,
+      });
       return;
     }
 
@@ -839,11 +931,17 @@ export default class SignalingServer {
       room = this._registry.restore(
         roomId,
         epoch,
-        this._roomFields(session, identity, {
-          ...msg,
-          info: infoOf(msg),
-          memberId,
-        }),
+        {
+          ...this._roomFields(session, identity, {
+            ...msg,
+            info: infoOf(msg),
+            memberId,
+          }),
+          unverifiedGameVersion: this._unverifiedGameVersion(
+            gameId,
+            gameVersion,
+          ),
+        },
         this._now(),
       );
 
@@ -874,9 +972,7 @@ export default class SignalingServer {
   // присоединяющиеся упёрлись бы в loadClientPlugin. Проверка стоит до
   // _verifyToken: она дешевле сетевого запроса к auth
   _gameAvailable(gameId) {
-    return !(
-      gameId && this._gameCatalog?.getManifest(gameId)?.compat?.ok === false
-    );
+    return this._catalogManifest(gameId)?.compat?.ok !== false;
   }
 
   _roomFields(
@@ -930,9 +1026,7 @@ export default class SignalingServer {
   _sendRegistered(session, room, gameVersion) {
     // per-game mapsVersion (Этап 6.2) — из манифеста игры, объявленной
     // хостом; без gameId/каталога — статичный fallback
-    const gameManifest = room.gameId
-      ? this._gameCatalog?.getManifest(room.gameId)
-      : null;
+    const gameManifest = this._catalogManifest(room.gameId);
     const mapsVersion = gameManifest?.maps.version ?? this._mapsVersion;
 
     // составной codeVersion (Этап 6.5): движок (worker-бандл) + игра
@@ -1007,6 +1101,12 @@ export default class SignalingServer {
     }
 
     const identity = await this._verifyToken(token);
+
+    // пока проверялся токен, сессия могла стать хостом (register_host или
+    // reclaim_host обогнал этот join_room): проверка до await этого не видит
+    if (this._hostedRoom(session)) {
+      return;
+    }
 
     if (identity === null) {
       this._sendError(session, 'invalidToken', { re: 'join_room', roomId });

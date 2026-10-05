@@ -35,6 +35,7 @@ const makeController = (room, options) => {
     updateMaps: vi.fn(),
     swapWorker: vi.fn(async () => {}),
     cancelPendingSwap: vi.fn(() => true),
+    swapCarryingState: false,
     destroy: vi.fn(),
   };
 
@@ -450,7 +451,7 @@ describe('HostRole: эстафета и снятие роли (ревью-2, э�
     expect(controllers[1].swapWorker).toHaveBeenCalledTimes(1);
   });
 
-  it('preemptSwap во время загрузки манифестов → true, swapWorker не вызывается', async () => {
+  it('preemptSwap во время загрузки манифестов допустим; эстафету останавливает передача, а после неё возвращает resumeCodeUpdate', async () => {
     const role = await createReady();
     const manifest = deferred();
 
@@ -459,17 +460,114 @@ describe('HostRole: эстафета и снятие роли (ревью-2, э�
 
     const refresh = role.refreshWorker();
 
-    expect(role.preemptSwap()).toBe(true);
+    expect(role.canPreemptSwap()).toBe(true);
+    role.preemptSwap();
     expect(controllers[0].cancelPendingSwap).not.toHaveBeenCalled();
+    // PlannedHandoff.start сразу за preemptSwap
+    handoff.active = true;
 
     manifest.resolve({ version: 'e2', url: '/w2.js' });
     await refresh;
 
     expect(controllers[0].swapWorker).not.toHaveBeenCalled();
     expect(role.swapInProgress).toBe(false);
+
+    // передача сорвалась — обновление кода снова
+    handoff.active = false;
+    await role.resumeCodeUpdate();
+
+    expect(controllers[0].swapWorker).toHaveBeenCalledTimes(1);
   });
 
-  it('preemptSwap при ожидающем свопе зовёт cancelPendingSwap и возвращает его ответ', async () => {
+  // ревью-3 R3: передача началась и сорвалась (handoff_unavailable), пока
+  // эстафета качала манифесты
+  it('передача, сорвавшаяся за время загрузки манифестов, эстафету не теряет', async () => {
+    const role = await createReady();
+    const manifest = deferred();
+
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    prep.fetchWorkerManifest.mockImplementationOnce(() => manifest.promise);
+
+    const refresh = role.refreshWorker();
+
+    expect(role.canPreemptSwap()).toBe(true);
+    role.preemptSwap();
+    handoff.active = true;
+    handoff.active = false;
+
+    manifest.resolve({ version: 'e2', url: '/w2.js' });
+    await refresh;
+
+    expect(controllers[0].swapWorker).toHaveBeenCalledWith(
+      '/w2.js',
+      expect.any(Object),
+    );
+  });
+
+  // ревью-3 R5: снятая отложенная передача не качает манифесты зря
+  it('resumeCodeUpdate без отложенного обновления манифесты не качает', async () => {
+    const role = await createReady();
+
+    await role.resumeCodeUpdate();
+
+    expect(prep.fetchWorkerManifest).not.toHaveBeenCalled();
+  });
+
+  it('обновление, отложенное идущей передачей, возвращает resumeCodeUpdate', async () => {
+    const role = await createReady();
+
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    handoff.active = true;
+    await role.refreshWorker();
+    expect(prep.fetchWorkerManifest).not.toHaveBeenCalled();
+
+    handoff.active = false;
+    await role.resumeCodeUpdate();
+
+    expect(controllers[0].swapWorker).toHaveBeenCalledTimes(1);
+
+    // обновление состоялось — возвращать нечего
+    await role.resumeCodeUpdate();
+    expect(prep.fetchWorkerManifest).toHaveBeenCalledTimes(1);
+  });
+
+  it('эстафета, снятая контроллером (swap preempted), возвращается resumeCodeUpdate', async () => {
+    const role = await createReady();
+    const swap = deferred();
+
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    controllers[0].swapWorker.mockImplementationOnce(() => swap.promise);
+
+    const refresh = role.refreshWorker();
+
+    await vi.waitFor(() =>
+      expect(controllers[0].swapWorker).toHaveBeenCalled(),
+    );
+    expect(role.canPreemptSwap()).toBe(true);
+    role.preemptSwap();
+    swap.reject(new Error('swap preempted'));
+    await refresh;
+
+    await role.resumeCodeUpdate();
+
+    expect(controllers[0].swapWorker).toHaveBeenCalledTimes(2);
+  });
+
+  it('снятие роли забывает отложенное обновление', async () => {
+    const role = await createReady();
+
+    handoff.active = true;
+    await role.refreshWorker();
+    handoff.active = false;
+
+    role.teardown();
+    await createAgain(role);
+    await role.resumeCodeUpdate();
+
+    expect(prep.fetchWorkerManifest).not.toHaveBeenCalled();
+  });
+
+  it('ожидающий своп: canPreemptSwap true, preemptSwap зовёт cancelPendingSwap', async () => {
     const role = await createReady();
     const swap = deferred();
 
@@ -481,19 +579,39 @@ describe('HostRole: эстафета и снятие роли (ревью-2, э�
       expect(controllers[0].swapWorker).toHaveBeenCalled(),
     );
 
-    controllers[0].cancelPendingSwap.mockReturnValueOnce(false);
-    expect(role.preemptSwap()).toBe(false);
-    expect(role.preemptSwap()).toBe(true);
-    expect(controllers[0].cancelPendingSwap).toHaveBeenCalledTimes(2);
+    expect(role.canPreemptSwap()).toBe(true);
+    expect(controllers[0].cancelPendingSwap).not.toHaveBeenCalled();
+    role.preemptSwap();
+    expect(controllers[0].cancelPendingSwap).toHaveBeenCalledTimes(1);
 
     swap.resolve();
     await refresh;
   });
 
-  it('без эстафеты preemptSwap → true', async () => {
+  it('своп, уже переносящий состояние: canPreemptSwap false', async () => {
+    const role = await createReady();
+    const swap = deferred();
+
+    controllers[0].swapWorker.mockImplementationOnce(() => swap.promise);
+
+    const refresh = role.refreshWorker();
+
+    await vi.waitFor(() =>
+      expect(controllers[0].swapWorker).toHaveBeenCalled(),
+    );
+
+    controllers[0].swapCarryingState = true;
+    expect(role.canPreemptSwap()).toBe(false);
+
+    swap.resolve();
+    await refresh;
+  });
+
+  it('без эстафеты canPreemptSwap true, preemptSwap ничего не снимает', async () => {
     const role = await createReady();
 
-    expect(role.preemptSwap()).toBe(true);
+    expect(role.canPreemptSwap()).toBe(true);
+    role.preemptSwap();
     expect(controllers[0].cancelPendingSwap).not.toHaveBeenCalled();
   });
 });

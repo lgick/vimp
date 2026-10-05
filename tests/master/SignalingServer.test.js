@@ -1163,6 +1163,57 @@ describe('join_room / leave_room', () => {
     expect(hostX.ws.sent.filter(m => m.type === 'room_joined')).toEqual([]);
   });
 
+  // ревью-3 R4: сессия стала хостом, пока проверялся токен её join_room
+  it('join_room, обогнанный register_host той же сессии, игнорируется', async () => {
+    const hostY = await connectHost({ hostUserId: 2, ip: '2.2.2.2' });
+    const conn = await connect({ ip: '1.1.1.1' });
+    const verify = signaling._verifyToken.bind(signaling);
+    let release;
+    const held = new Promise(resolve => {
+      release = resolve;
+    });
+
+    // проверка токена join_room задерживается, register_host — нет
+    vi.spyOn(signaling, '_verifyToken').mockImplementationOnce(async token => {
+      await held;
+
+      return verify(token);
+    });
+
+    conn.ws.message({
+      type: 'join_room',
+      roomId: hostY.roomId,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+    });
+    conn.ws.message({
+      type: 'register_host',
+      maxPlayers: 8,
+      token: signToken(1),
+      memberId: memberIdOf(1),
+    });
+
+    // flushAsync ждал бы и задержанный join_room
+    const registered = await vi.waitFor(() => {
+      const reply = conn.ws.sent.find(m => m.type === 'host_registered');
+
+      expect(reply).toBeDefined();
+
+      return reply;
+    });
+
+    release();
+    await flushAsync();
+
+    const roomX = registry.get(registered.roomId);
+
+    expect(roomX.members.get(memberIdOf(1))).toMatchObject({
+      sessionId: conn.id,
+    });
+    expect(registry.get(hostY.roomId).members.has(memberIdOf(1))).toBe(false);
+    expect(conn.ws.sent.filter(m => m.type === 'room_joined')).toEqual([]);
+  });
+
   it('register_host снимает прежнее членство сессии в чужой комнате', async () => {
     const host = await connectHost();
     const guest = await joinRoom(host.roomId);
@@ -1411,6 +1462,158 @@ describe('reclaim_host', () => {
     expect(registry.get(host.roomId)).toMatchObject({
       gameId: 'tanks',
       host: { userId: 1 },
+    });
+  });
+
+  // ревью-3 R2: после рестарта мастер не помнит прежнюю версию комнаты, а
+  // гости возвращаются в неё сами
+  const restartMaster = catalog => {
+    registry = new RoomRegistry(REGISTRY_OPTIONS);
+    signaling = new SignalingServer(registry, {
+      iceServers: ICE_SERVERS,
+      regionHeader: 'x-region',
+      pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
+      checkOrigin: allowAllOrigins,
+      jwksProxy,
+      issuer: ISSUER,
+      successor: {
+        minMemberAgeMs: 0,
+        switchRatio: 0.65,
+        switchSustainMs: 30000,
+      },
+    });
+    signaling._gameCatalog = catalog;
+  };
+
+  // гость, способный стать бетой, возвращается в комнату (повторный
+  // join_room той же сессии — назначение беты заново)
+  const joinCandidate = async (roomId, guest = null) => {
+    const conn = guest ?? (await connect({ ip: '5.5.5.50' }));
+
+    conn.ws.message({
+      type: 'join_room',
+      roomId,
+      memberId: memberIdOf(50),
+      token: signToken(50),
+      caps: { canHost: true, mobile: false, hidden: false },
+    });
+    await flushAsync();
+
+    return conn;
+  };
+
+  // игра из последнего назначения беты
+  const standbyGameOf = guest =>
+    guest.ws.sent.filter(msg => msg.type === 'standby_assigned').at(-1)?.game;
+
+  // каталог с переключаемой текущей версией игры tanks
+  const catalogOf = current => ({
+    current,
+    getManifest(id) {
+      return id === 'tanks' && this.current
+        ? { version: this.current, maps: { version: 'm1' } }
+        : undefined;
+    },
+    isStaged: (id, version) => id === 'tanks' && version === 'staged-9',
+  });
+
+  const reclaimRestored = async (host, gameVersion) =>
+    reclaim(await connect({ ip: '1.1.1.1' }), {
+      roomId: host.roomId,
+      epoch: 1,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+      gameId: 'tanks',
+      gameVersion,
+    });
+
+  it('рестарт мастера: застейдженная версия из reclaim_host бете не подтверждается', async () => {
+    const host = await connectHost();
+
+    restartMaster(catalogOf('1.0.0'));
+
+    expect((await reclaimRestored(host, 'staged-9')).type).toBe(
+      'host_registered',
+    );
+    // комната на заявленной версии и скрыта, как при register_host
+    expect(registry.get(host.roomId)).toMatchObject({
+      gameVersion: 'staged-9',
+      hidden: true,
+    });
+
+    expect(standbyGameOf(await joinCandidate(host.roomId))).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0'],
+    });
+  });
+
+  it('рестарт мастера с версией каталога — бете она, как раньше', async () => {
+    const host = await connectHost();
+
+    restartMaster(catalogOf('1.0.0'));
+    await reclaimRestored(host, '1.0.0');
+
+    expect(registry.get(host.roomId).unverifiedGameVersion).toBeNull();
+    expect(standbyGameOf(await joinCandidate(host.roomId))).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0'],
+    });
+  });
+
+  it('рестарт мастера без каталога: версия комнаты бете подтверждается', async () => {
+    const host = await connectHost();
+
+    restartMaster(undefined);
+    await reclaimRestored(host, '1.0.0');
+
+    // пустой список бета прочла бы как «любая версия»
+    expect(standbyGameOf(await joinCandidate(host.roomId))).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0'],
+    });
+  });
+
+  // мастер начал слушать порт до первой синхронизации каталога
+  it('рестарт мастера: каталог ещё не знает игру — беты нет, после загрузки — с версией каталога', async () => {
+    const host = await connectHost();
+    const catalog = catalogOf(null);
+
+    restartMaster(catalog);
+    await reclaimRestored(host, 'staged-9');
+
+    const guest = await joinCandidate(host.roomId);
+
+    expect(standbyGameOf(guest)).toBeUndefined();
+    expect(registry.get(host.roomId).successorMemberId).toBeNull();
+
+    catalog.current = '1.0.0';
+    signaling.reviewSuccessors();
+
+    expect(standbyGameOf(guest)).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0'],
+    });
+  });
+
+  it('рестарт мастера: помеченную версию одобрили — дальше она обычная', async () => {
+    const host = await connectHost();
+    const catalog = catalogOf('1.0.0');
+
+    restartMaster(catalog);
+    await reclaimRestored(host, 'staged-9');
+
+    const guest = await joinCandidate(host.roomId);
+
+    // админ одобрил версию комнаты, затем опубликовал следующую
+    catalog.current = 'staged-9';
+    signaling.reviewSuccessors();
+    catalog.current = '2.0.0';
+    await joinCandidate(host.roomId, guest);
+
+    expect(standbyGameOf(guest)).toEqual({
+      id: 'tanks',
+      versions: ['staged-9', '2.0.0'],
     });
   });
 

@@ -282,6 +282,15 @@ export default class HostController {
   }
 
   /**
+   * Своп уже забрал состояние Worker'а (после prepare_handoff): снять его
+   * нельзя.
+   * @returns {boolean}
+   */
+  get swapCarryingState() {
+    return this._swap?.paused === true;
+  }
+
+  /**
    * Снять эстафету, ждущую границы раунда (плановая передача хоста
    * важнее). Своп уже переносит состояние — снять нельзя.
    * @returns {boolean} эстафета снята.

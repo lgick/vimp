@@ -137,6 +137,7 @@ export default class RoomRegistry {
       ip,
       gameId,
       gameVersion,
+      unverifiedGameVersion,
       hidden,
       settings,
       host,
@@ -189,6 +190,12 @@ export default class RoomRegistry {
       // композиции их не присылают — null
       gameId: gameId ?? null,
       gameVersion: gameVersion ?? null,
+      // версия, заявленная хостом при восстановлении комнаты после рестарта
+      // мастера, которую каталог не раздаёт как текущую: прежнюю версию
+      // комнаты мастер не помнит, а гости возвращаются сами — бетам она не
+      // подтверждается (SignalingServer._roomGame), пока каталог не начнёт
+      // раздавать её (пометку снимает SignalingServer._verifyGameVersion)
+      unverifiedGameVersion: unverifiedGameVersion ?? null,
       // комната на застейдженной версии игры (master-game-registry, этап
       // 3.5): админ тестирует новую версию, и его комната не должна
       // появляться в общем списке. Флаг считает SignalingServer по

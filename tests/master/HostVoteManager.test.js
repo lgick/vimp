@@ -187,6 +187,10 @@ const connectHost = async (userId = 1) => {
   }
 
   Object.assign(conn, reply);
+  // комната живёт столько же, сколько её участники (их joinedAt — по
+  // Date.now(), часы сервера впереди): голосование не ждёт первого
+  // room_peers хоста — это окно проверяется после смены хоста
+  registry.get(conn.roomId).hostSince -= 60000;
 
   return conn;
 };
@@ -511,6 +515,22 @@ describe('голос — по пользователю', () => {
     expect(vote.eligibleCount).toBe(2);
     expect(fresh.ws.typed('host_vote')).toEqual([]);
   });
+
+  it('в окне ожидания room_peers точная причина важнее migrating', async () => {
+    const { guests, room } = await setupVoteRoom(2);
+    const [fresh] = guests;
+
+    room.peersReportedAt = null;
+    room.hostSince = clock.now;
+    room.members.get(fresh.memberId).joinedAt = clock.now - 1000;
+
+    startVote(fresh);
+
+    expect(fresh.ws.lastOf('error')).toMatchObject({
+      code: 'voteRejected',
+      reason: 'tooNew',
+    });
+  });
 });
 
 describe('подтверждение хостом (room_peers)', () => {
@@ -567,6 +587,78 @@ describe('подтверждение хостом (room_peers)', () => {
     startVote(guests[1]);
 
     expect(beta.ws.lastOf('host_vote').eligibleCount).toBe(3);
+  });
+
+  // плановая передача роли бете: комната online в эпохе 2, подтверждения
+  // прежнего хоста сброшены
+  const handOver = async ({ host, beta, room }) => {
+    host.ws.message({
+      type: 'handoff_begin',
+      roomId: room.roomId,
+      epoch: 1,
+      reason: 'handover',
+      stay: true,
+    });
+    await registerPromoted(beta, beta.ws.lastOf('promote'));
+    expect(room).toMatchObject({ status: 'online', epoch: 2 });
+  };
+
+  it('после смены хоста до его room_peers голосование не начинается (migrating)', async () => {
+    const setup = await setupPhantomRoom();
+    const [confirmed, phantom] = setup.guests;
+
+    await handOver(setup);
+    startVote(phantom);
+
+    expect(phantom.ws.lastOf('error')).toEqual({
+      type: 'error',
+      code: 'voteRejected',
+      re: 'host_vote_start',
+      roomId: setup.room.roomId,
+      reason: 'migrating',
+    });
+    expect(confirmed.ws.typed('host_vote')).toEqual([]);
+  });
+
+  it('после room_peers нового хоста фантом — notConnected, подтверждённый начинает', async () => {
+    const setup = await setupPhantomRoom();
+    const { beta, room } = setup;
+    const [confirmed, phantom] = setup.guests;
+
+    await handOver(setup);
+    beta.ws.message({
+      type: 'room_peers',
+      roomId: room.roomId,
+      epoch: 2,
+      memberIds: [confirmed.memberId],
+    });
+
+    startVote(phantom);
+    expect(phantom.ws.lastOf('error')).toMatchObject({
+      code: 'voteRejected',
+      reason: 'notConnected',
+    });
+
+    startVote(confirmed);
+    expect(confirmed.ws.lastOf('host_vote_started')).toBeDefined();
+    expect(phantom.ws.typed('host_vote')).toEqual([]);
+  });
+
+  it('новый хост без отчётов: после peersReportGraceMs голосуют все', async () => {
+    const setup = await setupVoteRoom(2);
+    const [other, initiator] = setup.guests;
+
+    await handOver(setup);
+    startVote(initiator);
+    expect(initiator.ws.lastOf('error')).toMatchObject({
+      reason: 'migrating',
+    });
+
+    advance(20000);
+    startVote(initiator);
+
+    expect(initiator.ws.lastOf('host_vote_started')).toBeDefined();
+    expect(other.ws.lastOf('host_vote')).toBeDefined();
   });
 });
 

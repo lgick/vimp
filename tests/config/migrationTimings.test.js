@@ -62,6 +62,14 @@ describe('связки таймингов миграции хоста', () => {
     );
   });
 
+  it('peersReportGraceMs голосования > периода room_peers хоста', () => {
+    // после смены хоста голосование ждёт первого room_peers нового хоста;
+    // потерянный первый отчёт повторится внутри окна, а не после него
+    expect(master.room.vote.peersReportGraceMs).toBeGreaterThan(
+      lobby.migration.peersReportIntervalMs,
+    );
+  });
+
   it('joinRetryWindowMs гостя покрывает бэкофф сигналинга хоста', () => {
     // после рестарта мастера комнату возвращает только reclaim_host
     // хоста, а его сигналинг переподключается не позже reconnect.maxDelay;

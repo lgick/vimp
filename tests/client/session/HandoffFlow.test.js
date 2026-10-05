@@ -87,12 +87,12 @@ beforeEach(() => {
     },
     room: { ...ROOM },
     promotion: null,
-    preemptSwap: vi.fn(() => true),
+    canPreemptSwap: vi.fn(() => true),
+    preemptSwap: vi.fn(),
     successorMemberId: 'g1',
     peerCount: 0,
-    codeVersion: null,
     teardown: vi.fn(),
-    refreshWorker: vi.fn(),
+    resumeCodeUpdate: vi.fn(),
   };
   standby = { teardown: vi.fn() };
   membership = { forget: vi.fn() };
@@ -145,13 +145,24 @@ describe('HandoffFlow.start', () => {
     expect(hostRole.preemptSwap).toHaveBeenCalled();
   });
 
-  it('start: preemptSwap false (своп переносит состояние) — передача не начинается', () => {
+  it('start: своп переносит состояние (canPreemptSwap false) — передача не начинается', () => {
     const flow = create();
 
-    hostRole.preemptSwap.mockReturnValue(false);
+    hostRole.canPreemptSwap.mockReturnValue(false);
 
     expect(flow.start({ reason: 'handover' })).toBe(false);
     expect(planned.start).not.toHaveBeenCalled();
+    expect(hostRole.preemptSwap).not.toHaveBeenCalled();
+  });
+
+  it('start: PlannedHandoff.start отказал — эстафета не вытесняется', () => {
+    const flow = create();
+
+    planned.start.mockReturnValue(false);
+
+    expect(flow.start({ reason: 'handover' })).toBe(false);
+    expect(hostRole.preemptSwap).not.toHaveBeenCalled();
+    expect(ui.setHandoffMenu).not.toHaveBeenCalled();
   });
 
   it('start: передача уже идёт или комната не зарегистрирована — эстафета не вытесняется', () => {
@@ -167,36 +178,23 @@ describe('HandoffFlow.start', () => {
     expect(hostRole.preemptSwap).not.toHaveBeenCalled();
     expect(planned.start).not.toHaveBeenCalled();
   });
-
-  it('start: эстафета вытеснена, а передача не началась — эстафета перезапускается', () => {
-    const flow = create();
-
-    hostRole.codeVersion = { engine: 'e1' };
-    planned.start.mockReturnValue(false);
-
-    expect(flow.start({ reason: 'handover' })).toBe(false);
-    expect(hostRole.refreshWorker).toHaveBeenCalled();
-    expect(ui.setHandoffMenu).not.toHaveBeenCalledWith('pending');
-  });
 });
 
 describe('HandoffFlow: снятая отложенная передача (ревью-2, этап 4)', () => {
-  it('cancelDeferred политики перезапускает вытесненную эстафету', () => {
+  it('cancelDeferred политики возвращает отложенное передачей обновление кода', () => {
     create();
-    hostRole.codeVersion = { engine: 'e1' };
 
     expect(policy.options.handoff.cancelDeferred()).toBe(true);
     expect(ui.setHandoffMenu).toHaveBeenCalledWith(null);
-    expect(hostRole.refreshWorker).toHaveBeenCalledTimes(1);
+    expect(hostRole.resumeCodeUpdate).toHaveBeenCalledTimes(1);
   });
 
   it('нечего снимать — эстафета не трогается', () => {
     create();
-    hostRole.codeVersion = { engine: 'e1' };
     planned.cancelDeferred.mockReturnValue(false);
 
     expect(policy.options.handoff.cancelDeferred()).toBe(false);
-    expect(hostRole.refreshWorker).not.toHaveBeenCalled();
+    expect(hostRole.resumeCodeUpdate).not.toHaveBeenCalled();
   });
 });
 
@@ -352,12 +350,11 @@ describe('HandoffFlow: исходы передачи', () => {
 
     const flow = create();
 
-    hostRole.codeVersion = { engine: 'e1' };
     flow.armTokenHandoff();
     planned.options.onAborted({ reason: 'timeout', frozen: true });
 
     expect(ui.setHandoffMenu).toHaveBeenCalledWith('failed');
-    expect(hostRole.refreshWorker).toHaveBeenCalled();
+    expect(hostRole.resumeCodeUpdate).toHaveBeenCalled();
     expect(tokenTimer.retry).toHaveBeenCalled();
     expect(ui.showSessionOverlay).toHaveBeenCalledWith(null);
     expect(ui.enableControls).toHaveBeenCalled();

@@ -126,8 +126,9 @@ export default class HostRole {
     this._swapInProgress = false;
     // эстафета дошла до swapWorker (дальше её снимает только контроллер)
     this._swapStarted = false;
-    // плановая передача вытеснила эстафету, ещё качающую манифесты
-    this._swapPreempted = false;
+    // эстафету отложила или вытеснила плановая передача: не состоится
+    // передача — обновление кода нужно снова (resumeCodeUpdate)
+    this._codeUpdatePending = false;
     // номер эстафеты: teardown() начинает новый — finally прежней флаги новой
     // роли не трогает
     this._swapGeneration = 0;
@@ -433,7 +434,7 @@ export default class HostRole {
     this._swapGeneration += 1;
     this._swapInProgress = false;
     this._swapStarted = false;
-    this._swapPreempted = false;
+    this._codeUpdatePending = false;
     this._timers.clearInterval(this._heartbeat);
     this._heartbeat = null;
     this._standbySender?.destroy();
@@ -571,7 +572,14 @@ export default class HostRole {
   async refreshWorker() {
     const controller = this._controller;
 
-    if (this._swapInProgress || !controller || this._getHandoff().active) {
+    if (this._swapInProgress || !controller) {
+      return;
+    }
+
+    // идёт плановая передача: преемник и так поднимется на актуальном коде,
+    // а не состоится она — обновление вернёт resumeCodeUpdate
+    if (this._getHandoff().active) {
+      this._codeUpdatePending = true;
       return;
     }
 
@@ -579,7 +587,7 @@ export default class HostRole {
 
     this._swapInProgress = true;
     this._swapStarted = false;
-    this._swapPreempted = false;
+    this._codeUpdatePending = false;
 
     let manifest = null;
     let game = null;
@@ -612,13 +620,17 @@ export default class HostRole {
         return;
       }
 
-      // пока качались манифесты, роль сняли или плановая передача вытеснила
-      // эстафету: преемник поднимется на актуальном коде
-      if (
-        this._controller !== controller ||
-        this._swapPreempted ||
-        this._getHandoff().active
-      ) {
+      // пока качались манифесты, роль сняли
+      if (this._controller !== controller) {
+        console.info('[worker] swap dropped: host role ended');
+        return;
+      }
+
+      // ...или началась плановая передача (preemptSwap): до swapWorker
+      // эстафета не доходит. Передача, начатая и уже сорвавшаяся за это
+      // время, её не останавливает
+      if (this._getHandoff().active) {
+        this._codeUpdatePending = true;
         console.info('[worker] swap preempted by planned host handoff');
         return;
       }
@@ -632,10 +644,17 @@ export default class HostRole {
         console.info(`[worker] room migrated to code version ${nextKey}`);
       }
     } catch (e) {
-      // вытеснила плановая передача или роль снята (destroy) — версия не
-      // сломана: сорвётся передача — HandoffFlow запустит эстафету снова
-      if (e.message === 'swap preempted' || this._controller !== controller) {
-        console.info('[worker] swap preempted by planned host handoff');
+      // роль снята (destroy отвергает своп) — версия не сломана
+      if (this._controller !== controller) {
+        console.info('[worker] swap dropped: host role ended');
+        return;
+      }
+
+      // своп снят контроллером: его вытеснила плановая передача или закрытие
+      // комнаты — версия не сломана, обновление вернёт resumeCodeUpdate
+      if (e.message === 'swap preempted') {
+        this._codeUpdatePending = true;
+        console.info('[worker] swap preempted');
         return;
       }
 
@@ -648,27 +667,41 @@ export default class HostRole {
       if (generation === this._swapGeneration) {
         this._swapInProgress = false;
         this._swapStarted = false;
-        this._swapPreempted = false;
       }
     }
   }
 
   /**
-   * Плановая передача вытесняет эстафету Worker'ов: ещё качающую манифесты —
-   * флагом (до swapWorker она не дойдёт), ждущую границы раунда — снятием в
-   * контроллере.
-   * @returns {boolean} false — своп уже переносит состояние, передача ждёт.
+   * Можно ли вытеснить эстафету Worker'ов плановой передачей: нет эстафеты,
+   * она ещё качает манифесты или ждёт границы раунда. Своп, уже переносящий
+   * состояние, вытеснить нельзя — передача ждёт.
+   * @returns {boolean}
+   */
+  canPreemptSwap() {
+    return !this._swapStarted || this._controller?.swapCarryingState !== true;
+  }
+
+  /**
+   * Плановая передача началась и вытесняет эстафету: ждущую границы раунда
+   * снимает контроллер, а ещё качающую манифесты снимать не нужно — после
+   * загрузки её остановит сама идущая передача. Зовётся только после
+   * положительного canPreemptSwap().
    */
   preemptSwap() {
-    if (!this._swapInProgress) {
-      return true;
+    if (this._swapStarted) {
+      this._controller?.cancelPendingSwap();
     }
+  }
 
-    if (!this._swapStarted) {
-      this._swapPreempted = true;
-      return true;
+  /**
+   * Передача, отложившая или вытеснившая эстафету, не состоялась (сорвалась
+   * или снята до границы раунда) — обновление кода нужно снова. Без
+   * отложенного обновления ничего не делает: манифесты не качаются зря.
+   * @returns {Promise<void>}
+   */
+  async resumeCodeUpdate() {
+    if (this._codeUpdatePending) {
+      await this.refreshWorker();
     }
-
-    return this._controller?.cancelPendingSwap() === true;
   }
 }

@@ -498,6 +498,58 @@ describe('проверка register_host преемника', () => {
     expect(room.migration.candidateMemberId).toBe(beta.memberId);
   });
 
+  it('сессия, занявшая свою комнату за время проверки токена, не занимает ещё и комнату в миграции (ревью C3)', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    host.ws.drop();
+
+    const promote = beta.ws.lastOf('promote');
+
+    // обе регистрации проходят проверку токена одновременно: своя комната
+    // успевает раньше промоушена
+    beta.ws.message({
+      type: 'register_host',
+      maxPlayers: 8,
+      gameId: 'tanks',
+      token: signToken(2),
+      memberId: beta.memberId,
+      caps: CAN_HOST,
+      settings: SETTINGS,
+    });
+    beta.ws.message({
+      type: 'register_host',
+      roomId: promote.roomId,
+      epoch: promote.epoch,
+      promotionToken: promote.promotionToken,
+      memberId: beta.memberId,
+      token: signToken(2),
+      gameId: 'tanks',
+      caps: CAN_HOST,
+    });
+    await signaling.idle();
+
+    // порядок завершения двух проверок токена не детерминирован: второй
+    // из двух регистраций — alreadyRegistered, сессия привязана ровно к
+    // одной комнате
+    expect(beta.ws.lastOf('error')).toMatchObject({
+      code: 'alreadyRegistered',
+      re: 'register_host',
+    });
+    expect(beta.ws.sent.filter(m => m.type === 'host_registered')).toHaveLength(
+      1,
+    );
+
+    // чей бы промоушен ни выиграл, сессия привязана к той комнате, которой
+    // она хост
+    const session = signaling._sessions.get(beta.id);
+
+    if (room.host.sessionId === beta.id) {
+      expect(session.roomId).toBe(room.roomId);
+    } else {
+      expect(session.roomId).not.toBe(room.roomId);
+    }
+  });
+
   it('промоушен в несуществующую комнату — unknownRoom', async () => {
     const conn = await connect();
 

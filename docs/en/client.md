@@ -740,10 +740,12 @@ The game transport is WebRTC, not WebSocket (channel details —
   planned handoff; `HandoffFlow` enters it through
   `HandoffFlow.start({ reason, stay, defer })` (refused while a promotion owns
   the Worker or a Worker handoff is already carrying state; a Worker handoff
-  still waiting for the round boundary or still fetching its manifests
-  yields — `HostRole.preemptSwap()` cancels it, and an aborted handoff, a
-  cancelled deferred one or a handoff that failed to start runs
-  `HostRole.refreshWorker()` again; dropping the host role rejects a pending
+  still waiting for the round boundary yields — once the handoff has begun,
+  `HostRole.preemptSwap()` cancels it; one still fetching its manifests is
+  left alone and stopped by the running handoff itself — and an aborted handoff or a
+  cancelled deferred one calls `HostRole.resumeCodeUpdate()`, which reruns
+  `HostRole.refreshWorker()` only if the handoff deferred or preempted a
+  code update; dropping the host role rejects a pending
   swap with `host destroyed`, not counted as a failed version; a
   repeated call while one is running is ignored). `defer` (the default for `stay`) first waits for the round
   boundary — `HostController.awaitRoundBoundary`, answered at once by a game

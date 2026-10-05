@@ -45,6 +45,7 @@ export default class HostVoteManager {
       voteForceAfterMs: 5000,
       demotedCooldownMs: 600000,
       minVoterAgeMs: 30000,
+      peersReportGraceMs: 20000,
       ...deps.timings,
     };
 
@@ -80,6 +81,9 @@ export default class HostVoteManager {
       return; // не участник — ответить некому
     }
 
+    const now = this._now();
+    const timings = this._timings;
+
     if (room.status !== 'online') {
       return reject('migrating');
     }
@@ -92,17 +96,16 @@ export default class HostVoteManager {
       return reject('host');
     }
 
-    const now = this._now();
-    const timings = this._timings;
+    const rejection = this._voterRejection(room, member, now);
 
-    // сигнальная сессия без WebRTC-пира к хосту (фантом) голосование не
-    // начинает
-    if (!this._registry.isConfirmed(room, member)) {
-      return reject('notConnected');
+    if (rejection) {
+      return reject(rejection);
     }
 
-    if (!this._isVoter(room, member, now)) {
-      return reject('tooNew');
+    // новый хост ещё не сообщил, кто к нему подключён: окно проверяется
+    // после точных причин, чтобы они не прятались за общим migrating
+    if (this._awaitingPeersReport(room, now)) {
+      return reject('migrating');
     }
 
     if (this._votes.has(room.roomId) || this._forces.has(room.roomId)) {
@@ -145,7 +148,7 @@ export default class HostVoteManager {
 
     const voters = this._registry
       .liveMembers(room.roomId, now)
-      .filter(live => this._isVoter(room, live, now));
+      .filter(live => this._voterRejection(room, live, now) === null);
     const eligible = new Set(voters.map(live => live.userId));
     const vote = {
       voteId: this._randomBytes(8).toString('hex'),
@@ -422,15 +425,36 @@ export default class HostVoteManager {
     }
   }
 
-  // голосует аккаунт гостя (не хоста), пробывший в комнате minVoterAgeMs
-  // (свежие вкладки не накручивают голосование) и подключённый к хосту
-  // (room_peers): сигнальная сессия без пира не голосует
-  _isVoter(room, member, now) {
+  // почему участник не голосует (null — голосует): голосует аккаунт гостя
+  // (не хоста), подключённый к хосту (room_peers: сигнальная сессия без пира
+  // не голосует — notConnected) и пробывший в комнате minVoterAgeMs (свежие
+  // вкладки не накручивают голосование — tooNew)
+  _voterRejection(room, member, now) {
+    if (!this._registry.isConfirmed(room, member)) {
+      return 'notConnected';
+    }
+
+    if (
+      member.userId === null ||
+      member.userId === room.host.userId ||
+      now - member.joinedAt < this._timings.minVoterAgeMs
+    ) {
+      return 'tooNew';
+    }
+
+    return null;
+  }
+
+  // текущий хост ещё не прислал room_peers: после смены хоста подтверждения
+  // прежнего сброшены (promoteHost), и до отчёта подтверждёнными считаются
+  // все — фантомы попали бы в число голосующих. Ждём не дольше
+  // peersReportGraceMs с начала роли: хост старше room_peers отчёта не
+  // пришлёт. Свежей комнате окно ничего не стоит — её участники ещё моложе
+  // minVoterAgeMs
+  _awaitingPeersReport(room, now) {
     return (
-      member.userId !== null &&
-      member.userId !== room.host.userId &&
-      now - member.joinedAt >= this._timings.minVoterAgeMs &&
-      this._registry.isConfirmed(room, member)
+      room.peersReportedAt === null &&
+      now - room.hostSince < this._timings.peersReportGraceMs
     );
   }
 
