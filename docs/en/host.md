@@ -109,7 +109,10 @@ wasmUrl: room.game.wasmUrl })`, creates `HostGame`, replies
   participants' games and waits for the urgent profile flush — at most
   `timeoutMs` (3 s by default), then answers `shutdown_done`; an exception
   in `destroy` goes out as `diagnostic { kind: 'shutdown' }` and
-  `shutdown_done` follows anyway. From then on a new `connect` (a guest whose
+  `shutdown_done` follows anyway. `HostController.shutdown()` first cancels a
+  Worker handoff still waiting for the round boundary (`cancel_handoff`), and
+  during a handoff already moving the state it resolves at once (the old
+  Worker wrote the scores before handing the meta over). From then on a new `connect` (a guest whose
   offer reached the host before `host_closing`) is answered `close_client`
   without a code — in lobby mode the guest goes looking for another room
   instead of entering a match about to close. The Worker is not terminated —
@@ -906,6 +909,16 @@ with `resume`. A swap that is already carrying state (after
 `handoff_state`) cannot be cancelled — the handoff is refused. If the
 handoff is aborted and the tab stays the host, `HostRole.refreshWorker()` runs
 again and restarts the swap when the version still differs.
+
+`HandoffFlow.start` goes through `HostRole.preemptSwap()`: a swap that is
+still fetching its manifests is flagged and simply never reaches
+`swapWorker`; one waiting for the round boundary is cancelled as above. The
+code update is also resumed when a deferred handoff is cancelled (load back
+to normal before the boundary) and when the swap was preempted but the
+handoff did not start. Dropping the host role (`HostController.destroy`,
+e.g. after `host_revoked`) rejects a pending swap with `host destroyed` —
+not counted as a failed version either; `HostRole.teardown()` resets the
+swap flags, so a tab promoted again later is not stuck with a stale swap.
 
 ### Host migration
 

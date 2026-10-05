@@ -375,6 +375,129 @@ describe('HostRole: версии карт и кода', () => {
   });
 });
 
+describe('HostRole: эстафета и снятие роли (ревью-2, этап 4)', () => {
+  // ручной промис: тест сам решает, когда отпустить манифест или своп
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+
+    return { promise, resolve, reject };
+  };
+
+  // та же вкладка снова становится хостом (новая комната)
+  const createAgain = async role => {
+    await role.createRoom({ ...ROOM });
+    controllers.at(-1).options.onReady({ lobbyInfo: 'info' });
+  };
+
+  it('teardown во время загрузки манифестов: своп не начинается, версия не сбойная, флаг снят', async () => {
+    const role = await createReady();
+    const manifest = deferred();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    prep.fetchWorkerManifest.mockImplementationOnce(() => manifest.promise);
+
+    const refresh = role.refreshWorker();
+
+    role.teardown();
+    expect(role.swapInProgress).toBe(false);
+
+    manifest.resolve({ version: 'e2', url: '/w2.js' });
+    await refresh;
+
+    expect(controllers[0].swapWorker).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalledWith(
+      '[worker] swap to new version failed:',
+      expect.anything(),
+    );
+
+    await createAgain(role);
+    await role.refreshWorker();
+
+    expect(controllers[1].swapWorker).toHaveBeenCalledWith(
+      '/w2.js',
+      expect.any(Object),
+    );
+  });
+
+  it('destroy во время ожидающего свопа не залипает', async () => {
+    const role = await createReady();
+    const swap = deferred();
+
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    controllers[0].swapWorker.mockImplementationOnce(() => swap.promise);
+
+    const refresh = role.refreshWorker();
+
+    await vi.waitFor(() =>
+      expect(controllers[0].swapWorker).toHaveBeenCalled(),
+    );
+    role.teardown();
+    swap.reject(new Error('host destroyed'));
+    await refresh;
+
+    expect(role.swapInProgress).toBe(false);
+
+    await createAgain(role);
+    await role.refreshWorker();
+
+    expect(controllers[1].swapWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it('preemptSwap во время загрузки манифестов → true, swapWorker не вызывается', async () => {
+    const role = await createReady();
+    const manifest = deferred();
+
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    prep.fetchWorkerManifest.mockImplementationOnce(() => manifest.promise);
+
+    const refresh = role.refreshWorker();
+
+    expect(role.preemptSwap()).toBe(true);
+    expect(controllers[0].cancelPendingSwap).not.toHaveBeenCalled();
+
+    manifest.resolve({ version: 'e2', url: '/w2.js' });
+    await refresh;
+
+    expect(controllers[0].swapWorker).not.toHaveBeenCalled();
+    expect(role.swapInProgress).toBe(false);
+  });
+
+  it('preemptSwap при ожидающем свопе зовёт cancelPendingSwap и возвращает его ответ', async () => {
+    const role = await createReady();
+    const swap = deferred();
+
+    controllers[0].swapWorker.mockImplementationOnce(() => swap.promise);
+
+    const refresh = role.refreshWorker();
+
+    await vi.waitFor(() =>
+      expect(controllers[0].swapWorker).toHaveBeenCalled(),
+    );
+
+    controllers[0].cancelPendingSwap.mockReturnValueOnce(false);
+    expect(role.preemptSwap()).toBe(false);
+    expect(role.preemptSwap()).toBe(true);
+    expect(controllers[0].cancelPendingSwap).toHaveBeenCalledTimes(2);
+
+    swap.resolve();
+    await refresh;
+  });
+
+  it('без эстафеты preemptSwap → true', async () => {
+    const role = await createReady();
+
+    expect(role.preemptSwap()).toBe(true);
+    expect(controllers[0].cancelPendingSwap).not.toHaveBeenCalled();
+  });
+});
+
 describe('HostRole: бета и снятие роли', () => {
   it('successor_assigned: канал standby, политика и передача по сроку', async () => {
     const role = await createReady();

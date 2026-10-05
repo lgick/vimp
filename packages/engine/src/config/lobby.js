@@ -281,7 +281,8 @@ export default {
   // таймингами мастера и Worker'а — tests/config/migrationTimings.test.js;
   // joinRetryWindowMs — сколько гость повторяет join_room на unknownRoom
   // после рестарта мастера, пока хост не вернёт комнату reclaim_host (больше
-  // master.room.hostReclaimGraceMs с запасом на бэкофф сигналинга хоста)
+  // reconnect.maxDelay — бэкоффа сигналинга хоста — с запасом на его
+  // reclaim_host)
   session: {
     reconnectWindowMs: 15000,
     reconnectBaseDelayMs: 500,
@@ -291,7 +292,7 @@ export default {
     migrationPollMs: 1000,
     linkWaitMaxMs: 90000,
     resumeSilenceGraceMs: 3000,
-    joinRetryWindowMs: 30000,
+    joinRetryWindowMs: 45000,
   },
 
   // приёмник выгрузок отладочного контура (этап 6 плана plan/done/ai-debug):

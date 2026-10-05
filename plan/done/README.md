@@ -76,8 +76,20 @@
   код-ревью миграции хоста (✅ 2026-10-04, `stage_1.md`–`stage_15.md`,
   `review.md`): находки F1–F20 и R1–R2, последним — декомпозиция
   `client/main.js` в `client/session/*`. Всё — уточнение невыпущенного
-  `[Unreleased]` npm `vimp-engine` (minor). Сам план `plan/host-migration/`
-  ждёт ручного smoke 11.3.
+  `[Unreleased]` npm `vimp-engine` (minor).
+- [host-migration/](host-migration/) — направление L: динамический хост
+  (✅ 2026-10-05, `stage_0.md`–`stage_11.md`): миграция хоста (тёплый
+  резерв P2P, аварийная и плановая передача, автотриггеры, голосование
+  `/changehost` через мастер), отказ от `/like`·`/unlike`, комнаты без имени
+  (`roomId`), прямые ссылки `#/<gameId>[/<roomId>]`. npm `vimp-engine`
+  `[Unreleased]` → minor 0.36.0 (`### ⚠️ Breaking`), `create-vimp-game` —
+  minor, крейт не тронут, `surface.json` только дополнен. Ручной smoke
+  (п. 11.3 и проверки этапов 7–10) вынесен в `plan/host-migration-smoke.md`.
+- [host-migration-review-2/](host-migration-review-2/) — повторное
+  код-ревью миграции хоста (✅ 2026-10-05, `stage_1.md`–`stage_6.md`,
+  `review.md`): находки N1–N8 исправлены уточнением записей `[Unreleased]`
+  npm `vimp-engine`; N9 (ручной прогон) — сценарии A–L перенесены в
+  `plan/host-migration-smoke.md`.
 
 ## Зафиксированные решения
 

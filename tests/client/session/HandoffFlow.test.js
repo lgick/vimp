@@ -84,11 +84,10 @@ beforeEach(() => {
   hostRole = {
     controller: {
       shutdown: vi.fn(async () => {}),
-      cancelPendingSwap: vi.fn(() => true),
     },
     room: { ...ROOM },
     promotion: null,
-    swapInProgress: false,
+    preemptSwap: vi.fn(() => true),
     successorMemberId: 'g1',
     peerCount: 0,
     codeVersion: null,
@@ -139,23 +138,65 @@ describe('HandoffFlow.start', () => {
     expect(planned.start).not.toHaveBeenCalled();
   });
 
-  it('ожидающая эстафета Worker’ов уступает передаче (этап 8)', () => {
+  it('эстафета Worker’ов уступает передаче (этап 8)', () => {
     const flow = create();
-
-    hostRole.swapInProgress = true;
 
     expect(flow.start({ reason: 'handover' })).toBe(true);
-    expect(hostRole.controller.cancelPendingSwap).toHaveBeenCalled();
+    expect(hostRole.preemptSwap).toHaveBeenCalled();
   });
 
-  it('своп, уже переносящий состояние, передачу не пускает', () => {
+  it('start: preemptSwap false (своп переносит состояние) — передача не начинается', () => {
     const flow = create();
 
-    hostRole.swapInProgress = true;
-    hostRole.controller.cancelPendingSwap.mockReturnValue(false);
+    hostRole.preemptSwap.mockReturnValue(false);
 
     expect(flow.start({ reason: 'handover' })).toBe(false);
     expect(planned.start).not.toHaveBeenCalled();
+  });
+
+  it('start: передача уже идёт или комната не зарегистрирована — эстафета не вытесняется', () => {
+    const flow = create();
+
+    planned.active = true;
+    expect(flow.start({ reason: 'handover' })).toBe(false);
+
+    planned.active = false;
+    hostRole.room = null;
+    expect(flow.start({ reason: 'handover' })).toBe(false);
+
+    expect(hostRole.preemptSwap).not.toHaveBeenCalled();
+    expect(planned.start).not.toHaveBeenCalled();
+  });
+
+  it('start: эстафета вытеснена, а передача не началась — эстафета перезапускается', () => {
+    const flow = create();
+
+    hostRole.codeVersion = { engine: 'e1' };
+    planned.start.mockReturnValue(false);
+
+    expect(flow.start({ reason: 'handover' })).toBe(false);
+    expect(hostRole.refreshWorker).toHaveBeenCalled();
+    expect(ui.setHandoffMenu).not.toHaveBeenCalledWith('pending');
+  });
+});
+
+describe('HandoffFlow: снятая отложенная передача (ревью-2, этап 4)', () => {
+  it('cancelDeferred политики перезапускает вытесненную эстафету', () => {
+    create();
+    hostRole.codeVersion = { engine: 'e1' };
+
+    expect(policy.options.handoff.cancelDeferred()).toBe(true);
+    expect(ui.setHandoffMenu).toHaveBeenCalledWith(null);
+    expect(hostRole.refreshWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it('нечего снимать — эстафета не трогается', () => {
+    create();
+    hostRole.codeVersion = { engine: 'e1' };
+    planned.cancelDeferred.mockReturnValue(false);
+
+    expect(policy.options.handoff.cancelDeferred()).toBe(false);
+    expect(hostRole.refreshWorker).not.toHaveBeenCalled();
   });
 });
 

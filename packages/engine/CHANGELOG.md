@@ -55,8 +55,10 @@ bumps the minor version).
   successor candidates include only confirmed members (a host that sends no
   report keeps the old count); a guest listed in the epoch's last report
   before its own `join_room` is confirmed as soon as it joins. A `memberId` belongs to its user (`join_room`
-  with another user's is refused with `memberTaken`); a tab leaves its
-  previous room when it registers its own, and a guest whose session ends
+  with another user's is refused with `memberTaken`), an offer cannot claim
+  the `memberId` of another live member, and a tab holds one membership (a
+  new `memberId` replaces the old one; a tab leaves its previous room when it
+  registers or reclaims its own); a guest whose session ends
   without a reload (a kick) sends `leave_room`.
 - Direct links in the lobby mode: `#/<gameId>/<roomId>` opens that room
   without showing the lobby, `#/<gameId>` is quick play (the fullest non-full
@@ -185,7 +187,8 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     maps and dev mode are its own, and the checkpoint's game and version must
     be ones the master confirms in `promote.game` / `standby_assigned.game`
     (`{ id, versions }`; `register_host` of the new epoch and `reclaim_host`
-    refresh the room's `gameVersion`). A former host that gets `host_revoked`
+    refresh the room's `gameVersion`, but only to the catalog's current
+    version of the game). A former host that gets `host_revoked`
     (or `staleEpoch` on reclaim) drops its Worker and resumes as a guest of the
     new host. Worker message `start_after_restore { waitForResume }`,
     `HostController.initFromCheckpoint`, `HostPrewarm.take()`,
@@ -224,7 +227,8 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     The room menu starts it: "Leave server" (everyone; a host alone closes
     the room — the master hides it and lets nobody in (`host_closing`) while
     the Worker writes the participants' scores, up to
-    `migration.leaveFlushTimeoutMs`, 3 s — and a guest is released by the
+    `migration.leaveFlushTimeoutMs`, 3 s — a Worker handoff still waiting
+    for the round boundary is cancelled first — and a guest is released by the
     host at once with `LEAVE`) and
     "Hand over host" (the host, when the master has assigned a successor);
     while it runs the items are disabled and a status ("Handing over…",
@@ -233,9 +237,10 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     (`migration.deferMaxMs`, 30 s at most); a leave does not wait.
     `window.__vimpDebug.handoff({ reason, stay })` also starts one in a dev
     build. A handoff does not wait for the room's code update: a Worker
-    handoff still waiting for the round boundary yields to it (the
-    successor starts on the current code anyway) and is retried if the
-    handoff is aborted.
+    handoff still waiting for the round boundary (or still fetching its
+    manifests) yields to it (the successor starts on the current code
+    anyway) and is retried if the handoff is aborted or a deferred handoff
+    is cancelled.
   - The host's tab asks for confirmation before closing while other people
     are in the room (`beforeunload`); `pagehide` sends the master
     `host_leaving` at once (a guest's — `LEAVE` and `leave_room`).
@@ -285,7 +290,9 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
 - "Change host" vote in lobby rooms — started with `/changehost`, counted
   by the master (the host cannot block it), one vote per account (any tab of
   the host's account neither starts nor votes), only for members in the room
-  for at least `minVoterAgeMs` (30 s; `voteRejected` reason `tooNew`); a passed vote hands the host
+  for at least `minVoterAgeMs` (30 s; `voteRejected` reason `tooNew`) and
+  only members the host confirms as connected (`room_peers`; reason
+  `notConnected`); a passed vote hands the host
   role over and bars the old host from it for 10 minutes. Not available in
   dedicated or standalone mode. Its initiator sees "Voting has started",
   like the initiator of a host vote, and a guest whose answer counted sees

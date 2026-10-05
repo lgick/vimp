@@ -253,4 +253,47 @@ describe('HostPrewarm', () => {
 
     expect(controllers).toHaveLength(1);
   });
+
+  it('отказ одной и той же причины пишется один раз', async () => {
+    const onError = vi.fn();
+    const { prewarm } = create({ onError });
+    const allowedGame = { id: 'tanks', versions: ['2.0.0'] };
+
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('после годной точки отказ снова пишется', async () => {
+    const onError = vi.fn();
+    const { prewarm, controllers } = create({ onError });
+    const allowedGame = { id: 'tanks', versions: ['2.0.0'] };
+
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+    await prewarm.warm({ bytes: { version: '2.0.0' } }, { allowedGame });
+    controllers[0].opts.onPreloaded();
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+
+  it('разные причины пишутся каждая', async () => {
+    const onError = vi.fn();
+    let withGame = false;
+    const { prewarm } = create({
+      onError,
+      decode: async bytes => ({
+        meta: withGame ? meta(bytes.version) : {},
+        core: null,
+      }),
+    });
+    const allowedGame = { id: 'tanks', versions: ['2.0.0'] };
+
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+    withGame = true;
+    await prewarm.warm({ bytes: { version: '1.0.0' } }, { allowedGame });
+
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
 });

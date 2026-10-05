@@ -164,7 +164,8 @@ async function defaultCompileWasm(url) {
 
 // ровно то, что читают applyRoomOverrides и buildCoreConfig. Без
 // isDevMode: dev-режим решает сборка вкладки, которая поднимает Worker
-// (prepareHostRoom в client/main.js), в точку он не едет
+// (prepareHostRoom в client/session/hostRoomPrep.js), в точку он не
+// едет
 const ROOM_SETTING_KEYS = [
   'map',
   'maxPlayers',

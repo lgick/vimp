@@ -584,6 +584,35 @@ describe('HostController: плановая передача вытесняет �
   });
 });
 
+describe('HostController: destroy снимает эстафету (ревью-2, этап 4)', () => {
+  it('destroy() при ожидающей эстафете отвергает её промис', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    controller.destroy();
+
+    await expect(swap).rejects.toThrow('host destroyed');
+    expect(controller._swap).toBeNull();
+  });
+
+  it('destroy() при переносящей эстафете отвергает её промис и гасит новый Worker', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+    controller.destroy();
+
+    await expect(swap).rejects.toThrow('host destroyed');
+    expect(workers[1].terminate).toHaveBeenCalled();
+  });
+});
+
 describe('HostController: закрытие комнаты последним человеком (ревью, этап 10)', () => {
   it("shutdown шлёт Worker'у таймаут и разрешается по shutdown_done", async () => {
     const { controller, workers } = createController();
@@ -633,14 +662,58 @@ describe('HostController: закрытие комнаты последним ч�
     }
   });
 
-  it("во время эстафеты — сразу, без сообщения Worker'у", async () => {
+  it('при эстафете, ждущей границы раунда, снимает её и пишет очки', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+
+    const swap = controller.swapWorker('/worker-2.js');
+
+    let done = false;
+    const shutdown = controller.shutdown({ timeoutMs: 60000 }).then(() => {
+      done = true;
+    });
+
+    await expect(swap).rejects.toThrow('swap preempted');
+
+    const { posted } = workers[0];
+    const cancelAt = posted.findIndex(m => m.type === 'cancel_handoff');
+    const shutdownAt = posted.findIndex(
+      m => m.type === 'shutdown' && m.timeoutMs === 60000,
+    );
+
+    expect(cancelAt).toBeGreaterThanOrEqual(0);
+    expect(shutdownAt).toBeGreaterThan(cancelAt);
+
+    await Promise.resolve();
+    expect(done).toBe(false);
+
+    workers[0].emit({ type: 'shutdown_done' });
+    await shutdown;
+    expect(done).toBe(true);
+  });
+
+  it("при переносе состояния (paused) — сразу, без сообщения Worker'у", async () => {
     const { controller, workers } = createController();
 
     workers[0].emit({ type: 'ready' });
     controller.swapWorker('/worker-2.js').catch(() => {});
+    workers[0].emit({ type: 'handoff_state', state: {} });
 
     await expect(controller.shutdown()).resolves.toBeUndefined();
     expect(workers[0].posted.some(m => m.type === 'shutdown')).toBe(false);
+  });
+
+  it('поздний handoff_state после снятия свопа закрытием не шлёт resume', async () => {
+    const { controller, workers } = createController();
+
+    workers[0].emit({ type: 'ready' });
+    controller.swapWorker('/worker-2.js').catch(() => {});
+    controller.shutdown({ timeoutMs: 60000 });
+
+    workers[0].emit({ type: 'handoff_state', state: {} });
+
+    expect(workers[0].posted).not.toContainEqual({ type: 'resume' });
   });
 
   it('повторный shutdown возвращает идущий промис и не шлёт второе сообщение', async () => {

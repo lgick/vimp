@@ -61,4 +61,13 @@ describe('связки таймингов миграции хоста', () => {
       lobby.session.migrationWaitMs,
     );
   });
+
+  it('joinRetryWindowMs гостя покрывает бэкофф сигналинга хоста', () => {
+    // после рестарта мастера комнату возвращает только reclaim_host
+    // хоста, а его сигналинг переподключается не позже reconnect.maxDelay;
+    // запас — на подключение и проверку токена
+    expect(lobby.session.joinRetryWindowMs).toBeGreaterThanOrEqual(
+      lobby.reconnect.maxDelay + 10000,
+    );
+  });
 });

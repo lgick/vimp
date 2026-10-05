@@ -480,6 +480,25 @@ export default class SignalingServer {
     return { id: room.gameId, versions };
   }
 
+  // версия игры от хоста новой эпохи или вернувшегося хоста: та, что уже у
+  // комнаты, или текущая версия каталога (на неё переводит эстафета
+  // Worker'ов). Любую другую (например, застейдженную) мастер подтвердил бы
+  // бетам как версию комнаты, а hidden не пересчитывается — она не
+  // принимается: undefined, версия комнаты остаётся прежней
+  _acceptedGameVersion(room, gameVersion) {
+    if (gameVersion === room.gameVersion) {
+      return gameVersion;
+    }
+
+    const catalogVersion = room.gameId
+      ? this._gameCatalog?.getManifest(room.gameId)?.version
+      : undefined;
+
+    return typeof catalogVersion === 'string' && gameVersion === catalogVersion
+      ? gameVersion
+      : undefined;
+  }
+
   _sendSuccessorToHost(room) {
     const host = this._getHostSession(room.roomId);
 
@@ -687,7 +706,7 @@ export default class SignalingServer {
         caps: msg.caps,
         // холодный промоушен перезагрузил страницу: прежняя запись вкладки
         previousMemberId: migration.candidateMemberId,
-        gameVersion: msg.gameVersion,
+        gameVersion: this._acceptedGameVersion(room, msg.gameVersion),
       },
       this._now(),
     );
@@ -695,7 +714,7 @@ export default class SignalingServer {
 
     this._leaveMembership(session, room.roomId);
     this._bindHost(session, room);
-    this._sendRegistered(session, room, msg.gameVersion ?? room.gameVersion);
+    this._sendRegistered(session, room, room.gameVersion);
     this._migration.completePromotion(room, { migration });
     this._reviewSuccessor(room);
   }
@@ -794,7 +813,7 @@ export default class SignalingServer {
         sessionId: session.id,
         memberId: this._memberIdOf(session, memberId),
         ip: session.ip,
-        gameVersion,
+        gameVersion: this._acceptedGameVersion(room, gameVersion),
       });
 
       if (msg.caps !== undefined) {
@@ -834,8 +853,10 @@ export default class SignalingServer {
       }
     }
 
+    this._leaveMembership(session, roomId);
     this._bindHost(session, room);
-    this._sendRegistered(session, room, gameVersion);
+    // версия комнаты, а не присланная: отклонённую хосту не подтверждают
+    this._sendRegistered(session, room, room.gameVersion);
 
     // вернувшемуся хосту — кто бета (назначение могло смениться, пока его
     // не было); после рестарта мастера беты ещё нет
@@ -979,6 +1000,12 @@ export default class SignalingServer {
       return;
     }
 
+    // хост — участник своей комнаты через register_host; join_room от его
+    // сессии снял бы запись хоста в собственной комнате
+    if (this._hostedRoom(session)) {
+      return;
+    }
+
     const identity = await this._verifyToken(token);
 
     if (identity === null) {
@@ -1003,8 +1030,15 @@ export default class SignalingServer {
       return;
     }
 
-    // одна вкладка — одна комната
-    this._leaveMembership(session, roomId);
+    // одна вкладка — одно членство: другая комната или другой memberId той
+    // же сессии снимают прежнюю запись
+    if (
+      session.memberOf &&
+      (session.memberOf.roomId !== roomId ||
+        session.memberOf.memberId !== memberId)
+    ) {
+      this._leaveMembership(session);
+    }
 
     this._registry.joinMember(roomId, {
       memberId,
@@ -1056,6 +1090,30 @@ export default class SignalingServer {
     this._reviewSuccessor(this._registry.get(roomId));
   }
 
+  // memberId пира для хоста (по нему хост узнаёт пира, в том числе бету):
+  // участник комнаты — только свой зарегистрированный; не участник (первый
+  // оффер идёт до join_room) — присланный, если он не принадлежит другой
+  // живой сессии комнаты: иначе хост принял бы этот пир за неё (канал
+  // standby, room_peers). Запись в grace (sessionId === null) отдаётся —
+  // оффер реконнекта с resume может обогнать повторный join_room
+  _offerMemberId(session, room, roomId, memberId) {
+    if (session.memberOf?.roomId === roomId) {
+      return session.memberOf.memberId;
+    }
+
+    if (!isValidMemberId(memberId)) {
+      return undefined;
+    }
+
+    const holder = room?.members.get(memberId);
+
+    return holder &&
+      holder.sessionId !== null &&
+      holder.sessionId !== session.id
+      ? undefined
+      : memberId;
+  }
+
   // клиент шлёт SDP-оффер текущему хосту комнаты (hostId — алиас roomId
   // от страниц до этапа 2)
   _onWebRtcOffer(session, { roomId, hostId, sdp, memberId, resume }) {
@@ -1087,14 +1145,7 @@ export default class SignalingServer {
       type: 'webrtc_offer',
       clientId: session.id,
       sdp,
-      // участник комнаты — только своим зарегистрированным memberId: хост по
-      // нему узнаёт пира (в том числе бету)
-      memberId:
-        session.memberOf?.roomId === id
-          ? session.memberOf.memberId
-          : isValidMemberId(memberId)
-            ? memberId
-            : undefined,
+      memberId: this._offerMemberId(session, room, id, memberId),
       resume: resume === true ? true : undefined,
       epoch: room?.epoch,
     });

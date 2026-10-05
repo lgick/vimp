@@ -807,6 +807,72 @@ describe('маршрутизация WebRTC', () => {
     });
   });
 
+  // ревью N4: иначе хост принял бы чужой пир за живого участника (канал
+  // standby, подтверждение в room_peers)
+  it('оффер не-участника с memberId живого участника уходит хосту без memberId', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+    const stranger = await connect({ ip: '6.6.6.6' });
+
+    stranger.ws.message({
+      type: 'webrtc_offer',
+      roomId: host.roomId,
+      sdp: 'OFFER',
+      memberId: guest.memberId,
+    });
+
+    const offer = host.ws.lastSent();
+
+    expect(offer).toMatchObject({
+      type: 'webrtc_offer',
+      clientId: stranger.id,
+    });
+    expect(offer.memberId).toBeUndefined();
+  });
+
+  it('оффер не-участника со свободным memberId пересылается как есть', async () => {
+    const host = await connectHost();
+    await joinRoom(host.roomId);
+    const client = await connect({ ip: '6.6.6.6' });
+
+    client.ws.message({
+      type: 'webrtc_offer',
+      roomId: host.roomId,
+      sdp: 'OFFER',
+      memberId: memberIdOf(70),
+    });
+
+    expect(host.ws.lastSent()).toMatchObject({
+      type: 'webrtc_offer',
+      clientId: client.id,
+      memberId: memberIdOf(70),
+    });
+  });
+
+  it('оффер с memberId отсоединённого участника (grace) пересылается', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.handlers.close();
+
+    // реконнект: оффер с resume обгоняет повторный join_room
+    const again = await connect({ ip: '6.6.6.6' });
+
+    again.ws.message({
+      type: 'webrtc_offer',
+      roomId: host.roomId,
+      sdp: 'OFFER',
+      memberId: guest.memberId,
+      resume: true,
+    });
+
+    expect(host.ws.lastSent()).toMatchObject({
+      type: 'webrtc_offer',
+      clientId: again.id,
+      memberId: guest.memberId,
+    });
+  });
+
   it('hostId в оффере — алиас roomId (страницы до этапа 2)', async () => {
     const host = await connectHost();
     const client = await connect();
@@ -1056,6 +1122,47 @@ describe('join_room / leave_room', () => {
     );
   });
 
+  it('join_room той же сессией с другим memberId снимает прежнюю запись', async () => {
+    const host = await connectHost();
+    const guest = await joinRoom(host.roomId);
+
+    guest.ws.message({
+      type: 'join_room',
+      roomId: host.roomId,
+      memberId: memberIdOf(51),
+      token: signToken(50),
+    });
+    await flushAsync();
+
+    const members = registry.get(host.roomId).members;
+
+    expect(members.has(guest.memberId)).toBe(false);
+    expect(members.get(memberIdOf(51))).toMatchObject({ sessionId: guest.id });
+    expect(members.size).toBe(2);
+  });
+
+  it('join_room от сессии хоста игнорируется', async () => {
+    const hostX = await connectHost();
+    const hostY = await connectHost({ hostUserId: 2, ip: '2.2.2.2' });
+
+    hostX.ws.message({
+      type: 'join_room',
+      roomId: hostY.roomId,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+    });
+    await flushAsync();
+
+    const roomX = registry.get(hostX.roomId);
+
+    expect(roomX.members.get(memberIdOf(1))).toMatchObject({
+      sessionId: hostX.id,
+    });
+    expect(roomX.host.sessionId).toBe(hostX.id);
+    expect(registry.get(hostY.roomId).members.has(memberIdOf(1))).toBe(false);
+    expect(hostX.ws.sent.filter(m => m.type === 'room_joined')).toEqual([]);
+  });
+
   it('register_host снимает прежнее членство сессии в чужой комнате', async () => {
     const host = await connectHost();
     const guest = await joinRoom(host.roomId);
@@ -1182,6 +1289,94 @@ describe('reclaim_host', () => {
     client.ws.message({ type: 'webrtc_offer', roomId: host.roomId, sdp: 'O' });
 
     expect(conn.ws.lastSent().type).toBe('webrtc_offer');
+  });
+
+  it('reclaim_host снимает членство сессии в чужой комнате', async () => {
+    const hostX = await connectHost();
+    // гость держит комнату X живой, пока её хост переподключается
+    await joinRoom(hostX.roomId, { userId: 60, ip: '6.6.6.6' });
+    const hostY = await connectHost({ hostUserId: 2, ip: '2.2.2.2' });
+
+    hostX.ws.handlers.close();
+
+    // вкладка бывшего хоста X успела войти гостем в Y
+    const conn = await joinRoom(hostY.roomId, { userId: 1, ip: '1.1.1.1' });
+
+    conn.memberId = memberIdOf(1);
+    expect(registry.get(hostY.roomId).members.has(conn.memberId)).toBe(true);
+
+    const reply = await reclaim(conn, {
+      roomId: hostX.roomId,
+      epoch: 1,
+      roomSecret: hostX.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+    });
+
+    expect(reply.type).toBe('host_registered');
+    expect(registry.get(hostY.roomId).members.has(conn.memberId)).toBe(false);
+  });
+
+  // ревью N2: вернувшийся хост меняет версию комнаты только на текущую
+  // каталожную
+  const reclaimWithVersion = async (host, gameVersion) => {
+    // гость держит комнату живой, пока хост переподключается: без людей
+    // обрыв хоста её закрывает, и reclaim_host создал бы её заново
+    const guest = await connect({ ip: '6.6.6.6' });
+
+    guest.ws.message({
+      type: 'join_room',
+      roomId: host.roomId,
+      memberId: memberIdOf(60),
+      token: signToken(60),
+    });
+    await flushAsync();
+    host.ws.handlers.close();
+
+    return reclaim(await connect({ ip: '1.1.1.1' }), {
+      roomId: host.roomId,
+      epoch: host.epoch,
+      roomSecret: host.roomSecret,
+      memberId: memberIdOf(1),
+      token: signToken(1),
+      gameVersion,
+    });
+  };
+
+  it('reclaim_host с версией каталога обновляет версию игры комнаты', async () => {
+    const host = await connectHost();
+    const room = registry.get(host.roomId);
+
+    room.gameId = 'tanks';
+    room.gameVersion = '1.0.0';
+    signaling._gameCatalog = {
+      getManifest: id =>
+        id === 'tanks'
+          ? { version: '2.0.0', maps: { version: 'm1' } }
+          : undefined,
+    };
+
+    expect((await reclaimWithVersion(host, '2.0.0')).type).toBe(
+      'host_registered',
+    );
+    expect(registry.get(host.roomId)).toBe(room);
+    expect(room.gameVersion).toBe('2.0.0');
+  });
+
+  it('без каталога reclaim_host версию не меняет (ревью N2)', async () => {
+    const host = await connectHost();
+    const room = registry.get(host.roomId);
+
+    room.gameId = 'tanks';
+    room.gameVersion = '1.0.0';
+
+    const reply = await reclaimWithVersion(host, '2.0.0');
+
+    expect(reply.type).toBe('host_registered');
+    expect(registry.get(host.roomId)).toBe(room);
+    expect(room.gameVersion).toBe('1.0.0');
+    // отклонённую версию хосту не подтверждают
+    expect(reply.codeVersion.game.version).toBe('1.0.0');
   });
 
   it('после рестарта мастера комната создаётся заново с тем же roomId', async () => {
@@ -1884,9 +2079,25 @@ describe('преемник комнаты (host-migration этап 6)', () => {
     });
   });
 
-  it('reclaim_host с gameVersion обновляет версию игры комнаты', async () => {
+  it('reclaim_host с застейдженной версией не меняет версию комнаты (ревью N2)', async () => {
     const host = await connectHost();
+    const room = registry.get(host.roomId);
 
+    room.gameId = 'tanks';
+    room.gameVersion = '1.0.0';
+    signaling._gameCatalog = {
+      getManifest: id =>
+        id === 'tanks'
+          ? { version: '1.0.0', maps: { version: 'm1' } }
+          : undefined,
+    };
+
+    // гость без canHost держит комнату живой, пока хост переподключается
+    await join(host.roomId, 60, {
+      canHost: false,
+      mobile: false,
+      hidden: false,
+    });
     host.ws.handlers.close();
 
     const again = await connect({ ip: '1.1.1.1' });
@@ -1898,10 +2109,19 @@ describe('преемник комнаты (host-migration этап 6)', () => {
       roomSecret: host.roomSecret,
       memberId: memberIdOf(1),
       token: signToken(1),
-      gameVersion: '2.0.0',
+      gameVersion: 'staged-9',
     });
     await flushAsync();
 
-    expect(registry.get(host.roomId).gameVersion).toBe('2.0.0');
+    expect(again.ws.lastSent().type).toBe('host_registered');
+    expect(registry.get(host.roomId)).toBe(room);
+    expect(room.gameVersion).toBe('1.0.0');
+
+    const guest = await join(host.roomId, 50);
+
+    expect(typed(guest.ws, 'standby_assigned')[0].game).toEqual({
+      id: 'tanks',
+      versions: ['1.0.0'],
+    });
   });
 });

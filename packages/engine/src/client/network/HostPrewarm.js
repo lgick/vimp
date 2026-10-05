@@ -63,6 +63,9 @@ export default class HostPrewarm {
     // версия, прогрев которой провалился: точки идут 2 раза в секунду, и
     // повтор на каждую означал бы шторм запросов к мастеру
     this._failedKey = null;
+    // последний отказ точке: та же причина на следующих точках (2 раза в
+    // секунду) в журнал не идёт
+    this._rejectedKey = null;
     this._controller = null;
     this._prepared = null;
   }
@@ -109,13 +112,13 @@ export default class HostPrewarm {
 
         gameRef = meta?.room?.game ?? null;
       } catch (e) {
-        this._onError?.(e);
+        this._reject('decode', e);
         return;
       }
     }
 
     if (!gameRef?.id || !gameRef.version) {
-      this._onError?.(new Error('checkpoint has no room.game'));
+      this._reject('noGame', new Error('checkpoint has no room.game'));
       return;
     }
 
@@ -123,9 +126,14 @@ export default class HostPrewarm {
 
     // как и негодная точка — проблема точки: состояние не меняется
     if (!isConfirmedGame(gameRef, allowedGame)) {
-      this._onError?.(new Error('checkpoint game is not the room game'));
+      this._reject(
+        `foreign:${gameRef.id}@${gameRef.version}`,
+        new Error('checkpoint game is not the room game'),
+      );
       return;
     }
+
+    this._rejectedKey = null;
 
     const gameKey = `${gameRef.id}@${gameRef.version}`;
 
@@ -198,6 +206,17 @@ export default class HostPrewarm {
   destroy() {
     this._terminate();
     this._state = 'destroyed';
+  }
+
+  // отказ точке — в журнал один раз на причину: хост шлёт точки дважды
+  // в секунду, а состояние прогрева от отказа не меняется
+  _reject(key, error) {
+    if (key === this._rejectedKey) {
+      return;
+    }
+
+    this._rejectedKey = key;
+    this._onError?.(error);
   }
 
   _fail(error) {

@@ -124,6 +124,13 @@ export default class HostRole {
     this._failedCodeVersion = null;
     // защита от параллельных эстафет Worker'ов
     this._swapInProgress = false;
+    // эстафета дошла до swapWorker (дальше её снимает только контроллер)
+    this._swapStarted = false;
+    // плановая передача вытеснила эстафету, ещё качающую манифесты
+    this._swapPreempted = false;
+    // номер эстафеты: teardown() начинает новый — finally прежней флаги новой
+    // роли не трогает
+    this._swapGeneration = 0;
     // бета, назначенная мастером комнате этой вкладки (successor_assigned)
     this._successorMemberId = null;
 
@@ -421,6 +428,12 @@ export default class HostRole {
 
     handoff.abort();
     handoff.cancelTokenHandoff();
+    // прежняя эстафета досчитает своё и выйдет (контроллер сменился); новая
+    // роль начинает с чистых флагов
+    this._swapGeneration += 1;
+    this._swapInProgress = false;
+    this._swapStarted = false;
+    this._swapPreempted = false;
     this._timers.clearInterval(this._heartbeat);
     this._heartbeat = null;
     this._standbySender?.destroy();
@@ -556,15 +569,17 @@ export default class HostRole {
   // у мастера. Worker заменяется на границе раунда без разрыва P2P; сбой
   // свопа не смертелен — комната продолжает жить на прежней версии
   async refreshWorker() {
-    if (
-      this._swapInProgress ||
-      !this._controller ||
-      this._getHandoff().active
-    ) {
+    const controller = this._controller;
+
+    if (this._swapInProgress || !controller || this._getHandoff().active) {
       return;
     }
 
+    const generation = this._swapGeneration;
+
     this._swapInProgress = true;
+    this._swapStarted = false;
+    this._swapPreempted = false;
 
     let manifest = null;
     let game = null;
@@ -597,15 +612,29 @@ export default class HostRole {
         return;
       }
 
-      await this._controller.swapWorker(manifest.url, game);
+      // пока качались манифесты, роль сняли или плановая передача вытеснила
+      // эстафету: преемник поднимется на актуальном коде
+      if (
+        this._controller !== controller ||
+        this._swapPreempted ||
+        this._getHandoff().active
+      ) {
+        console.info('[worker] swap preempted by planned host handoff');
+        return;
+      }
 
-      this._codeVersion = nextCodeVersion;
-      this._failedCodeVersion = null;
-      console.info(`[worker] room migrated to code version ${nextKey}`);
+      this._swapStarted = true;
+      await controller.swapWorker(manifest.url, game);
+
+      if (this._controller === controller) {
+        this._codeVersion = nextCodeVersion;
+        this._failedCodeVersion = null;
+        console.info(`[worker] room migrated to code version ${nextKey}`);
+      }
     } catch (e) {
-      // эстафету вытеснила плановая передача хоста — версия не сломана:
-      // сорвётся передача — HandoffFlow запустит своп снова
-      if (e.message === 'swap preempted') {
+      // вытеснила плановая передача или роль снята (destroy) — версия не
+      // сломана: сорвётся передача — HandoffFlow запустит эстафету снова
+      if (e.message === 'swap preempted' || this._controller !== controller) {
         console.info('[worker] swap preempted by planned host handoff');
         return;
       }
@@ -616,7 +645,30 @@ export default class HostRole {
 
       console.warn('[worker] swap to new version failed:', e);
     } finally {
-      this._swapInProgress = false;
+      if (generation === this._swapGeneration) {
+        this._swapInProgress = false;
+        this._swapStarted = false;
+        this._swapPreempted = false;
+      }
     }
+  }
+
+  /**
+   * Плановая передача вытесняет эстафету Worker'ов: ещё качающую манифесты —
+   * флагом (до swapWorker она не дойдёт), ждущую границы раунда — снятием в
+   * контроллере.
+   * @returns {boolean} false — своп уже переносит состояние, передача ждёт.
+   */
+  preemptSwap() {
+    if (!this._swapInProgress) {
+      return true;
+    }
+
+    if (!this._swapStarted) {
+      this._swapPreempted = true;
+      return true;
+    }
+
+    return this._controller?.cancelPendingSwap() === true;
   }
 }

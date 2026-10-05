@@ -394,7 +394,7 @@ reloadable close.
   `join_room` for the current room means the master restarted and the host
   has not reclaimed the room yet: `JoinRetry` (`client/lib/JoinRetry.js`)
   repeats `join_room` after 1, 2, 4, 8, 8, 8 s for up to
-  `session.joinRetryWindowMs` (30 s) and stops on `room_joined`; past the
+  `session.joinRetryWindowMs` (45 s) and stops on `room_joined`; past the
   window nothing happens — the P2P match may live on. Signaling `error`s are handled (the master's `re`/`roomId`
   tell which request and room the error is about): `unknownRoom` is decided
   by `decideUnknownRoom` (`client/lib/signalingErrors.js`) — an error about
@@ -740,8 +740,11 @@ The game transport is WebRTC, not WebSocket (channel details —
   planned handoff; `HandoffFlow` enters it through
   `HandoffFlow.start({ reason, stay, defer })` (refused while a promotion owns
   the Worker or a Worker handoff is already carrying state; a Worker handoff
-  still waiting for the round boundary yields — `HostController.cancelPendingSwap()`
-  cancels it, and an aborted handoff runs `HostRole.refreshWorker()` again; a
+  still waiting for the round boundary or still fetching its manifests
+  yields — `HostRole.preemptSwap()` cancels it, and an aborted handoff, a
+  cancelled deferred one or a handoff that failed to start runs
+  `HostRole.refreshWorker()` again; dropping the host role rejects a pending
+  swap with `host destroyed`, not counted as a failed version; a
   repeated call while one is running is ignored). `defer` (the default for `stay`) first waits for the round
   boundary — `HostController.awaitRoundBoundary`, answered at once by a game
   with `migration.midRound`, otherwise when the next round starts, at most
@@ -833,8 +836,7 @@ data flows into the same Worker as the host player's loopback. `HostController` 
 the match from one). Details — [host.md](host.md#checkpoints).
 `shutdown({ timeoutMs })` closes the room cleanly: the Worker's `shutdown`
 (participants' games closed, profiles flushed), resolved by `shutdown_done`
-or after `timeoutMs + 500` ms, at once during a Worker handoff (the state is
-moved, not closed); a repeated call returns the promise already in flight (a second `HostGame.destroy()` would flush the same delta twice), and `main.js` ignores a second "Leave server" while the first is waiting; the Worker is terminated only by `destroy()`.
+or after `timeoutMs + 500` ms; a Worker handoff still waiting for the round boundary is cancelled first (`cancel_handoff`), one already moving the state resolves it at once (the old Worker wrote the scores before handing the meta over); a repeated call returns the promise already in flight (a second `HostGame.destroy()` would flush the same delta twice), and `main.js` ignores a second "Leave server" while the first is waiting; the Worker is terminated only by `destroy()`.
 
 There's no classic-Worker fallback (it would forbid ESM and require an
 inlined WASM binary — see PLAN.md risk #5), so "Create server" first feature-
@@ -1546,7 +1548,8 @@ other people hands the role over (`reason: 'leave', stay: false`) and goes
 to the lobby, a host alone closes the room: "Leaving…" overlay,
 `host_closing` (the master hides the room and stops letting anyone in),
 `HostController.shutdown` — the Worker writes the participants' scores, at
-most `migration.leaveFlushTimeoutMs` (3 s) — then `host_leaving` (no people,
+most `migration.leaveFlushTimeoutMs` (3 s); a Worker handoff still waiting
+for the round boundary is cancelled first — then `host_leaving` (no people,
 the master closes it at once). **Hand over host** — only the current host,
 when the room has other people and the master assigned a successor
 (`successor_assigned` with a non-null `successorMemberId`):

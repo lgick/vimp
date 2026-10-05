@@ -623,10 +623,11 @@ host: the lobby happens before connecting to a host.
   pause of a match raised from a checkpoint); these and the timings above
   are tied to the master's and the Worker's, see
   `tests/config/migrationTimings.test.js`;
-  host migration review stage 6: `joinRetryWindowMs: 30000` (how long a
+  host migration review stage 6: `joinRetryWindowMs: 45000` (how long a
   guest repeats `join_room` on `unknownRoom` after a master restart, until
-  the host reclaims the room — longer than `room.hostReclaimGraceMs`, with
-  room for the host's signaling backoff);
+  the host reclaims the room — longer than `reconnect.maxDelay` (the host's
+  signaling backoff), with room for its `reclaim_host`; the pair is checked
+  by `tests/config/migrationTimings.test.js`);
 - `pageSize: 10` — the page size for "Load more" (`offset`/`limit`);
 - `debugReportUrl: '/debug/report'` — the upload endpoint of the debugging
   loop (`window.__vimpDebug`); the master registers the route in dev only,

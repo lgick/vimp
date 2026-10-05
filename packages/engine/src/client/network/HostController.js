@@ -522,14 +522,17 @@ export default class HostController {
   /**
    * Корректное закрытие комнаты: Worker закрывает игры участников и пишет
    * профили (HostGame.destroy). Разрешается по ответу Worker'а или по
-   * таймауту — Worker не гасится, это делает destroy().
+   * таймауту — Worker не гасится, это делает destroy(). Эстафета Worker'ов,
+   * ждущая границы раунда, сначала снимается (cancel_handoff); при
+   * эстафете, уже переносящей состояние, — сразу выполненный промис.
    * @param {Object} [options]
    * @param {number} [options.timeoutMs]
    * @returns {Promise<void>}
    */
   shutdown({ timeoutMs = 3000 } = {}) {
-    // эстафета переносит состояние в новый Worker, закрывать нечего
-    if (this._swap) {
+    // эстафета уже переносит состояние: старый Worker записал очки перед
+    // отдачей меты (_flushBeforeHandoff) — закрывать нечего
+    if (this._swap?.paused) {
       return Promise.resolve();
     }
 
@@ -537,6 +540,12 @@ export default class HostController {
     // HostGame.destroy() поверх идущего повторил бы flush (двойной зачёт)
     if (this._shutdownPromise) {
       return this._shutdownPromise;
+    }
+
+    // эстафета ждёт границы раунда: ничего не переносила и очков не писала.
+    // Комната закрывается — эстафета больше не нужна, а очки — нужны
+    if (this._swap) {
+      this.cancelPendingSwap();
     }
 
     this._shutdownPromise = new Promise(resolve => {
@@ -564,9 +573,14 @@ export default class HostController {
     this._rejectDebugRequests('host destroyed');
 
     if (this._swap) {
+      const { reject } = this._swap;
+
       this._swap.next?.terminate();
       this._clearSwapTimeout();
       this._swap = null;
+      // своп ждёт HostRole.refreshWorker: без отказа его finally не
+      // выполнится, и флаг эстафеты залипнет до перезагрузки страницы
+      reject(new Error('host destroyed'));
     }
 
     this._worker.terminate();
@@ -590,10 +604,14 @@ export default class HostController {
   // старый Worker достиг границы раунда и отдал состояние: поднять новый
   _onHandoffState(state) {
     // своп снят (cancelPendingSwap), а Worker успел отдать состояние раньше,
-    // чем получил cancel_handoff: его таймеры стоят — вернуть к игре. После
-    // destroy() Worker остановлен, сообщение ничего не сделает
+    // чем получил cancel_handoff: его таймеры стоят — вернуть к игре. Если
+    // своп сняло закрытие комнаты, возвращать нечего: Worker уже в
+    // HostGame.destroy(). После destroy() сообщение ничего не сделает
     if (!this._swap) {
-      this._worker.postMessage({ type: 'resume' });
+      if (!this._shutdownPromise) {
+        this._worker.postMessage({ type: 'resume' });
+      }
+
       return;
     }
 

@@ -71,6 +71,10 @@ describe('сообщения чата', () => {
     expect(
       rejectionMessageKey({ code: 'voteRejected', reason: 'migrating' }),
     ).toBe('HOST_VOTE_UNAVAILABLE');
+    // фантом без пира к хосту: отдельного текста у игр нет
+    expect(
+      rejectionMessageKey({ code: 'voteRejected', reason: 'notConnected' }),
+    ).toBe('HOST_VOTE_UNAVAILABLE');
     expect(rejectionMessageKey({ code: 'unknownRoom' })).toBe(null);
   });
 

@@ -1879,10 +1879,16 @@ describe('игра комнаты в promote (ревью F1)', () => {
     expect(beta.ws.lastOf('promote').game).toBeNull();
   });
 
-  it('register_host преемника обновляет версию игры комнаты', async () => {
+  it('register_host преемника переводит комнату на версию каталога', async () => {
     const { host, beta, room } = await setupRoom();
 
     room.gameVersion = '1.0.0';
+    signaling._gameCatalog = {
+      getManifest: id =>
+        id === 'tanks'
+          ? { version: '1.1.0', maps: { version: 'm1' } }
+          : undefined,
+    };
     host.ws.drop();
     await registerPromoted(beta, beta.ws.lastOf('promote'), {
       gameVersion: '1.1.0',
@@ -1890,6 +1896,26 @@ describe('игра комнаты в promote (ревью F1)', () => {
 
     expect(room.status).toBe('online');
     expect(room.gameVersion).toBe('1.1.0');
+  });
+
+  it('register_host преемника с посторонней версией её не меняет (ревью N2)', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    room.gameVersion = '1.0.0';
+    signaling._gameCatalog = {
+      getManifest: id =>
+        id === 'tanks'
+          ? { version: '1.1.0', maps: { version: 'm1' } }
+          : undefined,
+    };
+    host.ws.drop();
+    await registerPromoted(beta, beta.ws.lastOf('promote'), {
+      gameVersion: '9.9.9',
+    });
+
+    // отклоняется только смена версии, не регистрация
+    expect(room.status).toBe('online');
+    expect(room.gameVersion).toBe('1.0.0');
   });
 
   it('версия-мусор не затирает известную', async () => {

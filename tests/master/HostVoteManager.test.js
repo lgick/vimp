@@ -513,6 +513,63 @@ describe('голос — по пользователю', () => {
   });
 });
 
+describe('подтверждение хостом (room_peers)', () => {
+  // хост подтвердил бету и первого гостя; второй гость — фантом: сигнальная
+  // сессия без WebRTC-пира к хосту
+  const setupPhantomRoom = async () => {
+    const setup = await setupVoteRoom(2);
+    const [confirmed] = setup.guests;
+
+    setup.host.ws.message({
+      type: 'room_peers',
+      roomId: setup.room.roomId,
+      epoch: setup.host.epoch,
+      memberIds: [setup.beta.memberId, confirmed.memberId],
+    });
+
+    return setup;
+  };
+
+  it('фантом не начинает голосование (notConnected)', async () => {
+    const { beta, guests, room } = await setupPhantomRoom();
+    const phantom = guests[1];
+
+    startVote(phantom);
+
+    expect(phantom.ws.lastOf('error')).toEqual({
+      type: 'error',
+      code: 'voteRejected',
+      re: 'host_vote_start',
+      roomId: room.roomId,
+      reason: 'notConnected',
+    });
+    expect(beta.ws.typed('host_vote')).toEqual([]);
+  });
+
+  it('фантом не в eligible: окна нет, голос игнорируется', async () => {
+    const { beta, guests } = await setupPhantomRoom();
+    const [initiator, phantom] = guests;
+
+    startVote(initiator);
+
+    const vote = beta.ws.lastOf('host_vote');
+
+    expect(vote.eligibleCount).toBe(2);
+    expect(phantom.ws.typed('host_vote')).toEqual([]);
+
+    answer(phantom, vote.voteId, 'yes');
+    expect(phantom.ws.typed('host_vote_accepted')).toEqual([]);
+  });
+
+  it('хост без отчётов room_peers — голосуют все, как раньше', async () => {
+    const { beta, guests } = await setupVoteRoom(2);
+
+    startVote(guests[1]);
+
+    expect(beta.ws.lastOf('host_vote').eligibleCount).toBe(3);
+  });
+});
+
 describe('ответы и исход', () => {
   it('ответы — только от eligible; повтор меняет мнение; досрочный исход', async () => {
     const { host, beta, guests, room } = await setupVoteRoom(3);

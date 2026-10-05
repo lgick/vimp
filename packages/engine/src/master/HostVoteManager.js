@@ -9,7 +9,8 @@ const VOTE_VALUES = ['yes', 'no'];
 // путём MigrationCoordinator. Состояние голосований — здесь, отметка
 // demotedUntil смещённого хоста — в участнике комнаты реестра. Голос — у
 // аккаунта (userId), а не у вкладки: N вкладок одного пользователя — один
-// голос, и голосует только пробывший в комнате minVoterAgeMs.
+// голос, и голосует только пробывший в комнате minVoterAgeMs и подтверждённый
+// хостом участник.
 export default class HostVoteManager {
   /**
    * @param {Object} deps
@@ -93,6 +94,12 @@ export default class HostVoteManager {
 
     const now = this._now();
     const timings = this._timings;
+
+    // сигнальная сессия без WebRTC-пира к хосту (фантом) голосование не
+    // начинает
+    if (!this._registry.isConfirmed(room, member)) {
+      return reject('notConnected');
+    }
 
     if (!this._isVoter(room, member, now)) {
       return reject('tooNew');
@@ -415,13 +422,15 @@ export default class HostVoteManager {
     }
   }
 
-  // голосует аккаунт гостя (не хоста), пробывший в комнате minVoterAgeMs:
-  // свежие вкладки не накручивают голосование
+  // голосует аккаунт гостя (не хоста), пробывший в комнате minVoterAgeMs
+  // (свежие вкладки не накручивают голосование) и подключённый к хосту
+  // (room_peers): сигнальная сессия без пира не голосует
   _isVoter(room, member, now) {
     return (
       member.userId !== null &&
       member.userId !== room.host.userId &&
-      now - member.joinedAt >= this._timings.minVoterAgeMs
+      now - member.joinedAt >= this._timings.minVoterAgeMs &&
+      this._registry.isConfirmed(room, member)
     );
   }
 

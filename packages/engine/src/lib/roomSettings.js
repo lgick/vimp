@@ -1,6 +1,6 @@
 // Настройки комнаты для холодного перезапуска (host-migration этап 7.6):
-// то, что форма создания комнаты передаёт в connectAsHost и что читает
-// lib/applyRoomOverrides.js. Хост шлёт их в register_host/reclaim_host,
+// то, что форма создания комнаты передаёт в HostRole.createRoom
+// (client/session/HostRole.js) и что читает lib/applyRoomOverrides.js. Хост шлёт их в register_host/reclaim_host,
 // мастер хранит санированными и отдаёт преемнику в promote {mode: 'cold'}.
 // Модуль изоморфный: им пользуются и клиент (выборка из room), и мастер
 // (санитизация недоверенного сообщения)
