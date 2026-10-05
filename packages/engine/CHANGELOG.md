@@ -191,7 +191,8 @@ promotionToken }` (no per-IP limit); the next candidate is tried after a
     version of the game; a room restored after a master restart keeps the
     version its host names, but one the catalog does not serve as current is
     not confirmed to successors until it does, and while the catalog does not
-    know the game yet the room gets no successor). A former host that gets `host_revoked`
+    know the game yet the room gets no successor and stays hidden from the
+    room list). A former host that gets `host_revoked`
     (or `staleEpoch` on reclaim) drops its Worker and resumes as a guest of the
     new host. Worker message `start_after_restore { waitForResume }`,
     `HostController.initFromCheckpoint`, `HostPrewarm.take()`,

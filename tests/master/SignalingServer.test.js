@@ -1514,7 +1514,13 @@ describe('reclaim_host', () => {
         ? { version: this.current, maps: { version: 'm1' } }
         : undefined;
     },
-    isStaged: (id, version) => id === 'tanks' && version === 'staged-9',
+    // как GameCatalog: всё, что не раздаётся, — «на тесте»; пустой каталог
+    // не знает ни одной сборки
+    isStaged(id, version) {
+      return (
+        id === 'tanks' && this.current !== null && version !== this.current
+      );
+    },
   });
 
   const reclaimRestored = async (host, gameVersion) =>
@@ -1615,6 +1621,163 @@ describe('reclaim_host', () => {
       id: 'tanks',
       versions: ['staged-9', '2.0.0'],
     });
+  });
+
+  // ревью 5ba403eb F4
+  it('рестарт мастера: каталог перестал знать игру помеченной комнаты — назначенная бета снимается', async () => {
+    const host = await connectHost();
+    const catalog = catalogOf('1.0.0');
+
+    restartMaster(catalog);
+    await reclaimRestored(host, 'staged-9');
+
+    const guest = await joinCandidate(host.roomId);
+
+    expect(registry.get(host.roomId).successorMemberId).toBe(memberIdOf(50));
+
+    catalog.current = null;
+    signaling.reviewSuccessors();
+
+    expect(registry.get(host.roomId).successorMemberId).toBeNull();
+    expect(guest.ws.sent.at(-1)).toEqual({
+      type: 'standby_released',
+      roomId: host.roomId,
+    });
+  });
+
+  // ревью 5ba403eb F1: видимость тоже решалась по неполному каталогу
+  it('рестарт мастера: каталог ещё не знает игру — застейдженная комната скрыта и после загрузки', async () => {
+    const host = await connectHost();
+    const catalog = catalogOf(null);
+
+    restartMaster(catalog);
+    await reclaimRestored(host, 'staged-9');
+
+    expect(registry.get(host.roomId).hidden).toBe(true);
+
+    catalog.current = '1.0.0';
+    signaling.reviewSuccessors();
+
+    expect(registry.get(host.roomId).hidden).toBe(true);
+  });
+
+  it('рестарт мастера: каталог ещё не знает игру — комната скрыта, пока он не загрузится', async () => {
+    const host = await connectHost();
+    const catalog = catalogOf(null);
+
+    restartMaster(catalog);
+    await reclaimRestored(host, '1.0.0');
+
+    expect(registry.get(host.roomId).hidden).toBe(true);
+
+    catalog.current = '1.0.0';
+    signaling.reviewSuccessors();
+
+    expect(registry.get(host.roomId)).toMatchObject({
+      hidden: false,
+      unverifiedGameVersion: null,
+    });
+  });
+
+  // ревью 5ba403eb F3: следующая проверка токена ждёт release() — две
+  // регистрации одной сессии завершаются в заданном порядке
+  const holdNextVerify = () => {
+    const verify = signaling._verifyToken.bind(signaling);
+    let release;
+    const held = new Promise(resolve => {
+      release = resolve;
+    });
+
+    vi.spyOn(signaling, '_verifyToken').mockImplementationOnce(async token => {
+      await held;
+
+      return verify(token);
+    });
+
+    return release;
+  };
+
+  // хост комнаты без гостей оборвал сигналинг: комната ждёт reclaim_host
+  const detachedHost = async () => {
+    const host = await connectHost();
+
+    host.ws.close();
+    await flushAsync();
+
+    return host;
+  };
+
+  const reclaimMessage = host => ({
+    type: 'reclaim_host',
+    roomId: host.roomId,
+    epoch: 1,
+    roomSecret: host.roomSecret,
+    memberId: memberIdOf(1),
+    token: signToken(1),
+  });
+
+  const registerMessage = {
+    type: 'register_host',
+    maxPlayers: 8,
+    token: signToken(1),
+    memberId: memberIdOf(1),
+  };
+
+  const waitFor = (conn, type) =>
+    vi.waitFor(() => {
+      const reply = conn.ws.sent.find(m => m.type === type);
+
+      expect(reply).toBeDefined();
+
+      return reply;
+    });
+
+  it('reclaim_host, обогнанный register_host той же сессии, — alreadyRegistered', async () => {
+    const host = await detachedHost();
+    const conn = await connect({ ip: '3.3.3.3' });
+    const release = holdNextVerify();
+
+    conn.ws.message(reclaimMessage(host));
+    conn.ws.message(registerMessage);
+
+    const own = await waitFor(conn, 'host_registered');
+
+    release();
+    await flushAsync();
+
+    expect(conn.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'alreadyRegistered',
+      re: 'reclaim_host',
+      roomId: host.roomId,
+    });
+    expect(own.roomId).not.toBe(host.roomId);
+    // прежнюю комнату сессия не заняла (новая комната того же хоста её
+    // уже убрала)
+    expect(registry.get(host.roomId)?.host.sessionId).not.toBe(conn.id);
+    expect(signaling._sessions.get(conn.id).roomId).toBe(own.roomId);
+  });
+
+  it('register_host, обогнанный reclaim_host той же сессии, — alreadyRegistered', async () => {
+    const host = await detachedHost();
+    const conn = await connect({ ip: '3.3.3.3' });
+    const release = holdNextVerify();
+
+    conn.ws.message(registerMessage);
+    conn.ws.message(reclaimMessage(host));
+
+    const reclaimed = await waitFor(conn, 'host_registered');
+
+    release();
+    await flushAsync();
+
+    expect(conn.ws.lastSent()).toEqual({
+      type: 'error',
+      code: 'alreadyRegistered',
+      re: 'register_host',
+    });
+    expect(reclaimed.roomId).toBe(host.roomId);
+    expect(registry.size).toBe(1);
   });
 
   it('угон: чужой пользователь с видимым roomId и чужим/подобранным секретом — invalidRoomSecret', async () => {

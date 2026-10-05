@@ -406,14 +406,14 @@ export default class SignalingServer {
       return;
     }
 
-    this._verifyGameVersion(room);
+    this._reviewGameVersion(room);
 
     // версию восстановленной комнаты нечем проверить — каталог ещё не знает
     // игру: пустой список версий бета прочла бы как «любая», а выданный до
     // загрузки каталога — устарел бы. Беты нет, пока каталог не загрузится
     // (периодический reviewSuccessors назначит её)
     if (
-      this._gameVersionUnverified(room) &&
+      this._isGameVersionUnverified(room) &&
       !this._catalogManifest(room.gameId)
     ) {
       if (room.successorMemberId !== null) {
@@ -496,7 +496,7 @@ export default class SignalingServer {
     }
 
     const catalogVersion = this._catalogManifest(room.gameId)?.version ?? null;
-    const roomVersion = this._gameVersionUnverified(room)
+    const roomVersion = this._isGameVersionUnverified(room)
       ? null
       : room.gameVersion;
     const versions = [...new Set([roomVersion, catalogVersion])].filter(
@@ -529,7 +529,7 @@ export default class SignalingServer {
   // загрузил — первая синхронизация ограничена дедлайном), остаётся
   // комнате, но помечается непроверенной. Без каталога вовсе (тесты, dev)
   // сверять не с чем — не помечается
-  _unverifiedGameVersion(gameId, gameVersion) {
+  _restoreVersionMark(gameId, gameVersion) {
     if (
       !this._gameCatalog ||
       !gameId ||
@@ -546,23 +546,38 @@ export default class SignalingServer {
 
   // комната на версии, непроверенной при восстановлении: бетам она не
   // подтверждается (_roomGame)
-  _gameVersionUnverified(room) {
+  _isGameVersionUnverified(room) {
     return (
       room.unverifiedGameVersion !== null &&
       room.gameVersion === room.unverifiedGameVersion
     );
   }
 
-  // каталог раздаёт помеченную версию как текущую (её одобрили позже, или
+  // пересмотр помеченной версии. Пока комната на ней, а каталог знает игру,
+  // видимость считается по каталогу (при restore он мог быть ещё пуст).
+  // Каталог раздаёт помеченную версию как текущую (её одобрили позже, или
   // каталог догрузился) — дальше она обычная. Пометка, с которой комната
   // уже ушла на версию каталога, больше ничего не значит
-  _verifyGameVersion(room) {
-    if (
-      room.unverifiedGameVersion !== null &&
-      (!this._gameVersionUnverified(room) ||
-        this._catalogManifest(room.gameId)?.version ===
-          room.unverifiedGameVersion)
-    ) {
+  _reviewGameVersion(room) {
+    if (room.unverifiedGameVersion === null) {
+      return;
+    }
+
+    const manifest = this._catalogManifest(room.gameId);
+
+    if (!this._isGameVersionUnverified(room)) {
+      room.unverifiedGameVersion = null;
+      return;
+    }
+
+    if (!manifest) {
+      return;
+    }
+
+    room.hidden =
+      this._gameCatalog.isStaged?.(room.gameId, room.gameVersion) === true;
+
+    if (manifest.version === room.unverifiedGameVersion) {
       room.unverifiedGameVersion = null;
     }
   }
@@ -676,6 +691,23 @@ export default class SignalingServer {
     this._reviewSuccessor(room);
   }
 
+  // сессия уже хост комнаты → alreadyRegistered. Регистрации проверяют это
+  // и до await _verifyToken, и после: за время проверки токена эта же
+  // сессия могла занять комнату другим сообщением
+  _rejectIfRegistered(session, re, roomId) {
+    if (!session.roomId) {
+      return false;
+    }
+
+    this._sendError(
+      session,
+      'alreadyRegistered',
+      roomId === undefined ? { re } : { re, roomId },
+    );
+
+    return true;
+  }
+
   // хост создаёт комнату; token — Bearer identity-токен хоста: без него/при
   // неверной подписи регистрация отклоняется — комната привязана к
   // проверенному userId. name от страниц до этапа 2 игнорируется
@@ -683,8 +715,7 @@ export default class SignalingServer {
     const { maxPlayers, gameId, gameVersion, token, memberId, caps, ...rest } =
       msg;
 
-    if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered', { re: 'register_host' });
+    if (this._rejectIfRegistered(session, 'register_host')) {
       return;
     }
 
@@ -706,9 +737,7 @@ export default class SignalingServer {
       return;
     }
 
-    // за время проверки токена эта же сессия могла занять комнату
-    if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered', { re: 'register_host' });
+    if (this._rejectIfRegistered(session, 'register_host')) {
       return;
     }
 
@@ -750,12 +779,7 @@ export default class SignalingServer {
       return;
     }
 
-    // за время проверки токена эта же сессия могла занять комнату
-    if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered', {
-        re: 'register_host',
-        roomId: msg.roomId,
-      });
+    if (this._rejectIfRegistered(session, 'register_host', msg.roomId)) {
       return;
     }
 
@@ -808,11 +832,7 @@ export default class SignalingServer {
   async _onReclaimHost(session, msg) {
     const { roomId, epoch, roomSecret, memberId, gameId, gameVersion } = msg;
 
-    if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered', {
-        re: 'reclaim_host',
-        roomId,
-      });
+    if (this._rejectIfRegistered(session, 'reclaim_host', roomId)) {
       return;
     }
 
@@ -823,12 +843,7 @@ export default class SignalingServer {
       return;
     }
 
-    // за время проверки токена эта же сессия могла занять комнату
-    if (session.roomId) {
-      this._sendError(session, 'alreadyRegistered', {
-        re: 'reclaim_host',
-        roomId,
-      });
+    if (this._rejectIfRegistered(session, 'reclaim_host', roomId)) {
       return;
     }
 
@@ -928,19 +943,27 @@ export default class SignalingServer {
         return;
       }
 
+      const fields = this._roomFields(session, identity, {
+        ...msg,
+        info: infoOf(msg),
+        memberId,
+      });
+      const unverifiedGameVersion = this._restoreVersionMark(
+        gameId,
+        gameVersion,
+      );
+
       room = this._registry.restore(
         roomId,
         epoch,
         {
-          ...this._roomFields(session, identity, {
-            ...msg,
-            info: infoOf(msg),
-            memberId,
-          }),
-          unverifiedGameVersion: this._unverifiedGameVersion(
-            gameId,
-            gameVersion,
-          ),
+          ...fields,
+          unverifiedGameVersion,
+          // каталог ещё не знает игру — isStaged ответил по пустому каталогу:
+          // комната скрыта, пока пересмотр не сверит версию (_reviewGameVersion)
+          hidden:
+            fields.hidden ||
+            (unverifiedGameVersion !== null && !this._catalogManifest(gameId)),
         },
         this._now(),
       );
@@ -1140,13 +1163,17 @@ export default class SignalingServer {
       this._leaveMembership(session);
     }
 
-    this._registry.joinMember(roomId, {
-      memberId,
-      userId: identity.userId,
-      nick: identity.nick,
-      sessionId: session.id,
-      caps,
-    });
+    this._registry.joinMember(
+      roomId,
+      {
+        memberId,
+        userId: identity.userId,
+        nick: identity.nick,
+        sessionId: session.id,
+        caps,
+      },
+      this._now(),
+    );
     session.memberOf = { roomId, memberId };
 
     this._send(session, { type: 'room_joined', roomId, epoch: room.epoch });
@@ -1461,8 +1488,8 @@ export default class SignalingServer {
     // регистрации преемника её отменит — это был обрыв одного сигналинга
     if (roomId) {
       this._hostSessions.delete(roomId);
-      this._registry.detachHost(roomId);
-      this._registry.detachMember(session.id);
+      this._registry.detachHost(roomId, this._now());
+      this._registry.detachMember(session.id, this._now());
       // повышать некого — комната ждёт reclaim_host hostReclaimGraceMs, как
       // до миграции: P2P-матч, возможно, цел
       this._migration.hostLost(this._registry.get(roomId), 'disconnected', {
@@ -1475,7 +1502,7 @@ export default class SignalingServer {
     if (session.memberOf) {
       const { roomId, memberId } = session.memberOf;
 
-      this._registry.detachMember(session.id);
+      this._registry.detachMember(session.id, this._now());
       this._migration.onMemberGone(this._registry.get(roomId), memberId);
       // ушла бета — назначить другую сразу, не дожидаясь таймера (комнату —
       // заново: без кандидатов миграция её закрыла)

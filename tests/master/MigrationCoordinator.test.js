@@ -113,8 +113,7 @@ const advance = ms => {
 };
 
 beforeEach(() => {
-  // часы сервера впереди Date.now() реестра (joinedAt участников)
-  clock = { now: Date.now() + 60000 };
+  clock = { now: Date.now() };
   timers = [];
   registry = new RoomRegistry({
     maxPlayersLimit: 8,
@@ -504,18 +503,19 @@ describe('проверка register_host преемника', () => {
     host.ws.drop();
 
     const promote = beta.ws.lastOf('promote');
-
-    // обе регистрации проходят проверку токена одновременно: своя комната
-    // успевает раньше промоушена
-    beta.ws.message({
-      type: 'register_host',
-      maxPlayers: 8,
-      gameId: 'tanks',
-      token: signToken(2),
-      memberId: beta.memberId,
-      caps: CAN_HOST,
-      settings: SETTINGS,
+    const verify = signaling._verifyToken.bind(signaling);
+    let release;
+    const held = new Promise(resolve => {
+      release = resolve;
     });
+
+    // проверка токена промоушена задерживается — своя комната успевает
+    vi.spyOn(signaling, '_verifyToken').mockImplementationOnce(async token => {
+      await held;
+
+      return verify(token);
+    });
+
     beta.ws.message({
       type: 'register_host',
       roomId: promote.roomId,
@@ -526,28 +526,40 @@ describe('проверка register_host преемника', () => {
       gameId: 'tanks',
       caps: CAN_HOST,
     });
+    beta.ws.message({
+      type: 'register_host',
+      maxPlayers: 8,
+      gameId: 'tanks',
+      token: signToken(2),
+      memberId: beta.memberId,
+      caps: CAN_HOST,
+      settings: SETTINGS,
+    });
+
+    // signaling.idle() ждал бы и задержанный промоушен
+    const own = await vi.waitFor(() => {
+      const reply = beta.ws.lastOf('host_registered');
+
+      expect(reply).toBeDefined();
+
+      return reply;
+    });
+
+    release();
     await signaling.idle();
 
-    // порядок завершения двух проверок токена не детерминирован: второй
-    // из двух регистраций — alreadyRegistered, сессия привязана ровно к
-    // одной комнате
-    expect(beta.ws.lastOf('error')).toMatchObject({
+    expect(beta.ws.lastOf('error')).toEqual({
+      type: 'error',
       code: 'alreadyRegistered',
       re: 'register_host',
+      roomId: room.roomId,
     });
-    expect(beta.ws.sent.filter(m => m.type === 'host_registered')).toHaveLength(
-      1,
-    );
-
-    // чей бы промоушен ни выиграл, сессия привязана к той комнате, которой
-    // она хост
-    const session = signaling._sessions.get(beta.id);
-
-    if (room.host.sessionId === beta.id) {
-      expect(session.roomId).toBe(room.roomId);
-    } else {
-      expect(session.roomId).not.toBe(room.roomId);
-    }
+    expect(beta.ws.typed('host_registered')).toHaveLength(1);
+    expect(own.roomId).not.toBe(room.roomId);
+    expect(signaling._sessions.get(beta.id).roomId).toBe(own.roomId);
+    // комната в миграции по-прежнему ждёт кандидата, хоста у неё нет
+    expect(room.host.sessionId).not.toBe(beta.id);
+    expect(room.migration).not.toBeNull();
   });
 
   it('промоушен в несуществующую комнату — unknownRoom', async () => {
@@ -693,7 +705,7 @@ describe('кандидаты', () => {
     expect(guest.ws.typed('host_migrating')).toEqual([]);
     expect(guest.ws.typed('room_closed')).toEqual([]);
 
-    signaling.sweep(Date.now() + 300);
+    signaling.sweep(clock.now + 300);
 
     expect(guest.ws.lastOf('room_closed')).toMatchObject({ reason: 'noHost' });
     expect(registry.size).toBe(0);
@@ -733,7 +745,7 @@ describe('кандидаты', () => {
     expect(promote).toMatchObject({ mode: 'cold' });
     guest.ws.drop();
     // grace участников (500 мс) истёк: состав пуст, но промоушен идёт
-    signaling.sweep(Date.now() + 5000);
+    signaling.sweep(clock.now + 5000);
 
     expect(registry.get(host.roomId)).toMatchObject({ status: 'migrating' });
 
@@ -752,7 +764,7 @@ describe('кандидаты', () => {
 
     host.ws.drop();
     guest.ws.drop();
-    signaling.sweep(Date.now() + 5000);
+    signaling.sweep(clock.now + 5000);
     advance(25000);
 
     expect(registry.size).toBe(0);
@@ -1136,7 +1148,7 @@ describe('отчёты клиентов и проба хоста (7.3)', () => {
     const { beta, room } = await setupRoom();
 
     room.lastSeen = 0;
-    signaling.sweep(Date.now() + 5000);
+    signaling.sweep(clock.now + 5000);
 
     expect(room.status).toBe('migrating');
     expect(beta.ws.lastOf('promote')).toMatchObject({

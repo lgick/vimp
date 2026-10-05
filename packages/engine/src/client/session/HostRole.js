@@ -674,11 +674,12 @@ export default class HostRole {
   /**
    * Можно ли вытеснить эстафету Worker'ов плановой передачей: нет эстафеты,
    * она ещё качает манифесты или ждёт границы раунда. Своп, уже переносящий
-   * состояние, вытеснить нельзя — передача ждёт.
+   * состояние, вытеснить нельзя — передача ждёт (своп в контроллере есть
+   * только после swapWorker, то есть после _swapStarted).
    * @returns {boolean}
    */
   canPreemptSwap() {
-    return !this._swapStarted || this._controller?.swapCarryingState !== true;
+    return this._controller?.swapCarryingState !== true;
   }
 
   /**

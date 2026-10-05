@@ -113,8 +113,7 @@ const advance = ms => {
 };
 
 beforeEach(() => {
-  // часы сервера впереди Date.now() реестра (joinedAt участников)
-  clock = { now: Date.now() + 60000 };
+  clock = { now: Date.now() };
   timers = [];
   registry = new RoomRegistry({
     maxPlayersLimit: 8,
@@ -187,12 +186,22 @@ const connectHost = async (userId = 1) => {
   }
 
   Object.assign(conn, reply);
-  // комната живёт столько же, сколько её участники (их joinedAt — по
-  // Date.now(), часы сервера впереди): голосование не ждёт первого
-  // room_peers хоста — это окно проверяется после смены хоста
+  // комната живёт столько же, сколько её участники (join старит их на
+  // минуту): голосование не ждёт первого room_peers хоста — это окно
+  // проверяется после смены хоста
   registry.get(conn.roomId).hostSince -= 60000;
 
   return conn;
+};
+
+// участник в комнате дольше minVoterAgeMs — голосует; свежих тесты задают
+// явно
+const ageMember = (roomId, memberId) => {
+  const member = registry.get(roomId)?.members.get(memberId);
+
+  if (member) {
+    member.joinedAt -= 60000;
+  }
 };
 
 const join = async (roomId, userId, caps = CAN_HOST) => {
@@ -208,6 +217,7 @@ const join = async (roomId, userId, caps = CAN_HOST) => {
     caps,
   });
   await signaling.idle();
+  ageMember(roomId, conn.memberId);
 
   return conn;
 };
@@ -419,6 +429,7 @@ describe('голос — по пользователю', () => {
       caps: CAN_HOST,
     });
     await signaling.idle();
+    ageMember(roomId, conn.memberId);
 
     return conn;
   };
@@ -813,10 +824,10 @@ describe('ответы и исход', () => {
     answer(second, beta.ws.lastOf('host_vote').voteId, 'yes');
 
     third.ws.drop();
-    signaling.sweep(Date.now());
+    signaling.sweep(clock.now);
     expect(initiator.ws.typed('host_vote_result')).toEqual([]);
 
-    signaling.sweep(Date.now() + 501);
+    signaling.sweep(clock.now + 501);
     expect(initiator.ws.lastOf('host_vote_result')).toMatchObject({
       passed: true,
       eligibleCount: 3,
