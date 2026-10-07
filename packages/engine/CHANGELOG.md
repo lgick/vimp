@@ -9,6 +9,8 @@ bumps the minor version).
 
 ## [Unreleased]
 
+## [0.37.0] — 2026-10-07
+
 ### Added
 
 - The client has English default texts for the engine's chat codes (`s`, `v`,
@@ -2774,6 +2776,7 @@ and republished so its manifest stamps `engineApi: 2`.
    republish. On the master, install the new plugin version and redeploy —
    startup should log `-> Games loaded: <id>`.
 
+[0.37.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.37.0
 [0.36.0]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.36.0
 [0.35.6]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.6
 [0.35.5]: https://github.com/lgick/vimp/releases/tag/vimp-engine%400.35.5
