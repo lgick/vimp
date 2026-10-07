@@ -172,8 +172,22 @@ export default class GuestSession {
     let reconnectAttempt = 0;
 
     publisher.on('close', () => {
-      const { baseDelay, maxDelay } = this._config.reconnect;
-      const delay = Math.min(maxDelay, baseDelay * 2 ** reconnectAttempt);
+      const {
+        baseDelay,
+        maxDelay,
+        hostFirstDelay = 0,
+      } = this._config.reconnect;
+      // хост: мастер держит комнату hostDisconnectGraceMs — первая попытка
+      // сразу, дальше тот же бэкофф, сдвинутый на одну ступень
+      const isHost = Boolean(this._hostRole.controller);
+      const delay =
+        isHost && reconnectAttempt === 0
+          ? hostFirstDelay
+          : Math.min(
+              maxDelay,
+              baseDelay *
+                2 ** (isHost ? reconnectAttempt - 1 : reconnectAttempt),
+            );
 
       reconnectAttempt += 1;
       this._timers.setTimeout(() => this._signaling.connect(), delay);

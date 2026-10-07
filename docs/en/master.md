@@ -824,8 +824,12 @@ the session of a room's host is ignored. A guest whose
 session ended without a reload (a kick takes it to the lobby) sends
 `leave_room`.
 
-**Host lost.** A host whose signaling closed is detached and the room goes
-into migration at once; a host still connected but silent for longer than
+**Host lost.** A host whose signaling closed is detached, and the room goes
+into migration after `room.hostDisconnectGraceMs` (2 s): a short drop of one
+signaling socket with the P2P match intact must not roll the world back for
+everyone. A `reclaim_host` within the grace keeps the room and the guests
+receive nothing; a guest's `host_unreachable` (the P2P link is dead too) or
+the host's `host_leaving` migrates at once, without waiting. A host still connected but silent for longer than
 `host.heartbeatTimeout` (30 s) is lost too. A room is closed only when no
 people remain — see [Host migration](#host-migration). While the room has no
 bound host, offers to it get `migrating` and are retried; `unknownRoom` is
@@ -915,8 +919,8 @@ online(N) ──handoff_begin──► handing_off(N → N+1) ──register_hos
                               └ host lost → migrating (same candidate)
 ```
 
-**Host lost** is any of: the host's WS closed (`disconnected`, at once — no
-grace), no heartbeat for `host.heartbeatTimeout` (`timeout`, from the sweep),
+**Host lost** is any of: the host's WS closed (`disconnected`, after
+`room.hostDisconnectGraceMs`; at once on a guest's `host_unreachable`), no heartbeat for `host.heartbeatTimeout` (`timeout`, from the sweep),
 no answer to a probe (`unresponsive`), a quorum of guest reports
 (`unreachable`). Then:
 
@@ -961,7 +965,7 @@ the old host (if its session lives) `host_revoked`, everybody else
 session's `memberId` differs, the stale member record is dropped.
 
 **Cancel by reclaim.** A migration caused by the host's signaling closing
-(`disconnected`) is cancelled by `reclaim_host` of the same epoch before the
+(`disconnected`, started after the grace or by a guest's report) is cancelled by `reclaim_host` of the same epoch before the
 candidate registers: `promote_cancelled` to the candidate, `host_changed {
 epoch: N, mode: 'reclaimed' }` to the members, and the host keeps the room.
 The cancel happens only after every other reclaim check has passed (a

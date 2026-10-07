@@ -173,10 +173,10 @@ The host leaving does not kill the room (lobby mode). Two paths lead to the
 same switch — the successor takes the room with the next epoch, the guests
 reconnect to it and resume their places (`RESUME`) after a 1–3 s pause:
 
-| Path      | Starts with                                                                                                    | The successor restores                                                                                              |
-| --------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| emergency | the master detects the host lost (WS closed, no heartbeat, `host_unreachable`, `host_leaving` from `pagehide`) | the latest periodic checkpoint — the world rolls back ≤ ~0.5 s; none fresh → a cold restart on another member       |
-| planned   | the host's `handoff_begin` ("Leave server", "Hand over host", an auto-trigger, a passed `/changehost` vote)    | the frozen host's final checkpoint — the same tick, no rollback; an aborted one unfreezes the match on the old host |
+| Path      | Starts with                                                                                                                                | The successor restores                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| emergency | the master detects the host lost (WS closed for `hostDisconnectGraceMs`, no heartbeat, `host_unreachable`, `host_leaving` from `pagehide`) | the latest periodic checkpoint — the world rolls back ≤ ~0.5 s; none fresh → a cold restart on another member       |
+| planned   | the host's `handoff_begin` ("Leave server", "Hand over host", an auto-trigger, a passed `/changehost` vote)                                | the frozen host's final checkpoint — the same tick, no rollback; an aborted one unfreezes the match on the old host |
 
 Protocol and port details — [network.md](network.md#host-migration); the
 master's side — [master.md](master.md#host-migration).

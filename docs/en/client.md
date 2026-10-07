@@ -378,8 +378,8 @@ reloadable close.
 - **The host role**: before starting the Worker, `HostRole.createRoom` fetches
   the master's map catalog (falls back to the bundle), registers the room
   and starts a heartbeat once `ready` fires; the host's signaling WS
-  reconnects with backoff on a drop
-  (`lobbyConfig.reconnect`) and reclaims the same room with `reclaim_host`
+  reconnects on a drop (`lobbyConfig.reconnect`: the
+  first attempt at once, then backoff) and reclaims the same room with `reclaim_host`
   (a fresh `welcome` doesn't recreate the lobby — a guard in `initLobby`). A
   Worker init failure (`error`) tears down the room with a message and
   returns to the lobby.

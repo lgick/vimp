@@ -112,17 +112,8 @@ const advance = ms => {
   }
 };
 
-beforeEach(() => {
-  clock = { now: Date.now() };
-  timers = [];
-  registry = new RoomRegistry({
-    maxPlayersLimit: 8,
-    secretKey: 'k'.repeat(32),
-    heartbeatTimeout: 1000,
-    memberGraceMs: 500,
-    hostReclaimGraceMs: 300,
-  });
-  signaling = new SignalingServer(registry, {
+const makeSignaling = (migration = {}) =>
+  new SignalingServer(registry, {
     iceServers: [],
     regionHeader: 'x-region',
     pingLimiter: new RateLimiter({ limit: 2, windowMs: 1000 }),
@@ -140,8 +131,21 @@ beforeEach(() => {
       probeTimeoutMs: 2000,
       reportWindowMs: 5000,
       forcedMigrationCooldownMs: 30000,
+      ...migration,
     },
   });
+
+beforeEach(() => {
+  clock = { now: Date.now() };
+  timers = [];
+  registry = new RoomRegistry({
+    maxPlayersLimit: 8,
+    secretKey: 'k'.repeat(32),
+    heartbeatTimeout: 1000,
+    memberGraceMs: 500,
+    hostReclaimGraceMs: 300,
+  });
+  signaling = makeSignaling();
 });
 
 const connect = async (ip = '9.9.9.9') => {
@@ -1506,6 +1510,155 @@ describe('host_leaving (этап 8.4)', () => {
 
     expect(room.status).toBe('migrating');
     expect(beta.ws.lastOf('promote')).toMatchObject({ mode: 'checkpoint' });
+  });
+});
+
+describe('выдержка после обрыва WS хоста (D2)', () => {
+  beforeEach(() => {
+    signaling = makeSignaling({ hostDisconnectGraceMs: 2000 });
+  });
+
+  const reclaimBack = async host => {
+    const conn = await connect('1.1.1.1');
+
+    conn.ws.message({
+      type: 'reclaim_host',
+      roomId: host.roomId,
+      epoch: host.epoch,
+      roomSecret: host.roomSecret,
+      memberId: host.memberId,
+      token: signToken(1),
+      gameId: 'tanks',
+    });
+    await signaling.idle();
+
+    return conn;
+  };
+
+  it('миграция стартует только по истечении выдержки', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    host.ws.drop();
+    advance(1999);
+
+    expect(room.status).toBe('online');
+    expect(room.host.sessionId).toBeNull();
+    expect(guest.ws.typed('host_migrating')).toEqual([]);
+    expect(beta.ws.typed('promote')).toEqual([]);
+
+    advance(1);
+
+    expect(room.status).toBe('migrating');
+    expect(guest.ws.lastOf('host_migrating')).toMatchObject({
+      reason: 'disconnected',
+    });
+    expect(beta.ws.lastOf('promote')).toMatchObject({ mode: 'checkpoint' });
+  });
+
+  it('reclaim_host в выдержке — гости ничего не получают, таймер снят', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    host.ws.drop();
+    advance(1000);
+
+    const back = await reclaimBack(host);
+
+    expect(back.ws.lastOf('host_registered')).toMatchObject({ epoch: 1 });
+    advance(5000);
+
+    expect(room.status).toBe('online');
+    expect(room.epoch).toBe(1);
+    expect(guest.ws.typed('host_migrating')).toEqual([]);
+    expect(guest.ws.typed('host_changed')).toEqual([]);
+    expect(beta.ws.typed('promote')).toEqual([]);
+  });
+
+  it('host_unreachable гостя в выдержке — миграция сразу, без повтора', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    host.ws.drop();
+    advance(500);
+    guest.ws.message({
+      type: 'host_unreachable',
+      roomId: room.roomId,
+      epoch: 1,
+    });
+
+    expect(room.status).toBe('migrating');
+    expect(guest.ws.typed('host_migrating')).toHaveLength(1);
+    expect(beta.ws.typed('promote')).toHaveLength(1);
+
+    advance(2000);
+
+    expect(guest.ws.typed('host_migrating')).toHaveLength(1);
+    expect(beta.ws.typed('promote')).toHaveLength(1);
+  });
+
+  it('host_leaving, затем закрытие WS — миграция сразу', async () => {
+    const { host, beta, room } = await setupRoom();
+
+    host.ws.message({ type: 'host_leaving', roomId: room.roomId, epoch: 1 });
+    host.ws.drop();
+
+    expect(room.status).toBe('migrating');
+    expect(beta.ws.typed('promote')).toHaveLength(1);
+  });
+
+  it('обрыв WS при плановой передаче — деградация в аварийную сразу', async () => {
+    const { host, room } = await setupRoom();
+
+    host.ws.message({
+      type: 'handoff_begin',
+      roomId: room.roomId,
+      epoch: 1,
+      reason: 'handover',
+      stay: true,
+    });
+    expect(room.status).toBe('handing_off');
+
+    host.ws.drop();
+
+    expect(room.status).toBe('migrating');
+  });
+
+  it('одинокий хост: в выдержке комната жива, reclaim возвращает её', async () => {
+    const host = await connectHost();
+    const room = registry.get(host.roomId);
+
+    host.ws.drop();
+    advance(1000);
+
+    expect(room.status).toBe('online');
+    expect(registry.getList().servers).toEqual([]);
+
+    const back = await reclaimBack(host);
+
+    expect(back.ws.lastOf('host_registered')).toMatchObject({ epoch: 1 });
+    expect(back.ws.typed('restore')).toEqual([]);
+    expect(registry.getList().servers).toHaveLength(1);
+  });
+
+  it('одинокий хост не вернулся — комната убрана уборкой, как раньше', async () => {
+    const host = await connectHost();
+
+    host.ws.drop();
+    advance(2000);
+    signaling.sweep(clock.now + 5000);
+
+    expect(registry.get(host.roomId)).toBeUndefined();
+  });
+
+  it('комната забыта во время выдержки — таймер снят, ничего не происходит', async () => {
+    const { host, beta, guest, room } = await setupRoom();
+
+    host.ws.drop();
+    advance(500);
+    signaling._migration.forget(room.roomId);
+    advance(5000);
+
+    expect(room.status).toBe('online');
+    expect(guest.ws.typed('host_migrating')).toEqual([]);
+    expect(beta.ws.typed('promote')).toEqual([]);
   });
 });
 

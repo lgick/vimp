@@ -768,13 +768,16 @@ the master from the room's members — the host no longer reports it. `info`
 under `lobbyInfo: 'map'`, or a module's `lobby.setInfo`). When the host
 player leaves, `handleDisconnect` stops the heartbeat, closes peers
 (`HostConnectionManager.destroy`) and the Worker (`HostController.destroy`);
-the master notices the host's signaling closing and moves the room into
-migration ([Host migration](#host-migration)); only a room nobody can take
+the master notices the host's signaling closing and, unless the host comes
+back within `hostDisconnectGraceMs`, moves the room into migration
+([Host migration](#host-migration)); only a room nobody can take
 over gets `room_closed` ([master.md](master.md#room-lifecycle)).
 
 **Signaling reconnect**: the host's signaling WS needs to stay up
 permanently (offers, heartbeat, listing) — on a drop, `GuestSession` reconnects
-with exponential backoff (`lobbyConfig.reconnect`), and a fresh `welcome`
+with exponential backoff (`lobbyConfig.reconnect`; the host's first attempt
+is immediate, so it lands inside the master's grace and the guests notice
+nothing), and a fresh `welcome`
 sends `reclaim_host { roomId, epoch, roomSecret, … }`: the room keeps its
 `roomId` across the reconnect and across a master restart (the secret is an
 HMAC the restarted master can verify). If the room can't be reclaimed
@@ -1468,7 +1471,10 @@ plugin — swap in the active plugin's own equivalents):
       most ~0.5 s, the round and score go on, the successor is the new host;
       the host offline (DevTools) → the same through reports/probe; the old
       host back online → it is a guest; host and successor gone at once →
-      a cold restart of the same `roomId` on the third player.
+      a cold restart of the same `roomId` on the third player;
+- [ ] a short host signaling drop: the host offline for 1 s (DevTools) → the
+      guests see no "Switching host…", the match goes on without a rollback;
+      offline for 5 s → the usual emergency migration.
 
 **Rooms, links and migration** (lobby mode; `npm run dev:auth` + `npm run
 dev`, dev login through a bookmark

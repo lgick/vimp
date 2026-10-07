@@ -275,7 +275,7 @@ plan). The transport side of it is session resume above, aimed at a new
 host:
 
 ```
-host lost (its signaling closed, heartbeat timeout, guests' host_unreachable
+host lost (its signaling closed for `hostDisconnectGraceMs`, heartbeat timeout, guests' host_unreachable
            + the master's probe)
   → master: host_migrating { epoch: N+1, waitMs } to everyone → guests close
     the transport to the old host at once, "Switching host…", keys and sound

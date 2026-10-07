@@ -418,9 +418,12 @@ The master server's config (see [master.md](master.md)); read by
   `sweepInterval: 10000` (the room registry sweep period);
 - `room` — room lifetime ([master.md](master.md#room-lifecycle)):
   `memberGraceMs: 15000` (a member whose signaling closed still counts as in
-  the room — a reconnect window), `hostReclaimGraceMs: 10000` (the host's WS
-  closing starts a migration at once; when nobody can be promoted the room
-  waits this long for `reclaim_host`, then the sweep migrates or closes it), `maxInfoLength: 48` (the cap of the lobby card
+  the room — a reconnect window), `hostDisconnectGraceMs: 2000` (the host's WS
+  closing starts a migration only after this grace — a `reclaim_host` within
+  it keeps the room untouched; a guest's `host_unreachable` or the host's
+  `host_leaving` migrates at once), `hostReclaimGraceMs: 10000` (when nobody
+  can be promoted the room waits this long for `reclaim_host`, then the sweep
+  migrates or closes it), `maxInfoLength: 48` (the cap of the lobby card
   text a game sets through `gameConfig.lobbyInfo`/`lobby.setInfo`),
   `lookupRateLimit: { limit: 20, windowMs: 1000 }` (`GET /rooms/:roomId` and
   `GET /quickplay/:gameId` per IP, one shared bucket — against `roomId`
@@ -586,8 +589,11 @@ host: the lobby happens before connecting to a host.
   order of the buttons, `id` travels to auth as `?period=` (so it must be one
   of `day`/`month`/`all` — anything else is a `400`), `title` goes into the
   list heading. `elems.periodBtnIds` maps each id to its button;
-- `reconnect` — the host's signaling WS reconnect: exponential backoff
-  from `baseDelay: 1000` to `maxDelay: 30000` (ms);
+- `reconnect` — the signaling WS reconnect: exponential backoff
+  from `baseDelay: 1000` to `maxDelay: 30000` (ms); the host's tab makes its
+  first attempt after `hostFirstDelay: 0` (the master holds its room for
+  `master:room:hostDisconnectGraceMs`, so the second attempt, `baseDelay`
+  later, must fit in it too);
 - `webrtc.connectTimeoutMs: 10000` — a guest's WebRTC attempt whose
   channels did not open in this time is closed (`WebRtcManager`);
   `webrtc.offerRetryMs: 1000` — the pause before re-sending an offer the

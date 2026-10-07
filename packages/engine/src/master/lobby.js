@@ -360,6 +360,7 @@ const signaling = new SignalingServer(registry, {
   },
   // миграция хоста: аварийная (host-migration этап 7) и плановая (этап 8)
   migration: {
+    hostDisconnectGraceMs: config.get('master:room:hostDisconnectGraceMs'),
     checkpointMaxAgeMs: config.get('master:room:checkpointMaxAgeMs'),
     promotionTimeoutMs: config.get('master:room:promotionTimeoutMs'),
     coldPromotionTimeoutMs: config.get('master:room:coldPromotionTimeoutMs'),

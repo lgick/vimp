@@ -78,4 +78,18 @@ describe('связки таймингов миграции хоста', () => {
       lobby.reconnect.maxDelay + 10000,
     );
   });
+
+  it('hostDisconnectGraceMs мастера > hostFirstDelay + baseDelay хоста', () => {
+    // иначе вторая попытка хоста начинается уже после старта миграции
+    expect(master.room.hostDisconnectGraceMs).toBeGreaterThan(
+      lobby.reconnect.hostFirstDelay + lobby.reconnect.baseDelay,
+    );
+  });
+
+  it('hostDisconnectGraceMs < hostReclaimGraceMs мастера', () => {
+    // иначе уборка комнаты обгоняет выдержку
+    expect(master.room.hostDisconnectGraceMs).toBeLessThan(
+      master.room.hostReclaimGraceMs,
+    );
+  });
 });

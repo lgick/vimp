@@ -79,7 +79,7 @@ baseDelay: 1000, maxDelay: 30000 }` (строка ~176). На `welcome` хост
   **дефолт выдержки в коде координатора — 0**, а 2000 задаётся только
   конфигом мастера.
 
-## Шаг 1. Конфиг
+## Шаг 1. Конфиг ✅ выполнен
 
 1. `packages/engine/src/config/master.js`, раздел `room` (строки ~84–95):
    - добавить `hostDisconnectGraceMs: 2000` рядом с `hostReclaimGraceMs`;
@@ -97,7 +97,7 @@ baseDelay: 1000, maxDelay: 30000 }` (строка ~176). На `welcome` хост
    `master:room:hostDisconnectGraceMs`, и вторая попытка (через
    `baseDelay`) тоже должна уложиться в выдержку.
 
-## Шаг 2. Мастер: выдержка в `MigrationCoordinator` (тест первым)
+## Шаг 2. Мастер: выдержка в `MigrationCoordinator` (тест первым) ✅ выполнен
 
 `packages/engine/src/master/MigrationCoordinator.js`:
 
@@ -215,7 +215,7 @@ baseDelay: 1000, maxDelay: 30000 }` (строка ~176). На `welcome` хост
 хоста зовёт `hostDisconnected` (если есть удобный шов) не обязателен:
 сценарии выше покрывают путь через настоящий `SignalingServer`.
 
-## Шаг 3. Клиент: первая попытка переподключения хоста — сразу
+## Шаг 3. Клиент: первая попытка переподключения хоста — сразу ✅ выполнен
 
 `packages/engine/src/client/session/GuestSession.js`, `bind()`, обработчик
 `close`:
@@ -247,7 +247,7 @@ publisher.on('close', () => {
 - гость: прежний ряд 1000 / 2000 (существующий тест не меняется);
 - `welcome` сбрасывает счётчик (у хоста снова 0 мс).
 
-## Шаг 4. Связка таймингов
+## Шаг 4. Связка таймингов ✅ выполнен
 
 `tests/config/migrationTimings.test.js` — два новых `it`:
 
@@ -256,7 +256,7 @@ publisher.on('close', () => {
 - `master.room.hostDisconnectGraceMs < master.room.hostReclaimGraceMs`
   (уборка не обгоняет выдержку).
 
-## Шаг 5. Документация (en и ru одинаково)
+## Шаг 5. Документация (en и ru одинаково) ✅ выполнен
 
 Найти абзацы по цитатам (номера строк сдвигаются):
 
@@ -286,7 +286,7 @@ publisher.on('close', () => {
   offline на 1 с → без миграции и отката; на 5 с → миграция» (источник
   `D2`).
 
-## Шаг 6. CHANGELOG
+## Шаг 6. CHANGELOG ✅ выполнен
 
 `packages/engine/CHANGELOG.md` → `## [Unreleased]` → `### Changed` (patch;
 миграция хоста уже выпущена в 0.36.0, это изменение поведения):

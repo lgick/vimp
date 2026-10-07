@@ -376,6 +376,34 @@ describe('GuestSession: F9 — членство после рестарта ма
   });
 });
 
+describe('GuestSession: переподключение сигналинга хоста', () => {
+  it('вкладка-хост: первая попытка сразу, дальше 1 с, 2 с; welcome сбрасывает', () => {
+    create();
+    hostRole.controller = {};
+
+    signaling.emit('close');
+    vi.advanceTimersByTime(0);
+    expect(signaling.connect).toHaveBeenCalledTimes(1);
+
+    signaling.emit('close');
+    vi.advanceTimersByTime(999);
+    expect(signaling.connect).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(signaling.connect).toHaveBeenCalledTimes(2);
+
+    signaling.emit('close');
+    vi.advanceTimersByTime(1999);
+    expect(signaling.connect).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1);
+    expect(signaling.connect).toHaveBeenCalledTimes(3);
+
+    signaling.emit('welcome');
+    signaling.emit('close');
+    vi.advanceTimersByTime(0);
+    expect(signaling.connect).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe('GuestSession: прочие отказы мастера', () => {
   beforeEach(() => {
     ctx.roomId = 'room1';

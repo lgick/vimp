@@ -265,7 +265,7 @@ export default class SignalingServer {
     // участники, чей grace истёк, больше не голосуют
     this._votes.pruneAll();
 
-    // отсоединённый хост не вернулся за grace (миграцию при обрыве WS не
+    // отсоединённый хост не вернулся за grace (миграцию после обрыва WS не
     // начали — повышать было некого): теперь кандидатов нет — комната
     // закрывается
     for (const room of lost) {
@@ -916,6 +916,7 @@ export default class SignalingServer {
         previous.memberOf = null;
       }
 
+      this._migration.hostReturned(roomId);
       this._registry.attachHost(roomId, {
         sessionId: session.id,
         memberId: this._memberIdOf(session, memberId),
@@ -1484,17 +1485,15 @@ export default class SignalingServer {
 
     this._sessions.delete(session.id);
 
-    // хост: комната сразу уходит в миграцию (этап 7.0); reclaim_host до
-    // регистрации преемника её отменит — это был обрыв одного сигналинга
+    // хост: миграция после выдержки hostDisconnectGraceMs; reclaim_host в
+    // выдержке её не допускает, после — отменяет до регистрации преемника
     if (roomId) {
       this._hostSessions.delete(roomId);
       this._registry.detachHost(roomId, this._now());
       this._registry.detachMember(session.id, this._now());
       // повышать некого — комната ждёт reclaim_host hostReclaimGraceMs, как
       // до миграции: P2P-матч, возможно, цел
-      this._migration.hostLost(this._registry.get(roomId), 'disconnected', {
-        keepIfNoCandidate: true,
-      });
+      this._migration.hostDisconnected(this._registry.get(roomId));
 
       return;
     }

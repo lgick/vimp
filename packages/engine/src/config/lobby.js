@@ -172,8 +172,12 @@ export default {
   defaultLeaderboardPeriod: 'all',
 
   // переподключение сигнального WS хоста (комната без него выпадает из
-  // выдачи мастера): экспоненциальный бэкофф от baseDelay до maxDelay (мс)
+  // выдачи мастера): экспоненциальный бэкофф от baseDelay до maxDelay (мс).
+  // Вкладка-хост переподключается первой попыткой сразу (hostFirstDelay):
+  // мастер держит её комнату master:room:hostDisconnectGraceMs, и вторая
+  // попытка (через baseDelay) тоже должна уложиться в выдержку
   reconnect: {
+    hostFirstDelay: 0,
     baseDelay: 1000,
     maxDelay: 30000,
   },

@@ -9,6 +9,15 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Changed
+
+- The master waits `master:room:hostDisconnectGraceMs` (2 s) after the
+  host's signaling closes before migrating the room; a `reclaim_host` within
+  it keeps the room without touching the guests, while a guest's
+  `host_unreachable` or the host's `host_leaving` still migrates at once.
+  The host's tab retries its signaling at once
+  (`lobbyConfig.reconnect.hostFirstDelay`), then backs off as before.
+
 ## [0.37.0] — 2026-10-07
 
 ### Added

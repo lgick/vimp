@@ -96,6 +96,7 @@ export default class MigrationCoordinator {
       lagSustainMs: 10000,
       lagImprovementRatio: 0.35,
       autoMigrationCooldownMs: 90000,
+      hostDisconnectGraceMs: 0,
       ...deps.timings,
     };
 
@@ -105,6 +106,8 @@ export default class MigrationCoordinator {
     this._probes = new Map();
     // roomId -> время последнего probe_ack
     this._lastAckAt = new Map();
+    // roomId -> таймер выдержки после обрыва WS хоста
+    this._hostGraceTimers = new Map();
   }
 
   isMigrating(room) {
@@ -126,6 +129,65 @@ export default class MigrationCoordinator {
   }
 
   /**
+   * WS хоста закрылся без host_leaving. Миграция — не сразу: короткий обрыв
+   * одного сигналинга при живом P2P не должен откатывать матч у всех.
+   * @param {Object} room
+   * @returns {boolean} комната ушла в миграцию сейчас.
+   */
+  hostDisconnected(room) {
+    if (!room) {
+      return false;
+    }
+
+    const graceMs = this._timings.hostDisconnectGraceMs;
+
+    // передача (handing_off) деградирует сразу, как раньше; миграция уже идёт
+    if (graceMs <= 0 || room.status !== 'online') {
+      return this.hostLost(room, 'disconnected', { keepIfNoCandidate: true });
+    }
+
+    const { roomId, epoch } = room;
+
+    this._clearHostGrace(roomId);
+    this._hostGraceTimers.set(
+      roomId,
+      this._setTimer(() => {
+        this._hostGraceTimers.delete(roomId);
+
+        const current = this._registry.get(roomId);
+
+        // хост вернулся, эпоха сменилась или комнату уже ведёт другой путь
+        if (
+          !current ||
+          current.epoch !== epoch ||
+          current.status !== 'online' ||
+          current.host.sessionId !== null
+        ) {
+          return;
+        }
+
+        this.hostLost(current, 'disconnected', { keepIfNoCandidate: true });
+      }, graceMs),
+    );
+
+    return false;
+  }
+
+  // хост вернулся reclaim_host'ом — выдержка больше не нужна
+  hostReturned(roomId) {
+    this._clearHostGrace(roomId);
+  }
+
+  _clearHostGrace(roomId) {
+    const timer = this._hostGraceTimers.get(roomId);
+
+    if (timer !== undefined) {
+      this._clearTimer(timer);
+      this._hostGraceTimers.delete(roomId);
+    }
+  }
+
+  /**
    * Хост потерян: комната уходит в migrating или закрывается.
    * @param {Object} room
    * @param {string} reason - 'disconnected' | 'timeout' | 'unresponsive' |
@@ -138,6 +200,10 @@ export default class MigrationCoordinator {
    * @returns {boolean} комната ушла в миграцию.
    */
   hostLost(room, reason, { keepIfNoCandidate = false } = {}) {
+    if (room) {
+      this._clearHostGrace(room.roomId);
+    }
+
     if (!room || this.isMigrating(room)) {
       return false;
     }
@@ -933,7 +999,8 @@ export default class MigrationCoordinator {
 
     room.reports.set(userId, now);
 
-    // сигналинг хоста уже потерян — свидетельства гостя достаточно
+    // сигналинг хоста уже потерян (в том числе во время выдержки) —
+    // свидетельства гостя достаточно
     if (!this._hostSessionId(room.roomId)) {
       this.hostLost(room, 'disconnected', { keepIfNoCandidate: true });
       return;
@@ -1094,5 +1161,6 @@ export default class MigrationCoordinator {
     this._clearPromotionTimer(roomId);
     this._cancelProbe(roomId);
     this._lastAckAt.delete(roomId);
+    this._clearHostGrace(roomId);
   }
 }
