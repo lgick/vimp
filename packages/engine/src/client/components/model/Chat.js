@@ -17,6 +17,7 @@ export default class ChatModel {
     this._cacheMin = data.cacheMin || 200;
     this._cacheMax = data.cacheMax || 300;
     this._messages = data.messages || {};
+    this._defaults = data.defaultMessages || {};
 
     this._formatMessage = data.formatMessage;
     this._sanitizeMessage = data.sanitizeMessage;
@@ -49,6 +50,20 @@ export default class ChatModel {
     }
   }
 
+  // текст шаблона: строка игры важнее умолчания движка; '' — игра
+  // заглушила сообщение; null/нет индекса — английское умолчание
+  _template(group, index) {
+    const own = this._messages[group]?.[index];
+
+    if (typeof own === 'string') {
+      return own === '' ? null : own;
+    }
+
+    const fallback = this._defaults[group]?.[index];
+
+    return typeof fallback === 'string' && fallback !== '' ? fallback : null;
+  }
+
   // обновляет чат-лист. Данные могут быть 2-х видов:
   // - в виде строки '<группа шаблонов>:<номер шаблона>:<параметры>'
   // - в виде массива [<текст сообщения>,<имя автора>,<тип для класса>,
@@ -58,12 +73,14 @@ export default class ChatModel {
     if (typeof arr === 'string') {
       arr = arr.split(':');
 
+      const template = this._template(arr[0], arr[1]);
+
       // если сообщений не найдено
-      if (!this._messages[arr[0]] || !this._messages[arr[0]][arr[1]]) {
+      if (template === null) {
         return;
       }
 
-      let message = this._messages[arr[0]][arr[1]];
+      let message = template;
       const params = arr[2];
 
       // если есть параметры

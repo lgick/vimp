@@ -63,6 +63,54 @@ describe('ChatModel.sendMessage', () => {
   });
 });
 
+describe('ChatModel: умолчания движка', () => {
+  const defaults = {
+    s: ['a', 'b', 'c', 'd', 'e', '{0} joined the game', 'f', 'Host changed'],
+    v: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(() => 'x'),
+  };
+  defaults.v[13] = 'Vote to change host passed ({0}/{1})';
+
+  const lines = (messages, code) => {
+    const model = makeModel({ messages, defaultMessages: defaults });
+    const events = collect(model);
+
+    model.updateChat(code);
+
+    return events.filter(e => e.type === 'newLine').map(e => e.data.message);
+  };
+
+  it('игра без группы — печатается умолчание', () => {
+    expect(lines({}, 's:5:Alice')).toEqual([['Alice joined the game']]);
+  });
+
+  it('текст игры перекрывает умолчание', () => {
+    const own = { s: [null, null, null, null, null, '⚡ {0} joined'] };
+
+    expect(lines(own, 's:5:Alice')).toEqual([['⚡ Alice joined']]);
+  });
+
+  it("'' глушит сообщение", () => {
+    const own = { s: [null, null, null, null, null, null, null, ''] };
+
+    expect(lines(own, 's:7')).toEqual([]);
+  });
+
+  it('null после JSON — берётся умолчание', () => {
+    expect(lines({ s: ['a', null] }, 's:7')).toEqual([['Host changed']]);
+  });
+
+  it('игровая группа без текста и неизвестная группа — ничего', () => {
+    expect(lines({ g: ['t'] }, 'g:3')).toEqual([]);
+    expect(lines({}, 'zz:0')).toEqual([]);
+  });
+
+  it('параметры подставляются и в умолчание', () => {
+    expect(lines({}, 'v:13:3,5')).toEqual([
+      ['Vote to change host passed (3/5)'],
+    ]);
+  });
+});
+
 describe('ChatModel.updateChat', () => {
   it('разворачивает строковый шаблон с параметрами', () => {
     const model = makeModel();

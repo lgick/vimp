@@ -255,7 +255,10 @@ reloadable close.
   over host", no signaling — "No connection to the master server", extra
   arguments — "Usage: /changehost"; the master's refusals (`voteRejected`,
   `noSuccessor`) and the vote's result are local chat notices (codes
-  `v:6`…`v:15`). In `solo`/`dedicated` the command goes to the host as plain
+  `v:6`…`v:15`, texts from the engine's English defaults,
+  `src/config/chatMessages.js`; `ChatModel` takes the game's string at the
+  same index first, `''` hides the message, `null`/missing falls back to the
+  default). In `solo`/`dedicated` the command goes to the host as plain
   text. Everything else goes to the host (port `CHAT_DATA`).
 - **"Change host?" window** (lobby, guests): `host_vote` →
   `VoteCtrl.openEngineVote` with the engine vote `@changeHost`, title
@@ -1104,7 +1107,9 @@ What each component does:
 - **Game** — the rendering core: `GameCtrl.parse(name, data)` creates/
   updates/removes entity instances from snapshot data through `Factory`.
 - **Chat** — message output (row/lifetime limits), the command line;
-  escaping happens on output (`textContent`).
+  escaping happens on output (`textContent`); system messages use the
+  engine's English defaults from `config/chatMessages.js` unless the game
+  overrides them.
 - **Panel** — the HUD: round time, health, ammo, active weapon (from
   `'key:value'` strings). `PanelView` **generates the DOM from the game's
   schema** (`modules.panel.fields`: an ordered list of

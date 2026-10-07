@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The generated game no longer carries texts for the engine's chat codes —
+  the engine's English defaults apply; the template shows how to override
+  one. The template's reserved-range test uses the engine's current ranges
+  (`s` up to 11, `v` up to 15).
+
 ## [0.5.0] — 2026-10-05
 
 ### Added

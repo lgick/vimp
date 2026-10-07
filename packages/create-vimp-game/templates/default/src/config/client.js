@@ -93,45 +93,14 @@ export default {
 
     chat: {
       params: {
-        // texts of the system message codes: the host sends 'group:index',
-        // the text lives here. Groups s/v/m/c/n are the engine's — the game
-        // owns 'g' (see src/host/systemMessages.js).
+        // texts of the system message codes: the host sends 'group:index'.
+        // Engine groups s/v/m/c/n have English defaults in the engine; override
+        // one by giving a string at the same index, e.g.
+        // `s: [null, null, null, null, '⚔️ {0} killed {1}']` (`null` keeps the
+        // default; don't write a sparse `[, , …]` — ESLint forbids it), or ''
+        // to hide the message. The game group 'g' is entirely yours
+        // (see src/host/systemMessages.js).
         messages: {
-          s: [
-            'Team {0} is full. Your current team: {1}',
-            'Your team: {0}',
-            'Your new team: {0}',
-            'Your new status: spectator',
-            '{0} killed {1}',
-            '{0} joined the game',
-            '{0} left the game',
-            'Host changed',
-            'You are no longer the host (connection lost)',
-            'Host changed: the previous host was lagging',
-            'Host changed: the previous host went inactive',
-            'Host changed: the previous host had a poor connection',
-          ],
-          v: [
-            'A vote has been created',
-            'Voting has started',
-            'Your vote has been accepted',
-            'Voting is temporarily unavailable',
-            'Vote passed',
-            'Vote failed',
-            'Usage: /changehost',
-            'You are the host — use “Hand over host” in the room menu',
-            'No connection to the master server',
-            'A host vote was held recently',
-            'No other player can host',
-            'A host vote is already in progress',
-            'A host vote is not possible right now',
-            'Vote to change host passed ({0}/{1})',
-            'Vote to change host failed ({0}/{1})',
-            'Host vote cancelled',
-          ],
-          m: ['Current map: {0}', 'Next map: {0}'],
-          c: ['Command not found', 'Your rank: {0}'],
-          n: ['Invalid name', '{0} changed name to {1}'],
           g: ['{0} bot(s) spawned'],
         },
       },

@@ -65,7 +65,7 @@ name the violation. Do not verify those by eye — run the tool
 - [ ] ⚙ `B9` Vote names starting with `@` (templates and menu entries) and
       the chat command `/changehost` are reserved by the engine (the master's
       "Change host" vote, lobby mode).
-      The client needs texts for `v:6`–`v:15` like for every engine code.
+      Engine codes have English defaults on the client; `''` at the same index silences one.
 - [ ] A vote category is on cooldown for `timers.timeBlockedVote` (30 s);
       always call `canCreateVote` first.
 - [ ] Vote ties are broken **randomly** — do not rely on a deterministic

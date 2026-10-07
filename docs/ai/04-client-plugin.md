@@ -429,9 +429,10 @@ modules: {
   chat: {
     params: {
       messages: {
-        s: ['Team {0} is full. Your current team: {1}', 'Your team: {0}', …],
-        v: […], m: […], c: […], n: […],
-        g: ['{0} bot(s) spawned'],       // your own group
+        g: ['{0} bot(s) spawned'],       // your own group: entirely yours
+        // engine groups s/v/m/c/n have English defaults; override one by
+        // index (null keeps the default, '' hides the message):
+        s: [null, null, null, null, '⚔️ {0} killed {1}'],
       },
     },
   },

@@ -348,17 +348,22 @@ Engine-reserved groups — do not use these letters:
 | `c`   | 0–1     | command not found, rank                                                                                                                                        |
 | `n`   | 0–1     | invalid name, name changed                                                                                                                                     |
 
-The client must have a text for **every** engine code too — a code without
-a text is silently dropped (`s:7` "Host changed", `s:8` "You are no
-longer the host (connection lost)" and `s:9`–`s:11` "Host changed: the
-previous host was lagging / went inactive / had a poor connection" arrive
-with host migration; `v:6`–`v:15` are the "Change host" vote notices the
-client adds itself — "Usage: /changehost", "You are the host — use “Hand
-over host” in the room menu", "No connection to the master server", "A host
-vote was held recently", "No other player can host", "A host vote is
-already in progress", "A host vote is not possible right now", "Vote to
-change host passed ({0}/{1})", "… failed ({0}/{1})", "Host vote
-cancelled"). Never send a
+The engine ships English default texts for **every** engine code
+(`src/config/chatMessages.js`), so a game needs no texts for them. The
+game's `modules.chat.params.messages` overrides one by a string at the same
+index (`null` keeps the default; `''` hides the message); a code of your own
+group without a text is silently dropped. The defaults:
+
+| Group | Texts, by index                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `s`   | 0 "Team {0} is full. Your current team: {1}", 1 "Your team: {0}", 2 "Your new team: {0}", 3 "Your new status: spectator", 4 "{0} killed {1}", 5 "{0} joined the game", 6 "{0} left the game", 7 "Host changed", 8 "You are no longer the host (connection lost)", 9 "Host changed: the previous host was lagging", 10 "… went inactive", 11 "… had a poor connection"                                                                                                                                                                                              |
+| `v`   | 0 "A vote has been created", 1 "Voting has started", 2 "Your vote has been accepted", 3 "Voting is temporarily unavailable", 4 "Vote passed", 5 "Vote failed", 6 "Usage: /changehost", 7 "You are the host — use “Hand over host” in the room menu", 8 "No connection to the master server", 9 "A host vote was held recently", 10 "No other player can host", 11 "A host vote is already in progress", 12 "A host vote is not possible right now", 13 "Vote to change host passed ({0}/{1})", 14 "Vote to change host failed ({0}/{1})", 15 "Host vote cancelled" |
+| `m`   | 0 "Current map: {0}", 1 "Next map: {0}"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `c`   | 0 "Command not found", 1 "Your rank: {0}"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `n`   | 0 "Invalid name", 1 "{0} changed name to {1}"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+`s:8` and `v:6`–`v:15` are added by the client itself and never travel the
+wire. Never send a
 raw text array instead of a code: data goes in params (`MAP_CURRENT` with the
 map name, not `[mapName]`).
 

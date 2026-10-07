@@ -317,10 +317,13 @@ game-owned:
 - **`chat`** — DOM element ids, output limits (`listLimit: 5` lines,
   `lineTime: 15000` ms), and a cache — engine; **system message
   templates** (`messages`, game): a code registry of groups, engine-owned
-  groups `s` (status/commands), `v` (votes), `m` (maps), `c` (teams), `n`
+  groups `s` (statuses), `v` (votes), `m` (maps), `c` (commands), `n`
   (names) plus any groups the game plugin registers (e.g. `vimp-tanks`
   adds `b` for bots). The host only sends `'group:number:params'`, the
-  client assembles the text.
+  client assembles the text. The engine groups have English defaults in
+  `src/config/chatMessages.js` (see below); the game's string at the same
+  index overrides one, `''` hides the message, `null`/missing keeps the
+  default. A game group is entirely the game's.
 - **`panel`** — the `containerId` container (engine); the mapping from
   server keys (`t`, `h`, `wa`, `w1`, `w2`) to fields (`keys`) and the
   typed field schema `fields` (game): an ordered list of
@@ -698,6 +701,17 @@ defaults. No `.env` variable is involved.
   (`winnerTeam`/`roundStart`/`gameOver`), the source of truth shared by the
   host (`SocketManager.sendGameInform`) and the client (`GAME_ROUND_START_CODE`
   in `main.js`, which triggers the round-start panel/logo animation).
+
+## packages/engine/src/config/chatMessages.js
+
+English default texts of the engine's chat codes, groups `s`, `v`, `m`, `c`,
+`n` (index = code number). They are kept apart from `clientDefaults.js`
+because config merging replaces arrays whole — a game's `s` array would wipe
+the defaults. `ChatModel` takes the game's string at the same index first;
+`''` hides the message; `null` or a missing index falls back to the default.
+A new engine code goes into `ENGINE_MESSAGE_CODES`, this table and the `B8`
+rule's reserved ranges in one change (`tests/config/chatMessages.test.js`
+checks they agree).
 
 ## lib/clock.js
 

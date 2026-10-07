@@ -9,6 +9,16 @@ bumps the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The client has English default texts for the engine's chat codes (`s`, `v`,
+  `m`, `c`, `n` groups, `src/config/chatMessages.js`): a game's own text at
+  the same index overrides one, an empty string silences it, and a game
+  without a text no longer drops the engine's message. New engine codes need
+  no game update. `ENGINE_MESSAGE_CODES`
+  (`host/meta/modules/chat/systemMessages.js`) exposes the frozen table of
+  the engine's codes.
+
 ## [0.36.0] — 2026-10-05
 
 ### ⚠️ Breaking

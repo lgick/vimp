@@ -73,7 +73,7 @@
   (строка ~37) — `{ s: 6, v: 5, m: 1, c: 1, n: 1 }` вместо
   `{ s: 11, v: 15, … }`.
 
-## Шаг 1. Таблица текстов по умолчанию (тест первым)
+## Шаг 1. Таблица текстов по умолчанию (тест первым) ✅ выполнен
 
 1. Новый файл `packages/engine/src/config/chatMessages.js` (изоморфный, без
    импортов): `export default { s: [...], v: [...], m: [...], c: [...], n: [...] }`
@@ -109,15 +109,24 @@
 2. `b8-system-messages.js`: `export const RESERVED = …` (именованный
    экспорт, значение то же); комментарий над ним — ссылка на
    `config/chatMessages.js` вместо несуществующего пути.
-3. Новый тест `tests/config/chatMessages.test.js`:
-   - каждый код из `MESSAGE_CODES` (импорт `systemMessages.js` в отдельном
-     файле теста — vitest изолирует модули по файлам, игровые
-     `registerCodes` сюда не попадут) имеет непустой текст в таблице;
-   - каждый индекс таблицы имеет код в `MESSAGE_CODES` (взаимно-однозначно);
+3. `systemMessages.js` не экспортирует `MESSAGE_CODES` (решение
+   разработчика 2026-10-07): движковые коды объявить как
+   `export const ENGINE_MESSAGE_CODES = Object.freeze({ TEAMS_TEAM_FULL: 's:0', … })`
+   (форма прежняя — `KEY → 'группа:индекс'`), а внутренний мутабельный
+   реестр — копией: `const MESSAGE_CODES = { ...ENGINE_MESSAGE_CODES }`;
+   `registerCodes`/`buildSystemMessage` работают с реестром как раньше,
+   сам реестр наружу не отдаётся. `ENGINE_MESSAGE_CODES` — новый
+   публичный экспорт (`vimp-engine/host/*`) — упомянуть его в записи
+   `### Added` шага 6.
+4. Новый тест `tests/config/chatMessages.test.js`:
+   - каждый код из `ENGINE_MESSAGE_CODES` имеет непустой текст в таблице;
+   - каждый индекс таблицы имеет код в `ENGINE_MESSAGE_CODES`
+     (взаимно-однозначно);
+   - `registerCodes` не меняет `ENGINE_MESSAGE_CODES`;
    - для каждой группы `RESERVED[g] === chatMessages[g].length - 1`;
    - в таблице только группы `s, v, m, c, n`.
 
-## Шаг 2. Подбор текста в `ChatModel` (тест первым)
+## Шаг 2. Подбор текста в `ChatModel` (тест первым) ✅ выполнен
 
 `packages/engine/src/client/components/model/Chat.js`:
 
@@ -160,7 +169,7 @@ internal-импортов по правилу порядка) и `defaultMessage
 - игровая группа без текста (`'g:3'`) и неизвестная группа → ничего;
 - параметры подставляются и в умолчание (`'v:13:3,5'` → `'Vote to change host passed (3/5)'`).
 
-## Шаг 3. Решение «без capability»
+## Шаг 3. Решение «без capability» ✅ выполнен
 
 Новую capability в `packages/engine/src/lib/capabilities.js` **не
 заводить**: игра без текстов движковых кодов на старом движке теряет только
@@ -170,7 +179,7 @@ internal-импортов по правилу порядка) и `defaultMessage
 (скаффолдер берёт версию на релизе, `docs/en/publishing.md`). Если при
 исполнении окажется, что это не так, — остановиться и спросить.
 
-## Шаг 4. Шаблон и фикстура
+## Шаг 4. Шаблон и фикстура ✅ выполнен
 
 1. `packages/create-vimp-game/templates/default/src/config/client.js`:
    из `chat.params.messages` удалить группы `s, v, m, c, n`, оставить
@@ -191,7 +200,7 @@ internal-импортов по правилу порядка) и `defaultMessage
    фикстуры `packages/engine/tests/fixtures/miniGame.contract.test.js`.
 5. `npm run test:scaffold` — E2E скаффолдера зелёный.
 
-## Шаг 5. Документация
+## Шаг 5. Документация ✅ выполнен
 
 Найти абзацы по цитатам (номера строк сдвигаются). en и ru — одинаково.
 
@@ -229,14 +238,16 @@ internal-импортов по правилу порядка) и `defaultMessage
   `messages`, `s:7`, `v:6`).
 - `docs/{en,ru}/scaffolding.md` — если описывает блок `messages` шаблона.
 
-## Шаг 6. CHANGELOG
+## Шаг 6. CHANGELOG ✅ выполнен
 
 - `packages/engine/CHANGELOG.md` → `## [Unreleased]` → `### Added`
   (minor): «The client has English default texts for the engine's chat
   codes (`s`, `v`, `m`, `c`, `n` groups, `src/config/chatMessages.js`): a
   game's own text at the same index overrides one, an empty string silences
   it, and a game without a text no longer drops the engine's message. New
-  engine codes need no game update.»
+  engine codes need no game update.» + предложение про
+  `ENGINE_MESSAGE_CODES` (`host/meta/modules/chat/systemMessages.js`) —
+  замороженная таблица движковых кодов.
 - `packages/create-vimp-game/CHANGELOG.md` → `## [Unreleased]` →
   `### Changed` (patch): «The generated game no longer carries texts for
   the engine's chat codes — the engine's English defaults apply; the

@@ -3,8 +3,8 @@ import { ERROR, skip, verdict } from '../result.js';
 // Регистрация игровых кодов — слепой Object.assign поверх движкового
 // реестра: код в зарезервированном диапазоне затирает движковое сообщение
 // без предупреждения, и вместо «Vote passed» игрок видит игровой текст.
-// Диапазоны — длины движковых групп (client/config/chat messages).
-const RESERVED = { s: 11, v: 15, m: 1, c: 1, n: 1 };
+// Диапазоны — длины движковых групп (config/chatMessages.js).
+export const RESERVED = { s: 11, v: 15, m: 1, c: 1, n: 1 };
 
 export default {
   id: 'B8',

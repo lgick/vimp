@@ -34,7 +34,7 @@ describe('HostPlugin surface', () => {
 
   it('keeps its system message codes out of the engine groups', () => {
     // engine groups and their last index
-    const reserved = { s: 6, v: 5, m: 1, c: 1, n: 1 };
+    const reserved = { s: 11, v: 15, m: 1, c: 1, n: 1 };
 
     for (const code of Object.values(hostPlugin.systemMessages)) {
       const [group, index] = code.split(':');

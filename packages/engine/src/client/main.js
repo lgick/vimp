@@ -50,6 +50,7 @@ import { dispatchSocketMessage } from './lib/socketDispatch.js';
 import { pickActiveGame, isGameAvailable } from './lib/pickActiveGame.js';
 import { readCoreAbi, dispatchCoreOp, ABI_UNKNOWN } from '../lib/coreAbi.js';
 import { ABI_OP_DEBUG_JSON } from '../config/abiOps.js';
+import engineChatMessages from '../config/chatMessages.js';
 import { createDebugApi, debugLog, DEBUG_PREFIX } from './debug.js';
 import { buildClientCoreConfig } from '../lib/clientCoreConfig.js';
 import { buildSnapshotKeysById } from '../lib/reconstructHot.js';
@@ -1147,6 +1148,7 @@ function runModules(data) {
     cacheMin: chatData.params.cacheMin,
     cacheMax: chatData.params.cacheMax,
     messages: chatData.params.messages,
+    defaultMessages: engineChatMessages,
     sanitizeMessage,
     formatMessage,
   });

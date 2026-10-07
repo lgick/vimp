@@ -668,8 +668,10 @@ callback + participant list), `reset`. Topic cooldown — `timeBlockedVote`
   `shift`/`shiftByUser`. The code registry holds the engine groups
   `s`/`v`/`m`/`c`/`n`; game codes are registered via `registerCodes` (tanks
   brings the `b:*` and `t:*` groups, the game plugin's
-  `src/host/systemMessages.js`, e.g. `vimp-tanks`'s); the template texts
-  live on the client, and a code without a text is dropped there silently.
+  `src/host/systemMessages.js`, e.g. `vimp-tanks`'s); the texts
+  live on the client: the engine's `s/v/m/c/n` codes have English defaults
+  (`src/config/chatMessages.js`, overridable by the game), while a game code
+  without a text is dropped there silently.
   Host migration adds `s:7` `HOST_CHANGED` (sent to everybody when a
   successor starts the restored match), `s:8` `HOST_REVOKED` (added
   locally by a former host's client, never on the wire) and, in place of

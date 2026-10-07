@@ -548,8 +548,10 @@ the `key` from `game:stat`).
 
 - A user message: `[text, author name, teamId]`.
 - A system message: the string `'group:number:comma,separated,params'` —
-  the client builds text from the `messages` templates in its own config
-  (groups `s`, `v`, `m`, `c`, `n`, `b`).
+  the client builds the text from the game's `messages` templates, falling
+  back to the engine's English defaults for the engine groups (`s`, `v`,
+  `m`, `c`, `n`; `src/config/chatMessages.js`). A game group (e.g. tanks'
+  `b`) has no default: no text — no message.
 
 ### Vote (port 16)
 
