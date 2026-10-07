@@ -13,7 +13,7 @@ import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 // (vite build --mode host); the engine loads it by GameManifest.entries.host.
 //
 // Every field below is dereferenced by the engine without a guard, so a
-// missing one is a TypeError far from its cause (docs/ai/03-host-plugin.md).
+// missing one is a TypeError far from its cause (docs/en/plugin-api.md).
 export default {
   id: '{{GAME_ID}}',
   // never a literal: a number written by hand agrees with the engine on the

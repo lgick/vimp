@@ -41,7 +41,7 @@ export function warn(message) {
 }
 
 // финальный экран: команды, которые автор игры выполняет следующими.
-// Порядок повторяет docs/ai/11-authoring-workflow.md: зависимости → ядро →
+// Порядок повторяет docs/ai/workflow.md: зависимости → ядро →
 // проверка контракта → headless-прогон → браузер
 export function nextSteps({ directory, tokens }) {
   const lines = [

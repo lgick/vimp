@@ -585,6 +585,89 @@ Bots and players already share this registry and a single numeric id space,
 but behavior (networked input vs. the core's AI) is still handled by separate
 code paths — fully unifying the two into one abstraction is a future task.
 
+### Engine-owned gameplay rules
+
+These rules live in the engine and cannot be replaced; a game parameterises
+them through `gameConfig` or implements an alternative entirely inside its
+WASM core. The per-manager details are below.
+
+- **Rounds.** A round ends when a team is wiped (every participant, humans
+  _and_ scripted, not alive) and survivors remain in at most one other team;
+  with three or more teams it goes on until only one team has anyone alive.
+  The winner is the team that still has survivors, however the last player
+  died (an enemy kill, a team kill, self-destruction, the environment, a
+  killer who has already left) — every `death` event runs the wipe check. A
+  wipe with no survivors anywhere (both last players died at once, or a
+  single-team game) ends the round with **no winner**: every player gets the
+  `defeat` cue (spectators `victory`) and a round-end message with no winning
+  team. The round timer expiring does **not** end the round with a result — it
+  starts a new one with no score change. The next round starts after
+  `timers.roundRestartDelay`. A game that is not round-based is closest to one
+  long round (a large `roundTime`, respawns in the core) or a single team, in
+  which no wipe can occur.
+- **Scoring.** Killing an enemy: killer `score +1` and rank points `+1`,
+  victim `deaths +1` and `status = 'dead'`. A team kill: killer `score −1` and
+  points `−1`, victim `deaths +1`. A suicide: victim `deaths +1` only. A killer
+  who already left: no frag, the victim still dies and the round still
+  resolves. Each wiped team's head gets `deaths +1` once per round, and at
+  round end the surviving team's head gets `score +1` (none on a draw). The
+  `±1` rule is written synchronously with the kill report and there is no hook
+  to change it. A dead player becomes a spectator watching the killer until
+  the next round.
+- **Sound cues** fired here: `frag` to the killer, `death` to the victim,
+  `victory` to the winning team and to spectators (on any outcome), `defeat`
+  to everyone else at round end. Exactly five engine events exist
+  (`roundStart`, `victory`, `defeat`, `frag`, `death`); `gameConfig.soundCues`
+  maps them to the names in the game's sound config, cued sounds bypass the
+  world voice limit, an unmapped cue is not sent, and `{}` disables them.
+- **Teams.** `gameConfig.teams` maps team names to numeric ids and includes the
+  spectator team; under `noSpectators: true` it holds exactly one team and a
+  joining human goes straight into it (`RoundManager.admitPlayer` on
+  `firstShotReady`, no vote). One playing team is a valid configuration.
+  Team capacity is `respawns[team].length` on the current map. Joining a full
+  team calls `scripted.removeOneForHuman(team)`; when it returns `false` the
+  player gets `TEAMS_TEAM_FULL` and stays put. Switching team within
+  `timers.teamChangeGracePeriod` of the round start is free; later the
+  switcher dies and spectates until the next round. Dropping below **2 active
+  humans** resets the statistics and immediately starts a new round — unless
+  the game declares `endlessRound: true`, which switches off every
+  engine-initiated round restart (this rule, the team wipe and the round
+  timer); `/nr` and map changes still restart it.
+- **Map rotation.** `timers.mapTime` expiring starts a system vote offering
+  `mapsInVote` maps from the catalog; a player may also propose a map through
+  the vote menu (a single proposal is applied directly); the switch waits
+  `timers.mapChangeDelay`. A map change re-creates the scripted participants,
+  resets the panel and the stat table, clears the votes and flushes the rank
+  and state to the master.
+- **Spectators.** Dead players and members of the spectator team follow
+  another participant (the camera tracks the killer after a death);
+  `spectatorKeys` (`nextPlayer`/`prevPlayer`, from key set `0`) cycle the
+  watched player; the cursor auto-hides after 3 s without mouse movement.
+- **Game informs.** The codes are fixed by the engine
+  (`packages/engine/src/config/gameCodes.js`): `winnerTeam` → index `0` of
+  `gameInform.list`, `roundStart` → `1`, `gameOver` → `2`. The indexes are
+  positional — reordering the array changes the meaning; code `1` also
+  triggers the panel/logo animation on the client. Technical informs
+  (`techInformList`, with engine defaults) are indexed as listed in
+  [plugin-api.md](plugin-api.md#kicks-and-technical-messages); placeholders
+  `{0}`, `{1}` come from the params array.
+- **Initial vote.** `gameConfig.initialVote` (usually `'teamChange'`) is the
+  vote sent to a player right after their first frame; `null` drops them
+  straight into the game.
+- **Player profile.** `rank` is an engine-owned integer in a cross-game format
+  rendered by the master's lobby; `state` is the game's own JSON blob seeded
+  from `playerState.defaultState`, read and written through `onCoreEvent`'s
+  `vimp` object and flushed on round end, map change and departure. Both are
+  namespaced per `(user, gameId)`; because the host is an untrusted browser,
+  both are technically forgeable — a known limit of the P2P model.
+- **Kicks.** There is no kick vote and no `/ban` endpoint. Protection from a
+  bad host is the engine's host migration — the automatic triggers (overload,
+  hidden tab, network lag) and the `/changehost` vote, which the **master**
+  counts (lobby mode only). None of it passes through the plugin, and the
+  game's vote menu gets no item for it. Thresholds and close codes:
+  [configuration.md](configuration.md#kicks-rtt-idlekicktimeout) and
+  [network.md](network.md#connection-lifecycle).
+
 ### `meta/core/` managers
 
 **RoundManager** — rounds, teams, maps. Owns state: `currentMap`,

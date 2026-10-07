@@ -12,7 +12,7 @@ import { ENGINE_CAPABILITIES } from './capabilities.js';
 // должен зависеть от отладочного контура (граница из CLAUDE.md).
 //
 // entries.wasmNode — node-сборка ядра игры (конвенция core/pkg-node,
-// docs/ai/02-packaging.md). Для боевой игры она обязательна: без ядра
+// docs/en/packaging.md). Для боевой игры она обязательна: без ядра
 // авторитетную симуляцию крутить нечем.
 
 /**

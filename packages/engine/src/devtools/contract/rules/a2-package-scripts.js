@@ -1,6 +1,6 @@
 import { ERROR, skip, verdict } from '../result.js';
 
-// Набор npm-скриптов пакета игры (docs/ai/02-packaging.md). Это не вкусовое
+// Набор npm-скриптов пакета игры (docs/en/packaging.md). Это не вкусовое
 // требование: инструкции движка и CI сгенерированной игры зовут их по имени,
 // а отсутствующий core:build:node тихо оставляет headless-прогон без ядра.
 const REQUIRED = [

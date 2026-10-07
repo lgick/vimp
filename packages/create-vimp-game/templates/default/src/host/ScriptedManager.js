@@ -1,7 +1,7 @@
 // The bot manager: the game half of "scripted participants". The engine calls
 // exactly five methods on it — createMap, getCountsPerTeam, createScripted,
 // removeScripted, removeOneForHuman — and never anything else
-// (docs/ai/03-host-plugin.md § The `scripted` module contract).
+// (docs/en/plugin-api.md § `createModules(ctx)` and the scripted-module contract).
 //
 // It holds no state that a host handoff may not lose: a restored room
 // re-creates the map and respawns everyone, and this object is rebuilt from

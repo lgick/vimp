@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-// Two projects (docs/ai/11-authoring-workflow.md):
+// Two projects (docs/ai/workflow.md):
 //
 //   unit        — configs, host meta and client parts in happy-dom;
 //   integration — the real Rust core driven from Node through

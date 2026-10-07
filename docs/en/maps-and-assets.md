@@ -1,4 +1,9 @@
-# 07 — Maps and assets
+# Maps and assets
+
+Everything a game ships as data: map JSON, tile and sprite images, sounds and
+procedurally baked textures. Where these files land in the package is in
+[packaging.md](packaging.md); how the manifest points at them in
+[plugin-api.md](plugin-api.md#gamemanifest).
 
 ## Map format
 
@@ -47,19 +52,19 @@ export default {
 };
 ```
 
-| Field                            | Consumer           | Notes                                                                                                                                                                                                                       |
-| -------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `setId`                          | client             | selects `parts.gameSets[setId]` to build the map; falls back to `gameConfig.mapSetId`                                                                                                                                       |
-| `scale`                          | host + core        | per-map override of `gameConfig.mapScale`                                                                                                                                                                                   |
-| `spriteSheet`, `layers`          | client only        | the core never sees them                                                                                                                                                                                                    |
-| `physicsStatic`                  | core               | tile indexes that generate static bodies                                                                                                                                                                                    |
-| `physicsDynamic`                 | core + client      | movable props                                                                                                                                                                                                               |
-| `step`                           | both               | tile edge length before scaling                                                                                                                                                                                             |
-| `map`                            | both               | row-major grid of tile indexes                                                                                                                                                                                              |
-| `respawns`                       | host               | spawn points per team                                                                                                                                                                                                       |
-| `levels`                         | core + client      | above-ground levels (2.5D); absent = flat map                                                                                                                                                                               |
-| `ramps`                          | core + client      | level transitions                                                                                                                                                                                                           |
-| `game`, `physicsDynamic[i].game` | your core + client | opaque object (or absent), **unscaled**; reaches `GameMap::game_data()` / `dynamic_game_data(i)`, `ClientCore.set_map`, every static part (`game`) and `d{i}` parts (via `...item`). Capability `map.gameData`, rule ⚙ `E7` |
+| Field                            | Consumer           | Notes                                                                                                                                                                                                                     |
+| -------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `setId`                          | client             | selects `parts.gameSets[setId]` to build the map; falls back to `gameConfig.mapSetId`                                                                                                                                     |
+| `scale`                          | host + core        | per-map override of `gameConfig.mapScale`                                                                                                                                                                                 |
+| `spriteSheet`, `layers`          | client only        | the core never sees them                                                                                                                                                                                                  |
+| `physicsStatic`                  | core               | tile indexes that generate static bodies                                                                                                                                                                                  |
+| `physicsDynamic`                 | core + client      | movable props                                                                                                                                                                                                             |
+| `step`                           | both               | tile edge length before scaling                                                                                                                                                                                           |
+| `map`                            | both               | row-major grid of tile indexes                                                                                                                                                                                            |
+| `respawns`                       | host               | spawn points per team                                                                                                                                                                                                     |
+| `levels`                         | core + client      | above-ground levels (2.5D); absent = flat map                                                                                                                                                                             |
+| `ramps`                          | core + client      | level transitions                                                                                                                                                                                                         |
+| `game`, `physicsDynamic[i].game` | your core + client | opaque object (or absent), **unscaled**; reaches `GameMap::game_data()` / `dynamic_game_data(i)`, `ClientCore.set_map`, every static part (`game`) and `d{i}` parts (via `...item`). Capability `map.gameData`, rule `E7` |
 
 ### Levels and ramps (2.5D)
 
@@ -95,8 +100,8 @@ level is additive — a map without these fields loads exactly as before:
 `MapConfig::validate` rejects a map with mismatched grid dimensions, a
 railing outside `floor`, an unknown ramp tile, or a level number out of
 range — `load_map` returns the error before a single body is created.
-Contract rule **E4** (`vimp-contract`) runs the same checks statically,
-before the build and without the core.
+Contract rule `E4` ([debugging.md](debugging.md#contract-check-vimp-contract))
+runs the same checks statically, before the build and without the core.
 
 What reaches the client: `MAP_DATA` carries `levels` and `ramps` untouched,
 `applyMapData` forwards both to the client core's `set_map` (it builds the
@@ -105,8 +110,9 @@ silence) and assembles the static render data **per level**. The keys
 `s0..sN` run across all levels, and each part instance receives its own
 `level`, `solid` (blocking tiles: `physicsStatic` on level 0,
 `levels.<n>.walls` above) and `floor` (`levels.<n>.floor`, empty on level
-0). A game that cannot run without any of this declares `requires:
-['map.layers']` in its manifest.
+0). A game that cannot run without any of this declares
+`requires: ['map.layers']` in its manifest ([client.md](client.md) describes
+the render side).
 
 ### Scaling cascade
 
@@ -142,7 +148,7 @@ again in a part.
 > of `maxPlayers`.
 
 Give every team the same number of points unless asymmetry is intended, and
-make sure the total covers `roomDefaults.maxPlayers`.
+make sure the total covers `roomDefaults.maxPlayers` (rule `B10`).
 
 ## Images — you ship them
 
@@ -170,12 +176,12 @@ constructor(data, _assets, dependencies) {
 }
 ```
 
-The available service pool is `renderer`, `soundManager` and `assetsBase`; a
-part that asks for a service it did not declare simply gets `undefined`.
+A part that asks for a service it did not declare simply gets `undefined`
+(the provider pool is described in [client.md](client.md), "Providers").
 Guard against that explicitly — a missing base produces a request for
 `undefinedimg/tiles.png`, which is a blank canvas with no error at all.
 
-## Image pipeline
+### Image pipeline
 
 1. Keep the source files under `assets/img/` (tracked in git — unlike sounds
    they need no processing step).
@@ -186,10 +192,10 @@ Guard against that explicitly — a missing base produces a request for
    map even before ffmpeg has ever been installed.
 4. Make the manifest build **fail** when a map names an image that is not in
    `dist/img/`: the engine cannot diagnose this — the part just never gets its
-   texture and the map renders empty.
-5. Add the images to the `check-pack.js` required list: `dist/` is usually
-   gitignored, and npm applies ignore rules inside directories listed in
-   `files`.
+   texture and the map renders empty (rule `E2` checks it statically).
+5. `dist/` is usually gitignored and npm applies ignore rules inside
+   directories listed in `files`: confirm with `npm pack --dry-run` that the
+   images are in the tarball.
 
 ## Sound pipeline
 
@@ -202,7 +208,8 @@ Guard against that explicitly — a missing base produces a request for
 4. `manifest.assetsBase` points the client at `/games/<id>/sounds/`.
 
 Both codecs are mandatory: the client's `codecList` is `['webm', 'mp3']` and
-it picks the first the browser supports. A missing `.mp3` breaks Safari.
+it picks the first the browser supports. A missing `.mp3` breaks Safari (rule
+`E1`).
 
 Declare each sound in your client config:
 
@@ -212,7 +219,6 @@ sounds: {
   // optional: spatial geometry; omit it and the engine defaults apply.
   // These ARE the defaults — they are WORLD units, calibrated for a scale
   // of 1:1, so recalculate them for your own scale before declaring them
-  // (04-client-plugin.md)
   spatial: { mode: 'topDown', virtualElevation: 180, innerRadius: 40 },
   sounds: {
     shot:   { file: 'shot',   priority: 60, volume: 0.6 },
@@ -222,7 +228,12 @@ sounds: {
 ```
 
 `file` is the base name without extension. Do not set `path` — the engine
-overwrites it with `${assetsBase}sounds/`.
+overwrites it with `${assetsBase}sounds/`. The full set of `spatial` keys, their
+defaults (`packages/engine/src/config/spatialDefaults.js`) and the closed lists
+of `mode`/`panningModel`/`distanceModel` values are checked by rule `E6`: an
+unknown key or value is neither an error nor audible — the engine falls back to
+the default in silence. At most 30 world voices sound at once; ranking is
+`priority² / max(distance², 1)`.
 
 ## Baked assets
 
@@ -239,7 +250,7 @@ bakedAssets: {
 ```
 
 - `name` must exist in `ClientPlugin.bakers`; otherwise the entry is silently
-  ignored.
+  ignored (rule `C8`).
 - `component` is the part class that receives the result in its `assets`
   argument.
 - Bake white/greyscale shapes and `tint` them at runtime — one baked texture
@@ -255,3 +266,10 @@ bakedAssets: {
       `webm` + `mp3` pair in `dist/sounds/`.
 - [ ] `soundCues` names resolve to declared sounds.
 - [ ] Every baker name referenced in `bakedAssets` exists in `bakers`.
+
+The silent traps around these files are collected in
+[pitfalls.md](pitfalls.md#assets-and-maps).
+
+---
+
+[← Previous: Packaging](packaging.md) · [Next: Pitfalls and Invariants →](pitfalls.md)

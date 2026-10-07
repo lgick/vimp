@@ -148,7 +148,7 @@ vitest `auth`). Игры — `../vimp-tanks`, `../vimp-snakes` (свои
    `src/master/` → `master.md`, `src/host/` → `host.md`, `src/client/` →
    `client.md`, порты → `network.md`, `src/config/*` и env →
    `configuration.md`, деплой → `deployment.md`, `getting-started.md`).
-   Изменения контракта плагина — ещё и `docs/ai/`.
+   Изменения контракта плагина — ещё и `docs/en` + `docs/ru`; `docs/ai/` — только процесс.
 4. **CHANGELOG.** `packages/engine/CHANGELOG.md` и
    `packages/create-vimp-game/CHANGELOG.md` — под `## [Unreleased]`
    (сейчас пусто, 0.36.0 / 0.5.0 выпущены 2026-10-05). Подзаголовки —

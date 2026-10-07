@@ -343,7 +343,7 @@ reloadable close.
 - **Transport drop** (`SessionSupervisor`, host migration stage 4): in
   lobby mode a guest's dropped WebRTC connection mid-match is not terminal —
   the supervisor reconnects and resumes the participant's place (see
-  [Network layer](#network-layer-packagesengineclientnetwork)).
+  [Network layer](#network-layer-packagesenginesrcclientnetwork)).
   The same supervisor carries the session through a host change (stage 7).
   `handleDisconnect` runs only on a **terminal** close.
 - **Terminal close** (`handleDisconnect`): the room closed, a kick or a
@@ -1103,7 +1103,7 @@ What each component does:
   disabled, an open mode or a key set outside `pointer.keySets` mutes it and
   releases a held pointer. A game that does not declare `pointer` gets no
   listener and no traffic — see
-  [../ai/04-client-plugin.md](../ai/04-client-plugin.md).
+  [InputListener](#inputlistener).
 - **Game** — the rendering core: `GameCtrl.parse(name, data)` creates/
   updates/removes entity instances from snapshot data through `Factory`.
 - **Chat** — message output (row/lifetime limits), the command line;

@@ -12,7 +12,7 @@ import { loadGamePackage } from '../lib/loadGamePackage.js';
 //   3. ничего         — фикстура miniGame из этого репозитория.
 //
 // entries.wasmNode — новое ОПЦИОНАЛЬНОЕ поле манифеста: конвенция
-// core/pkg-node/ уже описана в docs/ai/02-packaging.md, не хватало только
+// core/pkg-node/ уже описана в docs/en/packaging.md, не хватало только
 // пути в манифесте. Его отсутствие не ошибка — просто игра не прогоняется
 // headless своим настоящим ядром.
 

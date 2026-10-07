@@ -53,7 +53,7 @@ const templateDir = path.join(
 const FAST_GROUPS = /^[BCD]\d+$/;
 
 // файлы, без которых сгенерированная игра не игра: по одному якорю на
-// каждый слой контракта (docs/ai/02-packaging.md)
+// каждый слой контракта (docs/en/packaging.md)
 const REQUIRED_FILES = [
   'package.json',
   'vite.config.js',

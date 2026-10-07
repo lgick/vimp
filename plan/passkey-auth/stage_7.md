@@ -1,4 +1,4 @@
-# Этап 7. Смена ника в играх убрана: движок, шаблон, tanks, snakes, docs/ai
+# Этап 7. Смена ника в играх убрана: движок, шаблон, tanks, snakes, процессные docs/ai
 
 Не зависит от этапов 1–6 (можно делать в любой момент после этапа 0).
 Правило разработчика: «Ник нельзя поменять в играх. Убрать из игр
@@ -35,8 +35,8 @@
 - Документация движка: `docs/{en,ru}/host.md` (~607 — `changeName` в
   списке методов RoundManager; ~632 — «former engine commands `/name`,
   …»), `docs/{en,ru}/plugin-api.md` (~671 — строка CommandProcessor со
-  списком `/name`), `docs/ai/03-host-plugin.md` (~322), `docs/ai/12-questionnaire.md`
-  (~87–90).
+  списком `/name`), `docs/{en,ru}/plugin-api.md` (чат-команды `/name`), `docs/ai/questionnaire.md`
+  («обычный минимум команд»).
 - Тесты движка: `tests/host/RoundManager.test.js` (`describe('RoundManager.changeName')`,
   ~990), `tests/host/CommandProcessor.test.js` (~15, ~58 — проверка, что
   `ctx.roundManager.changeName` — функция).
@@ -107,13 +107,13 @@ src/host/botCommand.js`); в tanks — строку подсказки форм�
   убрать `/name`.
 - `docs/{en,ru}/plugin-api.md`: строка CommandProcessor — убрать `/name`
   из примеров; одна фраза: игра не должна давать менять ник.
-- `docs/ai/03-host-plugin.md` (~322): убрать `/name`
+- `docs/{en,ru}/plugin-api.md` (чат-команды `/name`, `CommandProcessor`): убрать `/name`
   (`ctx.roundManager.changeName`) из рекомендуемых команд; добавить
   правило: «Do not offer a nick change — the nick comes from the player's
   identity; `ctx.roundManager.changeName` is a no-op.»
-- `docs/ai/12-questionnaire.md` (~87–90): убрать `/name` из «обычного
+- `docs/ai/questionnaire.md` («обычный минимум команд»): убрать `/name` из «обычного
   минимума» и примера.
-- `docs/ai/10-pitfalls.md` — строка в чек-лист: «no `/name` or other nick
+- `docs/{en,ru}/pitfalls.md` — строка в чек-лист: «no `/name` or other nick
   change command».
 
 ## 7.5 CHANGELOG движка — `packages/engine/CHANGELOG.md`, `## [Unreleased]`

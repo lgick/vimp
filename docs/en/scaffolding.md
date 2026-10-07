@@ -79,8 +79,10 @@ A minimal but complete game — not a copy of tanks, and not a skeleton of
 - a `CLAUDE.md` stating the thread boundaries, the contract constants and
   the check commands, for whoever (or whatever) writes the gameplay next.
 
-Layout and per-file contracts: [plugin-api.md](plugin-api.md), and
-`docs/ai/02-packaging.md` for the LLM-facing form of the same thing.
+Layout and per-file contracts: [plugin-api.md](plugin-api.md) and
+[packaging.md](packaging.md); the documentation a finished plugin must ship
+is described there too
+([Documentation the plugin must ship](packaging.md#documentation-the-plugin-must-ship)).
 
 ## The check loop
 

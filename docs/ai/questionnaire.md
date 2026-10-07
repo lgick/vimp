@@ -7,7 +7,7 @@ whatever language the user writes to you in** — translate on the fly.
 
 Rules:
 
-1. **Read `01`–`11` first.** Half the value of this interview is your ability
+1. **Read the contract in `docs/en/` first** (order: [`README.md`](README.md)). Half the value of this interview is your ability
    to say "the engine already does that" instead of letting the user design a
    feature that cannot exist.
 2. **One block at a time.** Ask a block, get the answers, confirm your
@@ -16,7 +16,7 @@ Rules:
    accept it with a single word. Blocks 1, 5, 6, 7, 10 are the ones that
    really define the game — spend the time there.
 4. **Push back immediately on impossible answers.** The list of things that do
-   not exist is at the end of `10-pitfalls.md`. Offer the nearest workable
+   not exist is at the end of [`pitfalls.md`](../en/pitfalls.md). Offer the nearest workable
    alternative in the same message.
 5. **Skip what is already settled.** If the user described the game in the
    first message, do not re-ask; confirm instead.
@@ -50,7 +50,7 @@ Rules:
    обсудим, как зашить её в конфиг игры или в логику ядра.
 7. Доступные контролы формы — только `text`, `select`, `checkbox`, `radio`
    (в v3 движка нет `range`/`number`/`toggle`). Числовые границы задаются
-   не `min`/`max`, а автогенерируемым `regExp`. Годится?
+   полями `min`/`max` и автогенерируемым `regExp`. Годится?
 8. Огонь по своим (`friendlyFire`) по умолчанию включён или выключен?
    _В tanks — выключен (`false`), игрок может переключить при создании
    комнаты._
@@ -263,10 +263,10 @@ Rules:
 68. Публикуем ли в манифесте `entries.wasmNode` (путь к `core/pkg-node`)?
     **Настоятельно рекомендуется**: без него игру нельзя прогнать
     headless-runner'ом движка (`npm run sim`), и все проверки контрактов
-    придётся делать глазами в браузере. См. `13-debugging.md`.
+    придётся делать глазами в браузере. См. [`debugging.md`](../en/debugging.md).
 69. Какие сценарии отладочных прогонов пишем сразу (движение, стрельба,
     смерть/респаун, конец раунда, смена карты, голосование)? Сценарий —
-    обычный JSON, формат в `13-debugging.md`.
+    обычный JSON, формат в [`debugging.md`](../en/debugging.md).
 70. Реализуем ли `GameClientDef::predicted_state` (опционально, дефолт
     `None`) ради покомпонентного отчёта о расхождении предикта? Без него
     работает грубое сравнение по камере.

@@ -4,9 +4,9 @@
 
 `{{PACKAGE_NAME}}` is a game plugin for the VIMP engine: the engine owns
 networking, rounds, chat, panel and stat; this package owns the game. Only
-`dist/` is published. The full contract lives in the engine repository under
-`docs/ai/` (`03-host-plugin`, `04-client-plugin`, `05-wasm-core`,
-`06-snapshot-protocol`, `10-pitfalls`) — read it there, it is not copied here.
+`dist/` is published. The full contract lives in the engine repository, not
+here: <https://github.com/lgick/vimp/blob/main/docs/en/> (`plugin-api`,
+`packaging`, `core`, `network`, `pitfalls`).
 
 ## Boundaries
 

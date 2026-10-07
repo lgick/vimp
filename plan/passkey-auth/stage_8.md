@@ -37,7 +37,7 @@ vars.AUTH_SERVER_IP != ''`): `env` — `AUTH_SERVICE_URL`,
   dev-логина в Manual run checklist), `dedicated.md` (~6, ~226),
   `standalone.md` (~5, ~186 — таблица отличий: «identity | OAuth via
   `packages/auth`…»), `docs/{en,ru}/README.md` (~15, ~19),
-  `docs/ai/11-authoring-workflow.md` (~166), корневой `README.md` (~15
+  `docs/ai/workflow.md` (строка про идентичность), корневой `README.md` (~15
   «Accounts: OAuth login and a global nick…»),
   `packages/create-vimp-game/templates/default/dev/main.js` (~2,
   комментарий «no OAuth»), `packages/engine/src/dedicated/main.js` (~82,
@@ -124,8 +124,8 @@ vars.AUTH_SERVER_IP != ''`): `env` — `AUTH_SERVICE_URL`,
    «identity» → «guest identity or passkey account via `packages/auth`,
    JWT verified by the host»), `docs/{en,ru}/README.md` (~15: «Central
    auth service: guest identities, passkeys, global nick, JWT/JWKS,
-   per-game rank/state»; ~19), `docs/ai/11-authoring-workflow.md`
-   (~166) — заменить «OAuth» по смыслу («no master, no sign-in, no
+   per-game rank/state»; ~19), `docs/ai/workflow.md`
+   (строка про идентичность) — заменить «OAuth» по смыслу («no master, no sign-in, no
    lobby»).
 6. Корневой `README.md` (~15): «Accounts: play at once as a guest with a
    system-generated nick; a passkey keeps your rank and skills (no

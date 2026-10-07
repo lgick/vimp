@@ -57,5 +57,5 @@ used.
 - `vimp-engine` `{{ENGINE_VERSION}}`
 - `vimp-engine-core` `{{CORE_VERSION}}`
 
-Game id: `{{GAME_ID}}`. The plugin contract lives in the engine repository
-under `docs/ai/`.
+Game id: `{{GAME_ID}}`. The plugin contract lives in the engine repository:
+<https://github.com/lgick/vimp/blob/main/docs/en/>.

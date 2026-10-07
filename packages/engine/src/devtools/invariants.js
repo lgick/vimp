@@ -484,7 +484,7 @@ function predictionDrift({ clients, scenario }) {
 // Компоненты player-блока — игровая раскладка, движок знает только их
 // порядок, поэтому нарушение адресуется индексом. Исключение — уровень 0
 // (source 'camera'): там движок сравнивает ровно мировые x/y, и называть их
-// «#0/#1» значит прятать причину (см. docs/ai/13-debugging.md).
+// «#0/#1» значит прятать причину (см. docs/en/debugging.md).
 const CAMERA_COMPONENTS = ['x', 'y'];
 
 function formatDivergence(record) {

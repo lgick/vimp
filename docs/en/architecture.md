@@ -92,6 +92,102 @@ completed migration — the legacy server has been fully removed. The game
 itself (formerly `games/tanks/` in this repo) was later split into its own
 repository along the plugin-contract boundary described below.
 
+## Who owns what
+
+| Concern                                                      | Engine                   | Plugin                   |
+| ------------------------------------------------------------ | ------------------------ | ------------------------ |
+| Lobby, room registry, signaling                              | yes                      | —                        |
+| WebRTC transport, ports, frame envelope                      | yes                      | —                        |
+| Rounds, respawn cycle, scoring, team balance                 | yes (rules configurable) | supplies config          |
+| Chat, votes, statistics table, panel, timers, RTT/idle kicks | yes                      | supplies schema + texts  |
+| Auth screen skeleton, identity (JWT nickname)                | yes                      | supplies fields + texts  |
+| Canvas creation, camera, sound engine, input plumbing        | yes                      | supplies layout + assets |
+| Physics primitives, snapshot codec, interpolation            | yes (`vimp-engine-core`) | —                        |
+| Entities, movement, weapons, damage, AI                      | —                        | yes (Rust)               |
+| Rendering (sprites, effects, particles)                      | —                        | yes (PixiJS parts)       |
+| Maps, models, weapons, sounds, textures                      | —                        | yes                      |
+| Bots ("scripted participants")                               | lifecycle hooks          | implementation           |
+
+The boundary is **URL-driven**: the engine never imports a plugin statically.
+It loads `manifest.entries.client` in the client and `manifest.entries.host` in
+the Worker, and the master only reads the built `dist/manifest.json` and serves
+`dist/` statically — it never executes plugin code. The host browser is
+**untrusted**: anti-cheat is out of scope and the engine has no countermeasure
+today (the server rating was removed).
+
+## Version numbers
+
+Three independent values:
+
+| Constant                  | Value       | Meaning                                                                                                                                                          | Checked where                                                                     |
+| ------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `ENGINE_API_VERSION`      | `4`, frozen | Generation label of the plugin contract (`GameManifest`, `HostPlugin`, `ClientPlugin`, WASM ABI, form schema). **Not a gate**: no plugin is rejected for its age | nowhere at runtime; contract rule `B2` checks it is consistent inside the package |
+| `SNAPSHOT_FORMAT_VERSION` | `5`         | Byte layout of the state frame                                                                                                                                   | inside the WASM core, both ends                                                   |
+| `HANDOFF_VERSION`         | `4`         | Shape of the meta in a checkpoint (host migration) or an in-tab Worker handoff; a checkpoint must be v4, the in-tab handoff also accepts v3                      | `HostGame` (rejects other versions)                                               |
+
+A plugin publishes `engineApi` in **three** places that must agree **with each
+other** (a mismatch means a stale `dist/`): `manifest.engineApi`,
+`hostPlugin.engineApi`, `clientPlugin.engineApi`. Import `ENGINE_API_VERSION`
+from `vimp-engine/config/opcodes.js` rather than hardcoding `4`. Agreeing with
+the _installed_ engine is not required — a game built a year ago runs on
+today's build.
+
+Compatibility is negotiated by capability, not by number: a game that cannot
+run without a specific engine feature lists it in the optional
+`manifest.requires` (see [plugin-api.md](plugin-api.md#requires-and-engine-capabilities)).
+The engine rejects the plugin only when a name is unknown to its capability
+registry (`src/lib/capabilities.js`), i.e. the game is newer than the engine;
+on the master such a game stays in the catalog flagged `compat: {ok: false, …}`
+and shown unavailable in the lobby (the signaling server refuses to register a
+host for it), while `loadGamePackage`, `loadClientPlugin` and the standalone
+SDK throw. The SDK reads the list from `HostPlugin.requires` /
+`ClientPlugin.requires` (solo mode has no manifest), so the same list is
+declared in all three places and kept equal — rule `B2` refuses a package
+whose manifest and halves disagree. A manifest with no `requires` needs
+nothing beyond the base contract.
+
+`manifest.id` must also equal the id configured in the master's game list and
+the URL prefix the master mounts (`/games/<id>/`); a mismatch is skipped with a
+warning and the game silently disappears from the lobby.
+
+## Room lifecycle
+
+1. **Create.** A logged-in user fills the lobby room form (fields from
+   `manifest.roomForm`, defaults from `manifest.roomDefaults`), and the tab
+   sends `register_host` to the master over WebSocket. `RoomRegistry` assigns
+   a stable `roomId` (rooms have no name), clamps `maxPlayers` to the game's
+   `roomDefaults.maxPlayers` and allows **one hosted room per IP**.
+2. **Boot.** The host tab spawns the Worker, which dynamically imports the
+   host plugin, validates the required `gameConfig` fields, merges the engine
+   defaults with `gameConfig`, applies the room overrides, builds the core
+   config and instantiates the WASM core.
+3. **Join.** A client picks the room in the lobby; the master relays SDP/ICE;
+   two data channels open; then the port handshake runs
+   ([network.md](network.md#connection-lifecycle)).
+4. **Play.** The Worker steps the simulation at a fixed rate and emits a
+   binary state frame every Nth tick; meta events (chat, votes, panel, stat,
+   sounds, informs) travel as JSON on the reliable channel.
+5. **Rotate.** A round ends on a team wipe (the timer expiring starts a new
+   one without a result); the map rotates when the map timer expires and a
+   system vote picks the next one ([host.md](host.md#engine-owned-gameplay-rules)).
+6. **Host migration.** The room lives while it has people (lobby mode): the
+   host streams checkpoints to a successor the master picked and, when the
+   host leaves, lags, hides its tab or is voted out, the successor takes the
+   room over under the same `roomId` with the next epoch (see
+   [The host tab](#the-host-tab)). A game with
+   `gameConfig.migration.midRound: true` continues from the checkpoint's tick;
+   any other game migrates **softly** — meta kept, the round restarts, the
+   physics world is not carried. Dedicated and standalone hosts never migrate.
+
+## Threading constraints
+
+The host plugin and everything it imports run in a **Web Worker**: no
+`window`, `document`, DOM APIs or PixiJS — only isomorphic APIs (`Date`,
+`Math`, `performance`, `setTimeout`, `queueMicrotask`, `fetch`). The client
+plugin runs on the main thread and may use PixiJS, but PixiJS must stay a
+**single shared instance** supplied by the engine
+([plugin-api.md](plugin-api.md#gamemanifest), contract rule `A1`), never bundled into the plugin.
+
 ## The host tab
 
 The authoritative part of the match lives in a Web Worker (its timers aren't

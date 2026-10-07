@@ -304,7 +304,7 @@ Canvas names, sizes, and zoom are game-owned; e.g. `vimp-tanks` defines
   `40`), `sendIntervalMs` (the floor between two `move` messages, default
   `50`). The wire format is `"seq:aim:x:y:flags"` with a **world** point;
   see [client.md](client.md) and
-  [../ai/04-client-plugin.md](../ai/04-client-plugin.md).
+  [client.md](client.md#inputlistener).
 - **`modes`** (engine) — UI modes: `c` — chat, `m` — vote, `tab` — stats.
 - **`cmds`** (engine) — service keys (`escape`, `enter`), with top
   priority, used within modes.
@@ -344,7 +344,44 @@ array — static, a string — request the list from the host), timeOff]`.
   technical screens (engine: room full, idle/latency kicks, etc.).
 - **`initIdList`** (game) — which modules/canvases to initialize at
   startup (`vimp`, `radar`, `panel`, `chat`); the initialization
-  mechanism is engine-owned (`main.js`).
+  mechanism is engine-owned (`main.js`). These DOM ids stay hidden until
+  authentication completes; `panel` is then shown as `display: flex`, every
+  other id as `display: block`.
+
+Details that are easy to miss:
+
+- **Panel cells.** `bar` draws a block bar — `blocks` defaults to `30`, `max`
+  to `100`, with a colour ramp across the blocks, a low-value blink and an
+  animated refill at round start (500 ms); `value` is a plain number; `time`
+  is `M:SS`; `weapon` gets the `.active` class when it is the active weapon.
+  The `t` key is hardcoded by the engine as the round time in seconds.
+- **Stat columns.** `columns` are header labels matched positionally to the
+  host's column `key` indexes; a team present in `bodies` but not in `heads`
+  (spectators) gets rows but no aggregate header; `sortList` sorts
+  **numerically** (`~~textContent`), so a text column sorts as `0`. The engine
+  writes its own five names into the columns declared and drops the rest, but
+  its CSS lays out only five (`#stat …:nth-child(1)…(5)`, plus the
+  `.line1`–`.line3` row classes): a further column has no width until the
+  game restates the layout in `styles` (contract rule `C6` warns about it).
+- **Stat mode `leaderboard`.** A game whose scoreboard is the global top
+  declares `modules.stat.params.mode: 'leaderboard'` (with `period`, `limit`,
+  `columns`) **and** `statMode: 'leaderboard'` in `gameConfig` — on both
+  halves, or the host broadcasts a room table nobody draws, or the client
+  draws a table nobody fills (contract rule `C11` is an error on either). The
+  view renders one `.stat-leaderboard` list of `.stat-row` (place · nick ·
+  score) pushed by the host on `ACCOLADES_DATA`; the caller's own row is
+  highlighted (`is-self`), replaces the last row when they are outside the
+  top, and shows `—` when they are not ranked for the period. The engine's
+  CSS gives only a bare three-column skeleton (rule `C6` checks that the
+  game's `styles` mention `.stat-leaderboard`).
+- **Vote UI.** A template is `[title, values?, timeOff?]`; `values` is an
+  array of labels or `'teams'`/`'maps'` for engine-substituted lists;
+  `timeOff: true` hides the countdown. `menu` is the player-initiated vote
+  list — the engine adds nothing to it (the "Change host" vote starts with
+  `/changehost`, and its window is the engine vote `@changeHost`; names with
+  `@` are reserved). `params.time` is injected from `timers.voteTime`. The
+  whole `modules.vote` block is optional: a game with nothing to vote on may
+  omit it.
 
 ## packages/engine/src/config/master.js
 
@@ -718,6 +755,17 @@ the defaults. `ChatModel` takes the game's string at the same index first;
 A new engine code goes into `ENGINE_MESSAGE_CODES`, this table and the `B8`
 rule's reserved ranges in one change (`tests/config/chatMessages.test.js`
 checks they agree).
+
+| Group | Texts, by index                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `s`   | 0 "Team {0} is full. Your current team: {1}", 1 "Your team: {0}", 2 "Your new team: {0}", 3 "Your new status: spectator", 4 "{0} killed {1}", 5 "{0} joined the game", 6 "{0} left the game", 7 "Host changed", 8 "You are no longer the host (connection lost)", 9 "Host changed: the previous host was lagging", 10 "… went inactive", 11 "… had a poor connection"                                                                                                                                                                                              |
+| `v`   | 0 "A vote has been created", 1 "Voting has started", 2 "Your vote has been accepted", 3 "Voting is temporarily unavailable", 4 "Vote passed", 5 "Vote failed", 6 "Usage: /changehost", 7 "You are the host — use “Hand over host” in the room menu", 8 "No connection to the master server", 9 "A host vote was held recently", 10 "No other player can host", 11 "A host vote is already in progress", 12 "A host vote is not possible right now", 13 "Vote to change host passed ({0}/{1})", 14 "Vote to change host failed ({0}/{1})", 15 "Host vote cancelled" |
+| `m`   | 0 "Current map: {0}", 1 "Next map: {0}"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `c`   | 0 "Command not found", 1 "Your rank: {0}"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `n`   | 0 "Invalid name", 1 "{0} changed name to {1}"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+`s:8` and `v:6`–`v:15` are added by the client itself and never travel the
+wire. Placeholders are `{0}`, `{1}`, … filled from the params array.
 
 ## lib/clock.js
 

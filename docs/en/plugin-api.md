@@ -49,7 +49,7 @@ map JSON (a `maps:export` product of the game build).
 ```jsonc
 {
   "id": "tanks",
-  "engineApi": 3,
+  "engineApi": 4,
   "version": "<hash>", // gameVersion (client+host+wasm content)
   "title": "VIMP Tanks", // for the lobby
   "entries": {
@@ -432,7 +432,7 @@ Node globals).
 ```js
 export default {
   id: 'tanks',
-  engineApi: 3,
+  engineApi: 4,
   async createCore(coreConfigJson, { wasmUrl }) { /* init(wasmUrl); return new GameCore(...) */ },
 
   gameConfig: {                       // the game half of the former config/game.js
@@ -581,7 +581,200 @@ default as a warning, so relying on one stays a deliberate choice.
 `participants.setChatColor(gameId, '#rrggbb')` (or `null` for the team
 colour). It is set once, when the game learns the player's colour, and the
 engine applies it to every message that player sends — see
-[docs/ai/03-host-plugin.md](../ai/03-host-plugin.md).
+[`createModules`](#createmodulesctx-and-the-scripted-module-contract).
+
+### HostPlugin: the real obligation of each field
+
+| Field                           | Required?  | Notes                                                                                  |
+| ------------------------------- | ---------- | -------------------------------------------------------------------------------------- |
+| `id`                            | yes        | must equal `manifest.id`                                                               |
+| `engineApi`                     | yes        | generation label; must match the manifest and the client half                          |
+| `createCore(json, { wasmUrl })` | yes        | async, returns the `GameCore` instance; `wasmUrl` has [two shapes](#gamemanifest)      |
+| `gameConfig`                    | yes        | validated field by field, see above                                                    |
+| `authSchema`                    | yes        | sent to every joining client                                                           |
+| `chatCommands`                  | yes, array | the engine iterates it without a guard — omitting it throws at boot; use `[]` for none |
+| `createModules`                 | yes        | the engine calls it and reads `.scripted` off the result                               |
+| `buildClientGameConfig()`       | yes        | called unconditionally when `CONFIG_DATA` is built                                     |
+| `systemMessages`                | optional   | merged into the chat code registry                                                     |
+| `onCoreEvent(data, ctx)`        | optional   | receives `custom` core events only; ids arrive stringified                             |
+
+There is no `views` field — Panel and Stat rendering belong to the engine.
+
+### Config merge and room overrides
+
+The engine builds the match config as `structuredClone({ ...hostDefaults,
+...view })` and then applies the room (`applyRoomOverrides`). The merge is
+**shallow at the top level**: a game that supplies `timers` replaces the whole
+engine `timers` object and must repeat every key it still wants; the same holds
+for `rtt` and `idleKickTimeout`. The defaults themselves are listed in
+[configuration.md](configuration.md#packagesenginesrcconfighostdefaultsjs--engine-host-defaults).
+
+> **Trap:** the core's own `timeStep` is read from the engine `hostDefaults`
+> when the core config is built, **not** from the game's merged
+> `gameConfig.timers.timeStep`. Overriding `timers.timeStep` changes the Worker
+> loop but not the physics step the core was configured with.
+
+`applyRoomOverrides` honours exactly this set and nothing else from the room
+form:
+
+| Field          | Effect                                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| `maps`         | replaces the bundled catalog with the master's; if the default map is gone, the first catalog map is used  |
+| `maxPlayers`   | clamped to `1 .. roomDefaults.maxPlayers`                                                                  |
+| `map`          | applied only if present in the catalog                                                                     |
+| `roundTime`    | clamped to `roomTimeMin .. roomTimeMax`                                                                    |
+| `mapTime`      | clamped the same way                                                                                       |
+| `friendlyFire` | boolean only                                                                                               |
+| `isDevMode`    | boolean only; the host tab's dev mode (recorder, host `CONSOLE` log) — the production bundle never sets it |
+
+Every other room-form field is silently dropped, so a game's rules cannot
+depend on a custom room setting: there is no path for it to reach the host.
+
+### `createModules(ctx)` and the scripted-module contract
+
+`ctx` is exactly `{ participants, coreAdapter, panel, stat, chat,
+socketManager, scripted, lobby }`:
+
+- `participants` — the participant registry (humans and scripted ones):
+  `get`, `getAll`, `getHumans`, `getScripted`, `setChatColor(gameId, color)`;
+- `coreAdapter` — the JS wrapper over the WASM `GameCore`;
+- `panel`, `stat`, `chat`, `socketManager` — engine meta modules;
+- `scripted` — the `gameConfig.scripted` **config object**
+  (`{ namePrefix, defaultModel }`), not a module;
+- `lobby` — `{ setInfo(text | null) }`, see the lobby card above.
+
+There is **no** `timerManager` and **no** `voteCoordinator` here — they exist
+only in the chat-command context. A bot manager that needs timing is driven
+from the core's AI tick or from a chat command. Only the `scripted` key of the
+returned object is read by the engine (other modules are harmless but never
+called, except for the `serializeState`/`restoreState` hooks).
+
+The engine calls exactly five methods on the scripted module:
+
+| Method                         | When                                    | Returns                  |
+| ------------------------------ | --------------------------------------- | ------------------------ |
+| `createMap(scaledMapData)`     | on every map load (data already scaled) | —                        |
+| `getCountsPerTeam()`           | when balancing teams                    | `{ teamName: count }`    |
+| `removeScripted(team?)`        | clearing bots (all, or one team)        | —                        |
+| `createScripted(count, team?)` | spawning bots                           | number actually created  |
+| `removeOneForHuman(team)`      | a human needs a slot in a full team     | `boolean` — freed or not |
+
+`getCount()` is not called by the engine; add it only for the game's own chat
+commands.
+
+**Nickname colour in chat.** By default a nickname takes its team's colour
+(`line${teamId}` classes). A game where the team is not what tells players
+apart sets the colour itself: `participants.setChatColor(gameId, '#ff4d4d')`
+(`'#rgb'` or `'#rrggbb'`; anything else is stored as `null`, which means the
+team colour). It is set once, when the game learns the player's colour, and
+`HostGame.pushMessage` applies it to every message that player sends; the
+colour reaches the wire (`Chat.push` appends a fourth element) only when set.
+
+### Chat commands
+
+`CommandProcessor` is a bare registry: `chatCommands` is the entire set a
+player can type, and one name may mean different things in two games. The five
+the engine used to own — `/name` (`ctx.roundManager.changeName`), `/nr`
+(`initiateNewRound`, guard it with `ctx.isDevMode`), `/timeleft`
+(`ctx.timerManager.getMapTimeLeft()`), `/mapname` (`ctx.roundManager.currentMap`)
+and `/rank` (`ctx.playerDataSync.refreshPlacement(gameId, period)`, or
+`getRating(participantId, period)` for the value the last refresh left behind) — are game
+code now; the scaffold ships them in `src/host/metaCommands.js`. A handler gets
+`(ctx, gameId, args)`, where `ctx` is `{ participants, chat, scripted,
+roundManager, voteCoordinator, timerManager, playerDataSync, teams,
+spectatorTeam, spectatorId, isDevMode }`. Registering one name twice silently
+drops a handler. `CommandProcessor` neither awaits nor catches a handler, so an
+async handler must swallow its own failures — an unhandled rejection in the
+host Worker takes the room down. `/changehost` is reserved (see the table
+above).
+
+### System messages and votes
+
+Chat system messages travel as codes `group:index[:p0,p1]`; the texts live on
+the client. The engine reserves the groups `s`, `v`, `m`, `c`, `n` and ships
+English defaults for every code in `src/config/chatMessages.js` (the full text
+table is in [configuration.md](configuration.md#packagesenginesrcconfigchatmessagesjs)); `s:8` and `v:6`–`v:15` are
+added by the client itself and never travel the wire. A game picks any other
+letter for its codes (`{ BOTS_SPAWNED: 'g:0' }`). Registration is a blind
+`Object.assign` into the engine registry: a colliding key overwrites an engine
+message **without a warning**. Never send a raw text array instead of a code —
+data goes in params (`MAP_CURRENT` with the map name, not `[mapName]`).
+
+`voteCoordinator` (chat-command context) offers
+`canCreateVote(voteCategory, gameId) → boolean` and `createVote({ voteName,
+voteCategory, payload, resultFunc, userList, gameId })`: `payload` is
+`{ name, params?, values? }` with `name` the client template key,
+`resultFunc(result)` runs when voting closes, `userList` restricts voters.
+`canCreateVote` is `false` while the category is on cooldown
+(`timers.timeBlockedVote`) or a vote of that category is live; one vote is
+active at a time and the rest queue; a tie is broken randomly; options are
+paginated 7 per page (keys `1`–`7`, `8`/`9` page, `0` cancel). Reserved names:
+`mapChange`, `teamChange` and everything starting with `@` (contract rule `B9`);
+reserved `values` shorthands: `'teams'`, `'maps'`.
+
+### Panel and stat (host half)
+
+`gameConfig.panel` is `{ fields: { health: { key: 'h', value: 100 } },
+activeKey: 'wa' }`: `key` is the short wire key, `value` the **starting value**
+that is also handed to the core as the initial resource amount (HP, ammo);
+`activeKey` names the active-weapon cell (`null` if unused). Runtime operations
+come from core events: `set`, `decrement` (default), `increment`; values floor
+at `0`. The engine hardcodes one more cell, `t` — the round time in seconds —
+so the client panel schema **must** declare a `type: 'time'` field bound to `t`
+and the host schema must not define a field with key `t`.
+
+`gameConfig.stat` is a map of columns `{ key, bodyMethod, headMethod?,
+headSync?, bodyValue?, headValue? }`: `key` is the wire column index,
+`bodyMethod`/`headMethod` are `'='` (replace), `'+'` (accumulate), `'#'` (count
+rows, head only), `headSync: true` recomputes the head cell when body rows
+change. **The engine writes exactly five names: `name`, `status`, `score`,
+`deaths`, `latency`**; an invented column is never written by the engine and
+an omitted one never appears. A scripted participant gets `status: 'dead'`
+like anyone else, but `latency` is updated from pong replies only — its cell
+keeps whatever text the bot manager passed to `stat.addUser`.
+
+### Player rank and state API
+
+From `onCoreEvent` the `vimp` object exposes the per-`(user, game)` profile
+([auth.md](auth.md)): `addPlayerPoints(gameId, delta)` (points of the
+**current** game), `finishPlayerGame(gameId)` (that game is over: it is summed
+into the month and maxed into the day), `getPlayerRating(gameId, period)`
+(`{ value, placement, total }` or `null`), `isPlayerRatingLoaded(gameId,
+period)`, `refreshPlayerPlacement(gameId, period)` (a promise of the same
+shape), `getPlayerState(gameId)` / `setPlayerState(gameId, state)` (an opaque
+JSON blob that starts from `gameConfig.playerState.defaultState`),
+`flushPlayerData({ urgent })` (a **request** for a sync) and
+`overrideMapData(scaledMapData)`; `period` is `'day' | 'month' | 'all'`.
+`getPlayerRank`/`isPlayerRankLoaded` still answer from the `all` slice;
+`addPlayerRank` is a deprecated alias of `addPlayerPoints`.
+
+- Points are not a rating until the game ends. `RoundManager` closes every
+  participant's game at a map change and a round end; a game with neither
+  (`endlessRound` plus geometry rebuilt through `overrideMapData`) names its
+  own boundary and calls `finishPlayerGame` there.
+- `getPlayerRating` answers `null` for an unknown id and **zeros** for a known
+  one whose slice has not arrived. A game that writes a rating into a stat
+  column or compares against it must gate on `isPlayerRatingLoaded`, which is
+  per slice.
+- `{ urgent: true }` bypasses the write interval and the backoff; reserve it
+  for a boundary a player is about to look at. The write budget (interval,
+  jitter, queue, backoff, `4xx` drop) is the engine's — see
+  [configuration.md](configuration.md) (`lobbyConfig.playerData`).
+- `overrideMapData` is for a game that rebuilds its geometry on the fly
+  instead of changing the map: pass the **client shape** (unscaled coordinates
+  plus `scale`, the object broadcast with `sendMap`), because it replaces both
+  copies the engine holds — the one `_startRound` places people on and the one
+  a joining client is sent.
+
+### Kicks and technical messages
+
+Kick codes: `4003` EMA latency above `rtt.maxLatency`, `4004` more than
+`rtt.maxMissedPings` unanswered pings, `4005` idle beyond
+`idleKickTimeout.<role>`, `4006` room full (the full table is in
+[network.md](network.md#connection-lifecycle)). The host's own client (socket
+`'local'`) is immune; there is no kick vote. The client's `techInformList`
+is indexed: `0` fullServer, `1` anotherDevice, `2` loading, `3` kickIdle,
+`4` kickForMaxLatency, `5` kickForMissedPings, `6` roomFull.
 
 There are no bots in the engine — only the neutral notion of a **scripted
 participant** (`isScripted` getter; the word "bot" does not survive in engine
@@ -595,7 +788,7 @@ Default export of the game's client entry.
 ```js
 export default {
   id: 'tanks',
-  engineApi: 3,
+  engineApi: 4,
   async createClientCore(clientConfigJson, { wasmUrl }) { /* init(wasmUrl); return { core, memory } */ },
   parts:  { Map, MapRadar, Tank, TankRadar, Bomb, ExplosionEffect, Smoke, Tracks, ShotEffect },
   bakers: { explosionTexture, …, trackMarkTexture },
@@ -658,6 +851,124 @@ reads it: it exists for the contract checker, which cannot call
 service from a typo in `componentDependencies`. Without the list rule `C4`
 reports an unknown name as a warning; with it, the name is an error again —
 and an unprovided service is silently `undefined` in the part.
+
+### ClientPlugin: obligations
+
+- `createClientCore` **must** return `{ core, memory }`. `memory` is the
+  WebAssembly memory object the engine reads the hot buffer out of every
+  render tick; the Node build (`wasmUrl` ending in `.js`) exposes none, so it
+  returns `memory: null` and the headless client reads the buffer by copy
+  (`hot_values()`).
+- `hooks.onAuth`, `hooks.onPanel` and `hooks.onLocalAction` are called
+  unconditionally: a no-op body is fine, a missing hook is a crash.
+- `styles` is a CSS string (import it with `?inline`: the plugin build has no
+  HTML entry, so Vite must not auto-inject a `<style>`).
+- There is no `views` field.
+
+### Parts
+
+A part is a class the engine instantiates for one snapshot entity on one
+canvas: `constructor(data, assets, dependencies, context)` (first-frame
+values), `update(data)` (later frames), `destroy()` (the entity disappeared).
+`data` is the entity's field array; `assets` the baked assets of **this
+class**; `dependencies` the services it declared; `context` is `{ id }` — the
+entity's id as it appears in the frame (a **string**, `null` for an effect).
+A part that draws must be, or contain, a Pixi `Container` and add itself to
+the stage — the engine does not.
+
+The map part is the exception: its static instances are built by
+`applyMapData` from `MAP_DATA`, one per render layer per map level, under the
+running keys `s0..sN`, each with `{ type: 'static', spriteSheet, map, step,
+layer, tiles, physicsStatic, scale }` plus, for layered maps, `level` (`0` =
+ground), `solid` and `floor`. A single-level map yields one instance per
+`layers` entry, all with `level: 0` ([core.md](core.md#layered-maps-25d)).
+
+**Effects.** When a snapshot payload for a key is an array of records, each
+record creates a short-lived effect instance. An effect class also implements
+`run()`; the engine wraps its `destroy()` so that it removes the effect from
+the registry, and the effect destroys itself when its animation ends.
+
+**Registration.** `parts.gameSets` maps a snapshot key (or a map `setId`) to
+the part classes built for it; `parts.entitiesOnCanvas` maps a class to its
+canvas. Only classes listed in `entitiesOnCanvas` reach the factory — a class
+in `gameSets` but not there throws `Constructor for X not found.` on the first
+frame. A frame key with no `gameSets` entry throws too, so every snapshot key
+needs a set, even with one class. One entity may appear on several canvases
+by listing several classes (`Tank` on the main canvas, `TankRadar` on the
+radar). Contract rule `C2` checks both.
+
+**Draw order.** PixiJS v8's `stage.sortChildren()` takes no comparator: it
+sorts by `zIndex`. The engine sets `stage.sortableChildren = true` and sorts
+after every `addChild`, so a `zIndex` assigned in a part's constructor works,
+while a bare `layer` property does nothing. Parts that never touch `zIndex`
+share `0` and are painted in insertion order, which the order of classes in
+`gameSets` influences.
+
+### Bakers
+
+`bakedAssets` is `{ canvas: [{ name, component, params }] }`; each `name`
+points at a function in `bakers`: `(params, renderer) → Texture | dict of
+Textures`. A baker runs **once per canvas at startup**, before any part
+exists; the result lands in the `assets` argument of every instance of the
+`component` class, keyed by `name`. A baker whose `name` has no entry in
+`bakers` is silently skipped. A baker **owns what it returns**: re-baking
+(WebGL context restore) destroys the previous result with its
+`TextureSource`, so never return a view onto a shared atlas or a texture
+someone else also holds.
+
+### Services
+
+The pool is an append-only registry (a game adds its own through
+`hooks.services(core)`); a name never disappears and a part gets only what it
+asked for in `componentDependencies`, so a service added later demands nothing
+of an older game.
+
+| Service        | Value                                                  | Used for                                                        |
+| -------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
+| `renderer`     | the canvas's Pixi renderer                             | `generateTexture`, baking a map into one sprite                 |
+| `soundManager` | the engine's `SoundManager`                            | registering positional voices                                   |
+| `assetsBase`   | the active game's asset base, a string                 | URLs into **the game's own** package: `${assetsBase}img/<file>` |
+| `localPlayer`  | `{ id, is(id) }`                                       | telling the local player's entity from everyone else's          |
+| `accolades`    | `{ placeOf(id), boardOf(period), selfOf(id, period) }` | the entity's place in the game's global top                     |
+| `diagnostics`  | `{ warn(code, details), capture(error) }`              | the client error journal; optional, may be `undefined`          |
+
+Requesting anything else yields nothing: the key is silently absent from
+`dependencies`. A part depending on `assetsBase` should check it and log a
+readable `console.error` — `${undefined}img/tiles.png` loads nothing and
+reports nothing. Log, never throw: part constructors run inside the render
+tick and nothing on that path catches, so an exception aborts the whole frame.
+
+**`localPlayer`.** `id` is the client's own game id, or `null` until the first
+player block; `is(id)` compares as strings (frame ids are object keys). Ask at
+the moment of need, **not in the constructor**: entities are created from
+`FIRST_SHOT_DATA`, before the first binary frame, so the local player's own
+part is built while `localPlayer.id` is still `null`. The typical use is
+sound — a cue that belongs to the player is registered only when
+`this._isLocal()`, the visual half stays for every entity.
+
+**`accolades`.** `placeOf(id)` returns `{ daily, monthly }`, each a number or
+`null` (bots, guests and unknown ids give `null`; it always returns an object);
+`boardOf('day' | 'month')` the top rows `{ place, nick, score }`;
+`selfOf(id, period)` `{ place, score }` or `null`. The room asks the master,
+never the player: everything arrives in one `ACCOLADES_DATA` broadcast from the
+host, and a client issues no request of its own (a per-client query would
+multiply the master's most expensive request by the player count). Places are
+matched to participants **by nickname** from the public leaderboard and are
+handed only to a participant with a verified identity — a guest nickname is
+spoofable. Ask at the moment you draw: the first broadcast can arrive long
+after the part was built. The engine decides nothing about what a place looks
+like — the part draws the badge.
+
+### Client auth screen
+
+`authSchema` on the client side is `{ elems, texts, params, validators }`
+(the wire form is in [network.md](network.md#authentication-port-1)). The id
+the engine reads for the field container is `fieldsId` (not `formId`);
+`texts.title` renders into `#logo`; `validators` are functions and are **not
+serialised** — they run on the host; `storage: '<key>'` persists the field in
+`localStorage`. There is no nickname field: identity comes from the lobby JWT
+and the host reads its `nick` claim (nicknames are validated globally against
+`^[a-zA-Z]([\w\s#]{0,13})[\w]{1}$`).
 
 **Key point: the Stat/Panel/Vote/Chat modules are engine-owned but fully
 parameterized by the game's config.** Consequences:
@@ -1185,4 +1496,4 @@ this build does not have: … — update the engine"_.
 
 ---
 
-[← Previous: Deployment](deployment.md)
+[← Previous: Deployment](deployment.md) · [Next: Packaging →](packaging.md)

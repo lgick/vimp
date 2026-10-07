@@ -1,5 +1,5 @@
 // Loading the WASM core, both shapes of it. `wasmUrl` arrives from the
-// manifest and differs between the two runtimes (docs/ai/03-host-plugin.md):
+// manifest and differs between the two runtimes (docs/en/plugin-api.md):
 //
 //   browser — the hashed `.wasm` asset (entries.wasm): the `--target web`
 //             glue is imported and `init()` fetches the binary by that URL;

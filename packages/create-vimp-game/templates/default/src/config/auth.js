@@ -1,7 +1,7 @@
 import models from '../data/models.js';
 
 // HostPlugin.authSchema — the entry screen the engine renders before a player
-// joins (docs/ai/04-client-plugin.md § Auth screen).
+// joins (docs/en/plugin-api.md § Client auth screen).
 //
 // Three traps live in this file, and each one has already cost a debugging
 // session in a real game:

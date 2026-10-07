@@ -18,23 +18,26 @@ and signaling.
 | [client.md](client.md)                   | Client modules: MVC components, client core (interpolation/prediction/shot spawning), rendering, sound                                                                                                                       |
 | [standalone.md](standalone.md)           | Standalone SDK (`vimp-engine/standalone`): a playable match in one tab without master, OAuth or lobby — options, container, assets, how solo differs from production                                                         |
 | [dedicated.md](dedicated.md)             | Dedicated Node.js server: one 24/7 match of one game in a Node process, direct WebSocket, entry-point fork, environment variables, limitations                                                                               |
-| [network.md](network.md)                 | Host↔client sync: WebRTC channels, port protocol, binary snapshot frame (v3), data formats, RTT; session resume and the migration protocol                                                                                   |
+| [network.md](network.md)                 | Host↔client sync: WebRTC channels, port protocol, binary snapshot frame (v5), data formats, RTT; session resume and the migration protocol                                                                                   |
 | [configuration.md](configuration.md)     | Engine configuration: `.env` variables, every file under `packages/engine/src/config/`                                                                                                                                       |
 | [debugging.md](debugging.md)             | Debugging loop: headless runner (`npm run sim`), scenario format, invariant checks, core dumps, prediction divergence, browser recorder                                                                                      |
 | [deployment.md](deployment.md)           | Deployment: VPS setup, adding/removing servers, CI/CD                                                                                                                                                                        |
 | [publishing.md](publishing.md)           | Releasing: the `npm run release` script, the changelog headings that set the version, publishing the `vimp-engine-core` crate, the `vimp-engine` package and the game plugin, rolling out production, the order between them |
 | [scaffolding.md](scaffolding.md)         | The `npm create vimp-game` scaffolder: flags, what the minimal game contains, the check loop (`check:contract` → `core:test` → `sim` → `dev`), developing against a local engine checkout                                    |
 | [plugin-api.md](plugin-api.md)           | Engine ↔ game plugin contracts: GameManifest, HostPlugin, ClientPlugin, Wasm ABI, snapshot schema, versioning                                                                                                                |
+| [packaging.md](packaging.md)             | Packaging and build of a game plugin: repository layout, `package.json`, manifest generation, the two Vite builds, wasm-pack, asset scripts, `dist/`, dev mode, the documentation a plugin must ship                         |
+| [maps-and-assets.md](maps-and-assets.md) | Map JSON format (levels, ramps, scaling, respawns), images, sound pipeline, baked assets                                                                                                                                     |
+| [pitfalls.md](pitfalls.md)               | Silent-contract checklist and the table of `vimp-contract` rules                                                                                                                                                             |
 
 Game rules and content-authoring docs (gameplay, extending, game-specific
 configuration/core) live in the active game plugin's own repository —
 [vimp-tanks/docs/en/](https://github.com/lgick/vimp-tanks/blob/main/docs/en/README.md)
 and [vimp-snakes/docs/en/](https://github.com/lgick/vimp-snakes/blob/main/docs/en/README.md).
 
-Writing a game plugin with an LLM? [docs/ai/](../ai/README.md) is a separate,
-self-contained specification of the whole plugin contract (plus an authoring
-workflow and an interview questionnaire) aimed at language models — not part
-of this bilingual set.
+Writing a game plugin with an LLM? [docs/ai/](../ai/README.md) is a thin
+meta-layer, not a second copy of the contract: a reading order over the pages
+above, an authoring workflow and an interview questionnaire. It is not part of
+this bilingual set.
 
 ## Where to start
 
@@ -45,7 +48,32 @@ of this bilingual set.
 - **I want to run a 24/7 server without a host tab** → [dedicated.md](dedicated.md)
 - **I want to host my own server** → [deployment.md](deployment.md)
 - **I want to ship an update** → [publishing.md](publishing.md)
-- **Something is silently broken in a match** → [debugging.md](debugging.md)
+- **I want to build and package a plugin** → [packaging.md](packaging.md), then [maps-and-assets.md](maps-and-assets.md)
+- **Something is silently broken in a match** → [debugging.md](debugging.md), [pitfalls.md](pitfalls.md)
 - **I want to add a map/weapon** → the active game plugin's own docs (e.g. [vimp-tanks/docs/en/extending.md](https://github.com/lgick/vimp-tanks/blob/main/docs/en/extending.md))
 
 > Documentation is maintained alongside the code: whenever functionality changes, the relevant page is updated in the same change (a rule codified in [CLAUDE.md](../../CLAUDE.md)).
+
+## Which page to update
+
+A functional change updates the matching page here and in `docs/ru/` in the same change. Paths are under `packages/engine/` unless stated otherwise.
+
+| Change                                              | Page                              |
+| --------------------------------------------------- | --------------------------------- |
+| ports, frame format, opcodes                        | network.md                        |
+| `src/config/*`, env vars                            | configuration.md                  |
+| `src/master/`                                       | master.md                         |
+| `packages/auth/`                                    | auth.md                           |
+| `src/host/` (Worker, adapter, meta)                 | host.md                           |
+| crate `core/`                                       | core.md                           |
+| `src/client/`, ClientCore                           | client.md                         |
+| `src/standalone/` (browser SDK)                     | standalone.md                     |
+| `src/dedicated/` (Node game server)                 | dedicated.md                      |
+| plugin contract, Wasm ABI                           | plugin-api.md                     |
+| `src/devtools/`, `bin/vimp-*.js`                    | debugging.md                      |
+| `packages/create-vimp-game/` (scaffolder, template) | scaffolding.md                    |
+| package layout, build, `dist/`, manifest generation | packaging.md                      |
+| map JSON, images, sound pipeline                    | maps-and-assets.md                |
+| `src/devtools/contract/rules/`, silent contracts    | pitfalls.md                       |
+| deploy scripts, workflows, npm scripts              | deployment.md, getting-started.md |
+| release flow, `files`, versions, plugin pin         | publishing.md                     |

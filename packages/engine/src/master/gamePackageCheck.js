@@ -106,7 +106,7 @@ function checkEntries(manifest, distDir, errors) {
       continue;
     }
 
-    // wasmNode публикуется как есть (docs/ai/02-packaging.md): это
+    // wasmNode публикуется как есть (docs/en/packaging.md): это
     // относительный путь внутрь dist/, а не адрес на origin мастера
     if (name === 'wasmNode' && /^[a-z][a-z\d+.-]*:|^\/\//i.test(entry)) {
       errors.push(

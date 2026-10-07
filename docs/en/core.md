@@ -38,7 +38,7 @@ packages/engine/core/             # vimp-engine-core — rlib, no wasm-bindgen
 │   │                              #   expanded in the game crate, which supplies #[wasm_bindgen]
 │   ├── map.rs                    # GameMap — static/dynamic bodies, map scaling,
 │   │                              #   soft-CCD prediction on dynamics (see Map bodies)
-│   ├── snapshot.rs                # SnapshotPacker + Block — packs the v3 binary frame;
+│   ├── snapshot.rs                # SnapshotPacker + Block — packs the v5 binary frame;
 │   │                              #   Block is generic by shape (Indexed8/Indexed32/
 │   │                              #   List16/IndexedNoNull8), not by game entity — the
 │   │                              #   engine doesn't know "tank" or "bomb", only row shape
@@ -59,7 +59,7 @@ packages/engine/core/             # vimp-engine-core — rlib, no wasm-bindgen
 │       ├── game.rs                # GameClientDef trait + generic ClientState<G> — the
 │       │                          #   sample() pipeline, the hot buffer, frame queue;
 │       │                          #   the game supplies prediction/shot-spawn via the trait
-│       ├── unpack.rs              # the v3 frame decoder + JSON forms
+│       ├── unpack.rs              # the v5 frame decoder + JSON forms
 │       ├── divergence.rs          # prediction divergence detector (ring buffer of records)
 │       ├── interpolator.rs        # the snapshot buffer, seq, lerp (schema-driven)
 │       ├── raycast.rs             # DDA over tiles + an OBB slab test
@@ -122,7 +122,167 @@ every opcode that engine knows for free.
 - a handoff dump is expected to restore the simulation bit-for-bit; the
   engine provides the serialize/deserialize hooks in `GameSim`, a game
   locks this in with its own `state_dump_restores_identical_simulation`
-  tests.
+  tests;
+- **round what you pack yourself**: the packer writes raw `f32`s, the decoder
+  restores every snapshot field through `round2`, so an unrounded value comes
+  back to the client as a different number than the one the host holds — see
+  [network.md](network.md#rounding) (the player block is the one exception);
+- every gameplay-relevant computation stays in Rust: JS-side arithmetic on
+  snapshot values will not match the core.
+
+## Game crate setup
+
+A game's `core/Cargo.toml` (the crate that holds the `#[wasm_bindgen]`
+classes) builds a `cdylib` and depends on the published engine crate:
+
+```toml
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vimp-engine-core = "0.23"
+rapier2d = { workspace = true }   # features: enhanced-determinism, serde-serialize
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = "0.2"
+```
+
+`enhanced-determinism` is mandatory: the host and every client must reach
+bit-identical results from the same inputs, or prediction diverges (contract
+rule `A` checks it, see [debugging.md](debugging.md)). The macros require the
+struct to have **exactly** the fields `state: EngineSim<G>` and
+`packer: SnapshotPacker` (`ClientCore`: `state: ClientState<G>`) and must be
+expanded in a module where `wasm-bindgen` is a dependency; `new` is never
+generated, the game writes it (it parses the init JSON below).
+
+## Init JSON
+
+Both cores receive one JSON string of shape `{ engine, game }`, assembled by
+`packages/engine/src/lib/coreConfig.js` (host) and `clientCoreConfig.js`
+(client). The game's `Config` structs must match the `game` half.
+
+```jsonc
+// host — GameCore
+{
+  "engine": {
+    "timeStep": 0.008333333, // SECONDS
+    "mapScale": 0.3,
+    "mapSetId": "c1",
+    "mapFallTime": 0.35,
+    "snapshot": { "version": 5, "port": 5, "keys": {} },
+    "seed": null
+  },
+  "game": {
+    "friendlyFire": false,
+    "models": {}, // gameConfig.parts.models
+    "weapons": {}, // gameConfig.parts.weapons
+    "playerKeys": {},
+    "panel": {} // gameConfig.panel.fields
+    // + every key of gameConfig.coreParams, as is
+  }
+}
+
+// client — ClientCore, from CONFIG_DATA
+{
+  "engine": {
+    "timeStepMs": 8.333333, // MILLISECONDS
+    "snapshot": { "version": 5, "port": 5, "keys": {} },
+    "interpolation": { "delay": 100, "maxFrameAge": 1000 }
+    // + "divergence" in a debug config only
+  },
+  "game": { "playerKeys": {}, "models": {}, "weapons": {}, "seed": null }
+  // + every key of prediction.coreParams, as is
+}
+```
+
+The unit difference is deliberate and encoded in the names: `timeStep` is
+seconds on the host, `timeStepMs` milliseconds on the client. `coreParams` is
+an opaque game dictionary the engine only delivers to `GameSim::new` /
+`GameClientDef::new`; the engine's own keys win over a same-named one.
+
+## Body tags
+
+Rigid bodies carry a `u128` user-data tag. **Low byte `1` is reserved by the
+engine** (`MAP_OBJECT_TAG`); a game numbers its own kinds from `2` upward and
+packs extra data into the higher bits. A map dynamic body carries its index
+above the tag byte (`encode_map_object_at(i)`, read back with
+`map_object_index`) — test map bodies with `is_map_object`, never with
+`user_data == MAP_OBJECT_TAG`.
+
+## Input keys
+
+`apply_input(game_id, seq, action, key_name)` receives the raw wire events
+(`action` is `"down"` or `"up"`). The `playerKeys` table (action name → bit,
+`type: 0 | 1`) arrives in the `game` half of the init JSON and the engine
+**never interprets it** — mapping names to bits and honouring `type` is the
+core's job. The reference pattern: a `current_keys` bitmask for held keys
+(`down` sets the bit, `up` clears it) plus a one-shot mask for the `type: 1`
+keys (`down` sets a pending bit the next fixed step consumes exactly once,
+`up` is ignored). The client predictor must apply the same rule in its own
+`apply_input`, or prediction diverges on every trigger press.
+
+`apply_aim(game_id, seq, x, y, flags)` is the analogue for the pointer
+channel: a **world** point plus a bit mask (bit 0 «pressed», bit 1 «double
+tap»). Both trait methods default to an empty body; a core that implements
+the pointer must feed the target into the SAME turn function the keys use
+(and into the predictor's input history), or the two halves curve apart.
+
+## `PLAYER_STATE_LEN = 8` — the prediction budget
+
+The per-user player block carries exactly **eight `f32`s** describing the
+local actor's authoritative state plus a `centering` flag
+([network.md](network.md#binary-snapshot-frame-port-5)). That is the whole
+reconciliation channel: whatever the client must predict has to fit in eight
+floats (tanks: `[x, y, angle, vx, vy, angvel, gunRotation, engineThrottle]`,
+`centeringGun` as the flag). More predicted state is either derived
+client-side from those eight values or not predicted.
+
+## The prediction pattern
+
+1. The client applies input locally through `ClientCore.apply_input` and
+   steps its own copy of the movement model each render tick (`update`).
+2. Every frame with a player block calls `on_server_state(...)`: the client
+   rewinds to the authoritative state and replays inputs newer than
+   `input_seq`.
+3. `render_overlay()` returns the predicted tail appended to the hot buffer;
+   `None` (no local actor or model yet) makes the engine fall back to the
+   interpolated camera and clears the `PREDICTED` flag.
+4. A game that also predicts _other_ bodies (map dynamics, actors in contact
+   with the local one) reads their authoritative state in
+   `begin_reconcile(snapshot)`, lets the replay carry them, folds the
+   divergence in `finish_reconcile()` and returns them from `render_rows()`;
+   each row is appended after the predicted tail and overrides the
+   interpolated row of the same entity.
+
+**Motion parity is a hard requirement**: the client's predicted movement and
+the host's `on_fixed_step` movement must produce identical results. Keep the
+movement math in one shared module used by both halves and add a `cargo`
+parity test that steps both and asserts equality; re-run it after any
+movement change.
+
+### Shot prediction and duplicate suppression
+
+A locally predicted shot would otherwise be drawn twice — immediately and
+again when the authoritative event arrives.
+
+1. `try_action` spawns a local effect with an id of the form `L<n>` and
+   returns its spawn JSON to `ClientPlugin.hooks.onLocalAction`, which feeds
+   the renderer.
+2. The **last field of every weapon event block is the author's game id**.
+3. `filter_frame_game` inspects incoming event rows and, when the author id
+   equals the local player, drops the row (or replaces the local id).
+4. A `null` row in an indexed block is the removal marker of an entity.
+
+## Save / restore
+
+`serialize_state()` / `deserialize_state(bytes)` carry a match to another
+host when the game sets `gameConfig.migration.midRound` (a host checkpoint,
+[host.md](host.md#checkpoints)): the dump is the game's `GameSim::serialize`
+plus the engine's world, map, PRNG and accumulator, and the new host continues
+from the same tick. The game's `serialize`/`deserialize` must then cover
+**all** simulation state — a field left out silently resets at every host
+change. Without the flag the dump is unused: a migrating room re-creates the
+map and respawns everyone.
 
 ## Map bodies
 

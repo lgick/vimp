@@ -1,7 +1,7 @@
 //! The authoritative simulation on top of the engine frame (`EngineSim`):
 //! actors, bots, hitscan and the snapshot blocks. The engine owns the physics
 //! world, the map, navigation, the RNG and the destroy queue and calls into
-//! this file through `SimCtx` — see `docs/ai/05-wasm-core.md`.
+//! this file through `SimCtx` — see `docs/en/core.md`.
 
 use indexmap::IndexMap;
 use rapier2d::prelude::*;
@@ -670,7 +670,7 @@ impl ArenaSim {
         if destroyed {
             // CoreEvent::Custom is the extension point for anything outside
             // this vocabulary — the engine routes it to HostPlugin.onCoreEvent
-            // and does not interpret it (see docs/ai/03-host-plugin.md)
+            // and does not interpret it (see docs/en/plugin-api.md)
             ctx.events.push(CoreEvent::Death {
                 victim: target_id,
                 killer: shooter_id,

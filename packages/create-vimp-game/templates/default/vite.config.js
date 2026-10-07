@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import path from 'node:path';
 
-// Three modes in one file (docs/ai/02-packaging.md):
+// Three modes in one file (docs/en/packaging.md):
 //
 //   vite            — dev harness of `npm run dev`: index.html -> dev/main.js,
 //                     a match against bots in the tab, no master;

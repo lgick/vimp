@@ -256,7 +256,7 @@ this._playerDataSync.attachToken(gameId, token); return true`. Эстафета
 - `docs/{en,ru}/network.md`: таблица клиентских портов — `11
 TOKEN_REFRESH` (`{ token }`, когда шлётся, что делает хост, старый хост
   игнорирует); ошибка поля `humanCheckRequired` в `AUTH_RESULT`.
-- `docs/ai/06-snapshot-protocol.md` (раздел со всеми портами) — строка
+- `docs/{en,ru}/network.md` (раздел со всеми портами) — строка
   порта 11 (контрактный справочник плагина).
 
 ## 5.7 CHANGELOG — `packages/engine/CHANGELOG.md`, `## [Unreleased]`

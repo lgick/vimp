@@ -454,6 +454,103 @@ The value comes from the game (`SimCtx::map_body_state`), its meaning is the
 game's. A schema without the role keeps the previous row byte for byte; a
 misplaced or mistyped role fails the map load.
 
+### Schema properties
+
+| Property          | Values                                                 | Notes                                                           |
+| ----------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
+| `id`              | `u8`, unique                                           | the key byte on the wire; validation checks **uniqueness only** |
+| `kind`            | `indexed8` · `indexed32` · `list16` · `indexedNoNull8` | wire shape, see below                                           |
+| `class`           | `hot` · `event`                                        | `hot` = continuous state, `event` = one-shot                    |
+| `fields[].ty`     | `f32` · `u8` · `u16` · `u32`                           | big-endian                                                      |
+| `fields[].interp` | `lerp` · `lerpAngle` · `discrete` (default)            | only `f32` fields interpolate; only `hot` blocks interpolate    |
+| `fields[].role`   | `z` · `level` · `state`                                | engine-written fields of the map dynamics row                   |
+
+The field order is positionally bound to the game's Rust `Row` construction,
+and nothing validates the correspondence beyond the field count and types:
+swapping two same-typed fields on one side only silently produces garbage.
+
+### The four kinds
+
+`hasData` is a `u8` null marker: `0` — the entity is gone (JSON `null`), `1` —
+a field row follows. The body is a concatenation of `[u8 keyId][block]` for
+every key that has content this tick.
+
+| Kind             | Count prefix | Per row                        | Use for                                                     |
+| ---------------- | ------------ | ------------------------------ | ----------------------------------------------------------- |
+| `indexed8`       | `u8` count   | `u8 id`, `u8 hasData`, fields  | up to 255 addressable entities (players)                    |
+| `indexed32`      | `u16` count  | `u32 id`, `u8 hasData`, fields | many short-lived entities (projectiles)                     |
+| `list16`         | `u16` count  | fields                         | anonymous events (tracers, explosions)                      |
+| `indexedNoNull8` | `u8` count   | `u8 index`, fields             | fixed-slot data that never disappears (dynamic map objects) |
+
+### Interpolation
+
+The client renders the world at `serverNow − delay`
+(`interpolation.delay` 100 ms, `interpolation.maxFrameAge` 1000 ms in
+`clientDefaults.js`); at 30 frames/s (`networkSendRate: 4`) that is about 3
+frames of buffer. `f32` fields marked `lerp` are interpolated linearly,
+`lerpAngle` the short way around the circle, everything else snaps.
+
+### The hot buffer
+
+Each render tick `ClientCore.sample(now)` fills a flat `f32` buffer that JS
+reads zero-copy from WASM memory. Flags in `[0]` are `HOT_FLAGS` from
+[opcodes.js](../../packages/engine/src/config/opcodes.js):
+
+```
+[0]                 flags   (1 GAME | 2 CAMERA | 4 PREDICTED | 8 FRAMES)
+[1], [2]            camera x, y
+[3]                 N       — number of indexed8 rows
+N × (keyId, id, …fields)
+                    M       — number of indexedNoNull8 rows
+M × (keyId, index, …fields)
+                    predicted tail (one record, game-defined layout)
+                    P × (keyId, id, …fields)  — rows the game predicts itself
+```
+
+A record is `2 + fields.length` wide — derived from the schema received in
+`CONFIG_DATA`. The tail has no count: the reader consumes records until the
+buffer ends, and each lands in `game[key][id]`, so a trailing record overrides
+the interpolated row of the same entity (that is how the predicted tail and
+`render_rows()` work).
+
+> The hot buffer carries **only `indexed8` and `indexedNoNull8`** blocks.
+> Anything animated smoothly at render rate must use one of those two kinds;
+> `indexed32` and `list16` arrive through `take_frames()` — fine for events,
+> wrong for continuous motion.
+
+### `take_frames()` — the JSON path
+
+`ClientCore.take_frames()` returns the queued event frames; a block becomes:
+
+| Kind             | JSON                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| `indexed8`       | `{ "<id>": [fields] \| null }`                                    |
+| `indexed32`      | `{ "<id in base36>": [fields] \| null }` (JS `id.toString(36)`)   |
+| `list16`         | `[[fields], …]` — an array means _effects_ for the client factory |
+| `indexedNoNull8` | `{ "d<index>": [fields] }`                                        |
+
+### Rounding
+
+Every transmitted `f32` effectively carries **2 decimal places**, except the
+per-user player block (prediction needs full precision). The rounding is the
+game's to apply, not the packer's: the packer writes the `f32` verbatim, while
+the decoder passes every field through `round2`. A value packed unrounded
+reaches the client as a different number than the one the host kept — call
+`vimp_engine_core::physics::round2` on the floats given to
+`build_snapshot_blocks`. The engine does this itself for the dynamic-map-object
+block it owns.
+
+### Designing a schema
+
+1. One `hot` `indexed8` key per persistent actor type (players, vehicles).
+2. `indexedNoNull8` for fixed-slot world state (dynamic map objects).
+3. `event` `list16` for anonymous one-shot effects.
+4. `event` `indexed32` for identified short-lived entities that need updates
+   (grenades in flight).
+5. Keep hot field counts small: every field costs bytes 30×/s per entity.
+6. Put the author id last in every weapon event block — client-side
+   duplicate suppression relies on it.
+
 When adding a new weapon/entity, its snapshot key **must** be registered in
 the game plugin's schema (`src/config/snapshot.js`, e.g. `vimp-tanks`'s) — with a full
 `fields` list for its `kind` — or `pack_body`/the core constructor will

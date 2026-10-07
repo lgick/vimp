@@ -1,6 +1,6 @@
 // The single map of the game: a walled rectangle with four pillars, drawn
 // procedurally by `src/client/parts/Map.js` — no `spriteSheet`, so the package
-// ships no images at all (docs/ai/07-maps-and-assets.md).
+// ships no images at all (docs/en/maps-and-assets.md).
 //
 // `map` is the grid of tiles (0 — empty, 1 — wall), `step` its cell size in
 // world units; `physicsStatic` lists the tile values the core turns into

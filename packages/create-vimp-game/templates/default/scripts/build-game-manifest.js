@@ -8,7 +8,7 @@ import gameConfig from '../src/config/game.js';
 import { rangeToPattern } from './lib/rangeToPattern.js';
 
 // Writes dist/manifest.json — the only thing the master reads about a built
-// game (docs/ai/02-packaging.md). Runs last, after both Vite bundles and the
+// game (docs/en/packaging.md). Runs last, after both Vite bundles and the
 // asset steps: it hashes what they produced.
 // Run: node scripts/build-game-manifest.js (build:manifest)
 

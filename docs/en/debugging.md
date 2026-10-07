@@ -81,7 +81,7 @@ will actually see, not a parse of the source.
 
 Run it before `npm run sim`: it is faster, needs no core build, and its
 findings are the ones the runner would report as a black canvas ten minutes
-later. Together they cover the checklist in `docs/ai/10-pitfalls.md` — the
+later. Together they cover the checklist in [pitfalls.md](pitfalls.md) — the
 static half here, the runtime half in the invariants below.
 
 ## Plugin surface snapshot (`vimp-surface`)
@@ -174,6 +174,20 @@ published `dist/`** — ignore rules apply inside directories listed in
 `files` too. Both halves of the plugin are also re-checked against the
 manifest's `engineApi`, which catches a rebuilt manifest next to a stale
 `dist/`. See [plugin-api.md](plugin-api.md#gamemanifest).
+
+`wasmNode` is a **path relative to the manifest**, not a URL. To work from an
+**installed copy** of a game and not only from a checkout, the Node glue has to
+be copied **into the published `dist/`** at build time (e.g. `dist/core-node/`)
+and `wasmNode` pointed there. Listing `core/pkg-node` in `files` is not enough:
+npm applies ignore rules inside directories from `files` too, and a
+`wasm-pack` output directory is usually git-ignored (it also drops its own
+`.gitignore` with `*` — do not copy that file). Keep the `package.json` that
+`wasm-pack` writes: without it Node reads the CommonJS glue as ESM. A
+`prepack` check that the file really is in the tarball turns a missing glue
+into a failed publish rather than a runner failure on someone else's machine.
+The core's `createCore`/`createClientCore` must accept this shape of
+`wasmUrl` ([plugin-api.md](plugin-api.md#gamemanifest)); the Node build
+exposes no WASM memory, so the client half returns `memory: null`.
 
 One more thing about `--game`: the runner imports the game's **client**
 bundle, and its externals must resolve from where the package lies —
@@ -277,6 +291,10 @@ Two properties are worth knowing before writing a scenario by hand:
   the predictor's held keys. Pressing a key in the first ~`delay`
   milliseconds after `join` therefore gets dropped on the client while the
   host keeps it — start scenario input a few dozen ticks after the join.
+- **A round only ends when a whole team dies** — a round timeout just
+  restarts it — so a scenario that wants invariant 10 green has to actually
+  kill someone: scripted participants (a bot command) or friendly fire plus a
+  point-blank explosive are the reliable ways.
 
 ## Invariants
 
@@ -435,6 +453,10 @@ the check into noise:
 
 What the check is actually for is divergence that **grows** — a formula that
 differs between the core and the replica never converges back.
+
+Implementing level 1 (`predicted_state`) is the single highest-value optional
+method for a game with client-side prediction: it turns "movement feels wrong
+sometimes" into a numbered component with a delta.
 
 `ClientCore.take_divergence()` (exported by `export_client_core_abi!`)
 drains the buffer and returns:

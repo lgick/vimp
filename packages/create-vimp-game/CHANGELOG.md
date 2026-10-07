@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generated `CLAUDE.md` and `README.md` link the engine contract docs by
+  absolute URL instead of an ambiguous `docs/en/` path.
+
 ## [0.5.2] — 2026-10-07
 
 ### Changed

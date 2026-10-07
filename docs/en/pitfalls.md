@@ -1,21 +1,75 @@
-# 10 — Pitfalls and invariants
+# Pitfalls and invariants
 
-Verify a generated plugin against this list before declaring it done. Almost
-every item here fails **silently** or with an error far from its cause.
+Verify a plugin against this list before declaring it done. Almost every item
+here fails **silently** or with an error far from its cause.
 
 Items marked ⚙ are checked by machine: run `npx vimp-contract` in your
-package and the rule id in the marker (`A1` … `E6`) is the one that will
-name the violation. Do not verify those by eye — run the tool
-(`13-debugging.md` → _Step zero_). The rest of the list is still yours.
+package and the rule id in the marker (`A1` … `E7`) is the one that will name
+the violation. Do not verify those by eye — run the tool
+([debugging.md](debugging.md#contract-check-vimp-contract)). The rest of the
+list is still yours: the headless runner (`npm run sim`) covers part of it at
+run time, the rest is review.
+
+## Contract rules at a glance
+
+Source of truth: `packages/engine/src/devtools/contract/rules/` (one file per
+rule). `error` fails the check, `warn` fails it only under `--strict`. Rules
+`B2`, `B3`, `B5`, `C4` and `C10` may downgrade a particular violation to `warn`
+on a given run (`verdict(..., WARN)` in `contract/result.js`), so the level in
+the report can be lower than the Level column. Rules not named in the checklist
+below are visible only in this table and in the `vimp-contract` report.
+
+| Rule  | Level | Checks                                                                                                |
+| ----- | ----- | ----------------------------------------------------------------------------------------------------- |
+| `A1`  | error | `package.json`: `type`, `files`, `pixi.js`, `vimp-engine`, `publishConfig`                            |
+| `A2`  | error | the standard build/test scripts exist                                                                 |
+| `A3`  | error | entries live at `src/client/index.js` and `src/host/index.js`                                         |
+| `A4`  | error | `vite.config.js` carries the required rollup options                                                  |
+| `A5`  | error | `core/Cargo.toml`: `crate-type`, `rapier2d` determinism, engine crate pin                             |
+| `A6`  | error | `dist/manifest.json`: `id`, entries on disk, `roomDefaults` coverage                                  |
+| `A7`  | warn  | `package.json` declares `repository`                                                                  |
+| `B1`  | error | `HostPlugin` exports every field the engine dereferences                                              |
+| `B2`  | error | `engineApi` consistent; `requires` names existing capabilities and agrees across manifest and halves  |
+| `B3`  | error | `gameConfig` has the paths the engine reads before any logic                                          |
+| `B4`  | error | `spectatorTeam` is a `teams` key and at least one playing team exists                                 |
+| `B5`  | error | `roomForm` uses honoured field names and existing controls                                            |
+| `B6`  | error | host `panel.fields` does not use the engine key `t`                                                   |
+| `B7`  | error | chat commands are well-formed and unique                                                              |
+| `B8`  | error | system message codes stay out of the engine ranges                                                    |
+| `B9`  | error | custom votes do not reuse the reserved vote names or the `@` prefix                                   |
+| `B10` | error | every playing team has respawns and they cover `maxPlayers`                                           |
+| `C1`  | error | `ClientPlugin` exports parts, bakers, styles and all three hooks                                      |
+| `C2`  | error | every `gameSets` class is in `entitiesOnCanvas` and exported in `parts`                               |
+| `C3`  | error | every snapshot key and map `setId` has a `gameSets` entry                                             |
+| `C4`  | error | `componentDependencies` name only existing services                                                   |
+| `C5`  | error | the client panel maps key `t` to a `type: 'time'` field                                               |
+| `C6`  | warn  | stat columns past the engine layout are styled by the plugin                                          |
+| `C7`  | error | `keySetList`: spectator actions, engine key codes, `playerKeys` parity                                |
+| `C8`  | error | `bakedAssets` names exist in `ClientPlugin.bakers`                                                    |
+| `C9`  | error | every system message code has a client text                                                           |
+| `C10` | error | `authSchema`: `fieldsId`, no nickname field, the `model` field, inline options, resolvable validators |
+| `C11` | error | `gameConfig.statMode` and `modules.stat.params.mode` agree                                            |
+| `D1`  | error | snapshot block ids are unique                                                                         |
+| `D2`  | error | class `hot` only on `indexed8`/`indexedNoNull8`; `list16`/`indexed32` are `class: 'event'`            |
+| `D3`  | error | `interp` only on `f32` fields of `hot` blocks; `role: 'state'` is a `u8` right after the row head     |
+| `E1`  | error | every declared sound ships as a `webm` + `mp3` pair                                                   |
+| `E2`  | error | map images exist in `dist/img/`                                                                       |
+| `E3`  | warn  | the sound registry is not empty                                                                       |
+| `E4`  | error | layered (2.5D) maps are structurally sound                                                            |
+| `E5`  | error | solid tiles are named by a render layer                                                               |
+| `E6`  | warn  | the spatial sound block is well-formed                                                                |
+| `E7`  | error | a map's `game` field is a plain object                                                                |
 
 ## Version and identity
 
 - [ ] ⚙ `B2` `engineApi` appears in three places (manifest, `HostPlugin`,
       `ClientPlugin`) and all three import `ENGINE_API_VERSION` rather than
       hardcoding a number.
-- [ ] ⚙ `A6` `manifest.id` === the id in the master's game list === the URL segment
-      `/games/<id>/`. A mismatch makes the master skip the game with a
-      `console.warn` — it simply never appears in the lobby.
+- [ ] ⚙ `A6` `manifest.id` equals the `id` of both the host and the client
+      plugin.
+- [ ] `manifest.id` also equals the id in the master's game list and the URL
+      segment `/games/<id>/` (manual check). A mismatch makes the master skip
+      the game with a `console.warn` — it simply never appears in the lobby.
 - [ ] A game the master cannot read (missing manifest, id mismatch) is
       skipped, not reported to the user. When a game is missing from the
       lobby, read the master's console first. Age is not a reason any more: a
@@ -54,9 +108,10 @@ name the violation. Do not verify those by eye — run the tool
 
 ## System messages and votes
 
-- [ ] ⚙ `B8` Message groups `s`, `v`, `m`, `c`, `n` are reserved by the engine.
-      Registration is a blind `Object.assign`: a collision overwrites an
-      engine message with no warning.
+- [ ] ⚙ `B8` The groups `s`, `v`, `m`, `c`, `n` already hold engine messages
+      (indexes `s:0..11`, `v:0..15`, `m:0`, `c:0`, `n:0`). Registration is a
+      blind `Object.assign`: a code of yours at a reserved index overwrites an
+      engine message with no warning. Start your own codes above them.
 - [ ] ⚙ `C9` Every code you register has a matching text at the same index in the
       client's `modules.chat.params.messages[group]`. A missing text renders
       as nothing.
@@ -241,9 +296,10 @@ core:build` after Rust changes or you will ship a stale `.wasm`.
 - [ ] ⚙ `E2` Tile sheets and dynamic-object images ship in **your** package
       (`dist/img/`) and load from `${assetsBase}img/`, exactly like sounds
       load from `${assetsBase}sounds/`. The engine serves no game images.
-- [ ] ⚙ `C4` The part that loads images must declare `assetsBase` in
+- [ ] The part that loads images must declare `assetsBase` in
       `componentDependencies` — an undeclared service is silently `undefined`,
-      and the map renders as a blank canvas with nothing in the console.
+      and the map renders as a blank canvas with nothing in the console
+      (`C4` only checks that a declared service name exists).
 - [ ] ⚙ `E2` A map naming an image that is not in `dist/img/` fails silently at
       runtime. Catch it in the manifest build instead.
 - [ ] ⚙ `E1` Every sound exists as a **`webm` + `mp3` pair**; a missing `.mp3`
@@ -263,7 +319,7 @@ core:build` after Rust changes or you will ship a stale `.wasm`.
       falls back to the default in silence. Statically only rule `E6`
       (`npx vimp-contract`) catches it.
 - [ ] A `levels.<n>.map` grid whose dimensions differ from `map` is silent at
-      runtime: the tank drives into nothing and nothing reaches the console.
+      runtime: the actor drives into nothing and nothing reaches the console.
       `MapConfig::validate` is the only place that catches it — do not skip it
       by building `GameMap` directly.
 - [ ] A railing tile listed in `levels.<n>.walls` but not in `.floor` hangs in
@@ -325,5 +381,9 @@ core:build` after Rust changes or you will ship a stale `.wasm`.
   engine's headless runner (`npm run sim`), which replays a scenario without
   a browser and reports every broken contract on this page by name, plus
   `debug_json()` world dumps and a prediction-drift detector — all of it free
-  to your plugin. See `13-debugging.md`; verifying this checklist with the
+  to your plugin. See [debugging.md](debugging.md); verifying this checklist with the
   runner beats verifying it by eye.
+
+---
+
+[← Previous: Maps and Assets](maps-and-assets.md) · [Back to docs index](README.md)

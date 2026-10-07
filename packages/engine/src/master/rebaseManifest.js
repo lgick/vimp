@@ -13,7 +13,7 @@
 
 // URL-ы entries, которые живут под assetsBase и потому подлежат ребейзу.
 // `wasmNode` в список НЕ входит намеренно: это путь файловой системы для
-// dedicated-сервера (docs/ai/02-packaging.md), а не URL
+// dedicated-сервера (docs/en/packaging.md), а не URL
 const REBASED_ENTRIES = ['client', 'host', 'wasm'];
 
 /**

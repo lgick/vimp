@@ -1,6 +1,6 @@
 // The wire layout of the game (gameConfig.snapshot): one block per entity
 // kind. The engine never learns what a field means — only how many bytes it
-// takes and whether it interpolates (docs/ai/06-snapshot-protocol.md).
+// takes and whether it interpolates (docs/en/network.md).
 //
 // The KEY of a block is not free: the Rust core names the actor block after
 // the model (`src/data/models.js`) and the tracer block after the weapon

@@ -5,13 +5,14 @@ Follow it top to bottom; skipping ahead produces work you will redo.
 
 ## Step 0 — read the contract
 
-Read `01`–`10` of this directory in full. The questionnaire assumes you know
+Read the contract pages in `docs/en/` in full, in the order given in
+[`README.md`](README.md). The questionnaire assumes you know
 what the engine already provides, so that you can tell the user "the engine
 does that" instead of designing it again.
 
 ## Step 1 — interview
 
-Run `12-questionnaire.md`. Rules:
+Run [`questionnaire.md`](questionnaire.md). Rules:
 
 - Conduct it in the **user's language**, whatever the file's language.
 - Ask block by block, not all 14 blocks at once.
@@ -56,7 +57,7 @@ rather than editing `package.json` later: it is the only source the engine has
 for the project link in the entry form's footer, and adding it after
 publication costs a republish.
 
-The result is the layout of `02-packaging.md` already filled in: the whole
+The result is the layout of [`packaging.md`](../en/packaging.md) already filled in: the whole
 build infrastructure (`package.json`, `vite.config.js`, `vitest.config.js`,
 `eslint.config.js`, `Cargo.toml`, the five build scripts), the pins of
 `vimp-engine` and `vimp-engine-core` at their current versions, a dev
@@ -72,7 +73,7 @@ core and the parts of that minimal game into the design document from step 2.
 sheets and dynamic-body sprites your maps name. The engine ships none of
 those.
 
-Writing the tree by hand is still possible (`02-packaging.md` specifies every
+Writing the tree by hand is still possible ([`packaging.md`](../en/packaging.md) specifies every
 file), but nothing then guards the silent invariants the template already
 satisfies.
 
@@ -199,7 +200,7 @@ spectator — hence the strict order of the last two options. Reference: engine
 Two browser tabs are the slowest and least informative way to find a broken
 contract. Run the engine's headless runner first — it closes the whole loop
 (host → binary frame → client core → scene) in one Node process and names
-every violated contract in text. Full reference: `13-debugging.md`.
+every violated contract in text. Full reference: [`debugging.md`](../en/debugging.md).
 
 ```bash
 # in the engine checkout, with your package linked
@@ -216,7 +217,7 @@ npm run sim -- --game <path to your package> --scenario <scenario.json>
       round end, map change, a vote.
 - [ ] Every invariant green — in particular `snapshotKeysUsed`,
       `fieldWidths`, `renderCoverage`, `panelContract`, `keyBindings`: these
-      are the silent failures from `10-pitfalls.md`, mechanised.
+      are the silent failures from [`pitfalls.md`](../en/pitfalls.md), mechanised.
 - [ ] `--determinism` green once the match is stable.
 - [ ] Prediction drift within threshold (implement
       `GameClientDef::predicted_state` for a component-wise report).
@@ -270,6 +271,6 @@ Two rules behind the table: the master always reads `dist/manifest.json` and
 - [ ] `npm run core:test` green, including motion parity.
 - [ ] `npm run core:build && npm run build` succeeds from a clean `dist/`.
 - [ ] `npm run sim -- --game <package>` exits `0` on every scenario you
-      wrote (see `13-debugging.md`).
+      wrote (see [`debugging.md`](../en/debugging.md)).
 - [ ] The smoke checklist above passes on two tabs.
-- [ ] Every box in `10-pitfalls.md` is verified.
+- [ ] Every box in [`pitfalls.md`](../en/pitfalls.md) is verified.

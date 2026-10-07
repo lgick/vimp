@@ -2,7 +2,7 @@ import { ERROR, skip, verdict } from '../result.js';
 
 // vite.config.js проверяется как текст, а не импортом: конфиг —
 // функция от mode и вне Vite не исполняется. Каждый пункт здесь ловит
-// молчаливую поломку сборки, а не стилистику (docs/ai/02-packaging.md):
+// молчаливую поломку сборки, а не стилистику (docs/en/packaging.md):
 // без preserveEntrySignatures default-экспорт плагина вытряхивает
 // tree-shaking, а build.lib всегда инлайнит ассеты.
 const REQUIRED = [
