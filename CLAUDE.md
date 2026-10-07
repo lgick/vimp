@@ -2,86 +2,141 @@
 
 ## Overview
 
-VIMP — a P2P multiplayer engine: the authoritative match runs in a Web Worker
-in the room creator's tab, PixiJS clients connect over WebRTC, a Node.js
-master serves lobby, signaling and catalogs. Game rules live in runtime-loaded
-plugins (`@vimp-games/tanks`, repo `vimp-tanks`); never import game code by path.
+VIMP — a P2P multiplayer engine: the authoritative match runs in a Web
+Worker in the room creator's tab, PixiJS clients connect over WebRTC, a
+Node.js master serves lobby, signaling and catalogs. Game rules live in
+runtime-loaded plugin packages (`@vimp-games/tanks`, repo `vimp-tanks`) —
+this repo never imports game code by path.
 
 ## Documentation
 
-`docs/en/` is canonical, `docs/ru/` mirrors it 1:1: any functional change
-updates both matching pages in the same change. Area → page (under
-`packages/engine/`): `src/config/*`, env → configuration · `src/master/` →
-master · `packages/auth/` → auth · `src/host/` → host · `core/` → core ·
-`src/client/` → client · `src/standalone/` → standalone · `src/dedicated/` →
-dedicated · ports, frames, opcodes → network · plugin contract, Wasm ABI →
-plugin-api · `src/devtools/`, `bin/vimp-*.js` → debugging · contract rules,
-silent contracts → pitfalls · `packages/create-vimp-game/` → scaffolding ·
-layout, build, `dist/` → packaging · maps, images, sound → maps-and-assets ·
-deploy, workflows, npm scripts → deployment, getting-started · release,
-`files`, versions → publishing. Full table: `docs/en/README.md`. `docs/ai/` is
-an English-only LLM meta-layer; gameplay docs live in the plugin's repo.
+`docs/en/` is canonical, `docs/ru/` mirrors it exactly (ToC in each
+`README.md`). **Rule**: any functional change updates both matching pages in
+the same change. Area → page (paths under `packages/engine/`):
 
-## Changelogs and releases
+| Change                                              | Page                                  |
+| --------------------------------------------------- | ------------------------------------- |
+| ports, frame format, opcodes                        | `network.md`                          |
+| `src/config/*`, env vars                            | `configuration.md`                    |
+| `src/master/`                                       | `master.md`                           |
+| `packages/auth/`                                    | `auth.md`                             |
+| `src/host/` (Worker, adapter, meta)                 | `host.md`                             |
+| crate `core/`                                       | `core.md`                             |
+| `src/client/`, ClientCore                           | `client.md`                           |
+| `src/standalone/` (browser SDK)                     | `standalone.md`                       |
+| `src/dedicated/` (Node game server)                 | `dedicated.md`                        |
+| plugin contract, Wasm ABI                           | `plugin-api.md`                       |
+| `src/devtools/`, `bin/vimp-*.js`                    | `debugging.md`                        |
+| `packages/create-vimp-game/` (scaffolder, template) | `scaffolding.md`                      |
+| package layout, build, `dist/`, manifest generation | `packaging.md`                        |
+| map JSON, images, sound pipeline                    | `maps-and-assets.md`                  |
+| `src/devtools/contract/rules/`, silent contracts    | `pitfalls.md`                         |
+| deploy scripts, workflows, npm scripts              | `deployment.md`, `getting-started.md` |
+| release flow, `files`, versions, plugin pin         | `publishing.md`                       |
 
-Three English Keep a Changelog journals, updated unasked with the code:
-`packages/engine/CHANGELOG.md`, `packages/engine/core/CHANGELOG.md`,
-`packages/create-vimp-game/CHANGELOG.md`. Work goes under `## [Unreleased]`; a
-released section is history (a refinement is a new entry). Tests, refactors
-and `docs/` are not entries. The sub-heading sets the release level:
-`### ⚠️ Breaking` + `### Migration` (minor in `0.x`) · `Added` (minor) ·
-`Changed`/`Deprecated`/`Removed`/`Fixed`/`Security` (patch); the list is
-closed. Anything that can reject a plugin or config which loaded before is
-Breaking (`docs/en/publishing.md`).
+`docs/ai/` is an English-only LLM meta-layer (reading order, workflow,
+questionnaire), no contract text — contract changes go to `docs/en` + `docs/ru`.
+Gameplay docs live in the
+plugin's own repo; root `README.md` is a showcase.
 
-**`ENGINE_API_VERSION` is frozen at 4, never bumped.** A new capability goes
-into `src/lib/capabilities.js`; a game that needs it names it in
-`GameManifest.requires`. Breaking in the plugin contract only for a security
-fix, and then the same commit deletes the line from `contract/surface.json`
-(any deletion from it: stop and discuss).
+## Changelogs
 
-Published code: crate `core/` and the `files` of `packages/engine` and
-`packages/create-vimp-game`. A change touching it must be flagged in the
-report, unasked: artifact, bump (from the `[Unreleased]` sub-heading), whether
-the game repo must follow, pre-publish checks run. Never edit a `version`,
-never publish — the developer runs `npm run release`.
+Three journals (English, Keep a Changelog), updated unasked in the same
+change as the code: `packages/engine/CHANGELOG.md` (npm `vimp-engine`),
+`packages/engine/core/CHANGELOG.md` (crate `vimp-engine-core`),
+`packages/create-vimp-game/CHANGELOG.md` (npm `create-vimp-game`: CLI,
+generator, template). Unreleased work under `## [Unreleased]`, dated at
+release. Tests, refactors and `docs/` are not entries. A released section
+(`## [X.Y.Z]`) is history: a refinement of an entry that already shipped is
+a new entry under `## [Unreleased]`, never an edit of the old one.
+
+**The sub-heading sets the release level** — the only place it is recorded,
+so pick it deliberately: `### ⚠️ Breaking` (minor in `0.x`, major from `1.0`)
+· `### Added` (minor) · `Changed`/`Deprecated`/`Removed`/`Fixed`/`Security`
+(patch) · `### Migration` (companion of `⚠️ Breaking`, never alone). The list
+is closed; `npm run release` stops on anything else. Anything that can reject
+a plugin or config which loaded before is `⚠️ Breaking` + `Migration`; a new
+public export is `Added`, not `Changed`. Details: `docs/en/publishing.md` →
+"Changelog headings set the version".
+
+**`ENGINE_API_VERSION` is frozen at 4, never bumped.** A new engine
+capability goes into `src/lib/capabilities.js`; a game that cannot run
+without it names it in `GameManifest.requires`. `⚠️ Breaking` in the plugin
+contract is legitimate only when the engine _must_ reject input it accepted
+before (a security fix), and then the same commit deletes the line from
+`contract/surface.json`.
+
+## Release impact
+
+Published code: `packages/engine/core/` (crate), the `files` paths of
+`packages/engine/package.json` (npm) and those of
+`packages/create-vimp-game/package.json` (npm). A change touching any of
+them **must be flagged when reporting the work**, unasked: which artifact,
+which bump (read it off the `[Unreleased]` sub-heading), whether the game
+repo must follow (a crate bump lets it follow, never forces it), and which
+pre-publish checks ran. A deletion from
+`packages/engine/contract/surface.json` is always a reason to stop and
+discuss. Never edit a `version`, never publish — the developer does both,
+`npm run release` drives it: it bumps/commits/tags/pushes the tag, and the
+tag push triggers `.github/workflows/release.yml`, which publishes via OIDC
+Trusted Publishing (no npm/cargo login, no token). Details:
+`docs/en/publishing.md`.
 
 ## Commands
 
 ```bash
-npm run dev / npm start      # master (dev needs mkcert certs)
-npx prettier --write <file>  # format modified files
-npx eslint . && npm test     # lint + Vitest
+npm run dev / npm start      # master (dev needs mkcert certs, see getting-started)
+npm run build:app            # Vite bundle (engine app only)
+npx prettier --write <file>  # format modified JS/TS/MD files
+npx eslint . && npm test     # lint + Vitest (see Testing)
 npm run core:test            # cargo test --workspace
-npm run sim                  # headless match
+npm run sim / sim:check / sim:replay <file>   # headless match, verdict, replay
 node packages/engine/bin/vimp-contract.js --game <dir>   # contract check
-npm run create:game <dir> / test:scaffold                # scaffold, its E2E
+npm run create:game <dir> / test:scaffold    # scaffold a game, its E2E
+npm run dedicated            # Node game server (needs VIMP_DEDICATED_GAME)
+npm run dev:auth / start:auth / auth:db:migrate
 ```
 
-A local match needs a plugin package linked into `node_modules`.
+A local match also needs a plugin package installed or linked into
+`node_modules`.
 
 ## Architecture
 
-Layout: `docs/en/architecture.md`. Not caught by tooling: `host/meta/` stays
-Worker-safe (no Node globals), `src/devtools/` never reaches the app bundle,
-plugins load only via `GameManifest`/`GameCatalog`.
+Under `packages/engine/`: `src/master/` (`main.js` forks on
+`VIMP_DEDICATED_GAME` into `lobby.js` — rooms, catalogs, signaling, no game
+logic — or `src/dedicated/`, one match in the Node process) · `src/host/`
+(the match in a Worker) · `core/` (the Rust crate) · `src/client/` (WebRTC
+transport, MVC triplets) · `src/devtools/` + `bin/vimp-sim.js` (headless
+runner). `packages/auth/` is a separate workspace package with its own deploy
+artifact. Boundaries nothing will catch for you: `host/meta/` stays
+Worker-safe (isomorphic APIs only, no Node globals), `src/devtools/` never
+reaches the app bundle, plugins load only via `GameManifest`/`GameCatalog`
+(ESLint enforces the last). Layout: `docs/en/architecture.md`.
 
 ## Conventions
 
 - ESM; `camelCase` / `PascalCase` / `UPPER_SNAKE_CASE`; no two consecutive
-  capitals in camelCase (exceptions `VX`, `VY`, `RTT`)
+  capitals in camelCase (ESLint; exceptions `VX`, `VY`, `RTT`)
 - `===`, `let`/`const`, braces on every block; imports: Node built-ins → npm
   → internal → relative
-- Comments explain _why_, briefly; a new module follows the closest pattern
+- Comments explain _why_, briefly; a new module follows the closest existing
+  pattern
 - `_`-prefixed files are scratch, never committed — don't read or touch them
+  unless told
 
 ## Testing
 
-Any functional change adds or updates tests in `tests/` (mirrors
-`packages/engine/src/`, `tests/auth/` for auth; never colocated); a fix starts
-with a test reproducing the bug. Prettier, `npx eslint .` and `npm test` end
-every change green; run `npm run core:test` after core-movement changes.
+**Rule**: any functional change adds or updates the tests covering it in the
+same change (a fix starts with a test reproducing the bug); `npx prettier --write <modified-files>`, `npx eslint .` and `npm test` end every change green.
+
+Vitest (+ happy-dom); tests live in `tests/`, mirroring `packages/engine/src/`
+(plus `tests/auth/` for `packages/auth/src/`, its own vitest project), never
+colocated. Rust: per-module units plus the
+`client::predictor::parity` suite — run `npm run core:test` after any
+core-movement change. Plugin tests live in the game's repo.
 
 ## Deployment
 
-A push to `main` deploys to production (no staging): `docs/en/deployment.md`.
+A push to `main` deploys the master, and the auth service if
+`AUTH_SERVER_IP` is set (`.github/`, production, no staging). Details:
+`docs/en/deployment.md`.
